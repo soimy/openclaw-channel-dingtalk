@@ -1,6 +1,6 @@
 /**
  * DingTalk Channel Plugin for Clawdbot
- * 
+ *
  * 使用钉钉 Stream 模式连接，完整接入 Clawdbot 消息处理管道
  */
 
@@ -71,25 +71,30 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
       });
 
       accessToken = response.data.accessToken;
-      accessTokenExpiry = now + (response.data.expireIn * 1000);
+      accessTokenExpiry = now + response.data.expireIn * 1000;
       return accessToken;
     },
-    { maxRetries: 3, log },
+    { maxRetries: 3, log }
   );
 }
 
 // Send proactive message via DingTalk OpenAPI
-async function sendProactiveMessage(config: DingTalkConfig, target: string, text: string, log?: Logger): Promise<AxiosResponse> {
+async function sendProactiveMessage(
+  config: DingTalkConfig,
+  target: string,
+  text: string,
+  log?: Logger
+): Promise<AxiosResponse> {
   const token = await getAccessToken(config, log);
   const isGroup = target.startsWith('cid');
-  
-  const url = isGroup 
+
+  const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
     : 'https://api.dingtalk.com/v1.0/robot/oToMessages/send';
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
-    msgKey: 'sampleMarkdown', 
+    msgKey: 'sampleMarkdown',
     msgParam: JSON.stringify({
       title: 'Clawdbot 提醒',
       text,
@@ -138,12 +143,12 @@ async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?:
 
 function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   const msgtype = data.msgtype || 'text';
-  
+
   // Logic for different message types
   if (msgtype === 'text') {
     return { text: data.text?.content?.trim() || '', messageType: 'text' };
   }
-  
+
   // Improved richText parsing: join all text/at components
   if (msgtype === 'richText') {
     const richTextParts = data.content?.richText || [];
@@ -154,36 +159,57 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
     }
     return { text: text.trim() || '[富文本消息]', messageType: 'richText' };
   }
-  
+
   if (msgtype === 'picture') {
     return { text: '[图片]', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
   }
-  
+
   if (msgtype === 'audio') {
-    return { text: data.content?.recognition || '[语音消息]', mediaPath: data.content?.downloadCode, mediaType: 'audio', messageType: 'audio' };
+    return {
+      text: data.content?.recognition || '[语音消息]',
+      mediaPath: data.content?.downloadCode,
+      mediaType: 'audio',
+      messageType: 'audio',
+    };
   }
-  
+
   if (msgtype === 'video') {
     return { text: '[视频]', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
   }
-  
+
   if (msgtype === 'file') {
-    return { text: `[文件: ${data.content?.fileName || '文件'}]`, mediaPath: data.content?.downloadCode, mediaType: 'file', messageType: 'file' };
+    return {
+      text: `[文件: ${data.content?.fileName || '文件'}]`,
+      mediaPath: data.content?.downloadCode,
+      mediaType: 'file',
+      messageType: 'file',
+    };
   }
-  
+
   // Fallback
   return { text: data.text?.content?.trim() || `[${msgtype}消息]`, messageType: msgtype };
 }
 
 // Send message via sessionWebhook
-async function sendBySession(config: DingTalkConfig, sessionWebhook: string, text: string, options: SendMessageOptions = {}): Promise<AxiosResponse> {
+async function sendBySession(
+  config: DingTalkConfig,
+  sessionWebhook: string,
+  text: string,
+  options: SendMessageOptions = {}
+): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
   const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
   const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
 
   let body: SessionWebhookResponse;
   if (useMarkdown) {
-    const title = options.title || text.split('\n')[0].replace(/^[#*\s\->]+/, '').slice(0, 20) || 'Clawdbot 消息';
+    const title =
+      options.title ||
+      text
+        .split('\n')[0]
+        .replace(/^[#*\s\->]+/, '')
+        .slice(0, 20) ||
+      'Clawdbot 消息';
     let finalText = text;
     if (options.atUserId) finalText = `${finalText} @${options.atUserId}`;
     body = { msgtype: 'markdown', markdown: { title, text: finalText } };
@@ -206,7 +232,7 @@ async function sendBySession(config: DingTalkConfig, sessionWebhook: string, tex
 async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
   const rt = getRuntime();
-  
+
   log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
 
   // 1. 过滤机器人自身消息
@@ -217,13 +243,13 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   const content = extractMessageContent(data);
   if (!content.text) return;
-  
+
   const isDirect = data.conversationType === '1';
   const senderId = data.senderStaffId || data.senderId;
   const senderName = data.senderNick || 'Unknown';
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
-  
+
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && (dingtalkConfig.robotCode || dingtalkConfig.clientId)) {
@@ -235,7 +261,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   }
 
   const route = rt.channel!.routing.resolveAgentRoute({
-    cfg, channel: 'dingtalk', accountId,
+    cfg,
+    channel: 'dingtalk',
+    accountId,
     peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },
   });
 
@@ -245,23 +273,46 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
   const body = rt.channel!.reply.formatInboundEnvelope({
-    channel: 'DingTalk', from: fromLabel, timestamp: data.createAt, body: content.text,
-    chatType: isDirect ? 'direct' : 'group', sender: { name: senderName, id: senderId },
-    previousTimestamp, envelope: envelopeOptions,
+    channel: 'DingTalk',
+    from: fromLabel,
+    timestamp: data.createAt,
+    body: content.text,
+    chatType: isDirect ? 'direct' : 'group',
+    sender: { name: senderName, id: senderId },
+    previousTimestamp,
+    envelope: envelopeOptions,
   });
 
   const to = isDirect ? senderId : groupId;
   const ctx = rt.channel!.reply.finalizeInboundContext({
-    Body: body, RawBody: content.text, CommandBody: content.text, From: to, To: to,
-    SessionKey: route.sessionKey, AccountId: accountId, ChatType: isDirect ? 'direct' : 'group',
-    ConversationLabel: fromLabel, GroupSubject: isDirect ? undefined : groupName,
-    SenderName: senderName, SenderId: senderId, Provider: 'dingtalk', Surface: 'dingtalk',
-    MessageSid: data.msgId, Timestamp: data.createAt, MediaPath: mediaPath, MediaType: mediaType,
-    MediaUrl: mediaPath, CommandAuthorized: true, OriginatingChannel: 'dingtalk', OriginatingTo: to,
+    Body: body,
+    RawBody: content.text,
+    CommandBody: content.text,
+    From: to,
+    To: to,
+    SessionKey: route.sessionKey,
+    AccountId: accountId,
+    ChatType: isDirect ? 'direct' : 'group',
+    ConversationLabel: fromLabel,
+    GroupSubject: isDirect ? undefined : groupName,
+    SenderName: senderName,
+    SenderId: senderId,
+    Provider: 'dingtalk',
+    Surface: 'dingtalk',
+    MessageSid: data.msgId,
+    Timestamp: data.createAt,
+    MediaPath: mediaPath,
+    MediaType: mediaType,
+    MediaUrl: mediaPath,
+    CommandAuthorized: true,
+    OriginatingChannel: 'dingtalk',
+    OriginatingTo: to,
   });
 
   await rt.channel!.session.recordInboundSession({
-    storePath, sessionKey: ctx.SessionKey || route.sessionKey, ctx,
+    storePath,
+    sessionKey: ctx.SessionKey || route.sessionKey,
+    ctx,
     updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
   });
 
@@ -301,12 +352,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     await rt.channel!.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
   } finally {
     markDispatchIdle();
-    if (mediaPath && fs.existsSync(mediaPath)) { 
-      try { 
-        fs.unlinkSync(mediaPath); 
+    if (mediaPath && fs.existsSync(mediaPath)) {
+      try {
+        fs.unlinkSync(mediaPath);
       } catch (_err) {
         // Ignore cleanup errors
-      } 
+      }
     }
   }
 }
@@ -315,47 +366,63 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 const dingtalkPlugin = {
   id: 'dingtalk',
   meta: {
-    id: 'dingtalk', label: 'DingTalk', selectionLabel: 'DingTalk (钉钉)',
-    docsPath: '/channels/dingtalk', blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
+    id: 'dingtalk',
+    label: 'DingTalk',
+    selectionLabel: 'DingTalk (钉钉)',
+    docsPath: '/channels/dingtalk',
+    blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
     aliases: ['dd', 'ding'],
   },
-  capabilities: { chatTypes: ['direct', 'group'], reactions: false, threads: false, media: true, nativeCommands: false, blockStreaming: false },
+  capabilities: {
+    chatTypes: ['direct', 'group'],
+    reactions: false,
+    threads: false,
+    media: true,
+    nativeCommands: false,
+    blockStreaming: false,
+  },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
     listAccountIds: (cfg: ClawdbotConfig): string[] => {
       const config = getConfig(cfg);
-      return config.accounts ? Object.keys(config.accounts) : (isConfigured(cfg) ? ['default'] : []);
+      return config.accounts ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
     },
     resolveAccount: (cfg: ClawdbotConfig, accountId?: string) => {
       const config = getConfig(cfg);
       const id = accountId || 'default';
       const account = config.accounts?.[id];
-      return account ? { accountId: id, config: account, enabled: account.enabled !== false }
-                    : { accountId: 'default', config, enabled: config.enabled !== false };
+      return account
+        ? { accountId: id, config: account, enabled: account.enabled !== false }
+        : { accountId: 'default', config, enabled: config.enabled !== false };
     },
     defaultAccountId: (): string => 'default',
     isConfigured: (account: any): boolean => Boolean(account.config?.clientId && account.config?.clientSecret),
-    describeAccount: (account: any) => ({ accountId: account.accountId, name: account.config?.name || 'DingTalk', enabled: account.enabled, configured: Boolean(account.config?.clientId) }),
-  },
-  security: {
-    resolveDmPolicy: ({ account }: any) => ({ 
-      policy: account.config?.dmPolicy || 'open', 
-      allowFrom: account.config?.allowFrom || [], 
-      policyPath: 'channels.dingtalk.dmPolicy', 
-      allowFromPath: 'channels.dingtalk.allowFrom', 
-      approveHint: '使用 /allow dingtalk:<userId> 批准用户', 
-      normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, '') 
+    describeAccount: (account: any) => ({
+      accountId: account.accountId,
+      name: account.config?.name || 'DingTalk',
+      enabled: account.enabled,
+      configured: Boolean(account.config?.clientId),
     }),
   },
-  groups: { 
-    resolveRequireMention: ({ cfg }: any): boolean => getConfig(cfg).groupPolicy !== 'open' 
+  security: {
+    resolveDmPolicy: ({ account }: any) => ({
+      policy: account.config?.dmPolicy || 'open',
+      allowFrom: account.config?.allowFrom || [],
+      policyPath: 'channels.dingtalk.dmPolicy',
+      allowFromPath: 'channels.dingtalk.allowFrom',
+      approveHint: '使用 /allow dingtalk:<userId> 批准用户',
+      normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ''),
+    }),
   },
-  messaging: { 
-    normalizeTarget: ({ target }: any) => target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null, 
-    targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' } 
+  groups: {
+    resolveRequireMention: ({ cfg }: any): boolean => getConfig(cfg).groupPolicy !== 'open',
   },
-  outbound: { 
-    deliveryMode: 'direct', 
+  messaging: {
+    normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
+    targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
+  },
+  outbound: {
+    deliveryMode: 'direct',
     sendText: async ({ cfg, to, text, _accountId }: any) => {
       const config = getConfig(cfg);
       try {
@@ -364,7 +431,20 @@ const dingtalkPlugin = {
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
-    } 
+    },
+    sendMedia: async ({ cfg, to, mediaPath, _accountId }: any) => {
+      const config = getConfig(cfg);
+      if (!config.clientId) {
+        return { ok: false, error: 'DingTalk not configured' };
+      }
+      try {
+        const mediaDescription = `[媒体消息: ${mediaPath}]`;
+        const result = await sendProactiveMessage(config, to, mediaDescription);
+        return { ok: true, data: result };
+      } catch (err: any) {
+        return { ok: false, error: err.response?.data || err.message };
+      }
+    },
   },
   gateway: {
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
@@ -374,11 +454,15 @@ const dingtalkPlugin = {
       if (ctx.log?.info) {
         ctx.log.info(`[${account.accountId}] Starting DingTalk Stream client...`);
       }
-      
+
       cleanupOrphanedTempFiles(ctx.log);
-      
-      const client = new DWClient({ clientId: config.clientId, clientSecret: config.clientSecret, debug: config.debug || false });
-      
+
+      const client = new DWClient({
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+        debug: config.debug || false,
+      });
+
       client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
         const messageId = res.headers?.messageId;
         try {
@@ -386,14 +470,21 @@ const dingtalkPlugin = {
             client.socketCallBackResponse(messageId, { success: true });
           }
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
-          await handleDingTalkMessage({ cfg, accountId: account.accountId, data, sessionWebhook: data.sessionWebhook, log: ctx.log, dingtalkConfig: config });
+          await handleDingTalkMessage({
+            cfg,
+            accountId: account.accountId,
+            data,
+            sessionWebhook: data.sessionWebhook,
+            log: ctx.log,
+            dingtalkConfig: config,
+          });
         } catch (error: any) {
           if (ctx.log?.error) {
             ctx.log.error(`[DingTalk] Error processing message: ${error.message}`);
           }
         }
       });
-      
+
       await client.connect();
       if (ctx.log?.info) {
         ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
@@ -401,41 +492,47 @@ const dingtalkPlugin = {
       const rt = getRuntime();
       rt.channel!.activity.record('dingtalk', account.accountId, 'start');
       let stopped = false;
-      if (abortSignal) { 
-        abortSignal.addEventListener('abort', () => { 
-          if (stopped) return; 
-          stopped = true; 
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => {
+          if (stopped) return;
+          stopped = true;
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] Stopping DingTalk Stream client...`);
           }
-          rt.channel!.activity.record('dingtalk', account.accountId, 'stop'); 
-        }); 
+          rt.channel!.activity.record('dingtalk', account.accountId, 'stop');
+        });
       }
-      return { 
-        stop: () => { 
-          if (stopped) return; 
-          stopped = true; 
+      return {
+        stop: () => {
+          if (stopped) return;
+          stopped = true;
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
           }
-          rt.channel!.activity.record('dingtalk', account.accountId, 'stop'); 
-        } 
+          rt.channel!.activity.record('dingtalk', account.accountId, 'stop');
+        },
       };
     },
   },
   status: {
     defaultRuntime: { accountId: 'default', running: false, lastStartAt: null, lastStopAt: null, lastError: null },
-    probe: async ({ cfg }: any) => { 
-      if (!isConfigured(cfg)) return { ok: false, error: 'Not configured' }; 
-      try { 
-        const config = getConfig(cfg); 
-        await getAccessToken(config); 
-        return { ok: true, details: { clientId: config.clientId } }; 
-      } catch (error: any) { 
-        return { ok: false, error: error.message }; 
-      } 
+    probe: async ({ cfg }: any) => {
+      if (!isConfigured(cfg)) return { ok: false, error: 'Not configured' };
+      try {
+        const config = getConfig(cfg);
+        await getAccessToken(config);
+        return { ok: true, details: { clientId: config.clientId } };
+      } catch (error: any) {
+        return { ok: false, error: error.message };
+      }
     },
-    buildChannelSummary: ({ snapshot }: any) => ({ configured: snapshot?.configured ?? false, running: snapshot?.running ?? false, lastStartAt: snapshot?.lastStartAt ?? null, lastStopAt: snapshot?.lastStopAt ?? null, lastError: snapshot?.lastError ?? null }),
+    buildChannelSummary: ({ snapshot }: any) => ({
+      configured: snapshot?.configured ?? false,
+      running: snapshot?.running ?? false,
+      lastStartAt: snapshot?.lastStartAt ?? null,
+      lastStopAt: snapshot?.lastStopAt ?? null,
+      lastError: snapshot?.lastError ?? null,
+    }),
   },
 };
 
@@ -443,17 +540,21 @@ const plugin = {
   id: 'dingtalk',
   name: 'DingTalk Channel',
   description: 'DingTalk (钉钉) messaging channel via Stream mode',
-  configSchema: { type: 'object', additionalProperties: true, properties: { enabled: { type: 'boolean', default: true } } },
+  configSchema: {
+    type: 'object',
+    additionalProperties: true,
+    properties: { enabled: { type: 'boolean', default: true } },
+  },
   register(api: ClawdbotPluginApi): void {
     runtime = api.runtime;
     api.registerChannel({ plugin: dingtalkPlugin });
-    api.registerGatewayMethod('dingtalk.status', async ({ respond, cfg }: any) => { 
-      const result = await dingtalkPlugin.status.probe({ cfg }); 
-      respond(true, result); 
+    api.registerGatewayMethod('dingtalk.status', async ({ respond, cfg }: any) => {
+      const result = await dingtalkPlugin.status.probe({ cfg });
+      respond(true, result);
     });
-    api.registerGatewayMethod('dingtalk.probe', async ({ respond, cfg }: any) => { 
-      const result = await dingtalkPlugin.status.probe({ cfg }); 
-      respond(result.ok, result); 
+    api.registerGatewayMethod('dingtalk.probe', async ({ respond, cfg }: any) => {
+      const result = await dingtalkPlugin.status.probe({ cfg });
+      respond(result.ok, result);
     });
     api.logger?.info('[DingTalk] Plugin registered');
   },
