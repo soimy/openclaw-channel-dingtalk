@@ -5,8 +5,14 @@
   "main": "plugin.ts",
   "type": "module",
   "scripts": {
-    "test": "node test.js",
-    "build": "echo 'No build needed - jiti loads TS at runtime'"
+    "test": "vitest run",
+    "test:integration": "node test.js",
+    "test:watch": "vitest",
+    "build": "echo 'No build needed - jiti loads TS at runtime'",
+    "lint": "eslint plugin.ts utils.ts",
+    "lint:fix": "eslint --fix plugin.ts utils.ts && prettier --write plugin.ts utils.ts",
+    "type-check": "tsc --noEmit",
+    "check": "npm run type-check && npm run lint"
   },
   "keywords": ["clawdbot", "dingtalk", "channel", "stream", "bot"],
   "author": "sym",
@@ -14,6 +20,15 @@
   "dependencies": {
     "dingtalk-stream": "^2.1.4",
     "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.0",
+    "vitest": "^0.34.0"
   },
   "clawdbot": {
     "extensions": ["./plugin.ts"],

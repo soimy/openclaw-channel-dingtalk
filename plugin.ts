@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ClawdbotPluginApi, PluginRuntime, ClawdbotConfig } from 'clawdbot/plugin-sdk';
+import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from './utils';
 
 // Plugin ID
 export const id = 'dingtalk';
@@ -39,50 +40,85 @@ function isConfigured(cfg: ClawdbotConfig): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
-// Get Access Token
-async function getAccessToken(config: any): Promise<string> {
+// Get Access Token with retry logic
+async function getAccessToken(config: any, log?: any): Promise<string> {
   const now = Date.now();
   if (accessToken && accessTokenExpiry > now + 60000) {
     return accessToken;
   }
 
-  const response = await axios.post('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
-    appKey: config.clientId,
-    appSecret: config.clientSecret,
-  });
-  
-  accessToken = response.data.accessToken;
-  accessTokenExpiry = now + (response.data.expireIn * 1000);
-  return accessToken!;
+  return retryWithBackoff(
+    async () => {
+      const response = await axios.post('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
+        appKey: config.clientId,
+        appSecret: config.clientSecret,
+      });
+
+      accessToken = response.data.accessToken;
+      accessTokenExpiry = now + (response.data.expireIn * 1000);
+      return accessToken!;
+    },
+    { maxRetries: 3, log },
+  );
 }
 
-// Download media file from DingTalk
-async function downloadMedia(config: any, downloadCode: string): Promise<{ path: string; mimeType: string } | null> {
+// Send proactive message via DingTalk OpenAPI
+async function sendProactiveMessage(config: any, target: string, text: string, log?: any): Promise<any> {
+  const token = await getAccessToken(config, log);
+  const isGroup = target.startsWith('cid');
+  
+  const url = isGroup 
+    ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
+    : 'https://api.dingtalk.com/v1.0/robot/oToMessages/send';
+
+  const payload: any = {
+    robotCode: config.robotCode || config.clientId,
+    msgKey: 'sampleMarkdown', 
+    msgParam: JSON.stringify({
+      title: 'Clawdbot 提醒',
+      text: text
+    })
+  };
+
+  if (isGroup) {
+    payload.openConversationId = target;
+  } else {
+    payload.userId = target;
+  }
+
+  const result = await axios({
+    url,
+    method: 'POST',
+    data: payload,
+    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+  });
+  return result.data;
+}
+
+// Download media file
+async function downloadMedia(config: any, downloadCode: string, log?: any): Promise<{ path: string; mimeType: string } | null> {
   try {
-    const token = await getAccessToken(config);
+    const token = await getAccessToken(config, log);
     const response = await axios.post(
       'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
-      { downloadCode, robotCode: config.robotCode },
+      { downloadCode, robotCode: config.robotCode || config.clientId },
       { headers: { 'x-acs-dingtalk-access-token': token } }
     );
-    
     const downloadUrl = response.data?.downloadUrl;
     if (!downloadUrl) return null;
-    
     const mediaResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
     const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
     const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
     const tempPath = path.join(os.tmpdir(), `dingtalk_${Date.now()}.${ext}`);
     fs.writeFileSync(tempPath, Buffer.from(mediaResponse.data));
-    
     return { path: tempPath, mimeType: contentType };
   } catch (err: any) {
-    console.error('[DingTalk] Failed to download media:', err.message);
+    log?.error?.('[DingTalk] Failed to download media:', err.message);
     return null;
   }
 }
 
-// Extract message content
+// Extract message content with improved richText support
 interface MessageContent {
   text: string;
   mediaPath?: string;
@@ -92,67 +128,68 @@ interface MessageContent {
 
 function extractMessageContent(data: any): MessageContent {
   const msgtype = data.msgtype || 'text';
-  switch (msgtype) {
-    case 'text': return { text: data.text?.content?.trim() || '', messageType: 'text' };
-    case 'richText':
-      const parts = data.content?.richText || [];
-      const textParts = parts.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-      return { text: textParts || '[富文本消息]', messageType: 'richText' };
-    case 'picture': return { text: '[图片]', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
-    case 'audio': return { text: data.content?.recognition || '[语音消息]', mediaPath: data.content?.downloadCode, mediaType: 'audio', messageType: 'audio' };
-    case 'video': return { text: '[视频]', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
-    case 'file': return { text: `[文件: ${data.content?.fileName || '文件'}]`, mediaPath: data.content?.downloadCode, mediaType: 'file', messageType: 'file' };
-    default: return { text: data.text?.content?.trim() || `[${msgtype}消息]`, messageType: msgtype };
-  }
-}
-
-// Send text message
-async function sendTextMessage(config: any, sessionWebhook: string, text: string, options: any = {}): Promise<any> {
-  const token = await getAccessToken(config);
-  const body: any = { msgtype: 'text', text: { content: text } };
-  if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };
-
-  const result = await axios({
-    url: sessionWebhook,
-    method: 'POST',
-    data: body,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-  });
-  return result.data;
-}
-
-// Send markdown message
-async function sendMarkdownMessage(config: any, sessionWebhook: string, title: string, markdown: string, options: any = {}): Promise<any> {
-  const token = await getAccessToken(config);
-  let finalText = markdown;
-  if (options.atUserId) finalText = `${finalText} @${options.atUserId}`;
-
-  const body: any = {
-    msgtype: 'markdown',
-    markdown: { title: title || 'Clawdbot 消息', text: finalText },
-  };
-  if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };
-
-  const result = await axios({
-    url: sessionWebhook,
-    method: 'POST',
-    data: body,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-  });
-  return result.data;
-}
-
-// Smart send
-async function sendMessage(config: any, sessionWebhook: string, text: string, options: any = {}): Promise<any> {
-  const hasMarkdownFeatures = /^[#*>-]|[*_`#\[\]]/.test(text) || text.includes('\n');
-  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdownFeatures);
   
+  // Logic for different message types
+  if (msgtype === 'text') {
+    return { text: data.text?.content?.trim() || '', messageType: 'text' };
+  }
+  
+  // Improved richText parsing: join all text/at components
+  if (msgtype === 'richText') {
+    const richTextParts = data.content?.richText || [];
+    let text = '';
+    for (const part of richTextParts) {
+      if (part.type === 'text' && part.text) text += part.text;
+      if (part.type === 'at' && part.atName) text += `@${part.atName} `;
+    }
+    return { text: text.trim() || '[富文本消息]', messageType: 'richText' };
+  }
+  
+  if (msgtype === 'picture') {
+    return { text: '[图片]', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
+  }
+  
+  if (msgtype === 'audio') {
+    return { text: data.content?.recognition || '[语音消息]', mediaPath: data.content?.downloadCode, mediaType: 'audio', messageType: 'audio' };
+  }
+  
+  if (msgtype === 'video') {
+    return { text: '[视频]', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
+  }
+  
+  if (msgtype === 'file') {
+    return { text: `[文件: ${data.content?.fileName || '文件'}]`, mediaPath: data.content?.downloadCode, mediaType: 'file', messageType: 'file' };
+  }
+  
+  // Fallback
+  return { text: data.text?.content?.trim() || `[${msgtype}消息]`, messageType: msgtype };
+}
+
+// Send message via sessionWebhook
+async function sendBySession(config: any, sessionWebhook: string, text: string, options: any = {}): Promise<any> {
+  const token = await getAccessToken(config, options.log);
+  const hasMarkdown = /^[#*>-]|[*_`#\[\]]/.test(text) || text.includes('\n');
+  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+
+  let body: any;
   if (useMarkdown) {
     const title = options.title || text.split('\n')[0].replace(/^[#*\s\->]+/, '').slice(0, 20) || 'Clawdbot 消息';
-    return sendMarkdownMessage(config, sessionWebhook, title, text, options);
+    let finalText = text;
+    if (options.atUserId) finalText = `${finalText} @${options.atUserId}`;
+    body = { msgtype: 'markdown', markdown: { title, text: finalText } };
+  } else {
+    body = { msgtype: 'text', text: { content: text } };
   }
-  
-  return sendTextMessage(config, sessionWebhook, text, options);
+
+  if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };
+
+  const result = await axios({
+    url: sessionWebhook,
+    method: 'POST',
+    data: body,
+    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+  });
+  return result.data;
 }
 
 // Message handler
@@ -167,6 +204,14 @@ async function handleDingTalkMessage(params: {
   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
   const rt = getRuntime();
   
+  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+
+  // 1. 过滤机器人自身消息
+  if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
+    log?.debug?.('[DingTalk] Ignoring robot self-message');
+    return;
+  }
+
   const content = extractMessageContent(data);
   if (!content.text) return;
   
@@ -176,11 +221,11 @@ async function handleDingTalkMessage(params: {
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
   
-  let mediaPath: string | undefined;
-  let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath);
-    if (media) {
+   let mediaPath: string | undefined;
+   let mediaType: string | undefined;
+   if (content.mediaPath && (dingtalkConfig.robotCode || dingtalkConfig.clientId)) {
+     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
+     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
     }
@@ -202,7 +247,7 @@ async function handleDingTalkMessage(params: {
     previousTimestamp, envelope: envelopeOptions,
   });
 
-  const to = isDirect ? `dingtalk:${senderId}` : `dingtalk:group:${groupId}`;
+  const to = isDirect ? senderId : groupId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body, RawBody: content.text, CommandBody: content.text, From: to, To: to,
     SessionKey: route.sessionKey, AccountId: accountId, ChatType: isDirect ? 'direct' : 'group',
@@ -214,19 +259,20 @@ async function handleDingTalkMessage(params: {
 
   await rt.channel.session.recordInboundSession({
     storePath, sessionKey: ctx.SessionKey || route.sessionKey, ctx,
-    updateLastRoute: isDirect ? { sessionKey: route.mainSessionKey, channel: 'dingtalk', to: senderId, accountId } : undefined,
+    updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
-  // --- Feedback Logic (Back to standard text for now) ---
+  // Feedback: Thinking...
   if (dingtalkConfig.showThinking !== false) {
     try {
-      await sendTextMessage(dingtalkConfig, sessionWebhook, '🤔 正在思考...', {
+      await sendBySession(dingtalkConfig, sessionWebhook, '> 🤔 **正在思考中，请稍候...**', {
         atUserId: !isDirect ? senderId : null,
+        log,
       });
     } catch (err: any) {
-      log?.debug?.(`[DingTalk] Thinking text failed: ${err.message}`);
+      log?.debug?.(`[DingTalk] Thinking message failed: ${err.message}`);
     }
   }
 
@@ -236,13 +282,10 @@ async function handleDingTalkMessage(params: {
       try {
         const textToSend = payload.markdown || payload.text;
         if (!textToSend) return { ok: true };
-        const isMarkdown = Boolean(payload.markdown) || /^[#*>-]|[*_`#\[\]]/.test(textToSend);
-
-        await sendMessage(dingtalkConfig, sessionWebhook, textToSend, {
+        await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
           atUserId: !isDirect ? senderId : null,
-          useMarkdown: isMarkdown
+          log,
         });
-        
         return { ok: true };
       } catch (err: any) {
         log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
@@ -259,16 +302,14 @@ async function handleDingTalkMessage(params: {
   }
 }
 
-// Plugin Meta & Definition
-const meta = {
-  id: 'dingtalk', label: 'DingTalk', selectionLabel: 'DingTalk (钉钉)',
-  docsPath: '/channels/dingtalk', blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
-  aliases: ['dd', 'ding'],
-};
-
+// DingTalk Channel Definition
 const dingtalkPlugin = {
   id: 'dingtalk',
-  meta,
+  meta: {
+    id: 'dingtalk', label: 'DingTalk', selectionLabel: 'DingTalk (钉钉)',
+    docsPath: '/channels/dingtalk', blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
+    aliases: ['dd', 'ding'],
+  },
   capabilities: { chatTypes: ['direct', 'group'], reactions: false, threads: false, media: true, nativeCommands: false, blockStreaming: false },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
@@ -291,26 +332,42 @@ const dingtalkPlugin = {
   },
   groups: { resolveRequireMention: ({ cfg }: any) => getConfig(cfg).groupPolicy !== 'open' },
   messaging: { normalizeTarget: ({ target }: any) => target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null, targetResolver: { looksLikeId: (id: string) => /^[\w-]+$/.test(id), hint: '<conversationId>' } },
-  outbound: { deliveryMode: 'direct', sendText: async () => ({ ok: false, error: 'DingTalk requires sessionWebhook context' }) },
+  outbound: { 
+    deliveryMode: 'direct', 
+    sendText: async ({ cfg, to, text, accountId }: any) => {
+      const config = getConfig(cfg);
+      try {
+        const result = await sendProactiveMessage(config, to, text);
+        return { ok: true, data: result };
+      } catch (err: any) {
+        return { ok: false, error: err.response?.data || err.message };
+      }
+    } 
+  },
   gateway: {
     startAccount: async (ctx: any) => {
       const { account, cfg, abortSignal } = ctx;
       const config = account.config;
       if (!config.clientId || !config.clientSecret) throw new Error('DingTalk clientId and clientSecret are required');
       ctx.log?.info(`[${account.accountId}] Starting DingTalk Stream client...`);
+      
+      cleanupOrphanedTempFiles(ctx.log);
+      
       const client = new DWClient({ clientId: config.clientId, clientSecret: config.clientSecret, debug: config.debug || false });
+      
       client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
+        const messageId = res.headers?.messageId;
         try {
-          const messageId = res.headers?.messageId;
+          if (messageId) {
+            client.socketCallBackResponse(messageId, { success: true });
+          }
           const data = JSON.parse(res.data);
           await handleDingTalkMessage({ cfg, accountId: account.accountId, data, sessionWebhook: data.sessionWebhook, log: ctx.log, dingtalkConfig: config });
-          if (messageId) client.socketCallBackResponse(messageId, { success: true });
         } catch (error: any) {
           ctx.log?.error?.(`[DingTalk] Error processing message: ${error.message}`);
-          const messageId = res.headers?.messageId;
-          if (messageId) client.socketCallBackResponse(messageId, { success: false });
         }
       });
+      
       await client.connect();
       ctx.log?.info(`[${account.accountId}] DingTalk Stream client connected`);
       const rt = getRuntime();
@@ -342,4 +399,4 @@ const plugin = {
 };
 
 export default plugin;
-export { dingtalkPlugin, sendMessage, sendTextMessage, sendMarkdownMessage };
+export { dingtalkPlugin, sendBySession, sendProactiveMessage, getAccessToken };
