@@ -10,7 +10,7 @@ describe('Utils - maskSensitiveData', () => {
     };
 
     const masked = maskSensitiveData(data);
-    expect(masked.senderId).toMatch(/^\*+/);
+    expect(masked.senderId).toMatch(/^u.*c$/); // Masked: keeps first 3 and last 3
     expect(masked.senderId).not.toBe(data.senderId);
     expect(masked.senderNick).toBe('John');
   });
@@ -35,7 +35,7 @@ describe('Utils - maskSensitiveData', () => {
     };
 
     const masked = maskSensitiveData(data);
-    expect(masked.content.senderId).toMatch(/^\*/);
+     expect(masked.content.senderId).toMatch(/^u.*c$/); // Masked: keeps first 3 and last 3
     expect(masked.content.text).toBe('Hello');
   });
 

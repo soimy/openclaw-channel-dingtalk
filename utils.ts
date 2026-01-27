@@ -16,7 +16,7 @@ export function maskSensitiveData(data: any): any {
   }
 
   const masked = JSON.parse(JSON.stringify(data));
-  const sensitiveFields = ['senderStaffId', 'senderId', 'senderNick', 'userId', 'token', 'accessToken', 'sessionWebhook'];
+  const sensitiveFields = ['senderStaffId', 'senderId', 'userId', 'token', 'accessToken', 'sessionWebhook'];
 
   function maskObj(obj: any): void {
     for (const key in obj) {

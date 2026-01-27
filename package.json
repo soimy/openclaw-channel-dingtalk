@@ -14,26 +14,37 @@
     "type-check": "tsc --noEmit",
     "check": "npm run type-check && npm run lint"
   },
-  "keywords": ["clawdbot", "dingtalk", "channel", "stream", "bot"],
+  "keywords": [
+    "clawdbot",
+    "dingtalk",
+    "channel",
+    "stream",
+    "bot"
+  ],
   "author": "sym",
   "license": "MIT",
   "dependencies": {
-    "dingtalk-stream": "^2.1.4",
     "axios": "^1.6.0",
+    "dingtalk-stream": "^2.1.4",
     "jiti": "^1.21.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "clawdbot": "^2026.1.24-3",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
     "prettier": "^3.0.0",
+    "typescript": "^5.3.0",
     "vitest": "^0.34.0"
   },
   "clawdbot": {
-    "extensions": ["./plugin.ts"],
-    "channels": ["dingtalk"],
+    "extensions": [
+      "./plugin.ts"
+    ],
+    "channels": [
+      "dingtalk"
+    ],
     "installDependencies": true,
     "channel": {
       "id": "dingtalk",
@@ -43,7 +54,10 @@
       "docsLabel": "dingtalk",
       "blurb": "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
       "order": 70,
-      "aliases": ["dd", "ding"]
+      "aliases": [
+        "dd",
+        "ding"
+      ]
     },
     "install": {
       "npmSpec": "@clawdbot/dingtalk",

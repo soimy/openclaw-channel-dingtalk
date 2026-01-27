@@ -231,24 +231,24 @@ async function handleDingTalkMessage(params: {
     }
   }
 
-  const route = rt.channel.routing.resolveAgentRoute({
+  const route = rt.channel!.routing.resolveAgentRoute({
     cfg, channel: 'dingtalk', accountId,
     peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },
   });
 
-  const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
-  const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
+  const storePath = rt.channel!.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
+  const envelopeOptions = rt.channel!.reply.resolveEnvelopeFormatOptions(cfg);
+  const previousTimestamp = rt.channel!.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
 
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
-  const body = rt.channel.reply.formatInboundEnvelope({
+  const body = rt.channel!.reply.formatInboundEnvelope({
     channel: 'DingTalk', from: fromLabel, timestamp: data.createAt, body: content.text,
     chatType: isDirect ? 'direct' : 'group', sender: { name: senderName, id: senderId },
     previousTimestamp, envelope: envelopeOptions,
   });
 
   const to = isDirect ? senderId : groupId;
-  const ctx = rt.channel.reply.finalizeInboundContext({
+  const ctx = rt.channel!.reply.finalizeInboundContext({
     Body: body, RawBody: content.text, CommandBody: content.text, From: to, To: to,
     SessionKey: route.sessionKey, AccountId: accountId, ChatType: isDirect ? 'direct' : 'group',
     ConversationLabel: fromLabel, GroupSubject: isDirect ? undefined : groupName,
@@ -257,7 +257,7 @@ async function handleDingTalkMessage(params: {
     MediaUrl: mediaPath, CommandAuthorized: true, OriginatingChannel: 'dingtalk', OriginatingTo: to,
   });
 
-  await rt.channel.session.recordInboundSession({
+  await rt.channel!.session.recordInboundSession({
     storePath, sessionKey: ctx.SessionKey || route.sessionKey, ctx,
     updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
   });
@@ -276,7 +276,7 @@ async function handleDingTalkMessage(params: {
     }
   }
 
-  const { dispatcher, replyOptions, markDispatchIdle } = rt.channel.reply.createReplyDispatcherWithTyping({
+  const { dispatcher, replyOptions, markDispatchIdle } = rt.channel!.reply.createReplyDispatcherWithTyping({
     responsePrefix: '',
     deliver: async (payload: any) => {
       try {
@@ -295,7 +295,7 @@ async function handleDingTalkMessage(params: {
   });
 
   try {
-    await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
+    await rt.channel!.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
   } finally {
     markDispatchIdle();
     if (mediaPath && fs.existsSync(mediaPath)) { try { fs.unlinkSync(mediaPath); } catch {} }
@@ -334,7 +334,7 @@ const dingtalkPlugin = {
   messaging: { normalizeTarget: ({ target }: any) => target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null, targetResolver: { looksLikeId: (id: string) => /^[\w-]+$/.test(id), hint: '<conversationId>' } },
   outbound: { 
     deliveryMode: 'direct', 
-    sendText: async ({ cfg, to, text, accountId }: any) => {
+    sendText: async ({ cfg, to, text, _accountId }: any) => {
       const config = getConfig(cfg);
       try {
         const result = await sendProactiveMessage(config, to, text);
@@ -371,10 +371,10 @@ const dingtalkPlugin = {
       await client.connect();
       ctx.log?.info(`[${account.accountId}] DingTalk Stream client connected`);
       const rt = getRuntime();
-      rt.channel.activity.record('dingtalk', account.accountId, 'start');
+      rt.channel!.activity.record('dingtalk', account.accountId, 'start');
       let stopped = false;
-      if (abortSignal) { abortSignal.addEventListener('abort', () => { if (stopped) return; stopped = true; ctx.log?.info(`[${account.accountId}] Stopping DingTalk Stream client...`); rt.channel.activity.record('dingtalk', account.accountId, 'stop'); }); }
-      return { stop: () => { if (stopped) return; stopped = true; ctx.log?.info(`[${account.accountId}] DingTalk provider stopped`); rt.channel.activity.record('dingtalk', account.accountId, 'stop'); } };
+      if (abortSignal) { abortSignal.addEventListener('abort', () => { if (stopped) return; stopped = true; ctx.log?.info(`[${account.accountId}] Stopping DingTalk Stream client...`); rt.channel!.activity.record('dingtalk', account.accountId, 'stop'); }); }
+      return { stop: () => { if (stopped) return; stopped = true; ctx.log?.info(`[${account.accountId}] DingTalk provider stopped`); rt.channel!.activity.record('dingtalk', account.accountId, 'stop'); } };
     },
   },
   status: {

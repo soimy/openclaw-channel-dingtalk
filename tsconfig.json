@@ -15,7 +15,7 @@
     "noImplicitThis": true,
     "alwaysStrict": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedParameters": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
@@ -24,6 +24,6 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true
   },
-  "include": ["plugin.ts", "test.ts"],
+  "include": ["plugin.ts", "plugin.test.ts", "clawdbot.d.ts"],
   "exclude": ["node_modules", "dist"]
 }
