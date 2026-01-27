@@ -1,34 +1,32 @@
-/**
- * Security and utility functions for DingTalk plugin
- */
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import type { Logger, RetryOptions } from './src/types';
 
 /**
  * Mask sensitive fields in data for safe logging
  * Prevents PII leakage in debug logs
  */
-export function maskSensitiveData(data: any): any {
-  if (!data || typeof data !== 'object') {
+export function maskSensitiveData(data: unknown): any {
+  if (data === null || data === undefined) {
     return data;
   }
 
-  const masked = JSON.parse(JSON.stringify(data));
+  if (typeof data !== 'object') {
+    return data as string | number;
+  }
+
+  const masked = JSON.parse(JSON.stringify(data)) as Record<string, any>;
   const sensitiveFields = ['senderStaffId', 'senderId', 'userId', 'token', 'accessToken', 'sessionWebhook'];
 
   function maskObj(obj: any): void {
     for (const key in obj) {
       if (sensitiveFields.includes(key)) {
-        if (typeof obj[key] === 'string') {
-          // Keep first and last 3 chars, mask the rest
-          const val = obj[key] as string;
-          if (val.length > 6) {
-            obj[key] = val.slice(0, 3) + '*'.repeat(val.length - 6) + val.slice(-3);
-          } else {
-            obj[key] = '*'.repeat(val.length);
-          }
+        const val = obj[key];
+        if (typeof val === 'string' && val.length > 6) {
+          obj[key] = val.slice(0, 3) + '*'.repeat(val.length - 6) + val.slice(-3);
+        } else if (typeof val === 'string') {
+          obj[key] = '*'.repeat(val.length);
         }
       } else if (typeof obj[key] === 'object' && obj[key] !== null) {
         maskObj(obj[key]);
@@ -44,7 +42,7 @@ export function maskSensitiveData(data: any): any {
  * Cleanup orphaned temp files from dingtalk media
  * Run at startup to clean up files from crashed processes
  */
-export function cleanupOrphanedTempFiles(log?: any): number {
+export function cleanupOrphanedTempFiles(log?: Logger): number {
   const tempDir = os.tmpdir();
   const dingtalkPattern = /^dingtalk_\d+\..+$/;
   let cleaned = 0;
@@ -52,7 +50,7 @@ export function cleanupOrphanedTempFiles(log?: any): number {
   try {
     const files = fs.readdirSync(tempDir);
     const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    const maxAge = 24 * 60 * 60 * 1000;
 
     for (const file of files) {
       if (!dingtalkPattern.test(file)) continue;
@@ -60,7 +58,6 @@ export function cleanupOrphanedTempFiles(log?: any): number {
       const filePath = path.join(tempDir, file);
       try {
         const stats = fs.statSync(filePath);
-        // Delete if older than 24 hours
         if (now - stats.mtime.getTime() > maxAge) {
           fs.unlinkSync(filePath);
           cleaned++;
@@ -87,7 +84,7 @@ export function cleanupOrphanedTempFiles(log?: any): number {
  */
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
-  options: { maxRetries?: number; baseDelayMs?: number; log?: any } = {},
+  options: RetryOptions = {},
 ): Promise<T> {
   const { maxRetries = 3, baseDelayMs = 100, log } = options;
 
@@ -95,7 +92,6 @@ export async function retryWithBackoff<T>(
     try {
       return await fn();
     } catch (err: any) {
-      // Check if error is retryable (401, 429, 5xx)
       const statusCode = err.response?.status;
       const isRetryable = statusCode === 401 || statusCode === 429 || (statusCode && statusCode >= 500);
 
@@ -111,3 +107,4 @@ export async function retryWithBackoff<T>(
 
   throw new Error('Retry exhausted');
 }
+
