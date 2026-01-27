@@ -166,16 +166,104 @@ clawdbot gateway restart
 1. 检查 clientId 和 clientSecret 是否正确
 2. 确认网络可以访问钉钉 API
 
-## 开发
+## 开发指南
+
+### 首次设置
+
+1. 克隆仓库并安装依赖
+```bash
+git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
+cd clawdbot-channel-dingtalk
+npm install
+```
+
+2. 验证开发环境
+```bash
+npm run check              # 运行所有质量检查
+```
+
+### 常用命令
+
+| 命令 | 说明 |
+|------|------|
+| `npm run type-check` | TypeScript 类型检查 |
+| `npm run lint` | ESLint 代码检查 |
+| `npm run lint:fix` | 自动修复格式问题 |
+| `npm test` | 运行单元测试 |
+| `npm run test:watch` | 监听模式运行测试 |
+| `npm run check` | 运行所有检查 (type + lint) |
+
+### 代码质量标准
+
+- **TypeScript**: 严格模式，0 错误
+- **ESLint**: 自动修复，避免 any 类型
+- **Tests**: 修改前后都要运行 `npm test`
+- **Commits**: 有意义的提交信息，参考 CONTRIBUTING.md
+
+### 项目结构
+
+```
+src/
+  types.ts              - 类型定义（30+ interfaces）
+  
+plugin.ts              - 主插件实现（400 行）
+utils.ts              - 工具函数（100 行）
+plugin.test.ts        - 单元测试（12 个测试）
+
+.github/
+  workflows/ci.yml     - GitHub Actions CI/CD
+  
+README.md              - 本文件
+CONTRIBUTING.md        - 贡献指南
+AGENT.md              - 架构设计文档
+```
+
+### 类型系统
+
+所有代码都使用 TypeScript 类型进行完全注解。核心类型定义在 `src/types.ts` 中：
+
+```typescript
+// 配置
+DingTalkConfig          // 插件配置
+DingTalkChannelConfig   // 多账户配置
+
+// 消息处理
+DingTalkInboundMessage  // 收到的钉钉消息
+MessageContent          // 解析后的消息内容
+HandleDingTalkMessageParams  // 消息处理参数
+
+// 网络
+TokenInfo               // 访问令牌缓存
+MediaFile              // 下载的媒体文件
+
+// 日志和工具
+Logger                 // 日志接口
+RetryOptions           // 重试选项
+```
+
+### 测试
+
+所有工具函数都有单元测试：
 
 ```bash
-# 运行测试
-cd ~/clawd/extensions/dingtalk-channel
-node test.js
+npm test                # 运行所有测试 (12 个)
+npm run test:watch     # 监听模式
 
-# 查看日志
-clawdbot logs | grep dingtalk
+# 测试覆盖项：
+# - maskSensitiveData: 5 个测试
+# - retryWithBackoff: 5 个测试  
+# - cleanupOrphanedTempFiles: 2 个测试
 ```
+
+### 故障排除
+
+**类型错误**: 运行 `npm run type-check` 查看详情
+
+**Lint 错误**: 运行 `npm run lint:fix` 自动修复
+
+**测试失败**: 运行 `npm test` 查看失败原因
+
+**所有检查**: `npm run check` 一次运行所有检查
 
 ## 许可
 
