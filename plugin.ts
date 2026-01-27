@@ -44,15 +44,19 @@ function getRuntime(): PluginRuntime {
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
-// Get channel config
-function getConfig(cfg: ClawdbotConfig): DingTalkConfig {
-  const config = (cfg?.channels as Record<string, DingTalkConfig> | undefined)?.dingtalk;
-  return config || ({} as DingTalkConfig);
+function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
+  const dingtalkCfg = (cfg?.channels as Record<string, any> | undefined)?.dingtalk;
+  if (!dingtalkCfg) return {} as DingTalkConfig;
+
+  if (accountId && dingtalkCfg.accounts?.[accountId]) {
+    return dingtalkCfg.accounts[accountId];
+  }
+
+  return dingtalkCfg;
 }
 
-// Check if configured
-function isConfigured(cfg: ClawdbotConfig): boolean {
-  const config = getConfig(cfg);
+function isConfigured(cfg: ClawdbotConfig, accountId?: string): boolean {
+  const config = getConfig(cfg, accountId);
   return Boolean(config.clientId && config.clientSecret);
 }
 
@@ -423,8 +427,8 @@ const dingtalkPlugin = {
   },
   outbound: {
     deliveryMode: 'direct',
-    sendText: async ({ cfg, to, text, _accountId }: any) => {
-      const config = getConfig(cfg);
+    sendText: async ({ cfg, to, text, accountId }: any) => {
+      const config = getConfig(cfg, accountId);
       try {
         const result = await sendProactiveMessage(config, to, text);
         return { ok: true, data: result };
@@ -432,8 +436,8 @@ const dingtalkPlugin = {
         return { ok: false, error: err.response?.data || err.message };
       }
     },
-    sendMedia: async ({ cfg, to, mediaPath, _accountId }: any) => {
-      const config = getConfig(cfg);
+    sendMedia: async ({ cfg, to, mediaPath, accountId }: any) => {
+      const config = getConfig(cfg, accountId);
       if (!config.clientId) {
         return { ok: false, error: 'DingTalk not configured' };
       }
