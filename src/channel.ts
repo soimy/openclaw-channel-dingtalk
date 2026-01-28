@@ -22,6 +22,45 @@ import type {
   GatewayStopResult,
 } from './types';
 
+// DingTalk Channel Configuration Schema
+const dingtalkConfigSchema = {
+  type: 'object',
+  additionalProperties: true,
+  properties: {
+    enabled: { type: 'boolean', default: true, description: 'Enable DingTalk channel' },
+    clientId: { type: 'string', description: 'DingTalk App Key (AppID)' },
+    clientSecret: { type: 'string', description: 'DingTalk App Secret' },
+    robotCode: { type: 'string', description: 'Robot Code for media download' },
+    corpId: { type: 'string', description: 'DingTalk Corporation ID' },
+    agentId: { type: ['string', 'number'], description: 'DingTalk Application ID' },
+    name: { type: 'string', description: 'Account display name' },
+    dmPolicy: {
+      type: 'string',
+      enum: ['open', 'pairing', 'allowlist'],
+      default: 'open',
+      description: 'Direct message policy (open: allow all, pairing: require approval, allowlist: only specific users)',
+    },
+    groupPolicy: {
+      type: 'string',
+      enum: ['open', 'allowlist'],
+      default: 'open',
+      description: 'Group message policy (open: allow all groups, allowlist: only specific groups)',
+    },
+    allowFrom: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'List of allowed user IDs for allowlist policy',
+    },
+    showThinking: { type: 'boolean', default: true, description: 'Show thinking indicator while processing' },
+    debug: { type: 'boolean', default: false, description: 'Enable debug logging' },
+    accounts: {
+      type: 'object',
+      additionalProperties: true,
+      description: 'Multi-account configuration',
+    },
+  },
+};
+
 // Access Token cache
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
@@ -365,6 +404,7 @@ export const dingtalkPlugin = {
     blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
     aliases: ['dd', 'ding'],
   },
+  configSchema: dingtalkConfigSchema,
   capabilities: {
     chatTypes: ['direct', 'group'],
     reactions: false,
@@ -551,4 +591,4 @@ export const dingtalkPlugin = {
  * These exports are intended to be used by external integrations that need
  * direct programmatic access to DingTalk messaging and authentication.
  */
-export { sendBySession, sendProactiveMessage, getAccessToken };
+export { sendBySession, sendProactiveMessage, getAccessToken, dingtalkConfigSchema };

@@ -1,16 +1,12 @@
 import type { ClawdbotPluginApi } from 'clawdbot/plugin-sdk';
-import { dingtalkPlugin } from './src/channel';
+import { dingtalkPlugin, dingtalkConfigSchema } from './src/channel';
 import { setDingTalkRuntime } from './src/runtime';
 
 const plugin = {
   id: 'dingtalk',
   name: 'DingTalk Channel',
   description: 'DingTalk (钉钉) messaging channel via Stream mode',
-  configSchema: {
-    type: 'object',
-    additionalProperties: true,
-    properties: { enabled: { type: 'boolean', default: true } },
-  },
+  configSchema: dingtalkConfigSchema,
   register(api: ClawdbotPluginApi): void {
     setDingTalkRuntime(api.runtime);
     api.registerChannel({ plugin: dingtalkPlugin });

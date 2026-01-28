@@ -82,10 +82,7 @@ export function cleanupOrphanedTempFiles(log?: Logger): number {
  * Retry logic for API calls with exponential backoff
  * Handles transient failures like 401 token expiry
  */
-export async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {},
-): Promise<T> {
+export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const { maxRetries = 3, baseDelayMs = 100, log } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -104,5 +101,6 @@ export async function retryWithBackoff<T>(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-}
 
+  throw new Error('Retry exhausted without returning');
+}
