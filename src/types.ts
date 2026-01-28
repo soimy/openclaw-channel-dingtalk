@@ -178,7 +178,7 @@ export interface ProactiveMessagePayload {
   msgKey: string;
   msgParam: string;
   openConversationId?: string;
-  userId?: string;
+  userIds?: string[];
 }
 
 /**

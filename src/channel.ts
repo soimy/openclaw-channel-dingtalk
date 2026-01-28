@@ -89,7 +89,7 @@ async function sendProactiveMessage(
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
-    : 'https://api.dingtalk.com/v1.0/robot/oToMessages/send';
+    : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
@@ -103,7 +103,7 @@ async function sendProactiveMessage(
   if (isGroup) {
     payload.openConversationId = target;
   } else {
-    payload.userId = target;
+    payload.userIds = [target];
   }
 
   const result = await axios({
@@ -288,7 +288,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect ? `dingtalk:${senderId}` : `dingtalk:group:${groupId}`;
+  const to = isDirect ? senderId : groupId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
