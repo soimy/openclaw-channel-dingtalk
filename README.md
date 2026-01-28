@@ -56,6 +56,7 @@ clawdbot plugins install -l .
 ### 2. 获取凭证
 
 从开发者后台获取：
+
 - **Client ID** (AppKey)
 - **Client Secret** (AppSecret)
 - **Robot Code** (与 Client ID 相同)
@@ -71,16 +72,16 @@ clawdbot plugins install -l .
   channels: {
     dingtalk: {
       enabled: true,
-      clientId: "dingxxxxxx",
-      clientSecret: "your-app-secret",
-      robotCode: "dingxxxxxx",
-      corpId: "dingxxxxxx",
-      agentId: "123456789",
-      dmPolicy: "open",      // open | pairing | allowlist
-      groupPolicy: "open",   // open | allowlist
-      debug: false
-    }
-  }
+      clientId: 'dingxxxxxx',
+      clientSecret: 'your-app-secret',
+      robotCode: 'dingxxxxxx',
+      corpId: 'dingxxxxxx',
+      agentId: '123456789',
+      dmPolicy: 'open', // open | pairing | allowlist
+      groupPolicy: 'open', // open | allowlist
+      debug: false,
+    },
+  },
 }
 ```
 
@@ -92,18 +93,18 @@ clawdbot gateway restart
 
 ## 配置选项
 
-| 选项 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enabled` | boolean | `true` | 是否启用 |
-| `clientId` | string | 必填 | 应用的 AppKey |
-| `clientSecret` | string | 必填 | 应用的 AppSecret |
-| `robotCode` | string | - | 机器人代码（用于下载媒体） |
-| `corpId` | string | - | 企业 ID |
-| `agentId` | string | - | 应用 ID |
-| `dmPolicy` | string | `"open"` | 私聊策略：open/pairing/allowlist |
-| `groupPolicy` | string | `"open"` | 群聊策略：open/allowlist |
-| `allowFrom` | string[] | `[]` | 允许的发送者 ID 列表 |
-| `debug` | boolean | `false` | 是否开启调试日志 |
+| 选项           | 类型     | 默认值   | 说明                             |
+| -------------- | -------- | -------- | -------------------------------- |
+| `enabled`      | boolean  | `true`   | 是否启用                         |
+| `clientId`     | string   | 必填     | 应用的 AppKey                    |
+| `clientSecret` | string   | 必填     | 应用的 AppSecret                 |
+| `robotCode`    | string   | -        | 机器人代码（用于下载媒体）       |
+| `corpId`       | string   | -        | 企业 ID                          |
+| `agentId`      | string   | -        | 应用 ID                          |
+| `dmPolicy`     | string   | `"open"` | 私聊策略：open/pairing/allowlist |
+| `groupPolicy`  | string   | `"open"` | 群聊策略：open/allowlist         |
+| `allowFrom`    | string[] | `[]`     | 允许的发送者 ID 列表             |
+| `debug`        | boolean  | `false`  | 是否开启调试日志                 |
 
 ## 安全策略
 
@@ -122,23 +123,23 @@ clawdbot gateway restart
 
 ### 接收
 
-| 类型 | 支持 | 说明 |
-|------|------|------|
-| 文本 | ✅ | 完整支持 |
-| 富文本 | ✅ | 提取文本内容 |
-| 图片 | ✅ | 下载并传递给 AI |
-| 语音 | ✅ | 使用钉钉语音识别结果 |
-| 视频 | ✅ | 下载并传递给 AI |
-| 文件 | ✅ | 下载并传递给 AI |
+| 类型   | 支持 | 说明                 |
+| ------ | ---- | -------------------- |
+| 文本   | ✅   | 完整支持             |
+| 富文本 | ✅   | 提取文本内容         |
+| 图片   | ✅   | 下载并传递给 AI      |
+| 语音   | ✅   | 使用钉钉语音识别结果 |
+| 视频   | ✅   | 下载并传递给 AI      |
+| 文件   | ✅   | 下载并传递给 AI      |
 
 ### 发送
 
-| 类型 | 支持 | 说明 |
-|------|------|------|
-| 文本 | ✅ | 完整支持 |
-| Markdown | ✅ | 自动检测或手动指定 |
-| 图片 | ⏳ | 需要通过媒体上传 API |
-| 交互卡片 | ⏳ | 计划中 |
+| 类型     | 支持 | 说明                 |
+| -------- | ---- | -------------------- |
+| 文本     | ✅   | 完整支持             |
+| Markdown | ✅   | 自动检测或手动指定   |
+| 图片     | ⏳   | 需要通过媒体上传 API |
+| 交互卡片 | ⏳   | 计划中               |
 
 ## 使用示例
 
@@ -146,6 +147,105 @@ clawdbot gateway restart
 
 1. **私聊机器人** — 找到机器人，发送消息
 2. **群聊 @机器人** — 在群里 @机器人名称 + 消息
+
+## 使用 Skill：DingTalk Cron 延时消息
+
+本插件包含一个 **Skill** 用于指导 AI 正确创建延时消息。
+
+### 什么是 DingTalk Cron Delivery Skill？
+
+当创建 **延时任务** 或 **计划消息** 时，有两种方式：
+
+| 方式        | 配置                               | 结果                 |
+| ----------- | ---------------------------------- | -------------------- |
+| ❌ **错误** | `--session main` + `systemEvent`   | 无法投递（内部事件） |
+| ✅ **正确** | `--session isolated` + `agentTurn` | 可以投递到 DingTalk  |
+
+### Skill 的作用
+
+这个 Skill **教导 AI** 在创建 DingTalk 延时消息时：
+
+1. 总是使用 `--session isolated`（不是 `main`）
+2. 必须指定 `--deliver` 标志
+3. 必须指定 `--channel dingtalk`
+4. 必须提供 `--to` 参数（钉钉对话 ID）
+
+### 使用示例
+
+#### 让 AI 创建延时消息
+
+**用户请求**:
+
+```
+"Schedule a DingTalk message to the team in 30 minutes saying 'Meeting starts soon'"
+```
+
+**AI 现在会正确执行**:
+
+```bash
+clawdbot cron add \
+  --name "Meeting Reminder" \
+  --session isolated \
+  --at "30m" \
+  --message "Meeting starts soon" \
+  --deliver \
+  --channel dingtalk \
+  --to "cidxxxxx"
+```
+
+#### 直接使用 CLI
+
+如果手动创建延时任务，记住这个模式：
+
+```bash
+clawdbot cron add \
+  --session isolated \
+  --at "TIME" \
+  --message "MESSAGE" \
+  --deliver \
+  --channel dingtalk \
+  --to "TARGET_ID"
+```
+
+**参数说明**:
+
+- `--session isolated`: 支持投递的会话类型（必需）
+- `--at`: 执行时间（"10s", "5m", "14:30" 等）
+- `--message`: 消息内容或 AI 任务描述
+- `--deliver`: 启用外发投递
+- `--channel dingtalk`: 目标渠道
+- `--to`: 钉钉对话 ID（群组 ID 或员工 ID）
+
+### 为什么需要这个 Skill？
+
+钉钉插件的消息投递需要特定的 cron 配置：
+
+```
+主会话 (main) → systemEvent → ❌ 无投递支持
+隔离会话 (isolated) → agentTurn → ✅ 完整投递链
+```
+
+如果没有这个 Skill 的指导，AI 可能会：
+
+- ❌ 默认使用 `main` 会话（更快，但无法投递）
+- ❌ 忘记 `--deliver` 标志
+- ❌ 忘记指定 `--channel` 和 `--to`
+
+### 详细文档
+
+完整的 Skill 文档在：
+
+```
+skills/dingtalk-cron-delivery/SKILL.md
+```
+
+包含：
+
+- 架构说明（为什么有两个会话类型）
+- 详细的使用示例
+- 常见错误和修复方法
+- 调试和监控指南
+- 快速参考卡
 
 ## 故障排除
 
@@ -171,6 +271,7 @@ clawdbot gateway restart
 ### 首次设置
 
 1. 克隆仓库并安装依赖
+
 ```bash
 git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
 cd clawdbot-channel-dingtalk
@@ -178,20 +279,21 @@ npm install
 ```
 
 2. 验证开发环境
+
 ```bash
 npm run check              # 运行所有质量检查
 ```
 
 ### 常用命令
 
-| 命令 | 说明 |
-|------|------|
-| `npm run type-check` | TypeScript 类型检查 |
-| `npm run lint` | ESLint 代码检查 |
-| `npm run lint:fix` | 自动修复格式问题 |
-| `npm test` | 运行单元测试 |
-| `npm run test:watch` | 监听模式运行测试 |
-| `npm run check` | 运行所有检查 (type + lint) |
+| 命令                 | 说明                       |
+| -------------------- | -------------------------- |
+| `npm run type-check` | TypeScript 类型检查        |
+| `npm run lint`       | ESLint 代码检查            |
+| `npm run lint:fix`   | 自动修复格式问题           |
+| `npm test`           | 运行单元测试               |
+| `npm run test:watch` | 监听模式运行测试           |
+| `npm run check`      | 运行所有检查 (type + lint) |
 
 ### 代码质量标准
 
@@ -205,14 +307,14 @@ npm run check              # 运行所有质量检查
 ```
 src/
   types.ts              - 类型定义（30+ interfaces）
-  
+
 plugin.ts              - 主插件实现（400 行）
 utils.ts              - 工具函数（100 行）
 plugin.test.ts        - 单元测试（12 个测试）
 
 .github/
   workflows/ci.yml     - GitHub Actions CI/CD
-  
+
 README.md              - 本文件
 CONTRIBUTING.md        - 贡献指南
 AGENT.md              - 架构设计文档
@@ -224,21 +326,21 @@ AGENT.md              - 架构设计文档
 
 ```typescript
 // 配置
-DingTalkConfig          // 插件配置
-DingTalkChannelConfig   // 多账户配置
+DingTalkConfig; // 插件配置
+DingTalkChannelConfig; // 多账户配置
 
 // 消息处理
-DingTalkInboundMessage  // 收到的钉钉消息
-MessageContent          // 解析后的消息内容
-HandleDingTalkMessageParams  // 消息处理参数
+DingTalkInboundMessage; // 收到的钉钉消息
+MessageContent; // 解析后的消息内容
+HandleDingTalkMessageParams; // 消息处理参数
 
 // 网络
-TokenInfo               // 访问令牌缓存
-MediaFile              // 下载的媒体文件
+TokenInfo; // 访问令牌缓存
+MediaFile; // 下载的媒体文件
 
 // 日志和工具
-Logger                 // 日志接口
-RetryOptions           // 重试选项
+Logger; // 日志接口
+RetryOptions; // 重试选项
 ```
 
 ### 测试
@@ -251,7 +353,7 @@ npm run test:watch     # 监听模式
 
 # 测试覆盖项：
 # - maskSensitiveData: 5 个测试
-# - retryWithBackoff: 5 个测试  
+# - retryWithBackoff: 5 个测试
 # - cleanupOrphanedTempFiles: 2 个测试
 ```
 

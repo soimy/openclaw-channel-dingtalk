@@ -5,6 +5,7 @@
   "description": "DingTalk (钉钉) messaging channel via Stream mode",
   "author": "sym",
   "channels": ["dingtalk"],
+  "skills": ["dingtalk-cron-delivery"],
   "configSchema": {
     "type": "object",
     "additionalProperties": true,
@@ -22,8 +23,8 @@
       "robotCode": { "type": "string", "description": "Robot Code" },
       "corpId": { "type": "string", "description": "Corp ID" },
       "agentId": { "type": "string", "description": "Agent ID" },
-      "dmPolicy": { 
-        "type": "string", 
+      "dmPolicy": {
+        "type": "string",
         "enum": ["open", "pairing", "allowlist"],
         "default": "open"
       },
