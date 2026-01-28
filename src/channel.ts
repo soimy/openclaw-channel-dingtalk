@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
+import { DingTalkConfigSchema } from './config-schema.js';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -22,44 +23,17 @@ import type {
   GatewayStopResult,
 } from './types';
 
-// DingTalk Channel Configuration Schema
-const dingtalkConfigSchema = {
-  type: 'object',
-  additionalProperties: true,
-  properties: {
-    enabled: { type: 'boolean', default: true, description: 'Enable DingTalk channel' },
-    clientId: { type: 'string', description: 'DingTalk App Key (AppID)' },
-    clientSecret: { type: 'string', description: 'DingTalk App Secret' },
-    robotCode: { type: 'string', description: 'Robot Code for media download' },
-    corpId: { type: 'string', description: 'DingTalk Corporation ID' },
-    agentId: { type: ['string', 'number'], description: 'DingTalk Application ID' },
-    name: { type: 'string', description: 'Account display name' },
-    dmPolicy: {
-      type: 'string',
-      enum: ['open', 'pairing', 'allowlist'],
-      default: 'open',
-      description: 'Direct message policy (open: allow all, pairing: require approval, allowlist: only specific users)',
-    },
-    groupPolicy: {
-      type: 'string',
-      enum: ['open', 'allowlist'],
-      default: 'open',
-      description: 'Group message policy (open: allow all groups, allowlist: only specific groups)',
-    },
-    allowFrom: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'List of allowed user IDs for allowlist policy',
-    },
-    showThinking: { type: 'boolean', default: true, description: 'Show thinking indicator while processing' },
-    debug: { type: 'boolean', default: false, description: 'Enable debug logging' },
-    accounts: {
-      type: 'object',
-      additionalProperties: true,
-      description: 'Multi-account configuration',
-    },
-  },
-};
+// Use dynamic require to get buildChannelConfigSchema (avoids TS type resolution issues)
+// The actual runtime will load this successfully via ESM interop
+let dingtalkConfigSchema: any;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { buildChannelConfigSchema } = require('clawdbot/plugin-sdk');
+  dingtalkConfigSchema = buildChannelConfigSchema(DingTalkConfigSchema);
+} catch {
+  // Fallback if require fails - shouldn't happen in normal operation
+  dingtalkConfigSchema = {};
+}
 
 // Access Token cache
 let accessToken: string | null = null;
