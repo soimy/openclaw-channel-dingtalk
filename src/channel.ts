@@ -1,16 +1,11 @@
-/**
- * DingTalk Channel Plugin for Clawdbot
- *
- * 使用钉钉 Stream 模式连接，完整接入 Clawdbot 消息处理管道
- */
-
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
 import axios from 'axios';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import type { ClawdbotPluginApi, PluginRuntime, ClawdbotConfig } from 'clawdbot/plugin-sdk';
-import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from './utils';
+import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
+import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
+import { getDingTalkRuntime } from './runtime';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -25,20 +20,7 @@ import type {
   Logger,
   GatewayStartContext,
   GatewayStopResult,
-} from './src/types';
-
-// Plugin ID
-export const id = 'dingtalk';
-
-// Runtime reference
-let runtime: PluginRuntime | null = null;
-
-function getRuntime(): PluginRuntime {
-  if (!runtime) {
-    throw new Error('DingTalk runtime not initialized');
-  }
-  return runtime;
-}
+} from './types';
 
 // Access Token cache
 let accessToken: string | null = null;
@@ -235,7 +217,7 @@ async function sendBySession(
 // Message handler
 async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
-  const rt = getRuntime();
+  const rt = getDingTalkRuntime();
 
   log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
 
@@ -367,7 +349,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 }
 
 // DingTalk Channel Definition
-const dingtalkPlugin = {
+export const dingtalkPlugin = {
   id: 'dingtalk',
   meta: {
     id: 'dingtalk',
@@ -503,7 +485,7 @@ const dingtalkPlugin = {
       if (ctx.log?.info) {
         ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
       }
-      const rt = getRuntime();
+      const rt = getDingTalkRuntime();
       rt.channel!.activity.record('dingtalk', account.accountId, 'start');
       let stopped = false;
       if (abortSignal) {
@@ -550,29 +532,4 @@ const dingtalkPlugin = {
   },
 };
 
-const plugin = {
-  id: 'dingtalk',
-  name: 'DingTalk Channel',
-  description: 'DingTalk (钉钉) messaging channel via Stream mode',
-  configSchema: {
-    type: 'object',
-    additionalProperties: true,
-    properties: { enabled: { type: 'boolean', default: true } },
-  },
-  register(api: ClawdbotPluginApi): void {
-    runtime = api.runtime;
-    api.registerChannel({ plugin: dingtalkPlugin });
-    api.registerGatewayMethod('dingtalk.status', async ({ respond, cfg }: any) => {
-      const result = await dingtalkPlugin.status.probe({ cfg });
-      respond(true, result);
-    });
-    api.registerGatewayMethod('dingtalk.probe', async ({ respond, cfg }: any) => {
-      const result = await dingtalkPlugin.status.probe({ cfg });
-      respond(result.ok, result);
-    });
-    api.logger?.info('[DingTalk] Plugin registered');
-  },
-};
-
-export default plugin;
-export { dingtalkPlugin, sendBySession, sendProactiveMessage, getAccessToken };
+export { sendBySession, sendProactiveMessage, getAccessToken };
