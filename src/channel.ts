@@ -532,4 +532,17 @@ export const dingtalkPlugin = {
   },
 };
 
+/**
+ * Public low-level API exports for the DingTalk channel plugin.
+ *
+ * - {@link sendBySession} sends a message to DingTalk using a session/webhook
+ *   (e.g. replies within an existing conversation).
+ * - {@link sendProactiveMessage} sends a proactive/outbound message to DingTalk
+ *   without requiring an existing inbound session.
+ * - {@link getAccessToken} retrieves (and caches) the DingTalk access token
+ *   for the configured application/runtime.
+ *
+ * These exports are intended to be used by external integrations that need
+ * direct programmatic access to DingTalk messaging and authentication.
+ */
 export { sendBySession, sendProactiveMessage, getAccessToken };
