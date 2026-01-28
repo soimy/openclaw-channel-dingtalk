@@ -45,7 +45,7 @@ let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
 function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
-  const dingtalkCfg = (cfg?.channels as Record<string, any> | undefined)?.dingtalk;
+  const dingtalkCfg = cfg?.channels?.dingtalk;
   if (!dingtalkCfg) return {} as DingTalkConfig;
 
   if (accountId && dingtalkCfg.accounts?.[accountId]) {
