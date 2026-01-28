@@ -22,7 +22,7 @@ const plugin = {
       const result = await dingtalkPlugin.status.probe({ cfg });
       respond(result.ok, result);
     });
-    api.logger?.info('[DingTalk] Plugin registered');
+    api.logger?.info?.('[DingTalk] Plugin registered');
   },
 };
 
