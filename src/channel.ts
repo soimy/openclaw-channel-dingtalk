@@ -275,7 +275,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect ? senderId : groupId;
+  const to = isDirect ? `dingtalk:${senderId}` : `dingtalk:group:${groupId}`;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
