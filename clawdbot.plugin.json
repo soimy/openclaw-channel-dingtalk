@@ -1,9 +1,48 @@
 {
   "id": "dingtalk",
+  "name": "DingTalk Channel",
+  "version": "2.0.0",
+  "description": "DingTalk (钉钉) messaging channel via Stream mode",
+  "author": "sym",
   "channels": ["dingtalk"],
   "configSchema": {
     "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true }
+    }
+  },
+  "channelConfigSchema": {
+    "type": "object",
     "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "clientId": { "type": "string", "description": "DingTalk App Key (Client ID)" },
+      "clientSecret": { "type": "string", "description": "DingTalk App Secret (Client Secret)" },
+      "robotCode": { "type": "string", "description": "Robot Code" },
+      "corpId": { "type": "string", "description": "Corp ID" },
+      "agentId": { "type": "string", "description": "Agent ID" },
+      "dmPolicy": {
+        "type": "string",
+        "enum": ["open", "pairing", "allowlist"],
+        "default": "open"
+      },
+      "allowFrom": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Allowed sender IDs"
+      },
+      "groupPolicy": {
+        "type": "string",
+        "enum": ["open", "allowlist"],
+        "default": "open"
+      },
+      "debug": { "type": "boolean", "default": false }
+    },
+    "required": ["clientId", "clientSecret"]
+  },
+  "uiHints": {
+    "enabled": { "label": "Enable DingTalk" },
     "properties": {}
   }
 }

@@ -17,7 +17,7 @@ export function maskSensitiveData(data: unknown): any {
   }
 
   const masked = JSON.parse(JSON.stringify(data)) as Record<string, any>;
-  const sensitiveFields = ['senderStaffId', 'senderId', 'userId', 'token', 'accessToken', 'sessionWebhook'];
+  const sensitiveFields = ['token', 'accessToken'];
 
   function maskObj(obj: any): void {
     for (const key in obj) {
@@ -104,7 +104,5 @@ export async function retryWithBackoff<T>(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-
-  throw new Error('Retry exhausted');
 }
 

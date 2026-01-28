@@ -1,6 +1,6 @@
 {
   "name": "@clawdbot/dingtalk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "DingTalk (钉钉) channel plugin for Clawdbot",
   "main": "index.ts",
   "type": "module",
