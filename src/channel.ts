@@ -238,7 +238,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
-  if (content.mediaPath && (dingtalkConfig.robotCode || dingtalkConfig.clientId)) {
+  if (content.mediaPath && dingtalkConfig.robotCode) {
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
