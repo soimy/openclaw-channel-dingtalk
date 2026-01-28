@@ -427,6 +427,16 @@ const dingtalkPlugin = {
   },
   outbound: {
     deliveryMode: 'direct',
+    resolveTarget: ({ to }: any) => {
+      const trimmed = to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    },
     sendText: async ({ cfg, to, text, accountId }: any) => {
       const config = getConfig(cfg, accountId);
       try {
