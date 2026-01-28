@@ -1,6 +1,6 @@
 /**
  * Type definitions for DingTalk Channel Plugin
- * 
+ *
  * Provides comprehensive type safety for:
  * - Configuration objects
  * - DingTalk API request/response models
@@ -347,4 +347,53 @@ export interface DingTalkChannelPlugin {
     probe: (params: any) => Promise<{ ok: boolean; error?: string; details?: any }>;
     buildChannelSummary: (params: any) => any;
   };
+}
+
+/**
+ * Result of target resolution validation
+ */
+export interface TargetResolutionResult {
+  ok: boolean;
+  to?: string;
+  error?: Error;
+}
+
+/**
+ * Parameters for resolveTarget validation
+ */
+export interface ResolveTargetParams {
+  to?: string | null;
+  [key: string]: any;
+}
+
+/**
+ * Parameters for sendText delivery
+ */
+export interface SendTextParams {
+  cfg: DingTalkConfig;
+  to: string;
+  text: string;
+  accountId?: string;
+  [key: string]: any;
+}
+
+/**
+ * Parameters for sendMedia delivery
+ */
+export interface SendMediaParams {
+  cfg: DingTalkConfig;
+  to: string;
+  mediaPath: string;
+  accountId?: string;
+  [key: string]: any;
+}
+
+/**
+ * DingTalk outbound handler configuration
+ */
+export interface DingTalkOutboundHandler {
+  deliveryMode: 'direct' | 'queued' | 'batch';
+  resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
+  sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
+  sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
 }

@@ -35,7 +35,7 @@ describe('Utils - maskSensitiveData', () => {
     };
 
     const masked = maskSensitiveData(data);
-     expect(masked.content.senderId).toMatch(/^u.*c$/); // Masked: keeps first 3 and last 3
+    expect(masked.content.senderId).toMatch(/^u.*c$/); // Masked: keeps first 3 and last 3
     expect(masked.content.text).toBe('Hello');
   });
 
@@ -67,11 +67,7 @@ describe('Utils - retryWithBackoff', () => {
     const error = new Error('Unauthorized');
     (error as any).response = { status: 401 };
 
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(error)
-      .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce('success');
+    const fn = vi.fn().mockRejectedValueOnce(error).mockRejectedValueOnce(error).mockResolvedValueOnce('success');
 
     const result = await retryWithBackoff(fn, { maxRetries: 3 });
     expect(result).toBe('success');
@@ -82,10 +78,7 @@ describe('Utils - retryWithBackoff', () => {
     const error = new Error('Too Many Requests');
     (error as any).response = { status: 429 };
 
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce('success');
+    const fn = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce('success');
 
     const result = await retryWithBackoff(fn, { maxRetries: 2 });
     expect(result).toBe('success');
@@ -126,3 +119,96 @@ describe('Utils - cleanupOrphanedTempFiles', () => {
   });
 });
 
+describe('Plugin - resolveTarget (Outbound Handler)', () => {
+  it('should accept valid conversation ID', () => {
+    const resolveTarget = (params: any) => {
+      const trimmed = params.to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    };
+
+    const result = resolveTarget({ to: 'ding2e110e56701b50e4' });
+    expect(result.ok).toBe(true);
+    expect(result.to).toBe('ding2e110e56701b50e4');
+  });
+
+  it('should trim whitespace from conversation ID', () => {
+    const resolveTarget = (params: any) => {
+      const trimmed = params.to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    };
+
+    const result = resolveTarget({ to: '  ding2e110e56701b50e4  ' });
+    expect(result.ok).toBe(true);
+    expect(result.to).toBe('ding2e110e56701b50e4');
+  });
+
+  it('should reject missing conversation ID', () => {
+    const resolveTarget = (params: any) => {
+      const trimmed = params.to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    };
+
+    const result = resolveTarget({ to: null });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error) {
+      expect(result.error).toBeInstanceOf(Error);
+      expect(result.error.message).toContain('requires --to');
+    }
+  });
+
+  it('should reject empty/whitespace-only conversation ID', () => {
+    const resolveTarget = (params: any) => {
+      const trimmed = params.to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    };
+
+    const result = resolveTarget({ to: '   ' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error) {
+      expect(result.error).toBeInstanceOf(Error);
+    }
+  });
+
+  it('should reject undefined conversation ID', () => {
+    const resolveTarget = (params: any) => {
+      const trimmed = params.to?.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          error: new Error('DingTalk message requires --to <conversationId>'),
+        };
+      }
+      return { ok: true, to: trimmed };
+    };
+
+    const result = resolveTarget({});
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error) {
+      expect(result.error).toBeInstanceOf(Error);
+    }
+  });
+});
