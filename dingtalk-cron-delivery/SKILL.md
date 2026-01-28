@@ -121,6 +121,22 @@ clawdbot cron add \
 - `"14:30"` — 2:30 PM today (HH:MM format, 24-hour)
 - `"2024-01-28T14:30:00Z"` — ISO 8601 format
 
+**API schedule timing** (when calling Gateway API directly):
+
+| Schedule Type          | CLI Example    | API Format                                | Notes                               |
+| ---------------------- | -------------- | ----------------------------------------- | ----------------------------------- |
+| **One-shot (at)**      | `--at "10s"`   | `{ "kind": "at", "atMs": 10000 }`         | Time in milliseconds from now       |
+| **One-shot (time)**    | `--at "14:30"` | `{ "kind": "at", "atMs": 1738080600000 }` | Absolute timestamp (must calculate) |
+| **Recurring interval** | (no CLI equiv) | `{ "kind": "every", "everyMs": 60000 }`   | Every 60 seconds                    |
+| **Cron expression**    | (no CLI equiv) | `{ "kind": "cron", "expr": "0 9 * * *" }` | 9 AM every day                      |
+
+**Time conversion examples:**
+
+- `10s` → `10000` ms
+- `5m` → `300000` ms (5 × 60 × 1000)
+- `2h` → `7200000` ms (2 × 60 × 60 × 1000)
+- `14:30 today` → Calculate timestamp: `new Date('2026-01-28T14:30:00Z').getTime()`
+
 **Target ID** (`--to`):
 
 - Group ID: `cid...` (starts with `cid`)
@@ -189,9 +205,65 @@ You can ask the AI to create scheduled tasks:
 
 This skill ensures the AI always chooses the right configuration.
 
+### Via Gateway API (Advanced)
+
+The underlying Gateway API (used by AI agents making direct calls) requires a different parameter structure. **Key differences from CLI:**
+
+**CLI Interface:**
+
+```bash
+clawdbot cron add --session isolated --at "10s" --message "text" --deliver --channel dingtalk --to "id"
+```
+
+**Gateway API (raw JSON):**
+
+```json
+{
+  "name": "Task Name",
+  "sessionTarget": "isolated",
+  "schedule": {
+    "kind": "at",
+    "atMs": 1738080000000
+  },
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Task prompt or message text",
+    "deliver": true,
+    "channel": "dingtalk",
+    "to": "ding2e110e56701b50e4"
+  },
+  "wakeMode": "next-heartbeat"
+}
+```
+
+**Parameter Mapping (CLI → API):**
+
+| CLI Parameter        | API Parameter                                 | Notes                          |
+| -------------------- | --------------------------------------------- | ------------------------------ |
+| `--session isolated` | `sessionTarget: "isolated"`                   | Literal mapping                |
+| `--at "10s"`         | `schedule.kind: "at"` + `schedule.atMs: <ms>` | Time converted to milliseconds |
+| `--message "text"`   | `payload.message: "text"`                     | Note: NOT `payload.text`       |
+| `--deliver`          | `payload.deliver: true`                       | Boolean flag                   |
+| `--channel dingtalk` | `payload.channel: "dingtalk"`                 | Literal mapping                |
+| `--to "id"`          | `payload.to: "id"`                            | Literal mapping                |
+| _(implicit)_         | `payload.kind: "agentTurn"`                   | REQUIRED for DingTalk delivery |
+| _(implied)_          | `wakeMode: "next-heartbeat"`                  | Default wake behavior          |
+
+**Critical API Rules:**
+
+1. **Schedule must have explicit `kind` field** (not inferred)
+2. **Time values must be milliseconds** (not strings like "10s")
+3. **Payload kind must match sessionTarget**:
+   - `sessionTarget: "isolated"` → `payload.kind: "agentTurn"` ✅
+   - `sessionTarget: "main"` → `payload.kind: "systemEvent"` ⚠️
+4. **Use `message` for agentTurn** (NOT `text`)
+5. **All required fields must be present** or validation fails
+
 ---
 
 ## Key Parameters Explained
+
+### CLI Parameters
 
 | Parameter            | Usage                       | DingTalk-specific                             |
 | -------------------- | --------------------------- | --------------------------------------------- |
@@ -201,6 +273,29 @@ This skill ensures the AI always chooses the right configuration.
 | `--channel dingtalk` | Target channel              | ✅ Specifies DingTalk as the delivery channel |
 | `--to`               | Recipient ID                | ✅ Copy from DingTalk (group/person ID)       |
 | `--at`               | Schedule timing             | Any valid cron schedule format                |
+
+### API Parameters (for direct Gateway calls)
+
+When the AI calls the Gateway API directly (rather than using CLI), these are the actual required fields:
+
+| API Parameter      | Type    | Required | Example                  | Notes                                                        |
+| ------------------ | ------- | -------- | ------------------------ | ------------------------------------------------------------ |
+| `name`             | string  | ✅       | `"DingTalk Reminder"`    | Human-readable task name                                     |
+| `sessionTarget`    | string  | ✅       | `"isolated"`             | MUST be `"isolated"` for DingTalk                            |
+| `schedule.kind`    | string  | ✅       | `"at"`                   | Use `"at"`, `"every"`, or `"cron"`                           |
+| `schedule.atMs`    | number  | ✅\*     | `1738080000000`          | Unix timestamp in milliseconds (\*when kind="at")            |
+| `schedule.everyMs` | number  | ✅\*     | `300000`                 | Interval in milliseconds (\*when kind="every")               |
+| `schedule.expr`    | string  | ✅\*     | `"0 9 * * *"`            | Cron expression (\*when kind="cron")                         |
+| `payload.kind`     | string  | ✅       | `"agentTurn"`            | MUST be `"agentTurn"` for DingTalk                           |
+| `payload.message`  | string  | ✅       | `"Hello DingTalk"`       | The task prompt or message text                              |
+| `payload.deliver`  | boolean | ✅       | `true`                   | Enable outbound delivery                                     |
+| `payload.channel`  | string  | ✅       | `"dingtalk"`             | Target channel name                                          |
+| `payload.to`       | string  | ✅       | `"ding2e110e56701b50e4"` | DingTalk conversation ID                                     |
+| `wakeMode`         | string  | ⚠️       | `"next-heartbeat"`       | Default: next heartbeat. Use `"immediate"` to run right away |
+| `agentId`          | string  | ❌       | (optional)               | Override target agent                                        |
+| `description`      | string  | ❌       | (optional)               | Task description notes                                       |
+| `enabled`          | boolean | ❌       | `true` (default)         | Enable/disable the task                                      |
+| `deleteAfterRun`   | boolean | ❌       | (optional)               | Auto-delete after one execution                              |
 
 ---
 
@@ -287,6 +382,83 @@ clawdbot cron add \
   --deliver \
   --channel dingtalk \         # ✅ CORRECT
   --to "ding..."
+```
+
+### ❌ Mistake 5: API calls with wrong parameter names (for AI agents)
+
+```json
+{
+  "sessionTarget": "isolated",
+  "schedule": { "kind": "at", "at": "10s" }, // ❌ WRONG: should be "atMs" with milliseconds
+  "payload": {
+    "kind": "agentTurn",
+    "text": "Hello" // ❌ WRONG: should be "message", not "text"
+  }
+}
+```
+
+**Problem**: API validation fails with "must have required property" errors
+
+**Fix**: Use correct parameter names and types
+
+```json
+{
+  "name": "Task",
+  "sessionTarget": "isolated",
+  "schedule": {
+    "kind": "at",
+    "atMs": 10000 // ✅ CORRECT: milliseconds, not string
+  },
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Hello", // ✅ CORRECT: "message", not "text"
+    "deliver": true,
+    "channel": "dingtalk",
+    "to": "ding2e110e56701b50e4"
+  },
+  "wakeMode": "next-heartbeat"
+}
+```
+
+### ❌ Mistake 6: API calls with mismatched sessionTarget and payload.kind
+
+```json
+{
+  "sessionTarget": "main",
+  "payload": {
+    "kind": "agentTurn", // ❌ WRONG: agentTurn doesn't support main session
+    "message": "Hello"
+  }
+}
+```
+
+**Problem**: Validation error - incompatible session/payload combination
+
+**Fix**: Match sessionTarget with correct payload kind
+
+```json
+{
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn", // ✅ CORRECT: agentTurn works with isolated
+    "message": "Hello",
+    "deliver": true,
+    "channel": "dingtalk",
+    "to": "ding..."
+  }
+}
+```
+
+Or if you need main session:
+
+```json
+{
+  "sessionTarget": "main",
+  "payload": {
+    "kind": "systemEvent", // ✅ CORRECT: systemEvent works with main (but no delivery)
+    "text": "Hello"
+  }
+}
 ```
 
 ---

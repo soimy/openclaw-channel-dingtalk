@@ -9,17 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **DingTalk Cron Delivery Skill**: New guidance skill for AI agents to correctly create scheduled DingTalk messages
-  - Skill teaches proper cron configuration (`--session isolated`, `--deliver`, `--channel dingtalk`)
-  - Explains architecture of message delivery chain
-  - Provides examples and common mistake solutions
-  - Located in `skills/dingtalk-cron-delivery/SKILL.md`
-- **Skill Documentation**: Comprehensive guide including:
-  - Problem statement and architecture explanation
-  - Step-by-step usage instructions
-  - CLI syntax and parameter reference
-  - Common mistakes and fixes
-  - Verification checklist and debugging guide
+- **DingTalk Cron Delivery Skill**: New comprehensive guidance skill for AI agents to correctly create scheduled DingTalk messages
+  - Explains two execution paths: main session (no delivery) vs isolated session (with delivery)
+  - Teaches proper cron configuration: `--session isolated`, `--deliver`, `--channel dingtalk`
+  - Provides complete architecture explanation with delivery chain diagram
+  - Includes CLI syntax reference with practical examples
+  - Located in `dingtalk-cron-delivery/SKILL.md`
+
+### Enhanced
+
+- **Skill Documentation**: Expanded with API schema reference for direct Gateway calls
+  - Added "Via Gateway API (Advanced)" section explaining parameter mapping
+  - Documents critical API rules and validation requirements
+  - Clarifies difference between CLI parameters and API structure
+  - Explains schedule timing formats (ms vs string conversions)
+  - Added 6 comprehensive mistake examples with solutions
+  - Covers both CLI (`--session isolated`) and API (`sessionTarget: "isolated"`) usage patterns
+
+### Technical Details
+
+- **Critical Discovery**: AI agents calling Gateway API directly need `sessionTarget`, `schedule.kind`, `schedule.atMs`, `payload.kind: "agentTurn"` structure
+- **CLI vs API Mismatch**: CLI accepts strings like `--at "10s"`, but API requires milliseconds in `atMs` field
+- **Session/Payload Rules**:
+  - `sessionTarget: "isolated"` MUST use `payload.kind: "agentTurn"` (supports delivery)
+  - `sessionTarget: "main"` MUST use `payload.kind: "systemEvent"` (internal only, no delivery)
+- **Required for DingTalk**: `payload.deliver: true`, `payload.channel: "dingtalk"`, `payload.to: "<id>"`
+- **Property Names**: API uses `payload.message` (not `text`), `sessionTarget` (not `session`), `atMs` (not `at`)
+
+### Documentation
+
+- ✅ Explains both execution models (main session vs isolated)
+- ✅ Provides working examples for CLI and API usage
+- ✅ Documents parameter mapping between CLI and Gateway API
+- ✅ Includes schedule timing conversion table
+- ✅ Covers all 6 common mistakes with fixes
+- ✅ Verification checklist before creating tasks
+- ✅ Debugging and monitoring guide
+
+### Fixes
+
+- Corrected SKILL.md examples to match actual Clawdbot cron API schema (discovered via source code analysis)
+- Added missing documentation for `wakeMode` parameter
+- Clarified that `atMs` uses milliseconds, not time strings
+- Documented proper sessionTarget/payload.kind validation rules
 
 ## [1.0.1] - 2026-01-28
 

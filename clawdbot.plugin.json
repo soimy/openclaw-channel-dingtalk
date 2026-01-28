@@ -5,7 +5,7 @@
   "description": "DingTalk (钉钉) messaging channel via Stream mode",
   "author": "sym",
   "channels": ["dingtalk"],
-  "skills": ["dingtalk-cron-delivery"],
+  "skills": ["dingtalk-cron-delivery", "dingtalk-send"],
   "configSchema": {
     "type": "object",
     "additionalProperties": true,

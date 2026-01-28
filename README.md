@@ -236,7 +236,7 @@ clawdbot cron add \
 完整的 Skill 文档在：
 
 ```
-skills/dingtalk-cron-delivery/SKILL.md
+dingtalk-cron-delivery/SKILL.md
 ```
 
 包含：
