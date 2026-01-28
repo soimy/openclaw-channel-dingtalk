@@ -104,11 +104,17 @@ async function sendProactiveMessage(
 
 // Download media file
 async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?: Logger): Promise<MediaFile | null> {
+  if (!config.robotCode) {
+    if (log?.error) {
+      log.error('[DingTalk] downloadMedia requires robotCode to be configured.');
+    }
+    return null;
+  }
   try {
     const token = await getAccessToken(config, log);
     const response = await axios.post<{ downloadUrl?: string }>(
       'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
-      { downloadCode, robotCode: config.robotCode || config.clientId },
+      { downloadCode, robotCode: config.robotCode },
       { headers: { 'x-acs-dingtalk-access-token': token } }
     );
     const downloadUrl = response.data?.downloadUrl;
