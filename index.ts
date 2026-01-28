@@ -1,6 +1,6 @@
 import type { ClawdbotPluginApi } from 'clawdbot/plugin-sdk';
-import { dingtalkPlugin } from './src/channel.js';
-import { setDingTalkRuntime } from './src/runtime.js';
+import { dingtalkPlugin } from './src/channel';
+import { setDingTalkRuntime } from './src/runtime';
 
 const plugin = {
   id: 'dingtalk',
