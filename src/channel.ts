@@ -58,6 +58,46 @@ const CARD_UPDATE_TIMEOUT = 60000; // 60 seconds of inactivity = finalized
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+// Authorization helpers
+type NormalizedAllowFrom = {
+  entries: string[];
+  entriesLower: string[];
+  hasWildcard: boolean;
+  hasEntries: boolean;
+};
+
+/**
+ * Normalize allowFrom list to standardized format
+ */
+function normalizeAllowFrom(list?: Array<string | number>): NormalizedAllowFrom {
+  const entries = (list ?? []).map((value) => String(value).trim()).filter(Boolean);
+  const hasWildcard = entries.includes('*');
+  const normalized = entries
+    .filter((value) => value !== '*')
+    .map((value) => value.replace(/^(dingtalk|dd|ding):/i, ''));
+  const normalizedLower = normalized.map((value) => value.toLowerCase());
+  return {
+    entries: normalized,
+    entriesLower: normalizedLower,
+    hasWildcard,
+    hasEntries: entries.length > 0,
+  };
+}
+
+/**
+ * Check if sender is allowed based on allowFrom list
+ */
+function isSenderAllowed(params: {
+  allow: NormalizedAllowFrom;
+  senderId?: string;
+}): boolean {
+  const { allow, senderId } = params;
+  if (!allow.hasEntries) return true;
+  if (allow.hasWildcard) return true;
+  if (senderId && allow.entries.includes(senderId)) return true;
+  return false;
+}
+
 // Clean up old card instances from cache
 function cleanupCardCache() {
   const now = Date.now();
@@ -613,6 +653,33 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
+  // 2. Check authorization for direct messages based on dmPolicy
+  let commandAuthorized = true;
+  if (isDirect) {
+    const dmPolicy = dingtalkConfig.dmPolicy || 'open';
+    const allowFrom = dingtalkConfig.allowFrom || [];
+    
+    if (dmPolicy === 'allowlist') {
+      const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
+      const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });
+      
+      if (!isAllowed) {
+        log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
+        return;
+      }
+      
+      commandAuthorized = isAllowed;
+      log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
+    } else if (dmPolicy === 'pairing') {
+      // For pairing mode, SDK will handle the authorization
+      // Set commandAuthorized to true to let SDK check pairing status
+      commandAuthorized = true;
+    } else {
+      // 'open' policy - allow all
+      commandAuthorized = true;
+    }
+  }
+
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
@@ -667,7 +734,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     MediaPath: mediaPath,
     MediaType: mediaType,
     MediaUrl: mediaPath,
-    CommandAuthorized: true,
+    CommandAuthorized: commandAuthorized,
     OriginatingChannel: 'dingtalk',
     OriginatingTo: to,
   });
