@@ -39,6 +39,27 @@ try {
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
+// Helper function to detect markdown and extract title
+function detectMarkdownAndExtractTitle(
+  text: string,
+  options: SendMessageOptions,
+  defaultTitle: string
+): { useMarkdown: boolean; title: string } {
+  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
+  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+
+  const title =
+    options.title ||
+    (useMarkdown
+      ? text
+          .split('\n')[0]
+          .replace(/^[#*\s\->]+/, '')
+          .slice(0, 20) || defaultTitle
+      : defaultTitle);
+
+  return { useMarkdown, title };
+}
+
 function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk;
   if (!dingtalkCfg) return {} as DingTalkConfig;
@@ -83,19 +104,54 @@ async function sendProactiveMessage(
   target: string,
   text: string,
   log?: Logger
+): Promise<AxiosResponse>;
+async function sendProactiveMessage(
+  config: DingTalkConfig,
+  target: string,
+  text: string,
+  options?: SendMessageOptions
+): Promise<AxiosResponse>;
+async function sendProactiveMessage(
+  config: DingTalkConfig,
+  target: string,
+  text: string,
+  optionsOrLog: SendMessageOptions | Logger | undefined = {} as SendMessageOptions
 ): Promise<AxiosResponse> {
-  const token = await getAccessToken(config, log);
+  // Handle backward compatibility: support both Logger and SendMessageOptions
+  let options: SendMessageOptions;
+  if (!optionsOrLog) {
+    options = {};
+  } else if (
+    typeof optionsOrLog === 'object' &&
+    optionsOrLog !== null &&
+    ('log' in optionsOrLog || 'useMarkdown' in optionsOrLog || 'title' in optionsOrLog || 'atUserId' in optionsOrLog)
+  ) {
+    options = optionsOrLog;
+  } else {
+    // Assume it's a Logger object
+    options = { log: optionsOrLog as Logger };
+  }
+
+  const token = await getAccessToken(config, options.log);
   const isGroup = target.startsWith('cid');
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
     : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
 
+  // Use shared helper function for markdown detection and title extraction
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 提醒');
+
+  // Choose msgKey based on whether we're sending markdown or plain text
+  // Note: DingTalk's proactive message API uses predefined message templates
+  // sampleMarkdown supports markdown formatting, sampleText for plain text
+  const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
+
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
-    msgKey: 'sampleMarkdown',
+    msgKey,
     msgParam: JSON.stringify({
-      title: 'Clawdbot 提醒',
+      title,
       text,
     }),
   };
@@ -203,18 +259,12 @@ async function sendBySession(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
-  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+  
+  // Use shared helper function for markdown detection and title extraction
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
 
   let body: SessionWebhookResponse;
   if (useMarkdown) {
-    const title =
-      options.title ||
-      text
-        .split('\n')[0]
-        .replace(/^[#*\s\->]+/, '')
-        .slice(0, 20) ||
-      'Clawdbot 消息';
     let finalText = text;
     if (options.atUserId) finalText = `${finalText} @${options.atUserId}`;
     body = { msgtype: 'markdown', markdown: { title, text: finalText } };
@@ -439,23 +489,23 @@ export const dingtalkPlugin = {
       }
       return { ok: true, to: trimmed };
     },
-    sendText: async ({ cfg, to, text, accountId }: any) => {
+    sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       try {
-        const result = await sendProactiveMessage(config, to, text);
+        const result = await sendProactiveMessage(config, to, text, { log });
         return { ok: true, data: result };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
     },
-    sendMedia: async ({ cfg, to, mediaPath, accountId }: any) => {
+    sendMedia: async ({ cfg, to, mediaPath, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       if (!config.clientId) {
         return { ok: false, error: 'DingTalk not configured' };
       }
       try {
         const mediaDescription = `[媒体消息: ${mediaPath}]`;
-        const result = await sendProactiveMessage(config, to, mediaDescription);
+        const result = await sendProactiveMessage(config, to, mediaDescription, { log });
         return { ok: true, data: result };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
