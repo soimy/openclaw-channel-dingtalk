@@ -9,6 +9,7 @@
 - ✅ **群聊支持** — 在群里 @机器人
 - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件
 - ✅ **Markdown 回复** — 支持富文本格式回复
+- ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
 
 ## 安装
@@ -79,6 +80,8 @@ clawdbot plugins install -l .
       agentId: '123456789',
       dmPolicy: 'open', // open | pairing | allowlist
       groupPolicy: 'open', // open | allowlist
+      messageType: 'markdown', // text | markdown | card
+      cardTemplateId: 'StandardCard', // 互动卡片模板 ID
       debug: false,
     },
   },
@@ -93,18 +96,20 @@ clawdbot gateway restart
 
 ## 配置选项
 
-| 选项           | 类型     | 默认值   | 说明                             |
-| -------------- | -------- | -------- | -------------------------------- |
-| `enabled`      | boolean  | `true`   | 是否启用                         |
-| `clientId`     | string   | 必填     | 应用的 AppKey                    |
-| `clientSecret` | string   | 必填     | 应用的 AppSecret                 |
-| `robotCode`    | string   | -        | 机器人代码（用于下载媒体）       |
-| `corpId`       | string   | -        | 企业 ID                          |
-| `agentId`      | string   | -        | 应用 ID                          |
-| `dmPolicy`     | string   | `"open"` | 私聊策略：open/pairing/allowlist |
-| `groupPolicy`  | string   | `"open"` | 群聊策略：open/allowlist         |
-| `allowFrom`    | string[] | `[]`     | 允许的发送者 ID 列表             |
-| `debug`        | boolean  | `false`  | 是否开启调试日志                 |
+| 选项             | 类型     | 默认值          | 说明                                      |
+| ---------------- | -------- | --------------- | ----------------------------------------- |
+| `enabled`        | boolean  | `true`          | 是否启用                                  |
+| `clientId`       | string   | 必填            | 应用的 AppKey                             |
+| `clientSecret`   | string   | 必填            | 应用的 AppSecret                          |
+| `robotCode`      | string   | -               | 机器人代码（用于下载媒体）                |
+| `corpId`         | string   | -               | 企业 ID                                   |
+| `agentId`        | string   | -               | 应用 ID                                   |
+| `dmPolicy`       | string   | `"open"`        | 私聊策略：open/pairing/allowlist          |
+| `groupPolicy`    | string   | `"open"`        | 群聊策略：open/allowlist                  |
+| `allowFrom`      | string[] | `[]`            | 允许的发送者 ID 列表                      |
+| `messageType`    | string   | `"markdown"`    | 消息类型：text/markdown/card              |
+| `cardTemplateId` | string   | `"StandardCard"` | 互动卡片模板 ID（仅当 messageType=card 时）|
+| `debug`          | boolean  | `false`         | 是否开启调试日志                          |
 
 ## 安全策略
 
@@ -134,12 +139,45 @@ clawdbot gateway restart
 
 ### 发送
 
-| 类型     | 支持 | 说明                 |
-| -------- | ---- | -------------------- |
-| 文本     | ✅   | 完整支持             |
-| Markdown | ✅   | 自动检测或手动指定   |
-| 图片     | ⏳   | 需要通过媒体上传 API |
-| 交互卡片 | ⏳   | 计划中               |
+| 类型         | 支持 | 说明                                       |
+| ------------ | ---- | ------------------------------------------ |
+| 文本         | ✅   | 完整支持                                   |
+| Markdown     | ✅   | 自动检测或手动指定                         |
+| 互动卡片     | ✅   | 支持流式更新，适用于 AI 实时输出           |
+| 图片         | ⏳   | 需要通过媒体上传 API                       |
+
+## 消息类型选择
+
+插件支持三种消息回复类型，可通过 `messageType` 配置：
+
+### 1. text（纯文本）
+- 基础文本消息
+- 适用于简单回复
+- 无格式化支持
+
+### 2. markdown（Markdown 格式）**【默认】**
+- 支持富文本格式（标题、粗体、列表等）
+- 自动检测消息是否包含 Markdown 语法
+- 适用于大多数场景
+
+### 3. card（互动卡片）**【推荐用于 AI 对话】**
+- 支持流式更新（实时显示 AI 生成内容）
+- 更好的视觉呈现
+- 支持自定义卡片模板
+- 通过 `cardTemplateId` 指定模板（默认：`StandardCard`）
+
+**流式更新示例：**
+当配置 `messageType: 'card'` 时，机器人会：
+1. 发送初始卡片显示"正在思考中..."
+2. AI 生成回复时，实时更新卡片内容
+3. 用户可以看到回复逐步生成的过程
+
+```json5
+{
+  messageType: 'card', // 启用互动卡片模式
+  cardTemplateId: 'StandardCard', // 使用标准卡片模板
+}
+```
 
 ## 使用示例
 
@@ -230,10 +268,52 @@ DingTalkInboundMessage; // 收到的钉钉消息
 MessageContent; // 解析后的消息内容
 HandleDingTalkMessageParams; // 消息处理参数
 
+// 互动卡片
+InteractiveCardData; // 卡片数据结构
+InteractiveCardSendRequest; // 发送卡片请求
+InteractiveCardUpdateRequest; // 更新卡片请求
+CardInstance; // 卡片实例（用于缓存）
+
 // 工具函数类型
 Logger; // 日志接口
 RetryOptions; // 重试选项
 MediaFile; // 下载的媒体文件
+```
+
+### 公开 API
+
+插件导出以下低级 API 函数，可用于自定义集成：
+
+```typescript
+// 文本/Markdown 消息
+sendBySession(config, sessionWebhook, text, options); // 通过会话发送
+sendProactiveMessage(config, target, text, options); // 主动发送消息
+
+// 互动卡片（流式更新）
+sendInteractiveCard(config, conversationId, text, options); // 发送卡片
+updateInteractiveCard(config, cardBizId, text, options); // 更新卡片
+
+// 自动模式选择
+sendMessage(config, conversationId, text, options); // 根据配置自动选择
+
+// 认证
+getAccessToken(config, log); // 获取访问令牌
+```
+
+**使用示例：**
+
+```typescript
+import { sendInteractiveCard, updateInteractiveCard } from './src/channel';
+
+// 发送初始卡片
+const { cardBizId } = await sendInteractiveCard(config, conversationId, '正在生成...', {
+  log,
+});
+
+// 流式更新卡片内容
+for (const chunk of aiResponseChunks) {
+  await updateInteractiveCard(config, cardBizId, currentText + chunk, { log });
+}
 ```
 
 ### 架构

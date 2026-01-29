@@ -41,6 +41,12 @@ export const DingTalkConfigSchema = z.object({
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
+  /** Message type for replies: text, markdown, or card */
+  messageType: z.enum(['text', 'markdown', 'card']).optional().default('markdown'),
+
+  /** Card template ID for interactive cards (e.g., 'StandardCard') */
+  cardTemplateId: z.string().optional().default('StandardCard'),
+
   /** Multi-account configuration */
   accounts: z.record(z.string(), z.unknown()).optional(),
 });
