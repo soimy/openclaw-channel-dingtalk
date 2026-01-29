@@ -46,6 +46,22 @@ let accessTokenExpiry = 0;
 // Card instance cache for streaming updates
 const cardInstances = new Map<string, CardInstance>();
 
+// Cache cleanup interval (1 hour)
+const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Clean up old card instances from cache
+function cleanupCardCache() {
+  const now = Date.now();
+  for (const [cardBizId, instance] of cardInstances.entries()) {
+    if (now - instance.lastUpdated > CARD_CACHE_TTL) {
+      cardInstances.delete(cardBizId);
+    }
+  }
+}
+
+// Run cleanup periodically (every 30 minutes)
+setInterval(cleanupCardCache, 30 * 60 * 1000);
+
 // Helper function to detect markdown and extract title
 function detectMarkdownAndExtractTitle(
   text: string,
@@ -298,12 +314,12 @@ async function sendInteractiveCard(
   conversationId: string,
   text: string,
   options: SendMessageOptions = {}
-): Promise<{ cardBizId: string; response: AxiosResponse }> {
+): Promise<{ cardBizId: string; response: any }> {
   const token = await getAccessToken(config, options.log);
   const isGroup = conversationId.startsWith('cid');
   
   // Generate unique card business ID
-  const cardBizId = `card_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const cardBizId = `card_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   
   // Extract title from text
   const { title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
@@ -366,7 +382,7 @@ async function updateInteractiveCard(
   cardBizId: string,
   text: string,
   options: SendMessageOptions = {}
-): Promise<AxiosResponse> {
+): Promise<any> {
   const token = await getAccessToken(config, options.log);
   
   // Extract title from text
