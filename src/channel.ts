@@ -39,6 +39,27 @@ try {
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
+// Helper function to detect markdown and extract title
+function detectMarkdownAndExtractTitle(
+  text: string,
+  options: SendMessageOptions,
+  defaultTitle: string
+): { useMarkdown: boolean; title: string } {
+  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
+  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+
+  const title =
+    options.title ||
+    (useMarkdown
+      ? text
+          .split('\n')[0]
+          .replace(/^[#*\s\->]+/, '')
+          .slice(0, 20) || defaultTitle
+      : defaultTitle);
+
+  return { useMarkdown, title };
+}
+
 function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk;
   if (!dingtalkCfg) return {} as DingTalkConfig;
@@ -82,8 +103,35 @@ async function sendProactiveMessage(
   config: DingTalkConfig,
   target: string,
   text: string,
-  options: SendMessageOptions = {}
+  log?: Logger
+): Promise<AxiosResponse>;
+async function sendProactiveMessage(
+  config: DingTalkConfig,
+  target: string,
+  text: string,
+  options?: SendMessageOptions
+): Promise<AxiosResponse>;
+async function sendProactiveMessage(
+  config: DingTalkConfig,
+  target: string,
+  text: string,
+  optionsOrLog: SendMessageOptions | Logger | undefined = {} as SendMessageOptions
 ): Promise<AxiosResponse> {
+  // Handle backward compatibility: support both Logger and SendMessageOptions
+  let options: SendMessageOptions;
+  if (!optionsOrLog) {
+    options = {};
+  } else if (
+    typeof optionsOrLog === 'object' &&
+    optionsOrLog !== null &&
+    ('log' in optionsOrLog || 'useMarkdown' in optionsOrLog || 'title' in optionsOrLog || 'atUserId' in optionsOrLog)
+  ) {
+    options = optionsOrLog;
+  } else {
+    // Assume it's a Logger object
+    options = { log: optionsOrLog as Logger };
+  }
+
   const token = await getAccessToken(config, options.log);
   const isGroup = target.startsWith('cid');
 
@@ -91,23 +139,17 @@ async function sendProactiveMessage(
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
     : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
 
-  // Detect Markdown formatting similar to sendBySession
-  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
-  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+  // Use shared helper function for markdown detection and title extraction
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 提醒');
 
-  // Extract title from text when using Markdown, similar to sendBySession
-  const title =
-    options.title ||
-    (useMarkdown
-      ? text
-          .split('\n')[0]
-          .replace(/^[#*\s\->]+/, '')
-          .slice(0, 20) || 'Clawdbot 提醒'
-      : 'Clawdbot 提醒');
+  // Choose msgKey based on whether we're sending markdown or plain text
+  // Note: DingTalk's proactive message API uses predefined message templates
+  // sampleMarkdown supports markdown formatting, sampleText for plain text
+  const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
-    msgKey: 'sampleMarkdown',
+    msgKey,
     msgParam: JSON.stringify({
       title,
       text,
@@ -217,18 +259,12 @@ async function sendBySession(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
-  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+  
+  // Use shared helper function for markdown detection and title extraction
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
 
   let body: SessionWebhookResponse;
   if (useMarkdown) {
-    const title =
-      options.title ||
-      text
-        .split('\n')[0]
-        .replace(/^[#*\s\->]+/, '')
-        .slice(0, 20) ||
-      'Clawdbot 消息';
     let finalText = text;
     if (options.atUserId) finalText = `${finalText} @${options.atUserId}`;
     body = { msgtype: 'markdown', markdown: { title, text: finalText } };
