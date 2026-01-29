@@ -82,20 +82,34 @@ async function sendProactiveMessage(
   config: DingTalkConfig,
   target: string,
   text: string,
-  log?: Logger
+  options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
-  const token = await getAccessToken(config, log);
+  const token = await getAccessToken(config, options.log);
   const isGroup = target.startsWith('cid');
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
     : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
 
+  // Detect Markdown formatting similar to sendBySession
+  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
+  const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
+
+  // Extract title from text when using Markdown, similar to sendBySession
+  const title =
+    options.title ||
+    (useMarkdown
+      ? text
+          .split('\n')[0]
+          .replace(/^[#*\s\->]+/, '')
+          .slice(0, 20) || 'Clawdbot 提醒'
+      : 'Clawdbot 提醒');
+
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
     msgKey: 'sampleMarkdown',
     msgParam: JSON.stringify({
-      title: 'Clawdbot 提醒',
+      title,
       text,
     }),
   };
@@ -439,23 +453,23 @@ export const dingtalkPlugin = {
       }
       return { ok: true, to: trimmed };
     },
-    sendText: async ({ cfg, to, text, accountId }: any) => {
+    sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       try {
-        const result = await sendProactiveMessage(config, to, text);
+        const result = await sendProactiveMessage(config, to, text, { log });
         return { ok: true, data: result };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
     },
-    sendMedia: async ({ cfg, to, mediaPath, accountId }: any) => {
+    sendMedia: async ({ cfg, to, mediaPath, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       if (!config.clientId) {
         return { ok: false, error: 'DingTalk not configured' };
       }
       try {
         const mediaDescription = `[媒体消息: ${mediaPath}]`;
-        const result = await sendProactiveMessage(config, to, mediaDescription);
+        const result = await sendProactiveMessage(config, to, mediaDescription, { log });
         return { ok: true, data: result };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
