@@ -20,7 +20,8 @@
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
-    "dingtalk-stream": "^2.1.4"
+    "dingtalk-stream": "^2.1.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.0.0",
