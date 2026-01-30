@@ -69,7 +69,7 @@ type NormalizedAllowFrom = {
 /**
  * Normalize allowFrom list to standardized format
  */
-function normalizeAllowFrom(list?: Array<string | number>): NormalizedAllowFrom {
+function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const entries = (list ?? []).map((value) => String(value).trim()).filter(Boolean);
   const hasWildcard = entries.includes('*');
   const normalized = entries
@@ -94,7 +94,7 @@ function isSenderAllowed(params: {
   const { allow, senderId } = params;
   if (!allow.hasEntries) return true;
   if (allow.hasWildcard) return true;
-  if (senderId && allow.entries.includes(senderId)) return true;
+  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) return true;
   return false;
 }
 
@@ -665,10 +665,20 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
       
       if (!isAllowed) {
         log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
+        
+        // Notify user with their sender ID so they can request access
+        try {
+          await sendBySession(dingtalkConfig, sessionWebhook, 
+            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`, 
+            { log }
+          );
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
+        }
+        
         return;
       }
       
-      commandAuthorized = isAllowed;
       log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
     } else if (dmPolicy === 'pairing') {
       // For pairing mode, SDK will handle the authorization
