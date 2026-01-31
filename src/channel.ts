@@ -137,7 +137,7 @@ function detectMarkdownAndExtractTitle(
 }
 
 function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
-  const dingtalkCfg = cfg?.channels?.dingtalk;
+  const dingtalkCfg = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
   if (!dingtalkCfg) return {} as DingTalkConfig;
 
   if (accountId && dingtalkCfg.accounts?.[accountId]) {
@@ -666,27 +666,29 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   if (isDirect) {
     const dmPolicy = dingtalkConfig.dmPolicy || 'open';
     const allowFrom = dingtalkConfig.allowFrom || [];
-    
+
     if (dmPolicy === 'allowlist') {
       const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
       const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });
-      
+
       if (!isAllowed) {
         log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
-        
+
         // Notify user with their sender ID so they can request access
         try {
-          await sendBySession(dingtalkConfig, sessionWebhook, 
-            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`, 
+          await sendBySession(
+            dingtalkConfig,
+            sessionWebhook,
+            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
             { log }
           );
         } catch (err: any) {
           log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
         }
-        
+
         return;
       }
-      
+
       log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
     } else if (dmPolicy === 'pairing') {
       // For pairing mode, SDK will handle the authorization
@@ -762,6 +764,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     sessionKey: ctx.SessionKey || route.sessionKey,
     ctx,
     updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
+    onRecordError: (err: unknown) => {
+      log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
+    },
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
@@ -770,7 +775,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   let currentAICard: AICardInstance | undefined;
   let lastCardContent = ''; // Track last content for finalization
   const useCardMode = dingtalkConfig.messageType === 'card';
-  
+
   if (dingtalkConfig.showThinking !== false) {
     try {
       if (useCardMode) {
@@ -779,12 +784,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         if (aiCard) {
           currentAICard = aiCard;
           // Stream initial thinking message
-          lastCardContent = '🤔 思考中，请稍候...';
+          lastCardContent = '🤔 思考中，请稍候';
           await streamAICard(aiCard, lastCardContent, false, log);
         }
       } else {
         // For text/markdown mode, send via session webhook
-        await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候...', {
+        await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候', {
           atUserId: !isDirect ? senderId : null,
           log,
         });
@@ -799,8 +804,8 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     deliver: async (payload: any) => {
       try {
         const textToSend = payload.markdown || payload.text;
-        if (!textToSend) return { ok: true };
-        
+        if (!textToSend) return;
+
         if (useCardMode) {
           // AI Card API mode: stream updates to existing card
           if (currentAICard) {
@@ -809,9 +814,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
           } else {
             // No card available - fail fast and fall back to session webhook
             // This prevents duplicate cards or silent failures
-            log?.warn?.(
-              '[DingTalk] AI card instance missing during reply; falling back to session webhook.'
-            );
+            log?.warn?.('[DingTalk] AI card instance missing during reply; falling back to session webhook.');
             await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
               atUserId: !isDirect ? senderId : null,
               log,
@@ -824,10 +827,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
             log,
           });
         }
-        return { ok: true };
       } catch (err: any) {
         log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
-        return { ok: false, error: err.message };
+        throw err;
       }
     },
   });
@@ -844,7 +846,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
       }
     }
-    
+
     markDispatchIdle();
     if (mediaPath && fs.existsSync(mediaPath)) {
       try {
@@ -995,8 +997,6 @@ export const dingtalkPlugin = {
       if (ctx.log?.info) {
         ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
       }
-      const rt = getDingTalkRuntime();
-      rt.channel.activity.record('dingtalk', account.accountId, 'start');
       let stopped = false;
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => {
@@ -1005,7 +1005,6 @@ export const dingtalkPlugin = {
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] Stopping DingTalk Stream client...`);
           }
-          rt.channel.activity.record('dingtalk', account.accountId, 'stop');
         });
       }
       return {
@@ -1015,7 +1014,6 @@ export const dingtalkPlugin = {
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
           }
-          rt.channel.activity.record('dingtalk', account.accountId, 'stop');
           // Clean up card cache cleanup interval
           stopCardCacheCleanup();
         },
