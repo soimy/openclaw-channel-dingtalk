@@ -1,4 +1,4 @@
-# DingTalk Channel for Clawdbot
+# DingTalk Channel for OpenClaw 
 
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
@@ -16,10 +16,10 @@
 
 ### 方法 A：通过远程仓库安装 (推荐)
 
-直接运行 Clawdbot 插件安装命令，Clawdbot 会自动处理下载、安装依赖和注册：
+直接运行 openclaw 插件安装命令，openclaw 会自动处理下载、安装依赖和注册：
 
 ```bash
-clawdbot plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
+openclaw plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
 ```
 
 ### 方法 B：通过本地源码安装
@@ -28,21 +28,21 @@ clawdbot plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
-cd clawdbot-channel-dingtalk
+git clone https://github.com/soimy/openclaw-channel-dingtalk.git
+cd openclaw-channel-dingtalk
 
 # 2. 安装依赖 (必需)
 npm install
 
 # 3. 以链接模式安装 (方便修改代码后实时生效)
-clawdbot plugins install -l .
+openclaw plugins install -l .
 ```
 
 ### 方法 C：手动安装
 
-1. 将本目录下载或复制到 `~/.clawdbot/extensions/dingtalk`。
-2. 确保包含 `index.ts`, `clawdbot.plugin.json` 和 `package.json`。
-3. 运行 `clawdbot plugins list` 确认 `dingtalk` 已显示在列表中。
+1. 将本目录下载或复制到 `~/.openclaw/extensions/dingtalk`。
+2. 确保包含 `index.ts`, `openclaw.plugin.json` 和 `package.json`。
+3. 运行 `openclaw plugins list` 确认 `dingtalk` 已显示在列表中。
 
 ## 配置
 
@@ -66,34 +66,36 @@ clawdbot plugins install -l .
 
 ### 3. 配置 Clawdbot
 
-在 `~/.clawdbot/clawdbot.json` 的 `channels` 下添加：
+在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
+> 只添加dingtalk部分，内容自己替换
 
 ```json5
 {
-  channels: {
-    dingtalk: {
-      enabled: true,
-      clientId: 'dingxxxxxx',
-      clientSecret: 'your-app-secret',
-      robotCode: 'dingxxxxxx',
-      corpId: 'dingxxxxxx',
-      agentId: '123456789',
-      dmPolicy: 'open', // open | pairing | allowlist
-      groupPolicy: 'open', // open | allowlist
-      messageType: 'markdown', // text | markdown | card
-      cardTemplateId: 'StandardCard', // 互动卡片模板 ID
-      cardSendApiUrl: 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send', // 可选：自定义发送卡片API
-      cardUpdateApiUrl: 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards', // 可选：自定义更新卡片API
-      debug: false,
-    },
+  ...
+  "channels": {
+    "telegram": { ... },
+
+    "dingtalk": {
+      "enabled": true,
+      "clientId": "dingxxxxxx",
+      "clientSecret": "your-app-secret",
+      "robotCode": "dingxxxxxx",
+      "corpId": "dingxxxxxx",
+      "agentId": "123456789",
+      "dmPolicy": "open",
+      "groupPolicy": "open",      
+      "messageType": "markdown",       
+      "debug": false
+    }
   },
+  ...
 }
 ```
 
 ### 4. 重启 Gateway
 
 ```bash
-clawdbot gateway restart
+openclaw gateway restart
 ```
 
 ## 配置选项
@@ -203,7 +205,7 @@ clawdbot gateway restart
 
 1. 确认应用已发布
 2. 确认消息接收模式是 Stream
-3. 检查 Gateway 日志：`clawdbot logs | grep dingtalk`
+3. 检查 Gateway 日志：`openclaw logs | grep dingtalk`
 
 ### 群消息无响应
 
@@ -223,8 +225,8 @@ clawdbot gateway restart
 1. 克隆仓库并安装依赖
 
 ```bash
-git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
-cd clawdbot-channel-dingtalk
+git clone https://github.com/soimy/openclaw-channel-dingtalk.git
+cd openclaw-channel-dingtalk
 npm install
 ```
 
@@ -254,7 +256,7 @@ src/
 index.ts              - 插件注册（29 行）
 utils.ts              - 工具函数（110 行）
 
-clawdbot.plugin.json  - 插件配置
+openclaw.plugin.json  - 插件配置
 package.json          - 项目配置
 README.md             - 本文件
 ```

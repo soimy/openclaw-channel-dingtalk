@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
+import type { OpenClawConfig } from 'openclaw/plugin-sdk';
+import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
@@ -28,18 +29,6 @@ import type {
   CardInstance,
 } from './types';
 
-// Use dynamic require to get buildChannelConfigSchema (avoids TS type resolution issues)
-// The actual runtime will load this successfully via ESM interop
-let dingtalkConfigSchema: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { buildChannelConfigSchema } = require('clawdbot/plugin-sdk');
-  dingtalkConfigSchema = buildChannelConfigSchema(DingTalkConfigSchema);
-} catch {
-  // Fallback if require fails - shouldn't happen in normal operation
-  dingtalkConfigSchema = {};
-}
-
 // Access Token cache
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
@@ -57,6 +46,46 @@ const CARD_UPDATE_TIMEOUT = 60000; // 60 seconds of inactivity = finalized
 
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Authorization helpers
+type NormalizedAllowFrom = {
+  entries: string[];
+  entriesLower: string[];
+  hasWildcard: boolean;
+  hasEntries: boolean;
+};
+
+/**
+ * Normalize allowFrom list to standardized format
+ */
+function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
+  const entries = (list ?? []).map((value) => String(value).trim()).filter(Boolean);
+  const hasWildcard = entries.includes('*');
+  const normalized = entries
+    .filter((value) => value !== '*')
+    .map((value) => value.replace(/^(dingtalk|dd|ding):/i, ''));
+  const normalizedLower = normalized.map((value) => value.toLowerCase());
+  return {
+    entries: normalized,
+    entriesLower: normalizedLower,
+    hasWildcard,
+    hasEntries: entries.length > 0,
+  };
+}
+
+/**
+ * Check if sender is allowed based on allowFrom list
+ */
+function isSenderAllowed(params: {
+  allow: NormalizedAllowFrom;
+  senderId?: string;
+}): boolean {
+  const { allow, senderId } = params;
+  if (!allow.hasEntries) return true;
+  if (allow.hasWildcard) return true;
+  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) return true;
+  return false;
+}
 
 // Clean up old card instances from cache
 function cleanupCardCache() {
@@ -111,7 +140,7 @@ function detectMarkdownAndExtractTitle(
   return { useMarkdown, title };
 }
 
-function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
+function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk;
   if (!dingtalkCfg) return {} as DingTalkConfig;
 
@@ -122,7 +151,7 @@ function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
   return dingtalkCfg;
 }
 
-function isConfigured(cfg: ClawdbotConfig, accountId?: string): boolean {
+function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   const config = getConfig(cfg, accountId);
   return Boolean(config.clientId && config.clientSecret);
 }
@@ -613,6 +642,43 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
+  // 2. Check authorization for direct messages based on dmPolicy
+  let commandAuthorized = true;
+  if (isDirect) {
+    const dmPolicy = dingtalkConfig.dmPolicy || 'open';
+    const allowFrom = dingtalkConfig.allowFrom || [];
+    
+    if (dmPolicy === 'allowlist') {
+      const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
+      const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });
+      
+      if (!isAllowed) {
+        log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
+        
+        // Notify user with their sender ID so they can request access
+        try {
+          await sendBySession(dingtalkConfig, sessionWebhook, 
+            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`, 
+            { log }
+          );
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
+        }
+        
+        return;
+      }
+      
+      log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
+    } else if (dmPolicy === 'pairing') {
+      // For pairing mode, SDK will handle the authorization
+      // Set commandAuthorized to true to let SDK check pairing status
+      commandAuthorized = true;
+    } else {
+      // 'open' policy - allow all
+      commandAuthorized = true;
+    }
+  }
+
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
@@ -667,7 +733,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     MediaPath: mediaPath,
     MediaType: mediaType,
     MediaUrl: mediaPath,
-    CommandAuthorized: true,
+    CommandAuthorized: commandAuthorized,
     OriginatingChannel: 'dingtalk',
     OriginatingTo: to,
   });
@@ -758,7 +824,7 @@ export const dingtalkPlugin = {
     blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
     aliases: ['dd', 'ding'],
   },
-  configSchema: dingtalkConfigSchema,
+  configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
   capabilities: {
     chatTypes: ['direct', 'group'],
     reactions: false,
@@ -770,11 +836,11 @@ export const dingtalkPlugin = {
   },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
-    listAccountIds: (cfg: ClawdbotConfig): string[] => {
+    listAccountIds: (cfg: OpenClawConfig): string[] => {
       const config = getConfig(cfg);
       return config.accounts ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
     },
-    resolveAccount: (cfg: ClawdbotConfig, accountId?: string) => {
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string) => {
       const config = getConfig(cfg);
       const id = accountId || 'default';
       const account = config.accounts?.[id];
@@ -964,5 +1030,4 @@ export {
   updateInteractiveCardThrottled,
   sendMessage,
   getAccessToken,
-  dingtalkConfigSchema,
 };

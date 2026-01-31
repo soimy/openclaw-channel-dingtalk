@@ -9,12 +9,12 @@
  * - Session and token management
  */
 
-import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
+import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 
 /**
- * DingTalk channel configuration (extends base Clawdbot config)
+ * DingTalk channel configuration (extends base OpenClaw config)
  */
-export interface DingTalkConfig extends ClawdbotConfig {
+export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
   clientSecret: string;
   robotCode?: string;
@@ -170,7 +170,7 @@ export interface SessionWebhookResponse {
  * Message handler parameters
  */
 export interface HandleDingTalkMessageParams {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   accountId: string;
   data: DingTalkInboundMessage;
   sessionWebhook: string;
@@ -281,7 +281,7 @@ export interface Logger {
  */
 export interface GatewayStartContext {
   account: ResolvedAccount;
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   abortSignal?: AbortSignal;
   log?: Logger;
 }
@@ -318,8 +318,8 @@ export interface DingTalkChannelPlugin {
     configPrefixes: string[];
   };
   config: {
-    listAccountIds: (cfg: ClawdbotConfig) => string[];
-    resolveAccount: (cfg: ClawdbotConfig, accountId?: string) => ResolvedAccount;
+    listAccountIds: (cfg: OpenClawConfig) => string[];
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string) => ResolvedAccount;
     defaultAccountId: () => string;
     isConfigured: (account: any) => boolean;
     describeAccount: (account: any) => AccountDescriptor;

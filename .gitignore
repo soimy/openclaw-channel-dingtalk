@@ -20,3 +20,4 @@ credentials.json
 
 # Opencode directories
 .opencode/
+.vscode/

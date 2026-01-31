@@ -1,8 +1,8 @@
-import type { PluginRuntime } from 'clawdbot/plugin-sdk';
+import type { PluginRuntime } from 'openclaw/plugin-sdk';
 
 let runtime: PluginRuntime | null = null;
 
-export function setDingTalkRuntime(next: PluginRuntime) {
+export function setDingTalkRuntime(next: PluginRuntime): void {
   runtime = next;
 }
 
