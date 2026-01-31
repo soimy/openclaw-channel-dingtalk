@@ -112,9 +112,10 @@ openclaw gateway restart
 | `groupPolicy`      | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
 | `allowFrom`        | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
 | `messageType`      | string   | `"markdown"`                                                    | 消息类型：text/markdown/card              |
-| `cardTemplateId`   | string   | `"StandardCard"`                                                | 互动卡片模板 ID（仅当 messageType=card）  |
-| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）            |
-| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`   | 自定义卡片更新 API URL（可选）            |
+| `cardTemplateId`   | string   | `"382e4302-551d-4880-bf29-a30acfab2e71.schema"`                 | AI 互动卡片模板 ID（仅当 messageType=card）|
+| `useNewCardApi`    | boolean  | `true`                                                          | 使用新版 AI Card API（推荐）              |
+| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 旧版卡片发送 API URL（向下兼容）          |
+| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`   | 旧版卡片更新 API URL（向下兼容）          |
 | `debug`            | boolean  | `false`                                                         | 是否开启调试日志                          |
 
 ## 安全策略
@@ -166,31 +167,96 @@ openclaw gateway restart
 - 自动检测消息是否包含 Markdown 语法
 - 适用于大多数场景
 
-### 3. card（互动卡片）**【推荐用于 AI 对话】**
+### 3. card（AI 互动卡片）**【推荐用于 AI 对话】**
+- 🆕 **使用新版 AI Card API**（默认启用）
 - 支持流式更新（实时显示 AI 生成内容）
-- 更好的视觉呈现
-- 支持自定义卡片模板
-- 通过 `cardTemplateId` 指定模板（默认：`StandardCard`）
+- 更好的视觉呈现和交互体验
+- 支持 Markdown 格式渲染
+- 通过 `cardTemplateId` 指定模板
 
-**流式更新示例：**
-当配置 `messageType: 'card'` 时，机器人会：
-1. 发送初始卡片显示"正在思考中..."
-2. AI 生成回复时，实时更新卡片内容
-3. 用户可以看到回复逐步生成的过程
+**新版 AI Card API 特性：**
+当配置 `messageType: 'card'` 且 `useNewCardApi: true`（默认）时：
+1. 使用 `/v1.0/card/instances` 创建并投放卡片
+2. 使用 `/v1.0/card/streaming` 实现真正的流式更新
+3. 自动状态管理（INPUTING → streaming → FINISHED）
+4. 更稳定的流式体验，无需手动节流
 
-**流式更新优化：**
-- 自动节流：最小 500ms 更新间隔，避免 API 限流
-- 超时检测：3 秒无更新自动视为完成
+**旧版兼容性：**
+如需使用旧版 API，可设置 `useNewCardApi: false`：
+- 自动节流：最小 500ms 更新间隔
+- 超时检测：60 秒无更新自动视为完成
 - 错误处理：遇到 404/410 错误自动清理缓存
-- 支持 Markdown：卡片内容自动支持 Markdown 格式
 
+**配置示例：**
 ```json5
 {
-  messageType: 'card', // 启用互动卡片模式
-  cardTemplateId: 'StandardCard', // 使用标准卡片模板
-  cardSendApiUrl: 'https://api.dingtalk.com/...', // 可选：自定义 API
+  messageType: 'card', // 启用 AI 互动卡片模式
+  useNewCardApi: true, // 使用新版 API（推荐，默认值）
+  cardTemplateId: '382e4302-551d-4880-bf29-a30acfab2e71.schema', // AI 卡片模板 ID
 }
 ```
+
+**向下兼容旧版：**
+```json5
+{
+  messageType: 'card',
+  useNewCardApi: false, // 使用旧版 API
+  cardTemplateId: 'StandardCard', // 标准卡片模板
+  cardSendApiUrl: 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send',
+  cardUpdateApiUrl: 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards',
+}
+```
+
+## 新版 AI Card API 升级指南
+
+### 从旧版迁移到新版
+
+**v2.1.2+ 默认使用新版 AI Card API**，无需额外配置。如果您从旧版本升级：
+
+1. **自动迁移**（推荐）
+   - 更新到最新版本后，新版 API 会自动启用
+   - 现有配置保持兼容，不需要修改
+   - 新的默认 `cardTemplateId` 会自动使用 AI 卡片模板
+
+2. **手动控制**
+   ```json5
+   {
+     "dingtalk": {
+       "messageType": "card",
+       "useNewCardApi": true,  // 显式启用新版 API
+       // 其他配置保持不变...
+     }
+   }
+   ```
+
+3. **回退到旧版**（如遇到问题）
+   ```json5
+   {
+     "dingtalk": {
+       "messageType": "card",
+       "useNewCardApi": false,  // 使用旧版 API
+       "cardTemplateId": "StandardCard",
+       // 其他配置保持不变...
+     }
+   }
+   ```
+
+### API 对比
+
+| 特性 | 新版 AI Card API | 旧版 Card API |
+|------|-----------------|--------------|
+| API 端点 | `/v1.0/card/instances`<br/>`/v1.0/card/streaming` | `/v1.0/im/v1.0/robot/interactiveCards/send`<br/>`/v1.0/im/robots/interactiveCards` |
+| 流式更新 | 原生支持，无需节流 | 需要手动节流（500ms） |
+| 状态管理 | 自动（INPUTING → FINISHED） | 无状态管理 |
+| 卡片创建 | 创建 + 投放两步 | 一步发送 |
+| Markdown 支持 | 原生支持 | 需要自定义模板 |
+| 稳定性 | 更高，官方推荐 | 可能被弃用 |
+
+### 参考文档
+
+- [创建并投放卡片](https://open.dingtalk.com/document/development/create-and-deliver-cards)
+- [更新 AI 互动卡片](https://open.dingtalk.com/document/development/api-streamingupdate)
+- [参考实现](https://github.com/DingTalk-Real-AI/dingtalk-moltbot-connector)
 
 ## 使用示例
 
@@ -281,11 +347,19 @@ DingTalkInboundMessage; // 收到的钉钉消息
 MessageContent; // 解析后的消息内容
 HandleDingTalkMessageParams; // 消息处理参数
 
-// 互动卡片
+// 互动卡片（旧版 API）
 InteractiveCardData; // 卡片数据结构
 InteractiveCardSendRequest; // 发送卡片请求
 InteractiveCardUpdateRequest; // 更新卡片请求
 CardInstance; // 卡片实例（用于缓存）
+
+// AI 互动卡片（新版 API）
+AICardInstance; // AI 卡片实例
+AICardCreateRequest; // 创建卡片请求
+AICardDeliverRequest; // 投放卡片请求
+AICardUpdateRequest; // 更新卡片请求
+AICardStreamingRequest; // 流式更新请求
+AICardStatus; // 卡片状态常量
 
 // 工具函数类型
 Logger; // 日志接口
@@ -302,7 +376,12 @@ MediaFile; // 下载的媒体文件
 sendBySession(config, sessionWebhook, text, options); // 通过会话发送
 sendProactiveMessage(config, target, text, options); // 主动发送消息
 
-// 互动卡片（流式更新）
+// AI 互动卡片（新版 API，推荐）
+createAICard(config, conversationId, data, log); // 创建并投放 AI 卡片
+streamAICard(card, content, finished, log); // 流式更新卡片内容
+finishAICard(card, content, log); // 完成并关闭卡片
+
+// 互动卡片（旧版 API，向下兼容）
 sendInteractiveCard(config, conversationId, text, options); // 发送卡片
 updateInteractiveCard(config, cardBizId, text, options); // 更新卡片
 
@@ -313,7 +392,24 @@ sendMessage(config, conversationId, text, options); // 根据配置自动选择
 getAccessToken(config, log); // 获取访问令牌
 ```
 
-**使用示例：**
+**使用示例（新版 AI Card API）：**
+
+```typescript
+import { createAICard, streamAICard, finishAICard } from './src/channel';
+
+// 创建 AI 卡片
+const card = await createAICard(config, conversationId, messageData, log);
+
+// 流式更新内容
+for (const chunk of aiResponseChunks) {
+  await streamAICard(card, currentText + chunk, false, log);
+}
+
+// 完成并关闭卡片
+await finishAICard(card, finalText, log);
+```
+
+**使用示例（旧版 API）：**
 
 ```typescript
 import { sendInteractiveCard, updateInteractiveCard } from './src/channel';
