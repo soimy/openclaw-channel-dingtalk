@@ -88,9 +88,14 @@ function isSenderAllowed(params: {
 function cleanupCardCache() {
   const now = Date.now();
   
-  // Clean up AI card instances
+  // Clean up AI card instances that are in FINISHED or FAILED state
+  // Active cards (PROCESSING, INPUTING) are not cleaned up even if they exceed TTL
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
-    if (now - instance.lastUpdated > CARD_CACHE_TTL) {
+    const isFinishedOrFailed = 
+      instance.state === AICardStatus.FINISHED || 
+      instance.state === AICardStatus.FAILED;
+    
+    if (isFinishedOrFailed && now - instance.lastUpdated > CARD_CACHE_TTL) {
       aiCardInstances.delete(cardInstanceId);
     }
   }
@@ -443,6 +448,7 @@ async function createAICard(
       conversationId,
       createdAt: Date.now(),
       lastUpdated: Date.now(),
+      state: AICardStatus.PROCESSING, // Initial state after creation
     };
     aiCardInstances.set(cardInstanceId, aiCardInstance);
 
@@ -488,6 +494,11 @@ async function streamAICard(
     };
 
     log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (INPUTING) outTrackId=${card.cardInstanceId}`);
+    
+    // Mark as started before API call to prevent retry loops if it fails
+    card.inputingStarted = true;
+    card.state = AICardStatus.INPUTING;
+    
     try {
       const statusResp = await axios.put(`${DINGTALK_API}/v1.0/card/instances`, statusBody, {
         headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
@@ -499,9 +510,10 @@ async function streamAICard(
       log?.error?.(
         `[DingTalk][AICard] INPUTING switch failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
       );
+      // Mark card as failed so it won't be retried
+      card.state = AICardStatus.FAILED;
       throw err;
     }
-    card.inputingStarted = true;
   }
 
   // Call streaming API to update content
@@ -570,14 +582,18 @@ async function finishAICard(card: AICardInstance, content: string, log?: Logger)
       `[DingTalk][AICard] FINISHED response: status=${finishResp.status} data=${JSON.stringify(finishResp.data)}`
     );
 
-    // Remove from cache after finalization
-    aiCardInstances.delete(card.cardInstanceId);
+    // Update state to FINISHED
+    card.state = AICardStatus.FINISHED;
+    card.lastUpdated = Date.now();
+    
+    // Keep in cache for TTL period to allow cleanup function to handle removal
   } catch (err: any) {
     log?.error?.(
       `[DingTalk][AICard] FINISHED update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
     );
-    // Still remove from cache even if finish fails
-    aiCardInstances.delete(card.cardInstanceId);
+    // Mark card as failed
+    card.state = AICardStatus.FAILED;
+    card.lastUpdated = Date.now();
     throw err;
   }
 }
@@ -790,13 +806,16 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
             lastCardContent = textToSend;
             await streamAICard(currentAICard, textToSend, false, log);
           } else {
-            // Fallback: create new AI card if not exists
-            const aiCard = await createAICard(dingtalkConfig, to, data, log);
-            if (aiCard) {
-              currentAICard = aiCard;
-              lastCardContent = textToSend;
-              await streamAICard(aiCard, textToSend, false, log);
-            }
+            // No card available - fail fast and fall back to session webhook
+            // This prevents duplicate cards or silent failures
+            log?.warn?.(
+              '[DingTalk] AI card instance missing during reply; falling back to session webhook.'
+            );
+            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
+              atUserId: !isDirect ? senderId : null,
+              log,
+            });
+          }
           }
         } else {
           // Text/markdown mode: send via session webhook

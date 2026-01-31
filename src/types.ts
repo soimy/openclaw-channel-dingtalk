@@ -423,6 +423,7 @@ export interface AICardInstance {
   conversationId: string;
   createdAt: number;
   lastUpdated: number;
+  state: string; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
 }
 
 /**
