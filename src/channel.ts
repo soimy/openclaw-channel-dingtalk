@@ -102,6 +102,8 @@ function isSenderAllowed(params: {
 // Clean up old card instances from cache
 function cleanupCardCache() {
   const now = Date.now();
+  
+  // Clean up legacy card instances
   for (const [cardBizId, instance] of cardInstances.entries()) {
     if (now - instance.lastUpdated > CARD_CACHE_TTL) {
       cardInstances.delete(cardBizId);
@@ -111,6 +113,13 @@ function cleanupCardCache() {
         clearTimeout(timeout);
         cardUpdateTimeouts.delete(cardBizId);
       }
+    }
+  }
+  
+  // Clean up AI card instances
+  for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
+    if (now - instance.lastUpdated > CARD_CACHE_TTL) {
+      aiCardInstances.delete(cardInstanceId);
     }
   }
 }
@@ -129,6 +138,8 @@ function stopCardCacheCleanup() {
     clearTimeout(timeout);
   }
   cardUpdateTimeouts.clear();
+  // Clear AI card cache
+  aiCardInstances.clear();
 }
 
 // Helper function to detect markdown and extract title
@@ -746,7 +757,7 @@ async function streamAICard(
   // Call streaming API to update content
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
-    guid: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    guid: randomUUID(), // Use crypto.randomUUID() for robust GUID generation
     key: 'msgContent',
     content: content,
     isFull: true, // Full replacement
