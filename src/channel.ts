@@ -27,13 +27,22 @@ import type {
   InteractiveCardSendRequest,
   InteractiveCardUpdateRequest,
   CardInstance,
+  AICardInstance,
+  AICardCreateRequest,
+  AICardDeliverRequest,
+  AICardUpdateRequest,
+  AICardStreamingRequest,
 } from './types';
+import { AICardStatus } from './types';
 
 // Access Token cache
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
-// Card instance cache for streaming updates
+// AI Card instance cache for streaming updates (new API)
+const aiCardInstances = new Map<string, AICardInstance>();
+
+// Card instance cache for streaming updates (legacy API)
 const cardInstances = new Map<string, CardInstance>();
 
 // Card update throttling - track last update time per card
@@ -46,6 +55,9 @@ const CARD_UPDATE_TIMEOUT = 60000; // 60 seconds of inactivity = finalized
 
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// DingTalk API base URL
+const DINGTALK_API = 'https://api.dingtalk.com';
 
 // Authorization helpers
 type NormalizedAllowFrom = {
@@ -582,6 +594,227 @@ async function updateInteractiveCardThrottled(
   }
 }
 
+// ============ New AI Card API Functions ============
+
+/**
+ * Create and deliver an AI Card using the new DingTalk API
+ * @param config DingTalk configuration
+ * @param conversationId Conversation ID (starts with 'cid' for groups, user ID for DM)
+ * @param data Original message data for context
+ * @param log Logger instance
+ * @returns AI Card instance or null on failure
+ */
+async function createAICard(
+  config: DingTalkConfig,
+  conversationId: string,
+  data: DingTalkInboundMessage,
+  log?: Logger
+): Promise<AICardInstance | null> {
+  try {
+    const token = await getAccessToken(config, log);
+    const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    log?.info?.(`[DingTalk][AICard] Creating card outTrackId=${cardInstanceId}`);
+    log?.debug?.(
+      `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${conversationId}`
+    );
+
+    // 1. Create card instance
+    const createBody: AICardCreateRequest = {
+      cardTemplateId: config.cardTemplateId || '382e4302-551d-4880-bf29-a30acfab2e71.schema',
+      outTrackId: cardInstanceId,
+      cardData: {
+        cardParamMap: {},
+      },
+      callbackType: 'STREAM',
+      imGroupOpenSpaceModel: { supportForward: true },
+      imRobotOpenSpaceModel: { supportForward: true },
+    };
+
+    log?.debug?.(`[DingTalk][AICard] POST /v1.0/card/instances body=${JSON.stringify(createBody)}`);
+    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+    log?.debug?.(
+      `[DingTalk][AICard] Create response: status=${createResp.status} data=${JSON.stringify(createResp.data)}`
+    );
+
+    // 2. Deliver card
+    const isGroup = conversationId.startsWith('cid');
+    const deliverBody: AICardDeliverRequest = {
+      outTrackId: cardInstanceId,
+      userIdType: 1,
+    };
+
+    if (isGroup) {
+      deliverBody.openSpaceId = `dtv1.card//IM_GROUP.${conversationId}`;
+      deliverBody.imGroupOpenDeliverModel = {
+        robotCode: config.robotCode || config.clientId,
+      };
+    } else {
+      deliverBody.openSpaceId = `dtv1.card//IM_ROBOT.${conversationId}`;
+      deliverBody.imRobotOpenDeliverModel = { spaceType: 'IM_ROBOT' };
+    }
+
+    log?.debug?.(
+      `[DingTalk][AICard] POST /v1.0/card/instances/deliver body=${JSON.stringify(deliverBody)}`
+    );
+    const deliverResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+    log?.debug?.(
+      `[DingTalk][AICard] Deliver response: status=${deliverResp.status} data=${JSON.stringify(deliverResp.data)}`
+    );
+
+    // Cache the AI card instance
+    const aiCardInstance: AICardInstance = {
+      cardInstanceId,
+      accessToken: token,
+      inputingStarted: false,
+      conversationId,
+      createdAt: Date.now(),
+      lastUpdated: Date.now(),
+    };
+    aiCardInstances.set(cardInstanceId, aiCardInstance);
+
+    return aiCardInstance;
+  } catch (err: any) {
+    log?.error?.(`[DingTalk][AICard] Create failed: ${err.message}`);
+    if (err.response) {
+      log?.error?.(
+        `[DingTalk][AICard] Error response: status=${err.response.status} data=${JSON.stringify(err.response.data)}`
+      );
+    }
+    return null;
+  }
+}
+
+/**
+ * Stream update AI Card content using the new DingTalk API
+ * @param card AI Card instance
+ * @param content Content to stream
+ * @param finished Whether this is the final update
+ * @param log Logger instance
+ */
+async function streamAICard(
+  card: AICardInstance,
+  content: string,
+  finished: boolean = false,
+  log?: Logger
+): Promise<void> {
+  // First time streaming, switch to INPUTING state
+  if (!card.inputingStarted) {
+    const statusBody: AICardUpdateRequest = {
+      outTrackId: card.cardInstanceId,
+      cardData: {
+        cardParamMap: {
+          flowStatus: AICardStatus.INPUTING,
+          msgContent: '',
+          staticMsgContent: '',
+          sys_full_json_obj: JSON.stringify({
+            order: ['msgContent'],
+          }),
+        },
+      },
+    };
+
+    log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (INPUTING) outTrackId=${card.cardInstanceId}`);
+    try {
+      const statusResp = await axios.put(`${DINGTALK_API}/v1.0/card/instances`, statusBody, {
+        headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+      });
+      log?.debug?.(
+        `[DingTalk][AICard] INPUTING response: status=${statusResp.status} data=${JSON.stringify(statusResp.data)}`
+      );
+    } catch (err: any) {
+      log?.error?.(
+        `[DingTalk][AICard] INPUTING switch failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
+      );
+      throw err;
+    }
+    card.inputingStarted = true;
+  }
+
+  // Call streaming API to update content
+  const streamBody: AICardStreamingRequest = {
+    outTrackId: card.cardInstanceId,
+    guid: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    key: 'msgContent',
+    content: content,
+    isFull: true, // Full replacement
+    isFinalize: finished,
+    isError: false,
+  };
+
+  log?.debug?.(
+    `[DingTalk][AICard] PUT /v1.0/card/streaming contentLen=${content.length} isFinalize=${finished} guid=${streamBody.guid}`
+  );
+  try {
+    const streamResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
+      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+    });
+    log?.debug?.(`[DingTalk][AICard] Streaming response: status=${streamResp.status}`);
+
+    // Update last updated time
+    card.lastUpdated = Date.now();
+  } catch (err: any) {
+    log?.error?.(
+      `[DingTalk][AICard] Streaming update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
+    );
+    throw err;
+  }
+}
+
+/**
+ * Finalize AI Card: close streaming channel and update to FINISHED state
+ * @param card AI Card instance
+ * @param content Final content
+ * @param log Logger instance
+ */
+async function finishAICard(card: AICardInstance, content: string, log?: Logger): Promise<void> {
+  log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
+
+  // 1. First close streaming channel with final content (isFinalize=true)
+  await streamAICard(card, content, true, log);
+
+  // 2. Update card state to FINISHED
+  const finishBody: AICardUpdateRequest = {
+    outTrackId: card.cardInstanceId,
+    cardData: {
+      cardParamMap: {
+        flowStatus: AICardStatus.FINISHED,
+        msgContent: content,
+        staticMsgContent: '',
+        sys_full_json_obj: JSON.stringify({
+          order: ['msgContent'],
+        }),
+      },
+    },
+  };
+
+  log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (FINISHED) outTrackId=${card.cardInstanceId}`);
+  try {
+    const finishResp = await axios.put(`${DINGTALK_API}/v1.0/card/instances`, finishBody, {
+      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+    });
+    log?.debug?.(
+      `[DingTalk][AICard] FINISHED response: status=${finishResp.status} data=${JSON.stringify(finishResp.data)}`
+    );
+
+    // Remove from cache after finalization
+    aiCardInstances.delete(card.cardInstanceId);
+  } catch (err: any) {
+    log?.error?.(
+      `[DingTalk][AICard] FINISHED update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
+    );
+    // Still remove from cache even if finish fails
+    aiCardInstances.delete(card.cardInstanceId);
+    throw err;
+  }
+}
+
+// ============ End of New AI Card API Functions ============
+
 // Send message with automatic mode selection (text/markdown/card)
 async function sendMessage(
   config: DingTalkConfig,
@@ -749,14 +982,28 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   // Feedback: Thinking...
   let currentCardBizId: string | undefined;
+  let currentAICard: AICardInstance | undefined;
+  let lastCardContent = ''; // Track last content for finalization
   const useCardMode = dingtalkConfig.messageType === 'card';
+  const useNewCardApi = dingtalkConfig.useNewCardApi !== false; // Default to true
   
   if (dingtalkConfig.showThinking !== false) {
     try {
       if (useCardMode) {
-        // For card mode, send initial card with thinking message
-        const result = await sendInteractiveCard(dingtalkConfig, to, '🤔 思考中，请稍候...', { log });
-        currentCardBizId = result.cardBizId;
+        if (useNewCardApi) {
+          // For new AI Card API, create and deliver card
+          const aiCard = await createAICard(dingtalkConfig, to, data, log);
+          if (aiCard) {
+            currentAICard = aiCard;
+            // Stream initial thinking message
+            lastCardContent = '🤔 思考中，请稍候...';
+            await streamAICard(aiCard, lastCardContent, false, log);
+          }
+        } else {
+          // For legacy card mode, send initial card with thinking message
+          const result = await sendInteractiveCard(dingtalkConfig, to, '🤔 思考中，请稍候...', { log });
+          currentCardBizId = result.cardBizId;
+        }
       } else {
         // For text/markdown mode, send via session webhook
         await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候...', {
@@ -777,12 +1024,28 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         if (!textToSend) return { ok: true };
         
         if (useCardMode) {
-          // Card mode: update existing card or create new one (throttled)
-          if (currentCardBizId) {
-            await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
+          if (useNewCardApi) {
+            // New AI Card API mode: stream updates to existing card
+            if (currentAICard) {
+              lastCardContent = textToSend;
+              await streamAICard(currentAICard, textToSend, false, log);
+            } else {
+              // Fallback: create new AI card if not exists
+              const aiCard = await createAICard(dingtalkConfig, to, data, log);
+              if (aiCard) {
+                currentAICard = aiCard;
+                lastCardContent = textToSend;
+                await streamAICard(aiCard, textToSend, false, log);
+              }
+            }
           } else {
-            const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
-            currentCardBizId = result.cardBizId;
+            // Legacy card mode: update existing card or create new one
+            if (currentCardBizId) {
+              await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
+            } else {
+              const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
+              currentCardBizId = result.cardBizId;
+            }
           }
         } else {
           // Text/markdown mode: send via session webhook
@@ -802,6 +1065,16 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   try {
     await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
   } finally {
+    // Finalize AI card if using new API
+    if (useCardMode && useNewCardApi && currentAICard) {
+      try {
+        // Finalize with the last content
+        await finishAICard(currentAICard, lastCardContent, log);
+      } catch (err: any) {
+        log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
+      }
+    }
+    
     markDispatchIdle();
     if (mediaPath && fs.existsSync(mediaPath)) {
       try {
@@ -1008,12 +1281,18 @@ export const dingtalkPlugin = {
  *   (e.g. replies within an existing conversation).
  * - {@link sendProactiveMessage} sends a proactive/outbound message to DingTalk
  *   without requiring an existing inbound session.
- * - {@link sendInteractiveCard} sends an interactive card to DingTalk
+ * - {@link sendInteractiveCard} sends an interactive card to DingTalk (legacy API)
  *   (returns cardBizId for streaming updates).
- * - {@link updateInteractiveCard} updates an existing interactive card
+ * - {@link updateInteractiveCard} updates an existing interactive card (legacy API)
  *   (for streaming message updates).
  * - {@link updateInteractiveCardThrottled} throttled version of updateInteractiveCard
  *   with rate limiting and auto-finalization timeout (recommended for streaming).
+ * - {@link createAICard} creates and delivers an AI Card using the new DingTalk API
+ *   (returns AICardInstance for streaming updates).
+ * - {@link streamAICard} streams content updates to an AI Card (new API)
+ *   (for real-time streaming message updates).
+ * - {@link finishAICard} finalizes an AI Card and sets state to FINISHED (new API)
+ *   (closes streaming channel and updates card state).
  * - {@link sendMessage} sends a message with automatic mode selection
  *   (text/markdown/card based on config).
  * - {@link getAccessToken} retrieves (and caches) the DingTalk access token
@@ -1028,6 +1307,9 @@ export {
   sendInteractiveCard,
   updateInteractiveCard,
   updateInteractiveCardThrottled,
+  createAICard,
+  streamAICard,
+  finishAICard,
   sendMessage,
   getAccessToken,
 };

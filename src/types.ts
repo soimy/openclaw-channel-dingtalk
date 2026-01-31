@@ -29,6 +29,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
+  useNewCardApi?: boolean;
   cardSendApiUrl?: string;
   cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
@@ -51,6 +52,7 @@ export interface DingTalkChannelConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
+  useNewCardApi?: boolean;
   cardSendApiUrl?: string;
   cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
@@ -475,4 +477,88 @@ export interface CardInstance {
   conversationId: string;
   createdAt: number;
   lastUpdated: number;
+}
+
+/**
+ * AI Card status constants (new API)
+ */
+export const AICardStatus = {
+  PROCESSING: '1',
+  INPUTING: '2',
+  FINISHED: '3',
+  EXECUTING: '4',
+  FAILED: '5',
+} as const;
+
+/**
+ * AI Card instance (new API)
+ */
+export interface AICardInstance {
+  cardInstanceId: string;
+  accessToken: string;
+  inputingStarted: boolean;
+  conversationId: string;
+  createdAt: number;
+  lastUpdated: number;
+}
+
+/**
+ * AI Card create request (new API)
+ */
+export interface AICardCreateRequest {
+  cardTemplateId: string;
+  outTrackId: string;
+  cardData: {
+    cardParamMap: Record<string, any>;
+  };
+  callbackType?: string;
+  imGroupOpenSpaceModel?: {
+    supportForward: boolean;
+  };
+  imRobotOpenSpaceModel?: {
+    supportForward: boolean;
+  };
+}
+
+/**
+ * AI Card deliver request (new API)
+ */
+export interface AICardDeliverRequest {
+  outTrackId: string;
+  userIdType: number;
+  openSpaceId?: string;
+  imGroupOpenDeliverModel?: {
+    robotCode: string;
+  };
+  imRobotOpenDeliverModel?: {
+    spaceType: string;
+  };
+}
+
+/**
+ * AI Card update request (new API)
+ */
+export interface AICardUpdateRequest {
+  outTrackId: string;
+  cardData: {
+    cardParamMap: {
+      flowStatus: string;
+      msgContent: string;
+      staticMsgContent?: string;
+      sys_full_json_obj?: string;
+    };
+  };
+}
+
+/**
+ * AI Card streaming update request (new API)
+ */
+export interface AICardStreamingRequest {
+  outTrackId: string;
+  guid: string;
+  key: string;
+  content: string;
+  isFull: boolean;
+  isFinalize: boolean;
+  isError: boolean;
 }
