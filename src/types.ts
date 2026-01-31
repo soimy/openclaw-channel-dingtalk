@@ -29,9 +29,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
-  useNewCardApi?: boolean;
-  cardSendApiUrl?: string;
-  cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
 
@@ -52,9 +49,6 @@ export interface DingTalkChannelConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
-  useNewCardApi?: boolean;
-  cardSendApiUrl?: string;
-  cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
 
@@ -409,78 +403,7 @@ export interface DingTalkOutboundHandler {
 }
 
 /**
- * Interactive card data structure
- */
-export interface InteractiveCardData {
-  config?: {
-    autoLayout?: boolean;
-    enableForward?: boolean;
-  };
-  header?: {
-    title: {
-      type: string;
-      text: string;
-    };
-    logo?: string;
-  };
-  contents?: Array<{
-    type: string;
-    text?: string;
-    [key: string]: any;
-  }>;
-  [key: string]: any;
-}
-
-/**
- * Interactive card send request payload
- */
-export interface InteractiveCardSendRequest {
-  cardTemplateId: string;
-  cardBizId: string;
-  robotCode: string;
-  openConversationId?: string;
-  singleChatReceiver?: string;
-  cardData: string;
-  callbackUrl?: string;
-  userIdPrivateDataMap?: string;
-  unionIdPrivateDataMap?: string;
-}
-
-/**
- * Interactive card update request payload
- */
-export interface InteractiveCardUpdateRequest {
-  cardBizId: string;
-  cardData: string;
-  userIdPrivateDataMap?: string;
-  unionIdPrivateDataMap?: string;
-  updateOptions?: {
-    updateCardDataByKey?: boolean;
-    updatePrivateDataByKey?: boolean;
-  };
-}
-
-/**
- * Interactive card response
- */
-export interface InteractiveCardResponse {
-  result?: boolean;
-  success?: boolean;
-  processQueryKey?: string;
-}
-
-/**
- * Card instance tracking info for streaming updates
- */
-export interface CardInstance {
-  cardBizId: string;
-  conversationId: string;
-  createdAt: number;
-  lastUpdated: number;
-}
-
-/**
- * AI Card status constants (new API)
+ * AI Card status constants
  */
 export const AICardStatus = {
   PROCESSING: '1',
@@ -491,7 +414,7 @@ export const AICardStatus = {
 } as const;
 
 /**
- * AI Card instance (new API)
+ * AI Card instance
  */
 export interface AICardInstance {
   cardInstanceId: string;
