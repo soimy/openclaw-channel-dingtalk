@@ -84,6 +84,11 @@ function isSenderAllowed(params: {
   return false;
 }
 
+// Helper function to check if a card is in a terminal state
+function isCardInTerminalState(state: string): boolean {
+  return state === AICardStatus.FINISHED || state === AICardStatus.FAILED;
+}
+
 // Clean up old AI card instances from cache
 function cleanupCardCache() {
   const now = Date.now();
@@ -91,11 +96,7 @@ function cleanupCardCache() {
   // Clean up AI card instances that are in FINISHED or FAILED state
   // Active cards (PROCESSING, INPUTING) are not cleaned up even if they exceed TTL
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
-    const isFinishedOrFailed = 
-      instance.state === AICardStatus.FINISHED || 
-      instance.state === AICardStatus.FAILED;
-    
-    if (isFinishedOrFailed && now - instance.lastUpdated > CARD_CACHE_TTL) {
+    if (isCardInTerminalState(instance.state) && now - instance.lastUpdated > CARD_CACHE_TTL) {
       aiCardInstances.delete(cardInstanceId);
     }
   }

@@ -414,6 +414,11 @@ export const AICardStatus = {
 } as const;
 
 /**
+ * AI Card state type
+ */
+export type AICardState = typeof AICardStatus[keyof typeof AICardStatus];
+
+/**
  * AI Card instance
  */
 export interface AICardInstance {
@@ -423,7 +428,7 @@ export interface AICardInstance {
   conversationId: string;
   createdAt: number;
   lastUpdated: number;
-  state: string; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
+  state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
 }
 
 /**
