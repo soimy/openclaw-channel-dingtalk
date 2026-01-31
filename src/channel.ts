@@ -601,9 +601,9 @@ async function finishAICard(card: AICardInstance, content: string, log?: Logger)
 
 // ============ End of New AI Card API Functions ============
 
-// Send message with automatic mode selection (text/markdown/card)
-// Note: Card mode is not supported in this function as it requires message context.
-// Use createAICard/streamAICard/finishAICard directly for card operations.
+// Send message with automatic mode selection (text/markdown)
+// Note: Card mode is not fully supported in this function as it requires message context.
+// Card mode will fall back to proactive message. Use createAICard/streamAICard/finishAICard for proper card operations.
 async function sendMessage(
   config: DingTalkConfig,
   conversationId: string,
@@ -619,10 +619,11 @@ async function sendMessage(
       return { ok: true };
     }
     
-    // For card mode, log warning as this function doesn't support AI Card API
+    // For card mode, warn and fall back to proactive message
     if (messageType === 'card') {
       options.log?.warn?.(
-        '[DingTalk] sendMessage() does not support card mode. Use createAICard/streamAICard/finishAICard directly.'
+        '[DingTalk] sendMessage() does not support AI Card API and will fall back to proactive message. ' +
+        'Use createAICard/streamAICard/finishAICard directly for proper card operations.'
       );
       // Fallback to proactive message
       await sendProactiveMessage(config, conversationId, text, options);
