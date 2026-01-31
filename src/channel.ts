@@ -105,6 +105,7 @@ function cleanupCardCache() {
 
 // Run cleanup periodically (every 30 minutes)
 let cleanupIntervalId: NodeJS.Timeout | null = setInterval(cleanupCardCache, 30 * 60 * 1000);
+cleanupIntervalId.unref?.();
 
 // Cleanup function to stop the interval
 function stopCardCacheCleanup() {
