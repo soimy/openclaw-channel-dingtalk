@@ -44,7 +44,11 @@ export const DingTalkConfigSchema = z.object({
   /** Message type for replies: text, markdown, or card */
   messageType: z.enum(['text', 'markdown', 'card']).optional().default('markdown'),
 
-  /** Card template ID for interactive cards - use AI Card template ID for new API */
+  /** Card template ID for interactive cards - use AI Card template ID for new API
+   * Default: '382e4302-551d-4880-bf29-a30acfab2e71.schema' (DingTalk official AI Card template)
+   * Note: This is the official AI Card template ID provided by DingTalk for AI streaming cards.
+   * If using custom templates, obtain the template ID from DingTalk Developer Console.
+   */
   cardTemplateId: z.string().optional().default('382e4302-551d-4880-bf29-a30acfab2e71.schema'),
 
   /** Use new AI Card API (recommended) instead of legacy card API */

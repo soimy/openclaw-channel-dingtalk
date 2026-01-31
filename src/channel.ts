@@ -612,7 +612,8 @@ async function createAICard(
 ): Promise<AICardInstance | null> {
   try {
     const token = await getAccessToken(config, log);
-    const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    // Use crypto.randomUUID() for robust GUID generation instead of Date.now() + random
+    const cardInstanceId = `card_${randomUUID()}`;
 
     log?.info?.(`[DingTalk][AICard] Creating card outTrackId=${cardInstanceId}`);
     log?.debug?.(
@@ -648,9 +649,16 @@ async function createAICard(
 
     if (isGroup) {
       deliverBody.openSpaceId = `dtv1.card//IM_GROUP.${conversationId}`;
-      deliverBody.imGroupOpenDeliverModel = {
-        robotCode: config.robotCode || config.clientId,
-      };
+      const robotCode = config.robotCode || config.clientId;
+      // robotCode is required for group card delivery. If not explicitly set, fallback to clientId
+      // which is equivalent to robotCode for most DingTalk apps.
+      if (!config.robotCode) {
+        log?.warn?.(
+          '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
+          'For best compatibility, set robotCode explicitly in config.'
+        );
+      }
+      deliverBody.imGroupOpenDeliverModel = { robotCode };
     } else {
       deliverBody.openSpaceId = `dtv1.card//IM_ROBOT.${conversationId}`;
       deliverBody.imRobotOpenDeliverModel = { spaceType: 'IM_ROBOT' };
@@ -985,7 +993,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   let currentAICard: AICardInstance | undefined;
   let lastCardContent = ''; // Track last content for finalization
   const useCardMode = dingtalkConfig.messageType === 'card';
-  const useNewCardApi = dingtalkConfig.useNewCardApi !== false; // Default to true
+  // Use new AI Card API by default (true). Only use legacy API if explicitly set to false.
+  // This ensures the config schema default (true) is respected when undefined.
+  const useNewCardApi = dingtalkConfig.useNewCardApi ?? true;
   
   if (dingtalkConfig.showThinking !== false) {
     try {
