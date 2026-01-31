@@ -164,11 +164,12 @@ openclaw gateway restart
 - 自动检测消息是否包含 Markdown 语法
 - 适用于大多数场景
 
-### 3. card（AI 互动卡片）**【推荐用于 AI 对话】**
+### 3. card（AI 互动卡片）
 - 支持流式更新（实时显示 AI 生成内容）
 - 更好的视觉呈现和交互体验
 - 支持 Markdown 格式渲染
 - 通过 `cardTemplateId` 指定模板
+- **适用于 AI 对话场景**
 
 **AI Card API 特性：**
 当配置 `messageType: 'card'` 时：
