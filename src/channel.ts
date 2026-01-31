@@ -602,12 +602,14 @@ async function finishAICard(card: AICardInstance, content: string, log?: Logger)
 // ============ End of New AI Card API Functions ============
 
 // Send message with automatic mode selection (text/markdown/card)
+// Note: Card mode is not supported in this function as it requires message context.
+// Use createAICard/streamAICard/finishAICard directly for card operations.
 async function sendMessage(
   config: DingTalkConfig,
   conversationId: string,
   text: string,
-  options: SendMessageOptions & { cardBizId?: string; sessionWebhook?: string } = {}
-): Promise<{ ok: boolean; cardBizId?: string; error?: string }> {
+  options: SendMessageOptions & { sessionWebhook?: string } = {}
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const messageType = config.messageType || 'markdown';
     
@@ -617,20 +619,17 @@ async function sendMessage(
       return { ok: true };
     }
     
-    // For card mode with streaming
+    // For card mode, log warning as this function doesn't support AI Card API
     if (messageType === 'card') {
-      if (options.cardBizId) {
-        // Update existing card
-        await updateInteractiveCard(config, options.cardBizId, text, options);
-        return { ok: true, cardBizId: options.cardBizId };
-      } else {
-        // Create new card
-        const { cardBizId } = await sendInteractiveCard(config, conversationId, text, options);
-        return { ok: true, cardBizId };
-      }
+      options.log?.warn?.(
+        '[DingTalk] sendMessage() does not support card mode. Use createAICard/streamAICard/finishAICard directly.'
+      );
+      // Fallback to proactive message
+      await sendProactiveMessage(config, conversationId, text, options);
+      return { ok: true };
     }
     
-    // For text/markdown mode (backward compatibility)
+    // For text/markdown mode
     await sendProactiveMessage(config, conversationId, text, options);
     return { ok: true };
   } catch (err: any) {
@@ -816,7 +815,6 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
               atUserId: !isDirect ? senderId : null,
               log,
             });
-          }
           }
         } else {
           // Text/markdown mode: send via session webhook
