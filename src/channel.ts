@@ -200,7 +200,7 @@ async function sendProactiveTextOrMarkdown(
     : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
 
   // Use shared helper function for markdown detection and title extraction
-  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 提醒');
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'OpenClaw 提醒');
 
   log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${target} with title "${title}"`);
 
@@ -406,7 +406,7 @@ async function createAICard(
       `[DingTalk][AICard] CreateAndDeliver response: status=${resp.status} data=${JSON.stringify(resp.data)}`
     );
 
-    // Cache the AI card instance
+    // Cache the AI card instance with config reference for token refresh
     const aiCardInstance: AICardInstance = {
       cardInstanceId,
       accessToken: token,
@@ -414,6 +414,7 @@ async function createAICard(
       createdAt: Date.now(),
       lastUpdated: Date.now(),
       state: AICardStatus.PROCESSING, // Initial state after creation
+      config, // Store config reference for token refresh
     };
     aiCardInstances.set(cardInstanceId, aiCardInstance);
 
@@ -448,6 +449,21 @@ async function streamAICard(
   finished: boolean = false,
   log?: Logger
 ): Promise<void> {
+  // Refresh token if it's been more than 1.5 hours since card creation (tokens expire after 2 hours)
+  const tokenAge = Date.now() - card.createdAt;
+  const TOKEN_REFRESH_THRESHOLD = 90 * 60 * 1000; // 1.5 hours in milliseconds
+  
+  if (tokenAge > TOKEN_REFRESH_THRESHOLD && card.config) {
+    log?.debug?.('[DingTalk][AICard] Token age exceeds threshold, refreshing...');
+    try {
+      card.accessToken = await getAccessToken(card.config, log);
+      log?.debug?.('[DingTalk][AICard] Token refreshed successfully');
+    } catch (err: any) {
+      log?.warn?.(`[DingTalk][AICard] Failed to refresh token: ${err.message}`);
+      // Continue with old token, let the API call fail if token is invalid
+    }
+  }
+
   // Call streaming API to update content with full replacement
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
@@ -479,6 +495,35 @@ async function streamAICard(
       card.state = AICardStatus.INPUTING;
     }
   } catch (err: any) {
+    // Handle 401 errors specifically - try to refresh token once
+    if (err.response?.status === 401 && card.config) {
+      log?.warn?.('[DingTalk][AICard] Received 401 error, attempting token refresh and retry...');
+      try {
+        card.accessToken = await getAccessToken(card.config, log);
+        // Retry the streaming request with refreshed token
+        const retryResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
+          headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+        });
+        log?.debug?.(
+          `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`
+        );
+        // Update state on successful retry
+        card.lastUpdated = Date.now();
+        if (finished) {
+          card.state = AICardStatus.FINISHED;
+        } else if (card.state === AICardStatus.PROCESSING) {
+          card.state = AICardStatus.INPUTING;
+        }
+        return; // Success, exit function
+      } catch (retryErr: any) {
+        log?.error?.(`[DingTalk][AICard] Retry after token refresh failed: ${retryErr.message}`);
+        // Fall through to mark as failed and throw
+      }
+    }
+    
+    // Ensure card state reflects the failure to prevent retry loops
+    card.state = AICardStatus.FAILED;
+    card.lastUpdated = Date.now();
     log?.error?.(
       `[DingTalk][AICard] Streaming update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
     );
@@ -686,23 +731,34 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
-  // Determine if we are in card mode, if so, create card instance first
+  // Determine if we are in card mode, if so, create or reuse card instance first
   const useCardMode = dingtalkConfig.messageType === 'card';
   let currentAICard: AICardInstance | undefined;
   let lastCardContent = '';
 
   if (useCardMode) {
-    const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
-    if (aiCard) {
-      currentAICard = aiCard;
+    // Try to reuse an existing active AI card for this target, if available
+    const targetKey = `${accountId}:${conversationId}`;
+    const existingCardId = activeCardsByTarget.get(targetKey);
+    const existingCard = existingCardId ? aiCardInstances.get(existingCardId) : undefined;
+
+    // Only reuse cards that are not in terminal states
+    if (existingCard && !isCardInTerminalState(existingCard.state)) {
+      currentAICard = existingCard;
+      log?.debug?.('[DingTalk] Reusing existing active AI card for this conversation.');
     } else {
-      log?.warn?.('[DingTalk] Failed to create AI card, fallback to text/markdown.');
+      // Create a new AI card
+      const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
+      if (aiCard) {
+        currentAICard = aiCard;
+      } else {
+        log?.warn?.('[DingTalk] Failed to create AI card, fallback to text/markdown.');
+      }
     }
   }
 
   // Feedback: Thinking...
   let currentCardBizId: string | undefined;
-  const useCardMode = dingtalkConfig.messageType === 'card';
   
   if (dingtalkConfig.showThinking !== false) {
     try {
@@ -956,8 +1012,6 @@ export const dingtalkPlugin = {
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
           }
-          // Clean up card cache cleanup interval
-          stopCardCacheCleanup();
         },
       };
     },
