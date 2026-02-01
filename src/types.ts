@@ -27,7 +27,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   allowFrom?: string[];
   showThinking?: boolean;
   debug?: boolean;
-  messageType?: 'text' | 'markdown' | 'card';
+  messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
@@ -47,7 +47,7 @@ export interface DingTalkChannelConfig {
   allowFrom?: string[];
   showThinking?: boolean;
   debug?: boolean;
-  messageType?: 'text' | 'markdown' | 'card';
+  messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
@@ -424,7 +424,6 @@ export type AICardState = typeof AICardStatus[keyof typeof AICardStatus];
 export interface AICardInstance {
   cardInstanceId: string;
   accessToken: string;
-  inputingStarted: boolean;
   conversationId: string;
   createdAt: number;
   lastUpdated: number;

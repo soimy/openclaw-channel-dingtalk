@@ -24,9 +24,6 @@ import type {
   GatewayStartContext,
   GatewayStopResult,
   AICardInstance,
-  AICardCreateRequest,
-  AICardDeliverRequest,
-  AICardUpdateRequest,
   AICardStreamingRequest,
 } from './types';
 import { AICardStatus } from './types';
@@ -35,8 +32,15 @@ import { AICardStatus } from './types';
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
 
+// Global logger reference for use across module methods
+let currentLogger: Logger | undefined;
+
 // AI Card instance cache for streaming updates
 const aiCardInstances = new Map<string, AICardInstance>();
+
+// Target to active AI Card instance ID mapping (accountId:conversationId -> cardInstanceId)
+// Used to quickly lookup existing active cards for a target
+const activeCardsByTarget = new Map<string, string>();
 
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -97,7 +101,15 @@ function cleanupCardCache() {
   // Active cards (PROCESSING, INPUTING) are not cleaned up even if they exceed TTL
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
     if (isCardInTerminalState(instance.state) && now - instance.lastUpdated > CARD_CACHE_TTL) {
+      // Remove from aiCardInstances
       aiCardInstances.delete(cardInstanceId);
+
+      // Remove from activeCardsByTarget mapping
+      for (const [targetKey, mappedCardId] of activeCardsByTarget.entries()) {
+        if (mappedCardId === cardInstanceId) {
+          activeCardsByTarget.delete(targetKey);
+        }
+      }
     }
   }
 }
@@ -113,6 +125,18 @@ function stopCardCacheCleanup() {
   }
   // Clear AI card cache
   aiCardInstances.clear();
+  // Clear target to card mapping
+  activeCardsByTarget.clear();
+  // Clear global logger reference
+  currentLogger = undefined;
+}
+
+/**
+ * Get the current logger instance
+ * Useful for methods that don't receive log as a parameter
+ */
+function getLogger(): Logger | undefined {
+  return currentLogger;
 }
 
 // Helper function to detect markdown and extract title
@@ -176,42 +200,16 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
   return token;
 }
 
-// Send proactive message via DingTalk OpenAPI
-async function sendProactiveMessage(
+// Send text/markdown proactive message via DingTalk OpenAPI
+async function sendProactiveTextOrMarkdown(
   config: DingTalkConfig,
   target: string,
   text: string,
-  log?: Logger
-): Promise<AxiosResponse>;
-async function sendProactiveMessage(
-  config: DingTalkConfig,
-  target: string,
-  text: string,
-  options?: SendMessageOptions
-): Promise<AxiosResponse>;
-async function sendProactiveMessage(
-  config: DingTalkConfig,
-  target: string,
-  text: string,
-  optionsOrLog: SendMessageOptions | Logger | undefined = {} as SendMessageOptions
+  options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
-  // Handle backward compatibility: support both Logger and SendMessageOptions
-  let options: SendMessageOptions;
-  if (!optionsOrLog) {
-    options = {};
-  } else if (
-    typeof optionsOrLog === 'object' &&
-    optionsOrLog !== null &&
-    ('log' in optionsOrLog || 'useMarkdown' in optionsOrLog || 'title' in optionsOrLog || 'atUserId' in optionsOrLog)
-  ) {
-    options = optionsOrLog;
-  } else {
-    // Assume it's a Logger object
-    options = { log: optionsOrLog as Logger };
-  }
-
   const token = await getAccessToken(config, options.log);
   const isGroup = target.startsWith('cid');
+  const log = options.log || getLogger();
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
@@ -219,6 +217,8 @@ async function sendProactiveMessage(
 
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 提醒');
+
+  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${target} with title "${title}"`);
 
   // Choose msgKey based on whether we're sending markdown or plain text
   // Note: DingTalk's proactive message API uses predefined message templates
@@ -364,10 +364,11 @@ async function sendBySession(
 // ============ AI Card API Functions ============
 
 /**
- * Create and deliver an AI Card using the new DingTalk API
+ * Create and deliver an AI Card using the new DingTalk API (createAndDeliver)
  * @param config DingTalk configuration
  * @param conversationId Conversation ID (starts with 'cid' for groups, user ID for DM)
  * @param data Original message data for context
+ * @param accountId Account ID for multi-account support
  * @param log Logger instance
  * @returns AI Card instance or null on failure
  */
@@ -375,6 +376,7 @@ async function createAICard(
   config: DingTalkConfig,
   conversationId: string,
   data: DingTalkInboundMessage,
+  accountId: string,
   log?: Logger
 ): Promise<AICardInstance | null> {
   try {
@@ -382,13 +384,13 @@ async function createAICard(
     // Use crypto.randomUUID() for robust GUID generation instead of Date.now() + random
     const cardInstanceId = `card_${randomUUID()}`;
 
-    log?.info?.(`[DingTalk][AICard] Creating card outTrackId=${cardInstanceId}`);
-    log?.debug?.(
-      `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${conversationId}`
-    );
+    log?.info?.(`[DingTalk][AICard] Creating and delivering card outTrackId=${cardInstanceId}`);
+    log?.debug?.(`[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${conversationId}`);
 
-    // 1. Create card instance
-    const createBody: AICardCreateRequest = {
+    const isGroup = conversationId.startsWith('cid');
+
+    // Build the createAndDeliver request body
+    const createAndDeliverBody = {
       cardTemplateId: config.cardTemplateId || '382e4302-551d-4880-bf29-a30acfab2e71.schema',
       outTrackId: cardInstanceId,
       cardData: {
@@ -397,61 +399,44 @@ async function createAICard(
       callbackType: 'STREAM',
       imGroupOpenSpaceModel: { supportForward: true },
       imRobotOpenSpaceModel: { supportForward: true },
-    };
-
-    log?.debug?.(`[DingTalk][AICard] POST /v1.0/card/instances body=${JSON.stringify(createBody)}`);
-    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
-      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-    });
-    log?.debug?.(
-      `[DingTalk][AICard] Create response: status=${createResp.status} data=${JSON.stringify(createResp.data)}`
-    );
-
-    // 2. Deliver card
-    const isGroup = conversationId.startsWith('cid');
-    const deliverBody: AICardDeliverRequest = {
-      outTrackId: cardInstanceId,
+      openSpaceId: isGroup ? `dtv1.card//IM_GROUP.${conversationId}` : `dtv1.card//IM_ROBOT.${conversationId}`,
       userIdType: 1,
+      imGroupOpenDeliverModel: isGroup ? { robotCode: config.robotCode || config.clientId } : undefined,
+      imRobotOpenDeliverModel: !isGroup ? { spaceType: 'IM_ROBOT' } : undefined,
     };
 
-    if (isGroup) {
-      deliverBody.openSpaceId = `dtv1.card//IM_GROUP.${conversationId}`;
-      const robotCode = config.robotCode || config.clientId;
-      // robotCode is required for group card delivery. If not explicitly set, fallback to clientId
-      // which is equivalent to robotCode for most DingTalk apps.
-      if (!config.robotCode) {
-        log?.warn?.(
-          '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
+    if (isGroup && !config.robotCode) {
+      log?.warn?.(
+        '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
           'For best compatibility, set robotCode explicitly in config.'
-        );
-      }
-      deliverBody.imGroupOpenDeliverModel = { robotCode };
-    } else {
-      deliverBody.openSpaceId = `dtv1.card//IM_ROBOT.${conversationId}`;
-      deliverBody.imRobotOpenDeliverModel = { spaceType: 'IM_ROBOT' };
+      );
     }
 
     log?.debug?.(
-      `[DingTalk][AICard] POST /v1.0/card/instances/deliver body=${JSON.stringify(deliverBody)}`
+      `[DingTalk][AICard] POST /v1.0/card/instances/createAndDeliver body=${JSON.stringify(createAndDeliverBody)}`
     );
-    const deliverResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
+    const resp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, createAndDeliverBody, {
       headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
     });
     log?.debug?.(
-      `[DingTalk][AICard] Deliver response: status=${deliverResp.status} data=${JSON.stringify(deliverResp.data)}`
+      `[DingTalk][AICard] CreateAndDeliver response: status=${resp.status} data=${JSON.stringify(resp.data)}`
     );
 
     // Cache the AI card instance
     const aiCardInstance: AICardInstance = {
       cardInstanceId,
       accessToken: token,
-      inputingStarted: false,
       conversationId,
       createdAt: Date.now(),
       lastUpdated: Date.now(),
       state: AICardStatus.PROCESSING, // Initial state after creation
     };
     aiCardInstances.set(cardInstanceId, aiCardInstance);
+
+    // Add mapping from target to active card ID (accountId:conversationId -> cardInstanceId)
+    const targetKey = `${accountId}:${conversationId}`;
+    activeCardsByTarget.set(targetKey, cardInstanceId);
+    log?.debug?.(`[DingTalk][AICard] Registered active card mapping: ${targetKey} -> ${cardInstanceId}`);
 
     return aiCardInstance;
   } catch (err: any) {
@@ -467,9 +452,10 @@ async function createAICard(
 
 /**
  * Stream update AI Card content using the new DingTalk API
+ * Always use isFull=true to fully replace the Markdown content
  * @param card AI Card instance
  * @param content Content to stream
- * @param finished Whether this is the final update
+ * @param finished Whether this is the final update (isFinalize=true)
  * @param log Logger instance
  */
 async function streamAICard(
@@ -478,67 +464,36 @@ async function streamAICard(
   finished: boolean = false,
   log?: Logger
 ): Promise<void> {
-  // First time streaming, switch to INPUTING state
-  if (!card.inputingStarted) {
-    const statusBody: AICardUpdateRequest = {
-      outTrackId: card.cardInstanceId,
-      cardData: {
-        cardParamMap: {
-          flowStatus: AICardStatus.INPUTING,
-          msgContent: '',
-          staticMsgContent: '',
-          sys_full_json_obj: JSON.stringify({
-            order: ['msgContent'],
-          }),
-        },
-      },
-    };
-
-    log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (INPUTING) outTrackId=${card.cardInstanceId}`);
-    
-    // Mark as started before API call to prevent retry loops if it fails
-    card.inputingStarted = true;
-    card.state = AICardStatus.INPUTING;
-    
-    try {
-      const statusResp = await axios.put(`${DINGTALK_API}/v1.0/card/instances`, statusBody, {
-        headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
-      });
-      log?.debug?.(
-        `[DingTalk][AICard] INPUTING response: status=${statusResp.status} data=${JSON.stringify(statusResp.data)}`
-      );
-    } catch (err: any) {
-      log?.error?.(
-        `[DingTalk][AICard] INPUTING switch failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
-      );
-      // Mark card as failed so it won't be retried
-      card.state = AICardStatus.FAILED;
-      throw err;
-    }
-  }
-
-  // Call streaming API to update content
+  // Call streaming API to update content with full replacement
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
     guid: randomUUID(), // Use crypto.randomUUID() for robust GUID generation
-    key: 'msgContent',
+    key: 'content',
     content: content,
-    isFull: true, // Full replacement
-    isFinalize: finished,
+    isFull: true, // Always full replacement for Markdown content
+    isFinalize: finished, // Set to true on final update to close the streaming channel
     isError: false,
   };
 
   log?.debug?.(
-    `[DingTalk][AICard] PUT /v1.0/card/streaming contentLen=${content.length} isFinalize=${finished} guid=${streamBody.guid}`
+    `[DingTalk][AICard] PUT /v1.0/card/streaming contentLen=${content.length} isFull=true isFinalize=${finished} guid=${streamBody.guid} payload=${JSON.stringify(streamBody)}`
   );
+
   try {
     const streamResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
       headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
     });
-    log?.debug?.(`[DingTalk][AICard] Streaming response: status=${streamResp.status}`);
+    log?.debug?.(
+      `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`
+    );
 
-    // Update last updated time
+    // Update last updated time and state
     card.lastUpdated = Date.now();
+    if (finished) {
+      card.state = AICardStatus.FINISHED;
+    } else if (card.state === AICardStatus.PROCESSING) {
+      card.state = AICardStatus.INPUTING;
+    }
   } catch (err: any) {
     log?.error?.(
       `[DingTalk][AICard] Streaming update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
@@ -556,83 +511,53 @@ async function streamAICard(
 async function finishAICard(card: AICardInstance, content: string, log?: Logger): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
 
-  // 1. First close streaming channel with final content (isFinalize=true)
+  // Send final content with isFull=true and isFinalize=true to close streaming
+  // No separate state update needed - the streaming API handles everything
   await streamAICard(card, content, true, log);
-
-  // 2. Update card state to FINISHED
-  const finishBody: AICardUpdateRequest = {
-    outTrackId: card.cardInstanceId,
-    cardData: {
-      cardParamMap: {
-        flowStatus: AICardStatus.FINISHED,
-        msgContent: content,
-        staticMsgContent: '',
-        sys_full_json_obj: JSON.stringify({
-          order: ['msgContent'],
-        }),
-      },
-    },
-  };
-
-  log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (FINISHED) outTrackId=${card.cardInstanceId}`);
-  try {
-    const finishResp = await axios.put(`${DINGTALK_API}/v1.0/card/instances`, finishBody, {
-      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
-    });
-    log?.debug?.(
-      `[DingTalk][AICard] FINISHED response: status=${finishResp.status} data=${JSON.stringify(finishResp.data)}`
-    );
-
-    // Update state to FINISHED
-    card.state = AICardStatus.FINISHED;
-    card.lastUpdated = Date.now();
-    
-    // Keep in cache for TTL period to allow cleanup function to handle removal
-  } catch (err: any) {
-    log?.error?.(
-      `[DingTalk][AICard] FINISHED update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
-    );
-    // Mark card as failed
-    card.state = AICardStatus.FAILED;
-    card.lastUpdated = Date.now();
-    throw err;
-  }
 }
 
 // ============ End of New AI Card API Functions ============
 
-// Send message with automatic mode selection (text/markdown)
-// Note: Card mode is not fully supported in this function as it requires message context.
-// Card mode will fall back to proactive message. Use createAICard/streamAICard/finishAICard for proper card operations.
+// Send message with automatic mode selection (card/markdown)
+// Card mode: if an active AI Card exists for the target, stream updates; otherwise fall back to markdown.
 async function sendMessage(
   config: DingTalkConfig,
   conversationId: string,
   text: string,
-  options: SendMessageOptions & { sessionWebhook?: string } = {}
-): Promise<{ ok: boolean; error?: string }> {
+  options: SendMessageOptions & { sessionWebhook?: string; accountId?: string } = {}
+): Promise<{ ok: boolean; error?: string; data?: AxiosResponse }> {
   try {
     const messageType = config.messageType || 'markdown';
-    
-    // If sessionWebhook is provided, use session-based sending (for replies during conversation)
+    const log = options.log || getLogger();
+
+    if (messageType === 'card' && options.accountId) {
+      const targetKey = `${options.accountId}:${conversationId}`;
+      const activeCardId = activeCardsByTarget.get(targetKey);
+      if (activeCardId) {
+        const activeCard = aiCardInstances.get(activeCardId);
+        if (activeCard && !isCardInTerminalState(activeCard.state)) {
+          try {
+            await streamAICard(activeCard, text, false, log);
+            return { ok: true };
+          } catch (err: any) {
+            log?.warn?.(`[DingTalk] AI Card streaming failed, fallback to markdown: ${err.message}`);
+            activeCard.state = AICardStatus.FAILED;
+            activeCard.lastUpdated = Date.now();
+          }
+        } else {
+          activeCardsByTarget.delete(targetKey);
+        }
+      }
+    }
+
+    // Fallback to markdown mode
     if (options.sessionWebhook) {
       await sendBySession(config, options.sessionWebhook, text, options);
       return { ok: true };
     }
-    
-    // For card mode, warn and fall back to proactive message
-    if (messageType === 'card') {
-      options.log?.warn?.(
-        '[DingTalk] sendMessage() does not support AI Card API and will fall back to proactive message. ' +
-        'Use createAICard/streamAICard/finishAICard directly for proper card operations.'
-      );
-      // Fallback to proactive message
-      await sendProactiveMessage(config, conversationId, text, options);
-      return { ok: true };
-    }
-    
-    // For text/markdown mode
-    await sendProactiveMessage(config, conversationId, text, options);
-    return { ok: true };
+
+    const result = await sendProactiveTextOrMarkdown(config, conversationId, text, options);
+    return { ok: true, data: result };
   } catch (err: any) {
     options.log?.error?.(`[DingTalk] Send message failed: ${err.message}`);
     return { ok: false, error: err.message };
@@ -644,7 +569,11 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
   const rt = getDingTalkRuntime();
 
-  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+  // Save logger reference globally for use by other methods
+  currentLogger = log;
+
+  // log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(data));
 
   // 1. 过滤机器人自身消息
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
@@ -771,27 +700,36 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
-  // Feedback: Thinking...
-  let currentAICard: AICardInstance | undefined;
-  let lastCardContent = ''; // Track last content for finalization
+  // Determine if we are in card mode, if so, create card instance first
   const useCardMode = dingtalkConfig.messageType === 'card';
+  let currentAICard: AICardInstance | undefined;
+  let lastCardContent = '';
 
+  if (useCardMode) {
+    const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
+    if (aiCard) {
+      currentAICard = aiCard;
+    } else {
+      log?.warn?.('[DingTalk] Failed to create AI card, fallback to text/markdown.');
+    }
+  }
+
+  // Feedback: Thinking...
   if (dingtalkConfig.showThinking !== false) {
     try {
-      if (useCardMode) {
-        // Create and deliver AI card
-        const aiCard = await createAICard(dingtalkConfig, to, data, log);
-        if (aiCard) {
-          currentAICard = aiCard;
-          // Stream initial thinking message
-          lastCardContent = '🤔 思考中，请稍候';
-          await streamAICard(aiCard, lastCardContent, false, log);
-        }
+      const thinkingText = '🤔 思考中，请稍候...';
+      // lastCardContent = thinkingText;
+      // aiCard already has thinking state visually, so no need to stream this text
+      if (useCardMode && currentAICard) {
+        // Just log the thinking state
+        log?.debug?.('[DingTalk] AI Card in thinking state, skipping thinking message send.');
       } else {
-        // For text/markdown mode, send via session webhook
-        await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候', {
+        lastCardContent = thinkingText;
+        await sendMessage(dingtalkConfig, to, thinkingText, {
+          sessionWebhook,
           atUserId: !isDirect ? senderId : null,
           log,
+          accountId,
         });
       }
     } catch (err: any) {
@@ -799,55 +737,43 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     }
   }
 
-  const { dispatcher, replyOptions, markDispatchIdle } = rt.channel.reply.createReplyDispatcherWithTyping({
-    responsePrefix: '',
-    deliver: async (payload: any) => {
-      try {
-        const textToSend = payload.markdown || payload.text;
-        if (!textToSend) return;
+  const { queuedFinal } = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx,
+    cfg,
+    dispatcherOptions: {
+      responsePrefix: '',
+      deliver: async (payload: any) => {
+        try {
+          const textToSend = payload.markdown || payload.text;
+          if (!textToSend) return;
 
-        if (useCardMode) {
-          // AI Card API mode: stream updates to existing card
-          if (currentAICard) {
-            lastCardContent = textToSend;
-            await streamAICard(currentAICard, textToSend, false, log);
-          } else {
-            // No card available - fail fast and fall back to session webhook
-            // This prevents duplicate cards or silent failures
-            log?.warn?.('[DingTalk] AI card instance missing during reply; falling back to session webhook.');
-            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
-              atUserId: !isDirect ? senderId : null,
-              log,
-            });
-          }
-        } else {
-          // Text/markdown mode: send via session webhook
-          await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
+          lastCardContent = textToSend;
+          await sendMessage(dingtalkConfig, to, textToSend, {
+            sessionWebhook,
             atUserId: !isDirect ? senderId : null,
             log,
+            accountId,
           });
+        } catch (err: any) {
+          log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
+          throw err;
         }
-      } catch (err: any) {
-        log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
-        throw err;
-      }
+      },
     },
   });
 
   try {
-    await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
-  } finally {
     // Finalize AI card
     if (useCardMode && currentAICard) {
       try {
         // Finalize with the last content
-        await finishAICard(currentAICard, lastCardContent, log);
+        const finalContent = lastCardContent || (typeof queuedFinal === 'string' ? queuedFinal : '');
+        await finishAICard(currentAICard, finalContent, log);
       } catch (err: any) {
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
       }
     }
-
-    markDispatchIdle();
+  } finally {
     if (mediaPath && fs.existsSync(mediaPath)) {
       try {
         fs.unlinkSync(mediaPath);
@@ -934,8 +860,9 @@ export const dingtalkPlugin = {
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       try {
-        const result = await sendProactiveMessage(config, to, text, { log });
-        return { ok: true, data: result };
+        const result = await sendMessage(config, to, text, { log, accountId });
+        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
+        return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
@@ -946,9 +873,10 @@ export const dingtalkPlugin = {
         return { ok: false, error: 'DingTalk not configured' };
       }
       try {
-        const mediaDescription = `[媒体消息: ${mediaPath}]`;
-        const result = await sendProactiveMessage(config, to, mediaDescription, { log });
-        return { ok: true, data: result };
+        const mediaDescription = `[媒体消息（暂不支持直发）: ${mediaPath}]`;
+        const result = await sendMessage(config, to, mediaDescription, { log, accountId });
+        getLogger()?.debug?.(`[DingTalk] sendMedia: "${mediaDescription}" result: ${JSON.stringify(result)}`);
+        return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
@@ -1047,10 +975,9 @@ export const dingtalkPlugin = {
  *
  * - {@link sendBySession} sends a message to DingTalk using a session/webhook
  *   (e.g. replies within an existing conversation).
- * - {@link sendProactiveMessage} sends a proactive/outbound message to DingTalk
- *   without requiring an existing inbound session.
  * - {@link createAICard} creates and delivers an AI Card using the DingTalk API
- *   (returns AICardInstance for streaming updates).
+ *   (returns AICardInstance for streaming updates). Automatically registers the card
+ *   in activeCardsByTarget mapping (accountId:conversationId -> cardInstanceId).
  * - {@link streamAICard} streams content updates to an AI Card
  *   (for real-time streaming message updates).
  * - {@link finishAICard} finalizes an AI Card and sets state to FINISHED
@@ -1059,16 +986,10 @@ export const dingtalkPlugin = {
  *   (text/markdown/card based on config).
  * - {@link getAccessToken} retrieves (and caches) the DingTalk access token
  *   for the configured application/runtime.
+ * - {@link getLogger} retrieves the current global logger instance
+ *   (set by handleDingTalkMessage during inbound message processing).
  *
  * These exports are intended to be used by external integrations that need
  * direct programmatic access to DingTalk messaging and authentication.
  */
-export {
-  sendBySession,
-  sendProactiveMessage,
-  createAICard,
-  streamAICard,
-  finishAICard,
-  sendMessage,
-  getAccessToken,
-};
+export { sendBySession, createAICard, streamAICard, finishAICard, sendMessage, getAccessToken, getLogger };
