@@ -31,35 +31,9 @@
     "openclaw": "^2026.1.29",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
+    "openclaw": "workspace:*",
     "prettier": "^3.0.0",
     "typescript": "^5.3.0"
-  },
-  "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "channels": [
-      "dingtalk"
-    ],
-    "installDependencies": true,
-    "channel": {
-      "id": "dingtalk",
-      "label": "DingTalk",
-      "selectionLabel": "DingTalk (钉钉)",
-      "docsPath": "/channels/dingtalk",
-      "docsLabel": "dingtalk",
-      "blurb": "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
-      "order": 70,
-      "aliases": [
-        "dd",
-        "ding"
-      ]
-    },
-    "install": {
-      "npmSpec": "@openclaw/dingtalk",
-      "localPath": "extensions/dingtalk-channel",
-      "defaultChoice": "local"
-    }
   },
   "openclaw": {
     "extensions": [
