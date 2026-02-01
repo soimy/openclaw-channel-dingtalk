@@ -9,6 +9,7 @@ import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
+import { registerPeerId, resolveOriginalPeerId } from './peer-id-registry';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -216,7 +217,9 @@ async function sendProactiveMessage(
   }
 
   const token = await getAccessToken(config, options.log);
-  const isGroup = target.startsWith('cid');
+  // Strip 'group:' prefix added by routing layer before calling DingTalk API
+  const resolvedTarget = resolveOriginalPeerId(target.replace(/^group:/, ''));
+  const isGroup = resolvedTarget.startsWith('cid');
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
@@ -230,19 +233,21 @@ async function sendProactiveMessage(
   // sampleMarkdown supports markdown formatting, sampleText for plain text
   const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
 
+  // sampleText uses { content } format; sampleMarkdown uses { title, text }
+  const msgParam = msgKey === 'sampleText'
+    ? JSON.stringify({ content: text })
+    : JSON.stringify({ title, text });
+
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
     msgKey,
-    msgParam: JSON.stringify({
-      title,
-      text,
-    }),
+    msgParam,
   };
 
   if (isGroup) {
-    payload.openConversationId = target;
+    payload.openConversationId = resolvedTarget;
   } else {
-    payload.userIds = [target];
+    payload.userIds = [resolvedTarget];
   }
 
   const result = await axios({
@@ -643,6 +648,10 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
+  // Register original peer IDs to preserve case-sensitive conversationId (base64)
+  if (groupId) registerPeerId(groupId);
+  if (senderId) registerPeerId(senderId);
+
   // 2. Check authorization for direct messages based on dmPolicy
   let commandAuthorized = true;
   if (isDirect) {
@@ -786,11 +795,16 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
             currentCardBizId = result.cardBizId;
           }
         } else {
-          // Text/markdown mode: send via session webhook
-          await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
-            atUserId: !isDirect ? senderId : null,
-            log,
-          });
+          // Text/markdown mode: send via session webhook, fall back to proactive message
+          try {
+            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
+              atUserId: !isDirect ? senderId : null,
+              log,
+            });
+          } catch (sessionErr: any) {
+            log?.debug?.(`[DingTalk] sendBySession failed (${sessionErr.message}), falling back to sendProactiveMessage`);
+            await sendProactiveMessage(dingtalkConfig, to, textToSend, { log });
+          }
         }
         return { ok: true };
       } catch (err: any) {
@@ -873,7 +887,7 @@ export const dingtalkPlugin = {
   },
   messaging: {
     normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
-    targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
+    targetResolver: { looksLikeId: (id: string): boolean => /^[\w\-=+\/]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
     deliveryMode: 'direct',
@@ -885,7 +899,9 @@ export const dingtalkPlugin = {
           error: new Error('DingTalk message requires --to <conversationId>'),
         };
       }
-      return { ok: true, to: trimmed };
+      // Strip group: prefix and resolve original case
+      const resolved = resolveOriginalPeerId(trimmed.replace(/^group:/, ''));
+      return { ok: true, to: resolved };
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
