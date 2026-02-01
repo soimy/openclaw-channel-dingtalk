@@ -758,8 +758,6 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   }
 
   // Feedback: Thinking...
-  let currentCardBizId: string | undefined;
-  
   if (dingtalkConfig.showThinking !== false) {
     try {
       const thinkingText = '🤔 思考中，请稍候...';
