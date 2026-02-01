@@ -114,23 +114,6 @@ function cleanupCardCache() {
   }
 }
 
-// Run cleanup periodically (every 30 minutes)
-let cleanupIntervalId: NodeJS.Timeout | null = setInterval(cleanupCardCache, 30 * 60 * 1000);
-
-// Cleanup function to stop the interval
-function stopCardCacheCleanup() {
-  if (cleanupIntervalId) {
-    clearInterval(cleanupIntervalId);
-    cleanupIntervalId = null;
-  }
-  // Clear AI card cache
-  aiCardInstances.clear();
-  // Clear target to card mapping
-  activeCardsByTarget.clear();
-  // Clear global logger reference
-  currentLogger = undefined;
-}
-
 /**
  * Get the current logger instance
  * Useful for methods that don't receive log as a parameter
@@ -572,8 +555,10 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   // Save logger reference globally for use by other methods
   currentLogger = log;
 
-  // log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
-  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(data));
+  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+
+  // 0. 清理过期的卡片缓存
+  cleanupCardCache();
 
   // 1. 过滤机器人自身消息
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
