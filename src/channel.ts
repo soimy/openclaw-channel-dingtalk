@@ -750,11 +750,13 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     // Finalize AI card
     if (useCardMode && currentAICard) {
       try {
+        // Helper function to check if a value is a non-empty string
+        const isNonEmptyString = (value: any): boolean =>
+          typeof value === 'string' && value.trim().length > 0;
+
         // Validate that we have actual content before finalization
-        const hasLastCardContent =
-          typeof lastCardContent === 'string' && lastCardContent.trim().length > 0;
-        const hasQueuedFinalString =
-          typeof queuedFinal === 'string' && queuedFinal.trim().length > 0;
+        const hasLastCardContent = isNonEmptyString(lastCardContent);
+        const hasQueuedFinalString = isNonEmptyString(queuedFinal);
 
         if (hasLastCardContent || hasQueuedFinalString) {
           const finalContent = hasLastCardContent ? lastCardContent : (queuedFinal as string);
@@ -776,8 +778,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
             currentAICard.state = AICardStatus.FAILED;
             currentAICard.lastUpdated = Date.now();
           }
-        } catch {
-          // Swallow any errors while updating card status to avoid masking the original failure
+        } catch (stateErr: any) {
+          // Log state update failure at debug level to aid production debugging
+          log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
         }
       }
     }
