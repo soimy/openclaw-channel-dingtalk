@@ -104,10 +104,11 @@ function cleanupCardCache() {
       // Remove from aiCardInstances
       aiCardInstances.delete(cardInstanceId);
 
-      // Remove from activeCardsByTarget mapping
+      // Remove from activeCardsByTarget mapping (break after first match for efficiency)
       for (const [targetKey, mappedCardId] of activeCardsByTarget.entries()) {
         if (mappedCardId === cardInstanceId) {
           activeCardsByTarget.delete(targetKey);
+          break; // Each card should only have one target mapping
         }
       }
     }
@@ -703,10 +704,8 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   if (dingtalkConfig.showThinking !== false) {
     try {
       const thinkingText = '🤔 思考中，请稍候...';
-      // lastCardContent = thinkingText;
-      // aiCard already has thinking state visually, so no need to stream this text
+      // AI card already has thinking state visually, so we only send thinking message for non-card modes
       if (useCardMode && currentAICard) {
-        // Just log the thinking state
         log?.debug?.('[DingTalk] AI Card in thinking state, skipping thinking message send.');
       } else {
         lastCardContent = thinkingText;
@@ -751,11 +750,35 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     // Finalize AI card
     if (useCardMode && currentAICard) {
       try {
-        // Finalize with the last content
-        const finalContent = lastCardContent || (typeof queuedFinal === 'string' ? queuedFinal : '');
-        await finishAICard(currentAICard, finalContent, log);
+        // Validate that we have actual content before finalization
+        const hasLastCardContent =
+          typeof lastCardContent === 'string' && lastCardContent.trim().length > 0;
+        const hasQueuedFinalString =
+          typeof queuedFinal === 'string' && queuedFinal.trim().length > 0;
+
+        if (hasLastCardContent || hasQueuedFinalString) {
+          const finalContent = hasLastCardContent ? lastCardContent : (queuedFinal as string);
+          await finishAICard(currentAICard, finalContent, log);
+        } else {
+          // No textual content was produced; skip finalization with empty content
+          log?.debug?.(
+            '[DingTalk] Skipping AI Card finalization because no textual content was produced.'
+          );
+          // Still mark the card as finished to allow cleanup
+          currentAICard.state = AICardStatus.FINISHED;
+          currentAICard.lastUpdated = Date.now();
+        }
       } catch (err: any) {
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
+        // Ensure the AI card transitions to a terminal error state
+        try {
+          if (currentAICard.state !== AICardStatus.FINISHED) {
+            currentAICard.state = AICardStatus.FAILED;
+            currentAICard.lastUpdated = Date.now();
+          }
+        } catch {
+          // Swallow any errors while updating card status to avoid masking the original failure
+        }
       }
     }
   } finally {
