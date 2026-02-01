@@ -427,6 +427,7 @@ export interface AICardInstance {
   createdAt: number;
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
+  config?: DingTalkConfig; // Store config reference for token refresh
 }
 
 /**

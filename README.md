@@ -103,9 +103,9 @@ openclaw plugins install -l .
 - **Corp ID** (企业 ID)
 - **Agent ID** (应用 ID)
 
-### 5. 配置 Clawdbot
+### 5. 配置 OpenClaw
 
-在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
+在 `~/.openclaw/openclaw.json` 的 `channels` 下添加：
 > 只添加dingtalk部分，内容自己替换
 
 ```json5
