@@ -701,6 +701,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   }
 
   // Feedback: Thinking...
+  let currentCardBizId: string | undefined;
+  const useCardMode = dingtalkConfig.messageType === 'card';
+  
   if (dingtalkConfig.showThinking !== false) {
     try {
       const thinkingText = '🤔 思考中，请稍候...';

@@ -351,9 +351,7 @@ HandleDingTalkMessageParams; // 消息处理参数
 
 // AI 互动卡片
 AICardInstance; // AI 卡片实例
-AICardCreateRequest; // 创建卡片请求
-AICardDeliverRequest; // 投放卡片请求
-AICardUpdateRequest; // 更新卡片请求
+AICardCreateAndDeliverRequest; // 创建并投放卡片请求
 AICardStreamingRequest; // 流式更新请求
 AICardStatus; // 卡片状态常量
 
