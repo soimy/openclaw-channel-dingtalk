@@ -381,8 +381,8 @@ async function createAICard(
 
     const isGroup = conversationId.startsWith('cid');
 
-    // Build the createAndDeliver request body
-    const createAndDeliverBody = {
+    // Step 1: Create card instance
+    const createBody = {
       cardTemplateId: config.cardTemplateId || '382e4302-551d-4880-bf29-a30acfab2e71.schema',
       outTrackId: cardInstanceId,
       cardData: {
@@ -391,27 +391,44 @@ async function createAICard(
       callbackType: 'STREAM',
       imGroupOpenSpaceModel: { supportForward: true },
       imRobotOpenSpaceModel: { supportForward: true },
-      openSpaceId: isGroup ? `dtv1.card//IM_GROUP.${conversationId}` : `dtv1.card//IM_ROBOT.${conversationId}`,
-      userIdType: 1,
-      imGroupOpenDeliverModel: isGroup ? { robotCode: config.robotCode || config.clientId } : undefined,
-      imRobotOpenDeliverModel: !isGroup ? { spaceType: 'IM_ROBOT' } : undefined,
     };
 
-    if (isGroup && !config.robotCode) {
-      log?.warn?.(
-        '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
-          'For best compatibility, set robotCode explicitly in config.'
-      );
-    }
-
     log?.debug?.(
-      `[DingTalk][AICard] POST /v1.0/card/instances/createAndDeliver body=${JSON.stringify(createAndDeliverBody)}`
+      `[DingTalk][AICard] POST /v1.0/card/instances body=${JSON.stringify(createBody)}`
     );
-    const resp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, createAndDeliverBody, {
+    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
       headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
     });
     log?.debug?.(
-      `[DingTalk][AICard] CreateAndDeliver response: status=${resp.status} data=${JSON.stringify(resp.data)}`
+      `[DingTalk][AICard] Create response: status=${createResp.status} data=${JSON.stringify(createResp.data)}`
+    );
+
+    // Step 2: Deliver card to the target space
+    const openSpaceId = isGroup ? `dtv1.card//IM_GROUP.${conversationId}` : `dtv1.card//IM_ROBOT.${conversationId}`;
+    const deliverBody: Record<string, any> = {
+      outTrackId: cardInstanceId,
+      openSpaceId,
+    };
+    if (isGroup) {
+      if (!config.robotCode) {
+        log?.warn?.(
+          '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
+            'For best compatibility, set robotCode explicitly in config.'
+        );
+      }
+      deliverBody.imGroupOpenDeliverModel = { robotCode: config.robotCode || config.clientId };
+    } else {
+      deliverBody.imRobotOpenDeliverModel = { spaceType: 'IM_ROBOT' };
+    }
+
+    log?.debug?.(
+      `[DingTalk][AICard] POST /v1.0/card/instances/deliver body=${JSON.stringify(deliverBody)}`
+    );
+    const deliverResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+    log?.debug?.(
+      `[DingTalk][AICard] Deliver response: status=${deliverResp.status} data=${JSON.stringify(deliverResp.data)}`
     );
 
     // Cache the AI card instance with config reference for token refresh
@@ -476,7 +493,7 @@ async function streamAICard(
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
     guid: randomUUID(), // Use crypto.randomUUID() for robust GUID generation
-    key: 'content',
+    key: 'msgContent',
     content: content,
     isFull: true, // Always full replacement for Markdown content
     isFinalize: finished, // Set to true on final update to close the streaming channel
