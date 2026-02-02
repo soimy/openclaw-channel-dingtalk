@@ -965,6 +965,7 @@ export const dingtalkPlugin = {
         clientId: config.clientId,
         clientSecret: config.clientSecret,
         debug: config.debug || false,
+        keepAlive: true,
       });
 
       client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
