@@ -51,6 +51,11 @@ export const DingTalkConfigSchema = z.object({
    */
   cardTemplateId: z.string().optional().default('382e4302-551d-4880-bf29-a30acfab2e71.schema'),
 
+  /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
+  groups: z.record(z.string(), z.object({
+    systemPrompt: z.string().optional(),
+  })).optional(),
+
   /** Multi-account configuration */
   accounts: z.record(z.string(), z.unknown()).optional(),
 });
