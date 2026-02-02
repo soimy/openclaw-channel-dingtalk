@@ -30,9 +30,8 @@ import type {
   CardInstance,
 } from './types';
 
-// Access Token cache
-let accessToken: string | null = null;
-let accessTokenExpiry = 0;
+// Access Token cache (per clientId to support multiple robot accounts)
+const accessTokenCache = new Map<string, { token: string; expiry: number }>();
 
 // Card instance cache for streaming updates
 const cardInstances = new Map<string, CardInstance>();
@@ -161,8 +160,10 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
 // Get Access Token with retry logic
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const now = Date.now();
-  if (accessToken && accessTokenExpiry > now + 60000) {
-    return accessToken;
+  const cacheKey = config.clientId;
+  const cached = accessTokenCache.get(cacheKey);
+  if (cached && cached.expiry > now + 60000) {
+    return cached.token;
   }
 
   const token = await retryWithBackoff(
@@ -172,9 +173,11 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
         appSecret: config.clientSecret,
       });
 
-      accessToken = response.data.accessToken;
-      accessTokenExpiry = now + response.data.expireIn * 1000;
-      return accessToken;
+      accessTokenCache.set(cacheKey, {
+        token: response.data.accessToken,
+        expiry: now + response.data.expireIn * 1000,
+      });
+      return response.data.accessToken;
     },
     { maxRetries: 3, log }
   );
