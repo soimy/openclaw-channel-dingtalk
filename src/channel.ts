@@ -489,6 +489,30 @@ async function streamAICard(
     }
   }
 
+  // On first streaming call, switch card to INPUTING state and configure rendering
+  if (!card.inputingStarted) {
+    try {
+      const statusBody = {
+        outTrackId: card.cardInstanceId,
+        cardData: {
+          cardParamMap: {
+            flowStatus: AICardStatus.INPUTING,
+            msgContent: '',
+            staticMsgContent: '',
+            sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
+          },
+        },
+      };
+      log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (INPUTING) body=${JSON.stringify(statusBody)}`);
+      await axios.put(`${DINGTALK_API}/v1.0/card/instances`, statusBody, {
+        headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+      });
+      card.inputingStarted = true;
+    } catch (err: any) {
+      log?.warn?.(`[DingTalk][AICard] Failed to set INPUTING status: ${err.message}`);
+    }
+  }
+
   // Call streaming API to update content with full replacement
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
@@ -565,9 +589,29 @@ async function streamAICard(
 async function finishAICard(card: AICardInstance, content: string, log?: Logger): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
 
-  // Send final content with isFull=true and isFinalize=true to close streaming
-  // No separate state update needed - the streaming API handles everything
+  // Step 1: Send final content with isFinalize=true to close streaming channel
   await streamAICard(card, content, true, log);
+
+  // Step 2: Update flowStatus to FINISHED via card/instances endpoint
+  try {
+    const finishBody = {
+      outTrackId: card.cardInstanceId,
+      cardData: {
+        cardParamMap: {
+          flowStatus: AICardStatus.FINISHED,
+          msgContent: content,
+          staticMsgContent: '',
+          sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
+        },
+      },
+    };
+    log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (FINISHED)`);
+    await axios.put(`${DINGTALK_API}/v1.0/card/instances`, finishBody, {
+      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    log?.warn?.(`[DingTalk][AICard] Failed to set FINISHED status: ${err.message}`);
+  }
 }
 
 // ============ End of New AI Card API Functions ============
