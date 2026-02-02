@@ -196,7 +196,9 @@ async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  const isGroup = target.startsWith('cid');
+  // Strip 'group:' prefix added by routing layer before calling DingTalk API
+  const resolvedTarget = resolveOriginalPeerId(target.replace(/^group:/, ''));
+  const isGroup = resolvedTarget.startsWith('cid');
   const log = options.log || getLogger();
 
   const url = isGroup
