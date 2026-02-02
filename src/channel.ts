@@ -48,6 +48,11 @@ const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // DingTalk API base URL
 const DINGTALK_API = 'https://api.dingtalk.com';
 
+// Build common DingTalk API headers
+function dingtalkHeaders(token: string): Record<string, string> {
+  return { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' };
+}
+
 // Authorization helpers
 type NormalizedAllowFrom = {
   entries: string[];
@@ -236,7 +241,7 @@ async function sendProactiveTextOrMarkdown(
     url,
     method: 'POST',
     data: payload,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    headers: dingtalkHeaders(token),
   });
   return result.data;
 }
@@ -254,7 +259,7 @@ async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?:
     const response = await axios.post<{ downloadUrl?: string }>(
       'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
       { downloadCode, robotCode: config.robotCode },
-      { headers: { 'x-acs-dingtalk-access-token': token } }
+      { headers: dingtalkHeaders(token) }
     );
     const downloadUrl = response.data?.downloadUrl;
     if (!downloadUrl) return null;
@@ -348,12 +353,31 @@ async function sendBySession(
     url: sessionWebhook,
     method: 'POST',
     data: body,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    headers: dingtalkHeaders(token),
   });
   return result.data;
 }
 
 // ============ AI Card API Functions ============
+
+/**
+ * Update AI Card status via the card/instances endpoint
+ */
+async function updateCardStatus(card: AICardInstance, flowStatus: string, msgContent: string): Promise<void> {
+  await axios.put(`${DINGTALK_API}/v1.0/card/instances`, {
+    outTrackId: card.cardInstanceId,
+    cardData: {
+      cardParamMap: {
+        flowStatus,
+        msgContent,
+        staticMsgContent: '',
+        sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
+      },
+    },
+  }, {
+    headers: dingtalkHeaders(card.accessToken),
+  });
+}
 
 /**
  * Create and deliver an AI Card using the new DingTalk API (createAndDeliver)
@@ -376,8 +400,7 @@ async function createAICard(
     // Use crypto.randomUUID() for robust GUID generation instead of Date.now() + random
     const cardInstanceId = `card_${randomUUID()}`;
 
-    log?.info?.(`[DingTalk][AICard] Creating and delivering card outTrackId=${cardInstanceId}`);
-    log?.debug?.(`[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${conversationId}`);
+    log?.info?.(`[DingTalk][AICard] Creating card outTrackId=${cardInstanceId} for ${conversationId}`);
 
     const isGroup = conversationId.startsWith('cid');
 
@@ -393,15 +416,9 @@ async function createAICard(
       imRobotOpenSpaceModel: { supportForward: true },
     };
 
-    log?.debug?.(
-      `[DingTalk][AICard] POST /v1.0/card/instances body=${JSON.stringify(createBody)}`
-    );
-    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
-      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
+      headers: dingtalkHeaders(token),
     });
-    log?.debug?.(
-      `[DingTalk][AICard] Create response: status=${createResp.status} data=${JSON.stringify(createResp.data)}`
-    );
 
     // Step 2: Deliver card to the target space
     const openSpaceId = isGroup ? `dtv1.card//IM_GROUP.${conversationId}` : `dtv1.card//IM_ROBOT.${conversationId}`;
@@ -421,15 +438,9 @@ async function createAICard(
       deliverBody.imRobotOpenDeliverModel = { spaceType: 'IM_ROBOT' };
     }
 
-    log?.debug?.(
-      `[DingTalk][AICard] POST /v1.0/card/instances/deliver body=${JSON.stringify(deliverBody)}`
-    );
-    const deliverResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
-      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
+      headers: dingtalkHeaders(token),
     });
-    log?.debug?.(
-      `[DingTalk][AICard] Deliver response: status=${deliverResp.status} data=${JSON.stringify(deliverResp.data)}`
-    );
 
     // Cache the AI card instance with config reference for token refresh
     const aiCardInstance: AICardInstance = {
@@ -446,7 +457,6 @@ async function createAICard(
     // Add mapping from target to active card ID (accountId:conversationId -> cardInstanceId)
     const targetKey = `${accountId}:${conversationId}`;
     activeCardsByTarget.set(targetKey, cardInstanceId);
-    log?.debug?.(`[DingTalk][AICard] Registered active card mapping: ${targetKey} -> ${cardInstanceId}`);
 
     return aiCardInstance;
   } catch (err: any) {
@@ -474,107 +484,75 @@ async function streamAICard(
   finished: boolean = false,
   log?: Logger
 ): Promise<void> {
-  // Refresh token if it's been more than 1.5 hours since card creation (tokens expire after 2 hours)
-  const tokenAge = Date.now() - card.createdAt;
-  const TOKEN_REFRESH_THRESHOLD = 90 * 60 * 1000; // 1.5 hours in milliseconds
-  
-  if (tokenAge > TOKEN_REFRESH_THRESHOLD && card.config) {
-    log?.debug?.('[DingTalk][AICard] Token age exceeds threshold, refreshing...');
+  // Refresh token proactively if it's been more than 1.5 hours (tokens expire after 2 hours)
+  const TOKEN_REFRESH_THRESHOLD = 90 * 60 * 1000;
+  if (Date.now() - card.createdAt > TOKEN_REFRESH_THRESHOLD && card.config) {
     try {
       card.accessToken = await getAccessToken(card.config, log);
-      log?.debug?.('[DingTalk][AICard] Token refreshed successfully');
     } catch (err: any) {
       log?.warn?.(`[DingTalk][AICard] Failed to refresh token: ${err.message}`);
-      // Continue with old token, let the API call fail if token is invalid
     }
   }
 
-  // On first streaming call, switch card to INPUTING state and configure rendering
+  // On first streaming call, switch card to INPUTING state
   if (!card.inputingStarted) {
     try {
-      const statusBody = {
-        outTrackId: card.cardInstanceId,
-        cardData: {
-          cardParamMap: {
-            flowStatus: AICardStatus.INPUTING,
-            msgContent: '',
-            staticMsgContent: '',
-            sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
-          },
-        },
-      };
-      log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (INPUTING) body=${JSON.stringify(statusBody)}`);
-      await axios.put(`${DINGTALK_API}/v1.0/card/instances`, statusBody, {
-        headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
-      });
+      await updateCardStatus(card, AICardStatus.INPUTING, '');
       card.inputingStarted = true;
     } catch (err: any) {
       log?.warn?.(`[DingTalk][AICard] Failed to set INPUTING status: ${err.message}`);
     }
   }
 
-  // Call streaming API to update content with full replacement
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
-    guid: randomUUID(), // Use crypto.randomUUID() for robust GUID generation
+    guid: randomUUID(),
     key: 'msgContent',
-    content: content,
-    isFull: true, // Always full replacement for Markdown content
-    isFinalize: finished, // Set to true on final update to close the streaming channel
+    content,
+    isFull: true,
+    isFinalize: finished,
     isError: false,
   };
 
   log?.debug?.(
-    `[DingTalk][AICard] PUT /v1.0/card/streaming contentLen=${content.length} isFull=true isFinalize=${finished} guid=${streamBody.guid} payload=${JSON.stringify(streamBody)}`
+    `[DingTalk][AICard] Streaming contentLen=${content.length} isFinalize=${finished}`
   );
 
-  try {
-    const streamResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
-      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
-    });
-    log?.debug?.(
-      `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`
-    );
-
-    // Update last updated time and state
+  // Helper to update card state after successful streaming
+  const updateCardStateOnSuccess = (): void => {
     card.lastUpdated = Date.now();
     if (finished) {
       card.state = AICardStatus.FINISHED;
     } else if (card.state === AICardStatus.PROCESSING) {
       card.state = AICardStatus.INPUTING;
     }
+  };
+
+  try {
+    await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
+      headers: dingtalkHeaders(card.accessToken),
+    });
+    updateCardStateOnSuccess();
   } catch (err: any) {
-    // Handle 401 errors specifically - try to refresh token once
+    // Handle 401 by refreshing token and retrying once
     if (err.response?.status === 401 && card.config) {
-      log?.warn?.('[DingTalk][AICard] Received 401 error, attempting token refresh and retry...');
+      log?.warn?.('[DingTalk][AICard] 401 error, refreshing token and retrying...');
       try {
         card.accessToken = await getAccessToken(card.config, log);
-        // Retry the streaming request with refreshed token
-        const retryResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
-          headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
+        await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
+          headers: dingtalkHeaders(card.accessToken),
         });
-        log?.debug?.(
-          `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`
-        );
-        // Update state on successful retry
-        card.lastUpdated = Date.now();
-        if (finished) {
-          card.state = AICardStatus.FINISHED;
-        } else if (card.state === AICardStatus.PROCESSING) {
-          card.state = AICardStatus.INPUTING;
-        }
-        return; // Success, exit function
+        updateCardStateOnSuccess();
+        return;
       } catch (retryErr: any) {
         log?.error?.(`[DingTalk][AICard] Retry after token refresh failed: ${retryErr.message}`);
-        // Fall through to mark as failed and throw
       }
     }
-    
-    // Ensure card state reflects the failure to prevent retry loops
+
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
     log?.error?.(
-      `[DingTalk][AICard] Streaming update failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
+      `[DingTalk][AICard] Streaming failed: ${err.message}, resp=${JSON.stringify(err.response?.data)}`
     );
     throw err;
   }
@@ -587,28 +565,14 @@ async function streamAICard(
  * @param log Logger instance
  */
 async function finishAICard(card: AICardInstance, content: string, log?: Logger): Promise<void> {
-  log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
+  log?.debug?.(`[DingTalk][AICard] Finishing card, content length=${content.length}`);
 
-  // Step 1: Send final content with isFinalize=true to close streaming channel
+  // Close the streaming channel with isFinalize=true
   await streamAICard(card, content, true, log);
 
-  // Step 2: Update flowStatus to FINISHED via card/instances endpoint
+  // Update flowStatus to FINISHED
   try {
-    const finishBody = {
-      outTrackId: card.cardInstanceId,
-      cardData: {
-        cardParamMap: {
-          flowStatus: AICardStatus.FINISHED,
-          msgContent: content,
-          staticMsgContent: '',
-          sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
-        },
-      },
-    };
-    log?.debug?.(`[DingTalk][AICard] PUT /v1.0/card/instances (FINISHED)`);
-    await axios.put(`${DINGTALK_API}/v1.0/card/instances`, finishBody, {
-      headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
-    });
+    await updateCardStatus(card, AICardStatus.FINISHED, content);
   } catch (err: any) {
     log?.warn?.(`[DingTalk][AICard] Failed to set FINISHED status: ${err.message}`);
   }
@@ -1004,7 +968,6 @@ export const dingtalkPlugin = {
       const config = getConfig(cfg, accountId);
       try {
         const result = await sendMessage(config, to, text, { log, accountId });
-        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
@@ -1018,7 +981,6 @@ export const dingtalkPlugin = {
       try {
         const mediaDescription = `[媒体消息（暂不支持直发）: ${mediaPath}]`;
         const result = await sendMessage(config, to, mediaDescription, { log, accountId });
-        getLogger()?.debug?.(`[DingTalk] sendMedia: "${mediaDescription}" result: ${JSON.stringify(result)}`);
         return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
