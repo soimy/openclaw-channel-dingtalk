@@ -31,7 +31,6 @@
     "openclaw": "^2026.1.29",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
-    "openclaw": "workspace:*",
     "prettier": "^3.0.0",
     "typescript": "^5.3.0"
   },

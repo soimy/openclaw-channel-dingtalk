@@ -1,5 +1,4 @@
 {
-  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
@@ -25,9 +24,6 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "rootDir": ".",
-    "paths": {
-      "openclaw/plugin-sdk": ["../../src/plugin-sdk/index.ts"]
-    },
     "types": ["node"]
   },
   "include": ["index.ts", "src/**/*.ts", "utils.ts"],
