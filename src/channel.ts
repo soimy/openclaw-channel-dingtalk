@@ -666,7 +666,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   if (!content.text) return;
 
   const isDirect = data.conversationType === '1';
-  const senderId = data.senderStaffId || data.senderId;
+  const senderId = normalizeTargetId(data.senderStaffId || data.senderId);
   const senderName = data.senderNick || 'Unknown';
   const conversationId = normalizeTargetId(data.conversationId);
   const groupName = data.conversationTitle || 'Group';
@@ -758,7 +758,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect ? normalizeTargetId(senderId) : conversationId;
+  const to = isDirect ? senderId : conversationId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
