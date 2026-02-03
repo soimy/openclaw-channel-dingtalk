@@ -30,6 +30,7 @@ import { AICardStatus } from './types';
 
 // Access Token cache (per clientId)
 const accessTokenCache = new Map<string, { token: string; expiry: number }>();
+// Target prefixes include routing helpers like "group:" added by OpenClaw.
 const DINGTALK_TARGET_PREFIX_RE = /^(dingtalk|dd|ding|group):/i;
 
 // Global logger reference for use across module methods
@@ -74,9 +75,8 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   };
 }
 
-function normalizeTargetId(raw?: string | null): string | undefined {
-  const trimmed = raw?.trim();
-  if (!trimmed) return undefined;
+function normalizeTargetId(raw?: string | null): string {
+  const trimmed = raw?.trim() ?? '';
   return trimmed.replace(DINGTALK_TARGET_PREFIX_RE, '');
 }
 
@@ -663,7 +663,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const isDirect = data.conversationType === '1';
   const senderId = data.senderStaffId || data.senderId;
   const senderName = data.senderNick || 'Unknown';
-  const groupId = normalizeTargetId(data.conversationId) || data.conversationId;
+  const groupId = normalizeTargetId(data.conversationId);
   const groupName = data.conversationTitle || 'Group';
 
   // 2. Check authorization for direct messages based on dmPolicy
@@ -753,9 +753,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect
-    ? normalizeTargetId(senderId) || senderId
-    : normalizeTargetId(groupId) || groupId;
+  const to = isDirect ? normalizeTargetId(senderId) : groupId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
