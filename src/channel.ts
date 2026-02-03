@@ -30,6 +30,7 @@ import { AICardStatus } from './types';
 
 // Access Token cache (per clientId)
 const accessTokenCache = new Map<string, { token: string; expiry: number }>();
+const DINGTALK_TARGET_PREFIX_RE = /^(dingtalk|dd|ding|group):/i;
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -63,7 +64,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const hasWildcard = entries.includes('*');
   const normalized = entries
     .filter((value) => value !== '*')
-    .map((value) => value.replace(/^(dingtalk|dd|ding|group):/i, ''));
+    .map((value) => value.replace(DINGTALK_TARGET_PREFIX_RE, ''));
   const normalizedLower = normalized.map((value) => value.toLowerCase());
   return {
     entries: normalized,
@@ -76,7 +77,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
 function normalizeTargetId(raw?: string | null): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
-  return trimmed.replace(/^(dingtalk|dd|ding|group):/i, '');
+  return trimmed.replace(DINGTALK_TARGET_PREFIX_RE, '');
 }
 
 /**
@@ -752,7 +753,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = normalizeTargetId(isDirect ? senderId : groupId) || (isDirect ? senderId : groupId);
+  const to = isDirect
+    ? normalizeTargetId(senderId) || senderId
+    : normalizeTargetId(groupId) || groupId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
@@ -965,7 +968,7 @@ export const dingtalkPlugin = {
       policyPath: 'channels.dingtalk.dmPolicy',
       allowFromPath: 'channels.dingtalk.allowFrom',
       approveHint: '使用 /allow dingtalk:<userId> 批准用户',
-      normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding|group):/i, ''),
+      normalizeEntry: (raw: string) => raw.replace(DINGTALK_TARGET_PREFIX_RE, ''),
     }),
   },
   groups: {
@@ -978,7 +981,7 @@ export const dingtalkPlugin = {
   },
   messaging: {
     normalizeTarget: ({ target }: any) =>
-      (target ? { targetId: target.replace(/^(dingtalk|dd|ding|group):/i, '') } : null),
+      (target ? { targetId: target.replace(DINGTALK_TARGET_PREFIX_RE, '') } : null),
     targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
