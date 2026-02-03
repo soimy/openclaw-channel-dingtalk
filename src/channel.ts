@@ -30,7 +30,7 @@ import { AICardStatus } from './types';
 
 // Access Token cache (per clientId)
 const accessTokenCache = new Map<string, { token: string; expiry: number }>();
-// Target prefixes include routing helpers like "group:" added by OpenClaw.
+// Target prefixes include routing helpers like "group:" added by OpenClaw; strip them before DingTalk API calls.
 const CHANNEL_TARGET_PREFIX_RE = /^(dingtalk|dd|ding|group):/i;
 
 // Global logger reference for use across module methods
@@ -77,6 +77,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
 
 /**
  * Normalize target IDs by stripping routing prefixes while preserving casing.
+ * Returns an empty string for blank inputs.
  */
 function normalizeTargetId(raw?: string | null): string {
   const trimmed = raw?.trim() ?? '';
