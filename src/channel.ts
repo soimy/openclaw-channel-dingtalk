@@ -967,7 +967,7 @@ export const dingtalkPlugin = {
     resolveGroupIntroHint: ({ groupId, groupChannel }: any): string | undefined => {
       const parts = [`conversationId=${groupId}`];
       if (groupChannel) parts.push(`sessionKey=${groupChannel}`);
-      return parts.length ? `DingTalk IDs: ${parts.join(', ')}.` : undefined;
+      return `DingTalk IDs: ${parts.join(', ')}.`;
     },
   },
   messaging: {
