@@ -208,14 +208,12 @@ async function sendProactiveTextOrMarkdown(
   // Note: DingTalk's proactive message API uses predefined message templates
   // sampleMarkdown supports markdown formatting, sampleText for plain text
   const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
+  const msgParam = useMarkdown ? JSON.stringify({title, text}) : JSON.stringify({ content: text });
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
     msgKey,
-    msgParam: JSON.stringify({
-      title,
-      text,
-    }),
+    msgParam
   };
 
   if (isGroup) {
