@@ -28,9 +28,8 @@ import type {
 } from './types';
 import { AICardStatus } from './types';
 
-// Access Token cache
-let accessToken: string | null = null;
-let accessTokenExpiry = 0;
+// Access Token cache (per clientId)
+const accessTokenCache = new Map<string, { token: string; expiry: number }>();
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -64,7 +63,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const hasWildcard = entries.includes('*');
   const normalized = entries
     .filter((value) => value !== '*')
-    .map((value) => value.replace(/^(dingtalk|dd|ding):/i, ''));
+    .map((value) => value.replace(/^(dingtalk|dd|ding|group):/i, ''));
   const normalizedLower = normalized.map((value) => value.toLowerCase());
   return {
     entries: normalized,
@@ -72,6 +71,12 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
     hasWildcard,
     hasEntries: entries.length > 0,
   };
+}
+
+function normalizeTargetId(raw?: string | null): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/^(dingtalk|dd|ding|group):/i, '');
 }
 
 /**
@@ -201,8 +206,10 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
 // Get Access Token with retry logic
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const now = Date.now();
-  if (accessToken && accessTokenExpiry > now + 60000) {
-    return accessToken;
+  const cacheKey = config.clientId;
+  const cached = accessTokenCache.get(cacheKey);
+  if (cached && cached.expiry > now + 60000) {
+    return cached.token;
   }
 
   const token = await retryWithBackoff(
@@ -212,9 +219,10 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
         appSecret: config.clientSecret,
       });
 
-      accessToken = response.data.accessToken;
-      accessTokenExpiry = now + response.data.expireIn * 1000;
-      return accessToken;
+      const nextToken = response.data.accessToken;
+      const expiry = now + response.data.expireIn * 1000;
+      accessTokenCache.set(cacheKey, { token: nextToken, expiry });
+      return nextToken;
     },
     { maxRetries: 3, log }
   );
@@ -654,7 +662,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const isDirect = data.conversationType === '1';
   const senderId = data.senderStaffId || data.senderId;
   const senderName = data.senderNick || 'Unknown';
-  const groupId = data.conversationId;
+  const groupId = normalizeTargetId(data.conversationId) || data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
   // 2. Check authorization for direct messages based on dmPolicy
@@ -744,7 +752,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect ? senderId : groupId;
+  const to = normalizeTargetId(isDirect ? senderId : groupId) || (isDirect ? senderId : groupId);
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
@@ -957,7 +965,7 @@ export const dingtalkPlugin = {
       policyPath: 'channels.dingtalk.dmPolicy',
       allowFromPath: 'channels.dingtalk.allowFrom',
       approveHint: '使用 /allow dingtalk:<userId> 批准用户',
-      normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ''),
+      normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding|group):/i, ''),
     }),
   },
   groups: {
@@ -969,7 +977,8 @@ export const dingtalkPlugin = {
     },
   },
   messaging: {
-    normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
+    normalizeTarget: ({ target }: any) =>
+      (target ? { targetId: target.replace(/^(dingtalk|dd|ding|group):/i, '') } : null),
     targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
