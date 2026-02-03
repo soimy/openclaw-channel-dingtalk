@@ -31,7 +31,7 @@ import { AICardStatus } from './types';
 // Access Token cache (per clientId)
 const accessTokenCache = new Map<string, { token: string; expiry: number }>();
 // Target prefixes include routing helpers like "group:" added by OpenClaw; strip them before DingTalk API calls.
-const CHANNEL_TARGET_PREFIX_RE = /^(dingtalk|dd|ding|group):/i;
+const CHANNEL_TARGET_PREFIX_REGEX = /^(dingtalk|dd|ding|group):/i;
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -65,7 +65,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const hasWildcard = entries.includes('*');
   const normalized = entries
     .filter((value) => value !== '*')
-    .map((value) => value.replace(CHANNEL_TARGET_PREFIX_RE, ''));
+    .map((value) => value.replace(CHANNEL_TARGET_PREFIX_REGEX, ''));
   const normalizedLower = normalized.map((value) => value.toLowerCase());
   return {
     entries: normalized,
@@ -81,7 +81,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
  */
 function normalizeTargetId(raw?: string | null): string {
   const trimmed = raw?.trim() ?? '';
-  return trimmed.replace(CHANNEL_TARGET_PREFIX_RE, '');
+  return trimmed.replace(CHANNEL_TARGET_PREFIX_REGEX, '');
 }
 
 /**
@@ -970,7 +970,7 @@ export const dingtalkPlugin = {
       policyPath: 'channels.dingtalk.dmPolicy',
       allowFromPath: 'channels.dingtalk.allowFrom',
       approveHint: '使用 /allow dingtalk:<userId> 批准用户',
-      normalizeEntry: (raw: string) => raw.replace(CHANNEL_TARGET_PREFIX_RE, ''),
+      normalizeEntry: (raw: string) => raw.replace(CHANNEL_TARGET_PREFIX_REGEX, ''),
     }),
   },
   groups: {
@@ -983,7 +983,7 @@ export const dingtalkPlugin = {
   },
   messaging: {
     normalizeTarget: ({ target }: any) =>
-      (target ? { targetId: target.replace(CHANNEL_TARGET_PREFIX_RE, '') } : null),
+      (target ? { targetId: target.replace(CHANNEL_TARGET_PREFIX_REGEX, '') } : null),
     targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
