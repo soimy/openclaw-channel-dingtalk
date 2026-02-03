@@ -31,7 +31,7 @@ import { AICardStatus } from './types';
 // Access Token cache (per clientId)
 const accessTokenCache = new Map<string, { token: string; expiry: number }>();
 // Target prefixes include routing helpers like "group:" added by OpenClaw; strip them before DingTalk API calls.
-const CHANNEL_TARGET_PREFIX_REGEX = /^(dingtalk|dd|ding|group):/i;
+const TARGET_PREFIX_REGEX = /^(dingtalk|dd|ding|group):/i;
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -65,7 +65,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const hasWildcard = entries.includes('*');
   const normalized = entries
     .filter((value) => value !== '*')
-    .map((value) => value.replace(CHANNEL_TARGET_PREFIX_REGEX, ''));
+    .map((value) => value.replace(TARGET_PREFIX_REGEX, ''));
   const normalizedLower = normalized.map((value) => value.toLowerCase());
   return {
     entries: normalized,
@@ -77,11 +77,12 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
 
 /**
  * Normalize target IDs by stripping routing prefixes while preserving casing.
- * Returns an empty string for blank inputs.
+ * @param raw Raw target id; null/undefined treated as empty string.
+ * @returns Target without routing prefixes (empty string for blank input).
  */
 function normalizeTargetId(raw?: string | null): string {
   const trimmed = raw?.trim() ?? '';
-  return trimmed.replace(CHANNEL_TARGET_PREFIX_REGEX, '');
+  return trimmed.replace(TARGET_PREFIX_REGEX, '');
 }
 
 /**
@@ -667,7 +668,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const isDirect = data.conversationType === '1';
   const senderId = data.senderStaffId || data.senderId;
   const senderName = data.senderNick || 'Unknown';
-  const groupId = normalizeTargetId(data.conversationId);
+  const conversationId = normalizeTargetId(data.conversationId);
   const groupName = data.conversationTitle || 'Group';
 
   // 2. Check authorization for direct messages based on dmPolicy
@@ -723,7 +724,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     cfg,
     channel: 'dingtalk',
     accountId,
-    peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },
+    peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : conversationId },
   });
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
@@ -731,19 +732,19 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
 
   // Group-specific: resolve config, track members, format member list
-  const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
+  const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, conversationId) : undefined;
   // GroupSystemPrompt is injected into the system prompt on every turn (unlike
   // group intro which only fires on the first turn). Embed DingTalk IDs here so
   // the AI always has access to conversationId.
   const groupSystemPrompt = !isDirect ? [
-    `DingTalk group context: conversationId=${groupId}`,
+    `DingTalk group context: conversationId=${conversationId}`,
     groupConfig?.systemPrompt?.trim(),
   ].filter(Boolean).join('\n') : undefined;
 
   if (!isDirect) {
-    noteGroupMember(storePath, groupId, senderId, senderName);
+    noteGroupMember(storePath, conversationId, senderId, senderName);
   }
-  const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
+  const groupMembers = !isDirect ? formatGroupMembers(storePath, conversationId) : undefined;
 
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
   const body = rt.channel.reply.formatInboundEnvelope({
@@ -757,7 +758,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     envelope: envelopeOptions,
   });
 
-  const to = isDirect ? normalizeTargetId(senderId) : groupId;
+  const to = isDirect ? normalizeTargetId(senderId) : conversationId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
@@ -970,7 +971,7 @@ export const dingtalkPlugin = {
       policyPath: 'channels.dingtalk.dmPolicy',
       allowFromPath: 'channels.dingtalk.allowFrom',
       approveHint: '使用 /allow dingtalk:<userId> 批准用户',
-      normalizeEntry: (raw: string) => raw.replace(CHANNEL_TARGET_PREFIX_REGEX, ''),
+      normalizeEntry: (raw: string) => raw.replace(TARGET_PREFIX_REGEX, ''),
     }),
   },
   groups: {
@@ -983,7 +984,7 @@ export const dingtalkPlugin = {
   },
   messaging: {
     normalizeTarget: ({ target }: any) =>
-      (target ? { targetId: target.replace(CHANNEL_TARGET_PREFIX_REGEX, '') } : null),
+      (target ? { targetId: target.replace(TARGET_PREFIX_REGEX, '') } : null),
     targetResolver: { looksLikeId: (id: string): boolean => /^[\w-]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
