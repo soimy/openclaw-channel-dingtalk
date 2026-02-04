@@ -147,6 +147,44 @@ function detectMarkdownAndExtractTitle(
   return { useMarkdown, title };
 }
 
+// ============ Group Members Persistence ============
+
+function groupMembersFilePath(storePath: string, groupId: string): string {
+  const dir = path.join(path.dirname(storePath), 'dingtalk-members');
+  const safeId = groupId.replace(/\+/g, '-').replace(/\//g, '_');
+  return path.join(dir, `${safeId}.json`);
+}
+
+function noteGroupMember(storePath: string, groupId: string, userId: string, name: string): void {
+  if (!userId || !name) return;
+  const filePath = groupMembersFilePath(storePath, groupId);
+  let roster: Record<string, string> = {};
+  try { roster = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch {}
+  if (roster[userId] === name) return;
+  roster[userId] = name;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(roster, null, 2));
+}
+
+function formatGroupMembers(storePath: string, groupId: string): string | undefined {
+  const filePath = groupMembersFilePath(storePath, groupId);
+  let roster: Record<string, string> = {};
+  try { roster = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return undefined; }
+  const entries = Object.entries(roster);
+  if (entries.length === 0) return undefined;
+  return entries.map(([id, name]) => `${name} (${id})`).join(', ');
+}
+
+// ============ Group Config Resolution ============
+
+function resolveGroupConfig(cfg: DingTalkConfig, groupId: string): { systemPrompt?: string } | undefined {
+  const groups = cfg.groups;
+  if (!groups) return undefined;
+  return groups[groupId] || groups['*'] || undefined;
+}
+
+// ============ Config Helpers ============
+
 function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
   if (!dingtalkCfg) return {} as DingTalkConfig;
@@ -218,14 +256,12 @@ async function sendProactiveTextOrMarkdown(
   // Note: DingTalk's proactive message API uses predefined message templates
   // sampleMarkdown supports markdown formatting, sampleText for plain text
   const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
+  const msgParam = useMarkdown ? JSON.stringify({title, text}) : JSON.stringify({ content: text });
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
     msgKey,
-    msgParam: JSON.stringify({
-      title,
-      text,
-    }),
+    msgParam
   };
 
   if (isGroup) {
@@ -691,6 +727,21 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
 
+  // Group-specific: resolve config, track members, format member list
+  const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
+  // GroupSystemPrompt is injected into the system prompt on every turn (unlike
+  // group intro which only fires on the first turn). Embed DingTalk IDs here so
+  // the AI always has access to conversationId.
+  const groupSystemPrompt = !isDirect ? [
+    `DingTalk group context: conversationId=${groupId}`,
+    groupConfig?.systemPrompt?.trim(),
+  ].filter(Boolean).join('\n') : undefined;
+
+  if (!isDirect) {
+    noteGroupMember(storePath, groupId, senderId, senderName);
+  }
+  const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
+
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
   const body = rt.channel.reply.formatInboundEnvelope({
     channel: 'DingTalk',
@@ -724,6 +775,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     MediaPath: mediaPath,
     MediaType: mediaType,
     MediaUrl: mediaPath,
+    GroupMembers: groupMembers,
+    GroupSystemPrompt: groupSystemPrompt,
+    GroupChannel: isDirect ? undefined : route.sessionKey,
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: 'dingtalk',
     OriginatingTo: to,
@@ -918,6 +972,11 @@ export const dingtalkPlugin = {
   },
   groups: {
     resolveRequireMention: ({ cfg }: any): boolean => getConfig(cfg).groupPolicy !== 'open',
+    resolveGroupIntroHint: ({ groupId, groupChannel }: any): string | undefined => {
+      const parts = [`conversationId=${groupId}`];
+      if (groupChannel) parts.push(`sessionKey=${groupChannel}`);
+      return `DingTalk IDs: ${parts.join(', ')}.`;
+    },
   },
   messaging: {
     normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
