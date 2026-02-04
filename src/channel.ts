@@ -9,6 +9,7 @@ import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
+import { registerPeerId, resolveOriginalPeerId } from './peer-id-registry';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -28,9 +29,12 @@ import type {
 } from './types';
 import { AICardStatus } from './types';
 
-// Access Token cache
-let accessToken: string | null = null;
-let accessTokenExpiry = 0;
+// Access Token cache - keyed by clientId for multi-account support
+interface TokenCache {
+  accessToken: string;
+  expiry: number;
+}
+const accessTokenCache = new Map<string, TokenCache>();
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -47,6 +51,33 @@ const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // DingTalk API base URL
 const DINGTALK_API = 'https://api.dingtalk.com';
+
+// ============ Message Deduplication ============
+// Prevents duplicate message processing when DingTalk retries delivery
+
+const processedMessages = new Map<string, number>();
+const MESSAGE_DEDUP_TTL = 5 * 60 * 1000; // 5 minutes
+const MESSAGE_DEDUP_CLEANUP_THRESHOLD = 100;
+
+function cleanupProcessedMessages(): void {
+  const now = Date.now();
+  for (const [msgId, timestamp] of processedMessages.entries()) {
+    if (now - timestamp > MESSAGE_DEDUP_TTL) {
+      processedMessages.delete(msgId);
+    }
+  }
+}
+
+function isMessageProcessed(messageId: string): boolean {
+  return processedMessages.has(messageId);
+}
+
+function markMessageProcessed(messageId: string): void {
+  processedMessages.set(messageId, Date.now());
+  if (processedMessages.size >= MESSAGE_DEDUP_CLEANUP_THRESHOLD) {
+    cleanupProcessedMessages();
+  }
+}
 
 // Authorization helpers
 type NormalizedAllowFrom = {
@@ -96,7 +127,7 @@ function isCardInTerminalState(state: string): boolean {
 // Clean up old AI card instances from cache
 function cleanupCardCache() {
   const now = Date.now();
-  
+
   // Clean up AI card instances that are in FINISHED or FAILED state
   // Active cards (PROCESSING, INPUTING) are not cleaned up even if they exceed TTL
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
@@ -136,9 +167,9 @@ function detectMarkdownAndExtractTitle(
     options.title ||
     (useMarkdown
       ? text
-          .split('\n')[0]
-          .replace(/^[#*\s\->]+/, '')
-          .slice(0, 20) || defaultTitle
+        .split('\n')[0]
+        .replace(/^[#*\s\->]+/, '')
+        .slice(0, 20) || defaultTitle
       : defaultTitle);
 
   return { useMarkdown, title };
@@ -178,6 +209,22 @@ function resolveGroupConfig(cfg: DingTalkConfig, groupId: string): { systemPromp
   const groups = cfg.groups;
   if (!groups) return undefined;
   return groups[groupId] || groups['*'] || undefined;
+}
+
+// ============ Target Prefix Helpers ============
+
+/**
+ * Strip group: or user: prefix from target ID
+ * Returns the raw targetId and whether it was explicitly marked as a user
+ */
+function stripTargetPrefix(target: string): { targetId: string; isExplicitUser: boolean } {
+  if (target.startsWith('group:')) {
+    return { targetId: target.slice(6), isExplicitUser: false };
+  }
+  if (target.startsWith('user:')) {
+    return { targetId: target.slice(5), isExplicitUser: true };
+  }
+  return { targetId: target, isExplicitUser: false };
 }
 
 // ============ Config Helpers ============
@@ -265,11 +312,14 @@ function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string): string 
   return path.join(os.homedir(), '.openclaw', `workspace-${id}`);
 }
 
-// Get Access Token with retry logic
+// Get Access Token with retry logic - uses clientId-based cache for multi-account support
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
+  const cacheKey = config.clientId;
   const now = Date.now();
-  if (accessToken && accessTokenExpiry > now + 60000) {
-    return accessToken;
+  const cached = accessTokenCache.get(cacheKey);
+
+  if (cached && cached.expiry > now + 60000) {
+    return cached.accessToken;
   }
 
   const token = await retryWithBackoff(
@@ -279,9 +329,13 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
         appSecret: config.clientSecret,
       });
 
-      accessToken = response.data.accessToken;
-      accessTokenExpiry = now + response.data.expireIn * 1000;
-      return accessToken;
+      // Store in cache with clientId as key
+      accessTokenCache.set(cacheKey, {
+        accessToken: response.data.accessToken,
+        expiry: now + response.data.expireIn * 1000,
+      });
+
+      return response.data.accessToken;
     },
     { maxRetries: 3, log }
   );
@@ -297,8 +351,12 @@ async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  const isGroup = target.startsWith('cid');
   const log = options.log || getLogger();
+
+  // Support group: and user: prefixes, and resolve case-sensitive conversationId
+  const { targetId, isExplicitUser } = stripTargetPrefix(target);
+  const resolvedTarget = resolveOriginalPeerId(targetId);
+  const isGroup = !isExplicitUser && resolvedTarget.startsWith('cid');
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
@@ -307,7 +365,7 @@ async function sendProactiveTextOrMarkdown(
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'OpenClaw 提醒');
 
-  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${target} with title "${title}"`);
+  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${resolvedTarget} with title "${title}"`);
 
   // Choose msgKey based on whether we're sending markdown or plain text
   // Note: DingTalk's proactive message API uses predefined message templates
@@ -322,9 +380,9 @@ async function sendProactiveTextOrMarkdown(
   };
 
   if (isGroup) {
-    payload.openConversationId = target;
+    payload.openConversationId = resolvedTarget;
   } else {
-    payload.userIds = [target];
+    payload.userIds = [resolvedTarget];
   }
 
   const result = await axios({
@@ -485,7 +543,7 @@ async function sendBySession(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  
+
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
 
@@ -556,7 +614,7 @@ async function createAICard(
     if (isGroup && !config.robotCode) {
       log?.warn?.(
         '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
-          'For best compatibility, set robotCode explicitly in config.'
+        'For best compatibility, set robotCode explicitly in config.'
       );
     }
 
@@ -616,7 +674,7 @@ async function streamAICard(
   // Refresh token if it's been more than 1.5 hours since card creation (tokens expire after 2 hours)
   const tokenAge = Date.now() - card.createdAt;
   const TOKEN_REFRESH_THRESHOLD = 90 * 60 * 1000; // 1.5 hours in milliseconds
-  
+
   if (tokenAge > TOKEN_REFRESH_THRESHOLD && card.config) {
     log?.debug?.('[DingTalk][AICard] Token age exceeds threshold, refreshing...');
     try {
@@ -684,7 +742,7 @@ async function streamAICard(
         // Fall through to mark as failed and throw
       }
     }
-    
+
     // Ensure card state reflects the failure to prevent retry loops
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
@@ -784,6 +842,10 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const senderName = data.senderNick || 'Unknown';
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
+
+  // Register original peer IDs to preserve case-sensitive conversationId (base64)
+  if (groupId) registerPeerId(groupId);
+  if (senderId) registerPeerId(senderId);
 
   // 2. Check authorization for direct messages based on dmPolicy
   let commandAuthorized = true;
@@ -1053,7 +1115,7 @@ export const dingtalkPlugin = {
   config: {
     listAccountIds: (cfg: OpenClawConfig): string[] => {
       const config = getConfig(cfg);
-      return config.accounts ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
+      return (config.accounts && Object.keys(config.accounts).length > 0) ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
     },
     resolveAccount: (cfg: OpenClawConfig, accountId?: string) => {
       const config = getConfig(cfg);
@@ -1104,7 +1166,10 @@ export const dingtalkPlugin = {
           error: new Error('DingTalk message requires --to <conversationId>'),
         };
       }
-      return { ok: true, to: trimmed };
+      // Strip group: or user: prefix and resolve original case-sensitive conversationId
+      const { targetId } = stripTargetPrefix(trimmed);
+      const resolved = resolveOriginalPeerId(targetId);
+      return { ok: true, to: resolved };
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
@@ -1156,6 +1221,17 @@ export const dingtalkPlugin = {
             client.socketCallBackResponse(messageId, { success: true });
           }
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
+
+          // Message deduplication: skip if already processed
+          const dedupKey = data.msgId || messageId;
+          if (dedupKey && isMessageProcessed(dedupKey)) {
+            ctx.log?.debug?.(`[DingTalk] Skipping duplicate message: ${dedupKey}`);
+            return;
+          }
+          if (dedupKey) {
+            markMessageProcessed(dedupKey);
+          }
+
           await handleDingTalkMessage({
             cfg,
             accountId: account.accountId,
