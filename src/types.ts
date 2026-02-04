@@ -114,6 +114,7 @@ export interface DingTalkInboundMessage {
       type: string;
       text?: string;
       atName?: string;
+      downloadCode?: string;  // For picture type in richText
     }>;
   };
   conversationType: string;

@@ -1,8 +1,8 @@
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
 import axios from 'axios';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
@@ -198,6 +198,73 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
+const DEFAULT_AGENT_ID = 'main';
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9_-]+/g;
+const LEADING_DASH_RE = /^-+/;
+const TRAILING_DASH_RE = /-+$/;
+
+function normalizeAgentId(value: string | undefined | null): string {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return DEFAULT_AGENT_ID;
+  if (VALID_AGENT_ID_RE.test(trimmed)) return trimmed.toLowerCase();
+  return (
+    trimmed
+      .toLowerCase()
+      .replace(INVALID_AGENT_ID_CHARS_RE, '-')
+      .replace(LEADING_DASH_RE, '')
+      .replace(TRAILING_DASH_RE, '')
+      .slice(0, 64) || DEFAULT_AGENT_ID
+  );
+}
+
+function resolveUserPath(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('~')) {
+    const expanded = trimmed.replace(/^~(?=$|[\\/])/, os.homedir());
+    return path.resolve(expanded);
+  }
+  return path.resolve(trimmed);
+}
+
+function resolveDefaultAgentWorkspaceDir(): string {
+  const profile = process.env.OPENCLAW_PROFILE?.trim();
+  if (profile && profile.toLowerCase() !== 'default') {
+    return path.join(os.homedir(), '.openclaw', `workspace-${profile}`);
+  }
+  return path.join(os.homedir(), '.openclaw', 'workspace');
+}
+
+interface AgentConfig {
+  id?: string;
+  default?: boolean;
+  workspace?: string;
+}
+
+function resolveDefaultAgentId(cfg: OpenClawConfig): string {
+  const agents: AgentConfig[] = cfg.agents?.list ?? [];
+  if (agents.length === 0) return DEFAULT_AGENT_ID;
+  const defaults = agents.filter((agent: AgentConfig) => agent?.default);
+  const chosen = (defaults[0] ?? agents[0])?.id?.trim();
+  return normalizeAgentId(chosen || DEFAULT_AGENT_ID);
+}
+
+function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string): string {
+  const id = normalizeAgentId(agentId);
+  const agents: AgentConfig[] = cfg.agents?.list ?? [];
+  const agent = agents.find((entry: AgentConfig) => normalizeAgentId(entry?.id) === id);
+  const configured = agent?.workspace?.trim();
+  if (configured) return resolveUserPath(configured);
+  const defaultAgentId = resolveDefaultAgentId(cfg);
+  if (id === defaultAgentId) {
+    const fallback = cfg.agents?.defaults?.workspace?.trim();
+    if (fallback) return resolveUserPath(fallback);
+    return resolveDefaultAgentWorkspaceDir();
+  }
+  return path.join(os.homedir(), '.openclaw', `workspace-${id}`);
+}
+
 // Get Access Token with retry logic
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const now = Date.now();
@@ -269,8 +336,30 @@ async function sendProactiveTextOrMarkdown(
   return result.data;
 }
 
-// Download media file
-async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?: Logger): Promise<MediaFile | null> {
+// Download media file to agent workspace (sandbox-compatible)
+// workspacePath: the agent's workspace directory (e.g., /home/node/.openclaw/workspace)
+async function downloadMedia(
+  config: DingTalkConfig,
+  downloadCode: string,
+  workspacePath: string,
+  log?: Logger
+): Promise<MediaFile | null> {
+  const formatAxiosErrorData = (value: unknown): string | undefined => {
+    if (value === null || value === undefined) return undefined;
+    if (Buffer.isBuffer(value)) return `<buffer ${value.length} bytes>`;
+    if (value instanceof ArrayBuffer) return `<arraybuffer ${value.byteLength} bytes>`;
+    if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    try {
+      return JSON.stringify(maskSensitiveData(value));
+    } catch {
+      return String(value);
+    }
+  };
+
+  if (!downloadCode) {
+    log?.error?.('[DingTalk] downloadMedia requires downloadCode to be provided.');
+    return null;
+  }
   if (!config.robotCode) {
     if (log?.error) {
       log.error('[DingTalk] downloadMedia requires robotCode to be configured.');
@@ -279,22 +368,51 @@ async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?:
   }
   try {
     const token = await getAccessToken(config, log);
-    const response = await axios.post<{ downloadUrl?: string }>(
+    const response = await axios.post(
       'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
       { downloadCode, robotCode: config.robotCode },
       { headers: { 'x-acs-dingtalk-access-token': token } }
     );
-    const downloadUrl = response.data?.downloadUrl;
-    if (!downloadUrl) return null;
+    const payload = response.data as Record<string, any>;
+    const downloadUrl = payload?.downloadUrl ?? payload?.data?.downloadUrl;
+    if (!downloadUrl) {
+      const payloadDetail = formatAxiosErrorData(payload);
+      log?.error?.(
+        `[DingTalk] downloadMedia missing downloadUrl. payload=${payloadDetail ?? 'unknown'}`
+      );
+      return null;
+    }
     const mediaResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
     const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
+    const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
+
+    // Save to agent workspace's media/inbound/ directory (sandbox-compatible)
+    // This ensures the file is accessible within the sandbox
+    const mediaDir = path.join(workspacePath, 'media', 'inbound');
+    fs.mkdirSync(mediaDir, { recursive: true });
+
     const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
-    const tempPath = path.join(os.tmpdir(), `dingtalk_${Date.now()}.${ext}`);
-    fs.writeFileSync(tempPath, Buffer.from(mediaResponse.data as ArrayBuffer));
-    return { path: tempPath, mimeType: contentType };
+    const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const mediaPath = path.join(mediaDir, filename);
+
+    fs.writeFileSync(mediaPath, buffer);
+    log?.debug?.(`[DingTalk] Media saved to workspace: ${mediaPath}`);
+    return { path: mediaPath, mimeType: contentType };
   } catch (err: any) {
     if (log?.error) {
-      log.error('[DingTalk] Failed to download media:', err.message);
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const statusText = err.response?.statusText;
+        const dataDetail = formatAxiosErrorData(err.response?.data);
+        const code = err.code ? ` code=${err.code}` : '';
+        const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ''}` : '';
+        log.error(`[DingTalk] Failed to download media:${statusLabel}${code} message=${err.message}`);
+        if (dataDetail) {
+          log.error(`[DingTalk] downloadMedia response data: ${dataDetail}`);
+        }
+      } else {
+        log.error('[DingTalk] Failed to download media:', err.message);
+      }
     }
     return null;
   }
@@ -308,15 +426,25 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
     return { text: data.text?.content?.trim() || '', messageType: 'text' };
   }
 
-  // Improved richText parsing: join all text/at components
+  // Improved richText parsing: join all text/at components and extract first picture
   if (msgtype === 'richText') {
     const richTextParts = data.content?.richText || [];
     let text = '';
+    let pictureDownloadCode: string | undefined;
     for (const part of richTextParts) {
       if (part.type === 'text' && part.text) text += part.text;
       if (part.type === 'at' && part.atName) text += `@${part.atName} `;
+      // Extract first picture's downloadCode from richText
+      if (part.type === 'picture' && part.downloadCode && !pictureDownloadCode) {
+        pictureDownloadCode = part.downloadCode;
+      }
     }
-    return { text: text.trim() || '[富文本消息]', messageType: 'richText' };
+    return {
+      text: text.trim() || (pictureDownloadCode ? '[图片]' : '[富文本消息]'),
+      mediaPath: pictureDownloadCode,
+      mediaType: pictureDownloadCode ? 'image' : undefined,
+      messageType: 'richText',
+    };
   }
 
   if (msgtype === 'picture') {
@@ -696,16 +824,6 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     }
   }
 
-  let mediaPath: string | undefined;
-  let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
-    }
-  }
-
   const route = rt.channel.routing.resolveAgentRoute({
     cfg,
     channel: 'dingtalk',
@@ -714,6 +832,18 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   });
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
+  const workspacePath = resolveAgentWorkspaceDir(cfg, route.agentId);
+
+  // Download media to agent workspace (must be after route is resolved for correct workspace)
+  let mediaPath: string | undefined;
+  let mediaType: string | undefined;
+  if (content.mediaPath && dingtalkConfig.robotCode) {
+    const media = await downloadMedia(dingtalkConfig, content.mediaPath, workspacePath, log);
+    if (media) {
+      mediaPath = media.path;
+      mediaType = media.mimeType;
+    }
+  }
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
 
@@ -857,53 +987,45 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     },
   });
 
-  try {
-    // Finalize AI card
-    if (useCardMode && currentAICard) {
+  // Finalize AI card
+  if (useCardMode && currentAICard) {
+    try {
+      // Helper function to check if a value is a non-empty string
+      const isNonEmptyString = (value: any): boolean =>
+        typeof value === 'string' && value.trim().length > 0;
+
+      // Validate that we have actual content before finalization
+      const hasLastCardContent = isNonEmptyString(lastCardContent);
+      const hasQueuedFinalString = isNonEmptyString(queuedFinal);
+
+      if (hasLastCardContent || hasQueuedFinalString) {
+        const finalContent = hasLastCardContent ? lastCardContent : (queuedFinal as string);
+        await finishAICard(currentAICard, finalContent, log);
+      } else {
+        // No textual content was produced; skip finalization with empty content
+        log?.debug?.(
+          '[DingTalk] Skipping AI Card finalization because no textual content was produced.'
+        );
+        // Still mark the card as finished to allow cleanup
+        currentAICard.state = AICardStatus.FINISHED;
+        currentAICard.lastUpdated = Date.now();
+      }
+    } catch (err: any) {
+      log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
+      // Ensure the AI card transitions to a terminal error state
       try {
-        // Helper function to check if a value is a non-empty string
-        const isNonEmptyString = (value: any): boolean =>
-          typeof value === 'string' && value.trim().length > 0;
-
-        // Validate that we have actual content before finalization
-        const hasLastCardContent = isNonEmptyString(lastCardContent);
-        const hasQueuedFinalString = isNonEmptyString(queuedFinal);
-
-        if (hasLastCardContent || hasQueuedFinalString) {
-          const finalContent = hasLastCardContent ? lastCardContent : (queuedFinal as string);
-          await finishAICard(currentAICard, finalContent, log);
-        } else {
-          // No textual content was produced; skip finalization with empty content
-          log?.debug?.(
-            '[DingTalk] Skipping AI Card finalization because no textual content was produced.'
-          );
-          // Still mark the card as finished to allow cleanup
-          currentAICard.state = AICardStatus.FINISHED;
+        if (currentAICard.state !== AICardStatus.FINISHED) {
+          currentAICard.state = AICardStatus.FAILED;
           currentAICard.lastUpdated = Date.now();
         }
-      } catch (err: any) {
-        log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
-        // Ensure the AI card transitions to a terminal error state
-        try {
-          if (currentAICard.state !== AICardStatus.FINISHED) {
-            currentAICard.state = AICardStatus.FAILED;
-            currentAICard.lastUpdated = Date.now();
-          }
-        } catch (stateErr: any) {
-          // Log state update failure at debug level to aid production debugging
-          log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
-        }
-      }
-    }
-  } finally {
-    if (mediaPath && fs.existsSync(mediaPath)) {
-      try {
-        fs.unlinkSync(mediaPath);
-      } catch (_err) {
-        // Ignore cleanup errors
+      } catch (stateErr: any) {
+        // Log state update failure at debug level to aid production debugging
+        log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
       }
     }
   }
+  // Note: Media cleanup is handled by openclaw's media storage mechanism
+  // Files saved via rt.channel.media.saveMediaBuffer are managed automatically
 }
 
 // DingTalk Channel Definition
