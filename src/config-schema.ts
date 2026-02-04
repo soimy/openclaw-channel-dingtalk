@@ -51,6 +51,12 @@ export const DingTalkConfigSchema = z.object({
    */
   cardTemplateId: z.string().optional().default('382e4302-551d-4880-bf29-a30acfab2e71.schema'),
 
+  /** Enable automatic upload of local images in AI responses
+   * When enabled, local file paths like ![alt](/path/to/image.png) in AI output
+   * will be automatically uploaded to DingTalk and replaced with media_id
+   */
+  enableMediaUpload: z.boolean().optional().default(false),
+
   /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
   groups: z.record(z.string(), z.object({
     systemPrompt: z.string().optional(),
