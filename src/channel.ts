@@ -48,6 +48,33 @@ const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // DingTalk API base URL
 const DINGTALK_API = 'https://api.dingtalk.com';
 
+// ============ Message Deduplication ============
+// Prevents duplicate message processing when DingTalk retries delivery
+
+const processedMessages = new Map<string, number>();
+const MESSAGE_DEDUP_TTL = 5 * 60 * 1000; // 5 minutes
+const MESSAGE_DEDUP_CLEANUP_THRESHOLD = 100;
+
+function cleanupProcessedMessages(): void {
+  const now = Date.now();
+  for (const [msgId, timestamp] of processedMessages.entries()) {
+    if (now - timestamp > MESSAGE_DEDUP_TTL) {
+      processedMessages.delete(msgId);
+    }
+  }
+}
+
+function isMessageProcessed(messageId: string): boolean {
+  return processedMessages.has(messageId);
+}
+
+function markMessageProcessed(messageId: string): void {
+  processedMessages.set(messageId, Date.now());
+  if (processedMessages.size >= MESSAGE_DEDUP_CLEANUP_THRESHOLD) {
+    cleanupProcessedMessages();
+  }
+}
+
 // Authorization helpers
 type NormalizedAllowFrom = {
   entries: string[];
@@ -1034,6 +1061,17 @@ export const dingtalkPlugin = {
             client.socketCallBackResponse(messageId, { success: true });
           }
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
+
+          // Message deduplication: skip if already processed
+          const dedupKey = data.msgId || messageId;
+          if (dedupKey && isMessageProcessed(dedupKey)) {
+            ctx.log?.debug?.(`[DingTalk] Skipping duplicate message: ${dedupKey}`);
+            return;
+          }
+          if (dedupKey) {
+            markMessageProcessed(dedupKey);
+          }
+
           await handleDingTalkMessage({
             cfg,
             accountId: account.accountId,
