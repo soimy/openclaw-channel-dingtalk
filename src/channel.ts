@@ -931,7 +931,7 @@ export const dingtalkPlugin = {
   config: {
     listAccountIds: (cfg: OpenClawConfig): string[] => {
       const config = getConfig(cfg);
-      return config.accounts ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
+      return (config.accounts && Object.keys(config.accounts).length > 0) ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
     },
     resolveAccount: (cfg: OpenClawConfig, accountId?: string) => {
       const config = getConfig(cfg);
