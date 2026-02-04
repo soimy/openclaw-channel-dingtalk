@@ -9,6 +9,7 @@ import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
+import { registerPeerId, resolveOriginalPeerId } from './peer-id-registry';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -180,6 +181,22 @@ function resolveGroupConfig(cfg: DingTalkConfig, groupId: string): { systemPromp
   return groups[groupId] || groups['*'] || undefined;
 }
 
+// ============ Target Prefix Helpers ============
+
+/**
+ * Strip group: or user: prefix from target ID
+ * Returns the raw targetId and whether it was explicitly marked as a user
+ */
+function stripTargetPrefix(target: string): { targetId: string; isExplicitUser: boolean } {
+  if (target.startsWith('group:')) {
+    return { targetId: target.slice(6), isExplicitUser: false };
+  }
+  if (target.startsWith('user:')) {
+    return { targetId: target.slice(5), isExplicitUser: true };
+  }
+  return { targetId: target, isExplicitUser: false };
+}
+
 // ============ Config Helpers ============
 
 function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
@@ -230,8 +247,12 @@ async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  const isGroup = target.startsWith('cid');
   const log = options.log || getLogger();
+
+  // Support group: and user: prefixes, and resolve case-sensitive conversationId
+  const { targetId, isExplicitUser } = stripTargetPrefix(target);
+  const resolvedTarget = resolveOriginalPeerId(targetId);
+  const isGroup = !isExplicitUser && resolvedTarget.startsWith('cid');
 
   const url = isGroup
     ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
@@ -240,7 +261,7 @@ async function sendProactiveTextOrMarkdown(
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'OpenClaw 提醒');
 
-  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${target} with title "${title}"`);
+  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${resolvedTarget} with title "${title}"`);
 
   // Choose msgKey based on whether we're sending markdown or plain text
   // Note: DingTalk's proactive message API uses predefined message templates
@@ -255,9 +276,9 @@ async function sendProactiveTextOrMarkdown(
   };
 
   if (isGroup) {
-    payload.openConversationId = target;
+    payload.openConversationId = resolvedTarget;
   } else {
-    payload.userIds = [target];
+    payload.userIds = [resolvedTarget];
   }
 
   const result = await axios({
@@ -657,6 +678,10 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
+  // Register original peer IDs to preserve case-sensitive conversationId (base64)
+  if (groupId) registerPeerId(groupId);
+  if (senderId) registerPeerId(senderId);
+
   // 2. Check authorization for direct messages based on dmPolicy
   let commandAuthorized = true;
   if (isDirect) {
@@ -982,7 +1007,10 @@ export const dingtalkPlugin = {
           error: new Error('DingTalk message requires --to <conversationId>'),
         };
       }
-      return { ok: true, to: trimmed };
+      // Strip group: or user: prefix and resolve original case-sensitive conversationId
+      const { targetId } = stripTargetPrefix(trimmed);
+      const resolved = resolveOriginalPeerId(targetId);
+      return { ok: true, to: resolved };
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
