@@ -28,9 +28,12 @@ import type {
 } from './types';
 import { AICardStatus } from './types';
 
-// Access Token cache
-let accessToken: string | null = null;
-let accessTokenExpiry = 0;
+// Access Token cache - keyed by clientId for multi-account support
+interface TokenCache {
+  accessToken: string;
+  expiry: number;
+}
+const accessTokenCache = new Map<string, TokenCache>();
 
 // Global logger reference for use across module methods
 let currentLogger: Logger | undefined;
@@ -96,7 +99,7 @@ function isCardInTerminalState(state: string): boolean {
 // Clean up old AI card instances from cache
 function cleanupCardCache() {
   const now = Date.now();
-  
+
   // Clean up AI card instances that are in FINISHED or FAILED state
   // Active cards (PROCESSING, INPUTING) are not cleaned up even if they exceed TTL
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
@@ -136,9 +139,9 @@ function detectMarkdownAndExtractTitle(
     options.title ||
     (useMarkdown
       ? text
-          .split('\n')[0]
-          .replace(/^[#*\s\->]+/, '')
-          .slice(0, 20) || defaultTitle
+        .split('\n')[0]
+        .replace(/^[#*\s\->]+/, '')
+        .slice(0, 20) || defaultTitle
       : defaultTitle);
 
   return { useMarkdown, title };
@@ -160,11 +163,14 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
-// Get Access Token with retry logic
+// Get Access Token with retry logic - uses clientId-based cache for multi-account support
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
+  const cacheKey = config.clientId;
   const now = Date.now();
-  if (accessToken && accessTokenExpiry > now + 60000) {
-    return accessToken;
+  const cached = accessTokenCache.get(cacheKey);
+
+  if (cached && cached.expiry > now + 60000) {
+    return cached.accessToken;
   }
 
   const token = await retryWithBackoff(
@@ -174,9 +180,13 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
         appSecret: config.clientSecret,
       });
 
-      accessToken = response.data.accessToken;
-      accessTokenExpiry = now + response.data.expireIn * 1000;
-      return accessToken;
+      // Store in cache with clientId as key
+      accessTokenCache.set(cacheKey, {
+        accessToken: response.data.accessToken,
+        expiry: now + response.data.expireIn * 1000,
+      });
+
+      return response.data.accessToken;
     },
     { maxRetries: 3, log }
   );
@@ -321,7 +331,7 @@ async function sendBySession(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
-  
+
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
 
@@ -392,7 +402,7 @@ async function createAICard(
     if (isGroup && !config.robotCode) {
       log?.warn?.(
         '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
-          'For best compatibility, set robotCode explicitly in config.'
+        'For best compatibility, set robotCode explicitly in config.'
       );
     }
 
@@ -452,7 +462,7 @@ async function streamAICard(
   // Refresh token if it's been more than 1.5 hours since card creation (tokens expire after 2 hours)
   const tokenAge = Date.now() - card.createdAt;
   const TOKEN_REFRESH_THRESHOLD = 90 * 60 * 1000; // 1.5 hours in milliseconds
-  
+
   if (tokenAge > TOKEN_REFRESH_THRESHOLD && card.config) {
     log?.debug?.('[DingTalk][AICard] Token age exceeds threshold, refreshing...');
     try {
@@ -520,7 +530,7 @@ async function streamAICard(
         // Fall through to mark as failed and throw
       }
     }
-    
+
     // Ensure card state reflects the failure to prevent retry loops
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
