@@ -343,6 +343,21 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
   return token;
 }
 
+// Helper function to detect media type from file extension
+function detectMediaTypeFromExtension(filePath: string): 'image' | 'voice' | 'video' | 'file' {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
+    return 'image';
+  } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
+    return 'voice';
+  } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
+    return 'video';
+  }
+  
+  return 'file';
+}
+
 // Upload media file to DingTalk and get media_id
 async function uploadMedia(
   config: DingTalkConfig,
@@ -365,10 +380,10 @@ async function uploadMedia(
     const stats = fs.statSync(mediaPath);
 
     // Upload to DingTalk's media server using form-data
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const FormData = require('form-data');
     const form = new FormData();
     form.append('media', fileStream, { filename });
-    form.append('type', mediaType);
 
     const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
     
@@ -476,12 +491,14 @@ async function sendProactiveMedia(
     log?.debug?.(`[DingTalk] Sending proactive ${mediaType} message to ${isGroup ? 'group' : 'user'} ${resolvedTarget}`);
 
     // Construct message based on media type
+    // Note: DingTalk's proactive message API uses predefined message templates
+    // For media messages, we use the media_id directly in the msgParam
     let msgKey: string;
     let msgParam: string;
     
     if (mediaType === 'image') {
       msgKey = 'sampleImageMsg';
-      msgParam = JSON.stringify({ photoURL: `@lALPDe7s26${mediaId}` }); // DingTalk format for media_id
+      msgParam = JSON.stringify({ photoURL: mediaId }); // Use media_id directly as photoURL
     } else if (mediaType === 'voice') {
       msgKey = 'sampleAudio';
       msgParam = JSON.stringify({ mediaId });
@@ -1349,19 +1366,11 @@ export const dingtalkPlugin = {
       }
       try {
         // Detect media type from file extension
-        const ext = path.extname(mediaPath).toLowerCase();
-        let mediaType: 'image' | 'voice' | 'video' | 'file' = 'file';
+        const mediaType = detectMediaTypeFromExtension(mediaPath);
         
-        if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
-          mediaType = 'image';
-        } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
-          mediaType = 'voice';
-        } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
-          mediaType = 'video';
-        }
-        
-        // Try to send as native media via proactive API
-        // Note: sessionWebhook is not available for proactive messages, so we need to use sendProactiveMedia
+        // Send as native media via proactive API
+        // Note: This uses sendProactiveMedia because outbound.sendMedia is for
+        // proactive messages and doesn't have access to sessionWebhook
         const result = await sendProactiveMedia(config, to, mediaPath, mediaType, { log, accountId });
         getLogger()?.debug?.(`[DingTalk] sendMedia: ${mediaType} result: ${JSON.stringify(result)}`);
         return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
@@ -1482,6 +1491,8 @@ export const dingtalkPlugin = {
  *   (closes streaming channel and updates card state).
  * - {@link sendMessage} sends a message with automatic mode selection
  *   (text/markdown/card based on config).
+ * - {@link uploadMedia} uploads a local media file to DingTalk media server
+ *   and returns the media_id for use in messages.
  * - {@link getAccessToken} retrieves (and caches) the DingTalk access token
  *   for the configured application/runtime.
  * - {@link getLogger} retrieves the current global logger instance
@@ -1490,4 +1501,4 @@ export const dingtalkPlugin = {
  * These exports are intended to be used by external integrations that need
  * direct programmatic access to DingTalk messaging and authentication.
  */
-export { sendBySession, createAICard, streamAICard, finishAICard, sendMessage, getAccessToken, getLogger };
+export { sendBySession, createAICard, streamAICard, finishAICard, sendMessage, uploadMedia, getAccessToken, getLogger };
