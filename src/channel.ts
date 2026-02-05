@@ -343,6 +343,57 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
   return token;
 }
 
+// Upload media file to DingTalk and get media_id
+async function uploadMedia(
+  config: DingTalkConfig,
+  mediaPath: string,
+  mediaType: 'image' | 'voice' | 'video' | 'file',
+  log?: Logger
+): Promise<string | null> {
+  try {
+    const token = await getAccessToken(config, log);
+    
+    // Validate file exists
+    if (!fs.existsSync(mediaPath)) {
+      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+      return null;
+    }
+
+    // Read file as a stream for better memory efficiency
+    const fileStream = fs.createReadStream(mediaPath);
+    const filename = path.basename(mediaPath);
+    const stats = fs.statSync(mediaPath);
+
+    // Upload to DingTalk's media server using form-data
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('media', fileStream, { filename });
+    form.append('type', mediaType);
+
+    const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
+    
+    const response = await axios.post(uploadUrl, form, {
+      headers: form.getHeaders(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+
+    if (response.data?.errcode === 0 && response.data?.media_id) {
+      log?.debug?.(`[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`);
+      return response.data.media_id;
+    } else {
+      log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
+      return null;
+    }
+  } catch (err: any) {
+    log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
+    if (axios.isAxiosError(err) && err.response) {
+      log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+    }
+    return null;
+  }
+}
+
 // Send text/markdown proactive message via DingTalk OpenAPI
 async function sendProactiveTextOrMarkdown(
   config: DingTalkConfig,
@@ -392,6 +443,80 @@ async function sendProactiveTextOrMarkdown(
     headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
   });
   return result.data;
+}
+
+// Send proactive media message via DingTalk OpenAPI
+async function sendProactiveMedia(
+  config: DingTalkConfig,
+  target: string,
+  mediaPath: string,
+  mediaType: 'image' | 'voice' | 'video' | 'file',
+  options: SendMessageOptions & { accountId?: string } = {}
+): Promise<{ ok: boolean; error?: string; data?: AxiosResponse }> {
+  const log = options.log || getLogger();
+  
+  try {
+    // Upload media first to get media_id
+    const mediaId = await uploadMedia(config, mediaPath, mediaType, log);
+    if (!mediaId) {
+      return { ok: false, error: 'Failed to upload media' };
+    }
+
+    const token = await getAccessToken(config, log);
+
+    // Support group: and user: prefixes, and resolve case-sensitive conversationId
+    const { targetId, isExplicitUser } = stripTargetPrefix(target);
+    const resolvedTarget = resolveOriginalPeerId(targetId);
+    const isGroup = !isExplicitUser && resolvedTarget.startsWith('cid');
+
+    const url = isGroup
+      ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
+      : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
+
+    log?.debug?.(`[DingTalk] Sending proactive ${mediaType} message to ${isGroup ? 'group' : 'user'} ${resolvedTarget}`);
+
+    // Construct message based on media type
+    let msgKey: string;
+    let msgParam: string;
+    
+    if (mediaType === 'image') {
+      msgKey = 'sampleImageMsg';
+      msgParam = JSON.stringify({ photoURL: `@lALPDe7s26${mediaId}` }); // DingTalk format for media_id
+    } else if (mediaType === 'voice') {
+      msgKey = 'sampleAudio';
+      msgParam = JSON.stringify({ mediaId });
+    } else if (mediaType === 'video') {
+      msgKey = 'sampleVideo';
+      msgParam = JSON.stringify({ videoMediaId: mediaId });
+    } else {
+      msgKey = 'sampleFile';
+      msgParam = JSON.stringify({ mediaId });
+    }
+
+    const payload: ProactiveMessagePayload = {
+      robotCode: config.robotCode || config.clientId,
+      msgKey,
+      msgParam,
+    };
+
+    if (isGroup) {
+      payload.openConversationId = resolvedTarget;
+    } else {
+      payload.userIds = [resolvedTarget];
+    }
+
+    const result = await axios({
+      url,
+      method: 'POST',
+      data: payload,
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+    
+    return { ok: true, data: result.data };
+  } catch (err: any) {
+    log?.error?.(`[DingTalk] Failed to send proactive media: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
 }
 
 // Download media file to agent workspace (sandbox-compatible)
@@ -498,7 +623,7 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
       }
     }
     return {
-      text: text.trim() || (pictureDownloadCode ? '[图片]' : '[富文本消息]'),
+      text: text.trim() || (pictureDownloadCode ? '<media:image>' : '[富文本消息]'),
       mediaPath: pictureDownloadCode,
       mediaType: pictureDownloadCode ? 'image' : undefined,
       messageType: 'richText',
@@ -506,12 +631,12 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   }
 
   if (msgtype === 'picture') {
-    return { text: '[图片]', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
+    return { text: '<media:image>', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
   }
 
   if (msgtype === 'audio') {
     return {
-      text: data.content?.recognition || '[语音消息]',
+      text: data.content?.recognition || '<media:voice>',
       mediaPath: data.content?.downloadCode,
       mediaType: 'audio',
       messageType: 'audio',
@@ -519,12 +644,12 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   }
 
   if (msgtype === 'video') {
-    return { text: '[视频]', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
+    return { text: '<media:video>', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
   }
 
   if (msgtype === 'file') {
     return {
-      text: `[文件: ${data.content?.fileName || '文件'}]`,
+      text: `<media:file> (${data.content?.fileName || '文件'})`,
       mediaPath: data.content?.downloadCode,
       mediaType: 'file',
       messageType: 'file',
@@ -543,6 +668,38 @@ async function sendBySession(
   options: SendMessageOptions = {}
 ): Promise<AxiosResponse> {
   const token = await getAccessToken(config, options.log);
+  const log = options.log || getLogger();
+
+  // If mediaPath is provided, upload media and send as native media message
+  if (options.mediaPath && options.mediaType) {
+    const mediaId = await uploadMedia(config, options.mediaPath, options.mediaType, log);
+    if (mediaId) {
+      let body: any;
+      
+      // Construct message body based on media type
+      if (options.mediaType === 'image') {
+        body = { msgtype: 'image', image: { media_id: mediaId } };
+      } else if (options.mediaType === 'voice') {
+        body = { msgtype: 'voice', voice: { media_id: mediaId } };
+      } else if (options.mediaType === 'video') {
+        body = { msgtype: 'video', video: { media_id: mediaId } };
+      } else if (options.mediaType === 'file') {
+        body = { msgtype: 'file', file: { media_id: mediaId } };
+      }
+
+      if (body) {
+        const result = await axios({
+          url: sessionWebhook,
+          method: 'POST',
+          data: body,
+          headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+        });
+        return result.data;
+      }
+    } else {
+      log?.warn?.('[DingTalk] Media upload failed, falling back to text description');
+    }
+  }
 
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
@@ -1191,9 +1348,22 @@ export const dingtalkPlugin = {
         return { ok: false, error: 'DingTalk not configured' };
       }
       try {
-        const mediaDescription = `[媒体消息（暂不支持直发）: ${mediaPath}]`;
-        const result = await sendMessage(config, to, mediaDescription, { log, accountId });
-        getLogger()?.debug?.(`[DingTalk] sendMedia: "${mediaDescription}" result: ${JSON.stringify(result)}`);
+        // Detect media type from file extension
+        const ext = path.extname(mediaPath).toLowerCase();
+        let mediaType: 'image' | 'voice' | 'video' | 'file' = 'file';
+        
+        if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
+          mediaType = 'image';
+        } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
+          mediaType = 'voice';
+        } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
+          mediaType = 'video';
+        }
+        
+        // Try to send as native media via proactive API
+        // Note: sessionWebhook is not available for proactive messages, so we need to use sendProactiveMedia
+        const result = await sendProactiveMedia(config, to, mediaPath, mediaType, { log, accountId });
+        getLogger()?.debug?.(`[DingTalk] sendMedia: ${mediaType} result: ${JSON.stringify(result)}`);
         return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
