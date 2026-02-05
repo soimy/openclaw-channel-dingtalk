@@ -1,44 +1,105 @@
 // src/media-utils.ts
 
 /**
- * Media handling utilities for OpenClaw.
- * This module provides functions to process media files in compliance with OpenClaw best practices.
+ * Media handling utilities for DingTalk channel plugin.
+ * Provides functions for media type detection and file upload to DingTalk media servers.
  */
 
-type MediaType = 'image' | 'video' | 'audio';
+import * as path from 'path';
+import * as fs from 'fs';
+import axios from 'axios';
+import type { DingTalkConfig, Logger } from './types';
 
-interface MediaFile {
-    type: MediaType;
-    url: string;
-    size: number;
+export type DingTalkMediaType = 'image' | 'voice' | 'video' | 'file';
+
+/**
+ * Detect media type from file extension
+ * Matches DingTalk's supported media types:
+ * - image: jpg, gif, png, bmp (max 20MB)
+ * - voice: amr, mp3, wav (max 2MB)
+ * - video: mp4 (max 20MB)
+ * - file: doc, docx, xls, xlsx, ppt, pptx, zip, pdf, rar (max 20MB)
+ *
+ * @param filePath Path to the media file
+ * @returns Detected media type
+ */
+export function detectMediaTypeFromExtension(filePath: string): DingTalkMediaType {
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
+    return 'image';
+  } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
+    return 'voice';
+  } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
+    return 'video';
+  }
+
+  return 'file';
 }
 
 /**
- * Validates the size of a media file.
- * @param file The media file to validate.
- * @param maxSize The maximum allowed size in bytes.
- * @returns true if valid, false otherwise.
+ * Upload media file to DingTalk and get media_id
+ * Uses DingTalk's media upload API: https://oapi.dingtalk.com/media/upload
+ *
+ * Note: Media files are stored temporarily by DingTalk (not in permanent storage).
+ * The media_id can be used in subsequent message sends.
+ *
+ * @param config DingTalk configuration
+ * @param mediaPath Local path to the media file
+ * @param mediaType Type of media: 'image' | 'voice' | 'video' | 'file'
+ * @param getAccessToken Function to get DingTalk access token
+ * @param log Optional logger
+ * @returns media_id on success, null on failure
  */
-function validateMediaSize(file: MediaFile, maxSize: number): boolean {
-    return file.size <= maxSize;
-}
+export async function uploadMedia(
+  config: DingTalkConfig,
+  mediaPath: string,
+  mediaType: DingTalkMediaType,
+  getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
+  log?: Logger
+): Promise<string | null> {
+  try {
+    const token = await getAccessToken(config, log);
 
-/**
- * Prepares a media file for upload.
- * @param file The media file to prepare.
- * @returns The prepared media file object.
- */
-function prepareMediaFile(file: MediaFile): MediaFile {
-    // Add any preparation logic here
-    return file;
-}
+    // Validate file exists
+    if (!fs.existsSync(mediaPath)) {
+      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+      return null;
+    }
 
-/**
- * Logs media file upload information.
- * @param file The media file being uploaded.
- */
-function logMediaUpload(file: MediaFile): void {
-    console.log(`Uploading ${file.type} file: ${file.url}, size: ${file.size} bytes.`);
-}
+    // Read file as a stream for better memory efficiency
+    const fileStream = fs.createReadStream(mediaPath);
+    const filename = path.basename(mediaPath);
+    const stats = fs.statSync(mediaPath);
 
-export { MediaFile, validateMediaSize, prepareMediaFile, logMediaUpload };
+    // Upload to DingTalk's media server using form-data
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('media', fileStream, { filename });
+
+    const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
+
+    log?.debug?.(`[DingTalk] Uploading media: ${filename} (${stats.size} bytes) as ${mediaType}`);
+
+    const response = await axios.post(uploadUrl, form, {
+      headers: form.getHeaders(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+
+    if (response.data?.errcode === 0 && response.data?.media_id) {
+      log?.debug?.(`[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`);
+      return response.data.media_id;
+    } else {
+      log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
+      return null;
+    }
+  } catch (err: any) {
+    log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
+    if (axios.isAxiosError(err) && err.response) {
+      log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+    }
+    return null;
+  }
+}

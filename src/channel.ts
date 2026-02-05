@@ -28,6 +28,7 @@ import type {
   AICardStreamingRequest,
 } from './types';
 import { AICardStatus } from './types';
+import { detectMediaTypeFromExtension, uploadMedia as uploadMediaUtil } from './media-utils';
 
 // Access Token cache - keyed by clientId for multi-account support
 interface TokenCache {
@@ -344,69 +345,14 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
 }
 
 // Helper function to detect media type from file extension
-function detectMediaTypeFromExtension(filePath: string): 'image' | 'voice' | 'video' | 'file' {
-  const ext = path.extname(filePath).toLowerCase();
-  
-  if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
-    return 'image';
-  } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
-    return 'voice';
-  } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
-    return 'video';
-  }
-  
-  return 'file';
-}
-
-// Upload media file to DingTalk and get media_id
+// Wrapper function to call uploadMediaUtil with getAccessToken bound
 async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: 'image' | 'voice' | 'video' | 'file',
   log?: Logger
 ): Promise<string | null> {
-  try {
-    const token = await getAccessToken(config, log);
-    
-    // Validate file exists
-    if (!fs.existsSync(mediaPath)) {
-      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
-      return null;
-    }
-
-    // Read file as a stream for better memory efficiency
-    const fileStream = fs.createReadStream(mediaPath);
-    const filename = path.basename(mediaPath);
-    const stats = fs.statSync(mediaPath);
-
-    // Upload to DingTalk's media server using form-data
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const FormData = require('form-data');
-    const form = new FormData();
-    form.append('media', fileStream, { filename });
-
-    const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
-    
-    const response = await axios.post(uploadUrl, form, {
-      headers: form.getHeaders(),
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
-
-    if (response.data?.errcode === 0 && response.data?.media_id) {
-      log?.debug?.(`[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`);
-      return response.data.media_id;
-    } else {
-      log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
-      return null;
-    }
-  } catch (err: any) {
-    log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
-    if (axios.isAxiosError(err) && err.response) {
-      log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
-    }
-    return null;
-  }
+  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
 }
 
 // Send text/markdown proactive message via DingTalk OpenAPI
@@ -467,9 +413,9 @@ async function sendProactiveMedia(
   mediaPath: string,
   mediaType: 'image' | 'voice' | 'video' | 'file',
   options: SendMessageOptions & { accountId?: string } = {}
-): Promise<{ ok: boolean; error?: string; data?: AxiosResponse }> {
+): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string }> {
   const log = options.log || getLogger();
-  
+
   try {
     // Upload media first to get media_id
     const mediaId = await uploadMedia(config, mediaPath, mediaType, log);
@@ -477,18 +423,73 @@ async function sendProactiveMedia(
       return { ok: false, error: 'Failed to upload media' };
     }
 
-    // Note: DingTalk's proactive message API has limitations with media messages.
-    // For now, we fall back to sending a text description with a note that direct media
-    // upload is in progress. A better approach would be to use robot.send API for direct messages.
-    // TODO: Consider using robot.send API instead of proactive messages for media
-    
-    log?.warn?.('[DingTalk] Proactive media messages are not fully supported yet. Falling back to text description.');
-    return {
-      ok: false,
-      error: 'Proactive media messages not yet fully supported. Use sessionWebhook-based replies instead.'
+    const token = await getAccessToken(config, log);
+    const { targetId, isExplicitUser } = stripTargetPrefix(target);
+    const resolvedTarget = resolveOriginalPeerId(targetId);
+    const isGroup = !isExplicitUser && resolvedTarget.startsWith('cid');
+
+    const DINGTALK_API = 'https://api.dingtalk.com';
+    const url = isGroup
+      ? `${DINGTALK_API}/v1.0/robot/groupMessages/send`
+      : `${DINGTALK_API}/v1.0/robot/oToMessages/batchSend`;
+
+    // Build payload based on media type
+    // For personal messages (oToMessages), use native media message types
+    // For group messages (groupMessages), use sampleImageMsg/sampleAudio/etc.
+    let msgKey: string;
+    let msgParam: string;
+
+    if (mediaType === 'image') {
+      msgKey = 'sampleImageMsg';
+      msgParam = JSON.stringify({ photoURL: mediaId });
+    } else if (mediaType === 'voice') {
+      msgKey = 'sampleAudio';
+      msgParam = JSON.stringify({ mediaId, duration: '0' });
+    } else if (mediaType === 'video') {
+      // Note: sampleVideo requires a cover image (picMediaId) which we don't have
+      // Fall back to sampleFile for video to avoid .octet-stream issue
+      const filename = path.basename(mediaPath);
+      const ext = path.extname(mediaPath).slice(1) || 'mp4';
+      msgKey = 'sampleFile';
+      msgParam = JSON.stringify({ mediaId, fileName: filename, fileType: ext });
+    } else {
+      // file type
+      const filename = path.basename(mediaPath);
+      const ext = path.extname(mediaPath).slice(1) || 'file';
+      msgKey = 'sampleFile';
+      msgParam = JSON.stringify({ mediaId, fileName: filename, fileType: ext });
+    }
+
+    const payload: ProactiveMessagePayload = {
+      robotCode: config.robotCode || config.clientId,
+      msgKey,
+      msgParam,
     };
+
+    if (isGroup) {
+      payload.openConversationId = resolvedTarget;
+    } else {
+      payload.userIds = [resolvedTarget];
+    }
+
+    log?.debug?.(
+      `[DingTalk] Sending proactive ${mediaType} message to ${isGroup ? 'group' : 'user'} ${resolvedTarget}`
+    );
+
+    const result = await axios({
+      url,
+      method: 'POST',
+      data: payload,
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+
+    const messageId = result.data?.processQueryKey || result.data?.messageId;
+    return { ok: true, data: result.data, messageId };
   } catch (err: any) {
     log?.error?.(`[DingTalk] Failed to send proactive media: ${err.message}`);
+    if (axios.isAxiosError(err) && err.response) {
+      log?.error?.(`[DingTalk] Response: ${JSON.stringify(err.response.data)}`);
+    }
     return { ok: false, error: err.message };
   }
 }
@@ -1311,26 +1312,67 @@ export const dingtalkPlugin = {
       try {
         const result = await sendMessage(config, to, text, { log, accountId });
         getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
-        return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
+        if (result.ok) {
+          const data = result.data as any;
+          const messageId = data?.processQueryKey || data?.messageId;
+          return { ok: true, via: 'dingtalk', messageId, data: result.data };
+        }
+        return { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
     },
-    sendMedia: async ({ cfg, to, mediaPath, accountId, log }: any) => {
+    sendMedia: async ({
+      cfg,
+      to,
+      mediaPath,
+      filePath,
+      mediaUrl,
+      mediaType: providedMediaType,
+      accountId,
+      log,
+    }: any) => {
       const config = getConfig(cfg, accountId);
       if (!config.clientId) {
         return { ok: false, error: 'DingTalk not configured' };
       }
+
+      // Support mediaPath, filePath, and mediaUrl parameter names
+      const actualMediaPath = mediaPath || filePath || mediaUrl;
+
+      getLogger()?.debug?.(
+        `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, actualMediaPath=${actualMediaPath}`
+      );
+
+      if (!actualMediaPath) {
+        return {
+          ok: false,
+          error: `mediaPath, filePath, or mediaUrl is required. Received: ${JSON.stringify({
+            to,
+            mediaPath,
+            filePath,
+            mediaUrl,
+          })}`,
+        };
+      }
+
       try {
-        // Detect media type from file extension
-        const mediaType = detectMediaTypeFromExtension(mediaPath);
-        
+        // Detect media type from file extension if not provided
+        const mediaType = providedMediaType || detectMediaTypeFromExtension(actualMediaPath);
+
         // Send as native media via proactive API
-        // Note: This uses sendProactiveMedia because outbound.sendMedia is for
-        // proactive messages and doesn't have access to sessionWebhook
-        const result = await sendProactiveMedia(config, to, mediaPath, mediaType, { log, accountId });
-        getLogger()?.debug?.(`[DingTalk] sendMedia: ${mediaType} result: ${JSON.stringify(result)}`);
-        return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
+        const result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, { log, accountId });
+        getLogger()?.debug?.(
+          `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`
+        );
+
+        if (result.ok) {
+          // Extract messageId from DingTalk response for CLI display
+          const data = result.data;
+          const messageId = result.messageId || data?.processQueryKey || data?.messageId;
+          return { ok: true, via: 'dingtalk', messageId, data: result.data };
+        }
+        return { ok: false, error: result.error };
       } catch (err: any) {
         return { ok: false, error: err.response?.data || err.message };
       }
@@ -1458,4 +1500,15 @@ export const dingtalkPlugin = {
  * These exports are intended to be used by external integrations that need
  * direct programmatic access to DingTalk messaging and authentication.
  */
-export { sendBySession, createAICard, streamAICard, finishAICard, sendMessage, uploadMedia, getAccessToken, getLogger };
+export {
+  sendBySession,
+  createAICard,
+  streamAICard,
+  finishAICard,
+  sendMessage,
+  uploadMedia,
+  sendProactiveMedia,
+  getAccessToken,
+  getLogger,
+};
+export { detectMediaTypeFromExtension } from './media-utils';

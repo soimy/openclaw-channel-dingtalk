@@ -146,6 +146,8 @@ export interface SendMessageOptions {
   atUserId?: string | null;
   log?: any;
   mediaPath?: string;
+  filePath?: string;
+  mediaUrl?: string;
   mediaType?: 'image' | 'voice' | 'video' | 'file';
 }
 
