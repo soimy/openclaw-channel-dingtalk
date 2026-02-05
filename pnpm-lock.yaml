@@ -14,6 +14,9 @@ importers:
       dingtalk-stream:
         specifier: ^2.1.4
         version: 2.1.4
+      form-data:
+        specifier: ^4.0.0
+        version: 4.0.5
       zod:
         specifier: ^4.3.6
         version: 4.3.6
