@@ -477,59 +477,16 @@ async function sendProactiveMedia(
       return { ok: false, error: 'Failed to upload media' };
     }
 
-    const token = await getAccessToken(config, log);
-
-    // Support group: and user: prefixes, and resolve case-sensitive conversationId
-    const { targetId, isExplicitUser } = stripTargetPrefix(target);
-    const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith('cid');
-
-    const url = isGroup
-      ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
-      : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
-
-    log?.debug?.(`[DingTalk] Sending proactive ${mediaType} message to ${isGroup ? 'group' : 'user'} ${resolvedTarget}`);
-
-    // Construct message based on media type
-    // Note: DingTalk's proactive message API uses predefined message templates
-    // For media messages, we use the media_id directly in the msgParam
-    let msgKey: string;
-    let msgParam: string;
+    // Note: DingTalk's proactive message API has limitations with media messages.
+    // For now, we fall back to sending a text description with a note that direct media
+    // upload is in progress. A better approach would be to use robot.send API for direct messages.
+    // TODO: Consider using robot.send API instead of proactive messages for media
     
-    if (mediaType === 'image') {
-      msgKey = 'sampleImageMsg';
-      msgParam = JSON.stringify({ photoURL: mediaId }); // Use media_id directly as photoURL
-    } else if (mediaType === 'voice') {
-      msgKey = 'sampleAudio';
-      msgParam = JSON.stringify({ mediaId });
-    } else if (mediaType === 'video') {
-      msgKey = 'sampleVideo';
-      msgParam = JSON.stringify({ videoMediaId: mediaId });
-    } else {
-      msgKey = 'sampleFile';
-      msgParam = JSON.stringify({ mediaId });
-    }
-
-    const payload: ProactiveMessagePayload = {
-      robotCode: config.robotCode || config.clientId,
-      msgKey,
-      msgParam,
+    log?.warn?.('[DingTalk] Proactive media messages are not fully supported yet. Falling back to text description.');
+    return {
+      ok: false,
+      error: 'Proactive media messages not yet fully supported. Use sessionWebhook-based replies instead.'
     };
-
-    if (isGroup) {
-      payload.openConversationId = resolvedTarget;
-    } else {
-      payload.userIds = [resolvedTarget];
-    }
-
-    const result = await axios({
-      url,
-      method: 'POST',
-      data: payload,
-      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-    });
-    
-    return { ok: true, data: result.data };
   } catch (err: any) {
     log?.error?.(`[DingTalk] Failed to send proactive media: ${err.message}`);
     return { ok: false, error: err.message };
