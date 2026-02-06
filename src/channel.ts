@@ -1252,27 +1252,110 @@ export const dingtalkPlugin = {
         }
       });
 
-      await client.connect();
-      if (ctx.log?.info) {
-        ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
-      }
       let stopped = false;
+
+      let reconnectAttempt = 0;
+      let reconnectTimer: NodeJS.Timeout | null = null;
+
+      const clearReconnectTimer = (): void => {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+      };
+
+      const computeBackoffMs = (attempt: number): number => {
+        const base = 1000;
+        const max = 30_000;
+        const exp = Math.min(max, base * Math.pow(2, Math.min(attempt, 6)));
+        const jitter = Math.floor(Math.random() * 500);
+        return exp + jitter;
+      };
+
+      const waitForConnected = async (timeoutMs: number): Promise<void> => {
+        const started = Date.now();
+        while (!stopped && Date.now() - started < timeoutMs) {
+          if ((client as any).connected === true) return;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        throw new Error('connect timeout');
+      };
+
+      const scheduleReconnect = (reason: string, err?: any): void => {
+        if (stopped) return;
+        if (reconnectTimer) return;
+        reconnectAttempt += 1;
+        const delayMs = computeBackoffMs(reconnectAttempt);
+        const errMsg = err?.message ? ` err=${err.message}` : '';
+        ctx.log?.warn?.(
+          `[${account.accountId}] DingTalk Stream reconnect scheduled in ${delayMs}ms reason=${reason}${errMsg}`
+        );
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          void connectLoop();
+        }, delayMs);
+      };
+
+      const attachSocketGuards = (): void => {
+        const socket = (client as any).socket as any;
+        if (!socket || socket.__openclaw_guard_attached) return;
+        socket.__openclaw_guard_attached = true;
+
+        socket.on('close', (code: any) => {
+          if (stopped) return;
+          ctx.log?.warn?.(`[${account.accountId}] DingTalk socket closed code=${String(code)}`);
+          scheduleReconnect('socket_close');
+        });
+        socket.on('error', (e: any) => {
+          if (stopped) return;
+          ctx.log?.warn?.(`[${account.accountId}] DingTalk socket error: ${e?.message || String(e)}`);
+          scheduleReconnect('socket_error', e);
+        });
+      };
+
+      const connectLoop = async (): Promise<void> => {
+        if (stopped) return;
+        clearReconnectTimer();
+        try {
+          ctx.log?.info?.(`[${account.accountId}] DingTalk Stream connecting... attempt=${reconnectAttempt + 1}`);
+          await client.connect();
+          await waitForConnected(15_000);
+          attachSocketGuards();
+          reconnectAttempt = 0;
+          ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client connected`);
+        } catch (e: any) {
+          scheduleReconnect('connect_failed', e);
+        }
+      };
+
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => {
           if (stopped) return;
           stopped = true;
-          if (ctx.log?.info) {
-            ctx.log.info(`[${account.accountId}] Stopping DingTalk Stream client...`);
+          clearReconnectTimer();
+          ctx.log?.info?.(`[${account.accountId}] Stopping DingTalk Stream client...`);
+          try {
+            client.disconnect();
+          } catch (e: any) {
+            ctx.log?.debug?.(`[${account.accountId}] DingTalk disconnect error: ${e?.message || String(e)}`);
           }
         });
       }
+
+      // Connect in background so transient network failures don't fail the whole channel startup.
+      void connectLoop();
+
       return {
         stop: () => {
           if (stopped) return;
           stopped = true;
-          if (ctx.log?.info) {
-            ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
+          clearReconnectTimer();
+          try {
+            client.disconnect();
+          } catch (e: any) {
+            ctx.log?.debug?.(`[${account.accountId}] DingTalk disconnect error: ${e?.message || String(e)}`);
           }
+          ctx.log?.info?.(`[${account.accountId}] DingTalk provider stopped`);
         },
       };
     },
