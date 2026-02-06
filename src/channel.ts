@@ -490,8 +490,8 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
     let text = '';
     let pictureDownloadCode: string | undefined;
     for (const part of richTextParts) {
-      // Handle text content from non-at parts (DingTalk may omit the type field)
-      if (part.text && part.type !== 'at') text += part.text;
+      // Handle text content: include only explicit text type or missing type field
+      if (part.text && (!part.type || part.type === 'text')) text += part.text;
       if (part.type === 'at' && part.atName) text += `@${part.atName} `;
       // Extract first picture's downloadCode from richText
       if (part.type === 'picture' && part.downloadCode && !pictureDownloadCode) {
