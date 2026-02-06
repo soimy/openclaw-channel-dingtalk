@@ -990,10 +990,40 @@ export const dingtalkPlugin = {
         }
       });
 
-      await client.connect();
-      if (ctx.log?.info) {
-        ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
-      }
+      // Connection with retry logic to handle TLS errors and other connection failures
+      const connectWithRetry = async (): Promise<void> => {
+        const maxRetries = 5;
+        const retryDelay = 3000; // 3 seconds
+        let attempt = 0;
+
+        while (attempt < maxRetries) {
+          try {
+            await client.connect();
+            if (ctx.log?.info) {
+              ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
+            }
+            return;
+          } catch (error: any) {
+            attempt++;
+            if (ctx.log?.warn) {
+              ctx.log.warn(`[${account.accountId}] DingTalk connection failed (attempt ${attempt}/${maxRetries}): ${error.message}`);
+            }
+
+            if (attempt >= maxRetries) {
+              if (ctx.log?.error) {
+                ctx.log.error(`[${account.accountId}] DingTalk failed to connect after ${maxRetries} attempts`);
+              }
+              throw error;
+            }
+
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
+        }
+      };
+
+      await connectWithRetry();
+
       let stopped = false;
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => {
