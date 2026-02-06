@@ -78,7 +78,7 @@ openclaw plugins update dingtalk
 如需使用 AI 互动卡片功能，需要在钉钉卡片平台创建模板：
 
 **步骤：**
-1. 访问 [钉钉卡片平台](https://open.dingtalk.com/fe/card)
+1. 访问 [钉钉卡片平台](https://open-dev.dingtalk.com/fe/card)
 2. 进入「我的模板」
 3. 点击「创建模板」
 4. 卡片模板场景选择 **「AI 卡片」**
