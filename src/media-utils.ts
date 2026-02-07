@@ -75,13 +75,7 @@ export async function uploadMedia(
   try {
     const token = await getAccessToken(config, log);
 
-    // Validate file exists
-    if (!fs.existsSync(mediaPath)) {
-      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
-      return null;
-    }
-
-    // Check file size
+    // Check file size (stat will throw if file doesn't exist)
     const stats = await fsPromises.stat(mediaPath);
     const sizeLimit = FILE_SIZE_LIMITS[mediaType];
     if (stats.size > sizeLimit) {
@@ -117,9 +111,16 @@ export async function uploadMedia(
       return null;
     }
   } catch (err: any) {
-    log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
-    if (axios.isAxiosError(err) && err.response) {
-      log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+    // Handle file system errors (e.g., file not found, permission denied)
+    if (err.code === 'ENOENT') {
+      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+    } else if (err.code === 'EACCES') {
+      log?.error?.(`[DingTalk] Permission denied accessing media file: ${mediaPath}`);
+    } else {
+      log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
+      if (axios.isAxiosError(err) && err.response) {
+        log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+      }
     }
     return null;
   } finally {
