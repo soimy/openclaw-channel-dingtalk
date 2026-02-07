@@ -58,6 +58,20 @@ export const DingTalkConfigSchema = z.object({
 
   /** Multi-account configuration */
   accounts: z.record(z.string(), z.unknown()).optional(),
+
+  /** Connection robustness configuration */
+  
+  /** Maximum number of connection attempts before giving up (default: 10) */
+  maxConnectionAttempts: z.number().int().min(1).optional().default(10),
+
+  /** Initial reconnection delay in milliseconds (default: 1000ms) */
+  initialReconnectDelay: z.number().int().min(100).optional().default(1000),
+
+  /** Maximum reconnection delay in milliseconds for exponential backoff (default: 60000ms = 1 minute) */
+  maxReconnectDelay: z.number().int().min(1000).optional().default(60000),
+
+  /** Jitter factor for reconnection delay randomization (0-1, default: 0.3) */
+  reconnectJitter: z.number().min(0).max(1).optional().default(0.3),
 });
 
 export type DingTalkConfig = z.infer<typeof DingTalkConfigSchema>;

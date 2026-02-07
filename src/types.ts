@@ -31,6 +31,11 @@ export interface DingTalkConfig extends OpenClawConfig {
   cardTemplateId?: string;
   groups?: Record<string, { systemPrompt?: string }>;
   accounts?: Record<string, DingTalkConfig>;
+  // Connection robustness configuration
+  maxConnectionAttempts?: number;
+  initialReconnectDelay?: number;
+  maxReconnectDelay?: number;
+  reconnectJitter?: number;
 }
 
 /**
@@ -52,6 +57,11 @@ export interface DingTalkChannelConfig {
   cardTemplateId?: string;
   groups?: Record<string, { systemPrompt?: string }>;
   accounts?: Record<string, DingTalkConfig>;
+  // Connection robustness configuration
+  maxConnectionAttempts?: number;
+  initialReconnectDelay?: number;
+  maxReconnectDelay?: number;
+  reconnectJitter?: number;
 }
 
 /**
@@ -496,4 +506,35 @@ export interface AICardStreamingRequest {
   isFull: boolean;
   isFinalize: boolean;
   isError: boolean;
+}
+
+/**
+ * Connection state enum for lifecycle management
+ */
+export enum ConnectionState {
+  DISCONNECTED = 'DISCONNECTED',
+  CONNECTING = 'CONNECTING',
+  CONNECTED = 'CONNECTED',
+  DISCONNECTING = 'DISCONNECTING',
+  FAILED = 'FAILED',
+}
+
+/**
+ * Connection manager configuration
+ */
+export interface ConnectionManagerConfig {
+  maxAttempts: number;
+  initialDelay: number;
+  maxDelay: number;
+  jitter: number;
+}
+
+/**
+ * Connection attempt result
+ */
+export interface ConnectionAttemptResult {
+  success: boolean;
+  attempt: number;
+  error?: Error;
+  nextDelay?: number;
 }

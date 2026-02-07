@@ -10,6 +10,7 @@ import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '.
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
 import { registerPeerId, resolveOriginalPeerId } from './peer-id-registry';
+import { ConnectionManager } from './connection-manager';
 import type {
   DingTalkConfig,
   TokenInfo,
@@ -26,6 +27,7 @@ import type {
   GatewayStopResult,
   AICardInstance,
   AICardStreamingRequest,
+  ConnectionManagerConfig,
 } from './types';
 import { AICardStatus } from './types';
 import { detectMediaTypeFromExtension, uploadMedia as uploadMediaUtil } from './media-utils';
@@ -1378,13 +1380,16 @@ export const dingtalkPlugin = {
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
       const { account, cfg, abortSignal } = ctx;
       const config = account.config;
-      if (!config.clientId || !config.clientSecret) throw new Error('DingTalk clientId and clientSecret are required');
-      if (ctx.log?.info) {
-        ctx.log.info(`[${account.accountId}] Starting DingTalk Stream client...`);
+      if (!config.clientId || !config.clientSecret) {
+        throw new Error('DingTalk clientId and clientSecret are required');
       }
 
+      ctx.log?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
+
+      // Cleanup orphaned temp files from previous sessions
       cleanupOrphanedTempFiles(ctx.log);
 
+      // Create DWClient with autoReconnect disabled (we'll manage reconnection ourselves)
       const client = new DWClient({
         clientId: config.clientId,
         clientSecret: config.clientSecret,
@@ -1392,6 +1397,11 @@ export const dingtalkPlugin = {
         keepAlive: true,
       });
 
+      // Disable DWClient's built-in autoReconnect to use our robust ConnectionManager
+      // Access private config to override autoReconnect
+      (client as any).config.autoReconnect = false;
+
+      // Register message callback listener
       client.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
         const messageId = res.headers?.messageId;
         try {
@@ -1403,7 +1413,7 @@ export const dingtalkPlugin = {
           // Message deduplication: skip if already processed
           const dedupKey = data.msgId || messageId;
           if (dedupKey && isMessageProcessed(dedupKey)) {
-            ctx.log?.debug?.(`[DingTalk] Skipping duplicate message: ${dedupKey}`);
+            ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
             return;
           }
           if (dedupKey) {
@@ -1419,33 +1429,63 @@ export const dingtalkPlugin = {
             dingtalkConfig: config,
           });
         } catch (error: any) {
-          if (ctx.log?.error) {
-            ctx.log.error(`[DingTalk] Error processing message: ${error.message}`);
-          }
+          ctx.log?.error?.(`[${account.accountId}] Error processing message: ${error.message}`);
         }
       });
 
-      await client.connect();
-      if (ctx.log?.info) {
-        ctx.log.info(`[${account.accountId}] DingTalk Stream client connected`);
+      // Create connection manager configuration
+      const connectionConfig: ConnectionManagerConfig = {
+        maxAttempts: config.maxConnectionAttempts ?? 10,
+        initialDelay: config.initialReconnectDelay ?? 1000,
+        maxDelay: config.maxReconnectDelay ?? 60000,
+        jitter: config.reconnectJitter ?? 0.3,
+      };
+
+      ctx.log?.debug?.(
+        `[${account.accountId}] Connection config: maxAttempts=${connectionConfig.maxAttempts}, ` +
+        `initialDelay=${connectionConfig.initialDelay}ms, maxDelay=${connectionConfig.maxDelay}ms, ` +
+        `jitter=${connectionConfig.jitter}`
+      );
+
+      // Create connection manager
+      const connectionManager = new ConnectionManager(
+        client,
+        account.accountId,
+        connectionConfig,
+        ctx.log
+      );
+
+      // Connect with robust retry logic
+      try {
+        await connectionManager.connect();
+      } catch (err: any) {
+        ctx.log?.error?.(
+          `[${account.accountId}] Failed to establish connection: ${err.message}`
+        );
+        throw err;
       }
+
+      // Track stopped state
       let stopped = false;
+
+      // Setup abort signal handler for graceful shutdown
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => {
           if (stopped) return;
           stopped = true;
-          if (ctx.log?.info) {
-            ctx.log.info(`[${account.accountId}] Stopping DingTalk Stream client...`);
-          }
+          ctx.log?.info?.(`[${account.accountId}] Abort signal received, stopping DingTalk Stream client...`);
+          connectionManager.stop();
         });
       }
+
+      // Return stop handler
       return {
         stop: () => {
           if (stopped) return;
           stopped = true;
-          if (ctx.log?.info) {
-            ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
-          }
+          ctx.log?.info?.(`[${account.accountId}] Stopping DingTalk Stream client...`);
+          connectionManager.stop();
+          ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client stopped`);
         },
       };
     },

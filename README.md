@@ -145,20 +145,39 @@ openclaw gateway restart
 
 ## 配置选项
 
-| 选项               | 类型     | 默认值                                                          | 说明                                      |
-| ------------------ | -------- | --------------------------------------------------------------- | ----------------------------------------- |
-| `enabled`          | boolean  | `true`                                                          | 是否启用                                  |
-| `clientId`         | string   | 必填                                                            | 应用的 AppKey                             |
-| `clientSecret`     | string   | 必填                                                            | 应用的 AppSecret                          |
-| `robotCode`        | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |
-| `corpId`           | string   | -                                                               | 企业 ID                                   |
-| `agentId`          | string   | -                                                               | 应用 ID                                   |
-| `dmPolicy`         | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |
-| `groupPolicy`      | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
-| `allowFrom`        | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
-| `messageType`      | string   | `"markdown"`                                                    | 消息类型：markdown/card                   |
-| `cardTemplateId`   | string   | `"382e4302-551d-4880-bf29-a30acfab2e71.schema"`                 | AI 互动卡片模板 ID（仅当 messageType=card）|
-| `debug`            | boolean  | `false`                                                         | 是否开启调试日志                          |
+| 选项                       | 类型     | 默认值                                                          | 说明                                      |
+| -------------------------- | -------- | --------------------------------------------------------------- | ----------------------------------------- |
+| `enabled`                  | boolean  | `true`                                                          | 是否启用                                  |
+| `clientId`                 | string   | 必填                                                            | 应用的 AppKey                             |
+| `clientSecret`             | string   | 必填                                                            | 应用的 AppSecret                          |
+| `robotCode`                | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |
+| `corpId`                   | string   | -                                                               | 企业 ID                                   |
+| `agentId`                  | string   | -                                                               | 应用 ID                                   |
+| `dmPolicy`                 | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |
+| `groupPolicy`              | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
+| `allowFrom`                | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
+| `messageType`              | string   | `"markdown"`                                                    | 消息类型：markdown/card                   |
+| `cardTemplateId`           | string   | `"382e4302-551d-4880-bf29-a30acfab2e71.schema"`                 | AI 互动卡片模板 ID（仅当 messageType=card）|
+| `debug`                    | boolean  | `false`                                                         | 是否开启调试日志                          |
+| `maxConnectionAttempts`    | number   | `10`                                                            | 最大连接尝试次数                          |
+| `initialReconnectDelay`    | number   | `1000`                                                          | 初始重连延迟（毫秒）                      |
+| `maxReconnectDelay`        | number   | `60000`                                                         | 最大重连延迟（毫秒）                      |
+| `reconnectJitter`          | number   | `0.3`                                                           | 重连延迟抖动因子（0-1）                   |
+
+### 连接鲁棒性配置
+
+为提高连接稳定性，插件支持以下高级配置：
+
+- **maxConnectionAttempts**: 连接失败后的最大重试次数，超过后将停止尝试并报警。
+- **initialReconnectDelay**: 第一次重连的初始延迟（毫秒），后续重连会按指数增长。
+- **maxReconnectDelay**: 重连延迟的上限（毫秒），防止等待时间过长。
+- **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
+
+重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
+
+示例延迟序列（默认配置）：~1s, ~2s, ~4s, ~8s, ~16s, ~32s, ~60s（达到上限）
+
+更多详情请参阅 [CONNECTION_ROBUSTNESS.md](./CONNECTION_ROBUSTNESS.md)。
 
 ## 安全策略
 
