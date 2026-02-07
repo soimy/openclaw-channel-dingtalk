@@ -7,6 +7,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import axios from 'axios';
 import FormData from 'form-data';
 import type { DingTalkConfig, Logger } from './types';
@@ -81,7 +82,7 @@ export async function uploadMedia(
     }
 
     // Check file size
-    const stats = fs.statSync(mediaPath);
+    const stats = await fsPromises.stat(mediaPath);
     const sizeLimit = FILE_SIZE_LIMITS[mediaType];
     if (stats.size > sizeLimit) {
       const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
