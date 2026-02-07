@@ -7,7 +7,9 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import axios from 'axios';
+import FormData from 'form-data';
 import type { DingTalkConfig, Logger } from './types';
 
 export type DingTalkMediaType = 'image' | 'voice' | 'video' | 'file';
@@ -38,6 +40,16 @@ export function detectMediaTypeFromExtension(filePath: string): DingTalkMediaTyp
 }
 
 /**
+ * File size limits for DingTalk media types (in bytes)
+ */
+const FILE_SIZE_LIMITS: Record<DingTalkMediaType, number> = {
+  image: 20 * 1024 * 1024, // 20MB
+  voice: 2 * 1024 * 1024, // 2MB
+  video: 20 * 1024 * 1024, // 20MB
+  file: 20 * 1024 * 1024, // 20MB
+};
+
+/**
  * Upload media file to DingTalk and get media_id
  * Uses DingTalk's media upload API: https://oapi.dingtalk.com/media/upload
  *
@@ -58,23 +70,26 @@ export async function uploadMedia(
   getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
   log?: Logger
 ): Promise<string | null> {
+  let fileStream: fs.ReadStream | null = null;
+
   try {
     const token = await getAccessToken(config, log);
 
-    // Validate file exists
-    if (!fs.existsSync(mediaPath)) {
-      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+    // Check file size (stat will throw if file doesn't exist)
+    const stats = await fsPromises.stat(mediaPath);
+    const sizeLimit = FILE_SIZE_LIMITS[mediaType];
+    if (stats.size > sizeLimit) {
+      const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+      const limitMB = (sizeLimit / (1024 * 1024)).toFixed(2);
+      log?.error?.(`[DingTalk] Media file too large: ${sizeMB}MB exceeds ${limitMB}MB limit for ${mediaType}`);
       return null;
     }
 
     // Read file as a stream for better memory efficiency
-    const fileStream = fs.createReadStream(mediaPath);
+    fileStream = fs.createReadStream(mediaPath);
     const filename = path.basename(mediaPath);
-    const stats = fs.statSync(mediaPath);
 
     // Upload to DingTalk's media server using form-data
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const FormData = require('form-data');
     const form = new FormData();
     form.append('media', fileStream, { filename });
 
@@ -96,10 +111,22 @@ export async function uploadMedia(
       return null;
     }
   } catch (err: any) {
-    log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
-    if (axios.isAxiosError(err) && err.response) {
-      log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+    // Handle file system errors (e.g., file not found, permission denied)
+    if (err.code === 'ENOENT') {
+      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+    } else if (err.code === 'EACCES') {
+      log?.error?.(`[DingTalk] Permission denied accessing media file: ${mediaPath}`);
+    } else {
+      log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);
+      if (axios.isAxiosError(err) && err.response) {
+        log?.error?.(`[DingTalk] Upload response: ${JSON.stringify(err.response.data)}`);
+      }
     }
     return null;
+  } finally {
+    // Ensure file stream is closed even on error
+    if (fileStream) {
+      fileStream.destroy();
+    }
   }
 }

@@ -344,8 +344,7 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
   return token;
 }
 
-// Helper function to detect media type from file extension
-// Wrapper function to call uploadMediaUtil with getAccessToken bound
+// Wrapper function to upload media via uploadMediaUtil with getAccessToken bound
 async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
@@ -445,17 +444,13 @@ async function sendProactiveMedia(
     } else if (mediaType === 'voice') {
       msgKey = 'sampleAudio';
       msgParam = JSON.stringify({ mediaId, duration: '0' });
-    } else if (mediaType === 'video') {
-      // Note: sampleVideo requires a cover image (picMediaId) which we don't have
-      // Fall back to sampleFile for video to avoid .octet-stream issue
-      const filename = path.basename(mediaPath);
-      const ext = path.extname(mediaPath).slice(1) || 'mp4';
-      msgKey = 'sampleFile';
-      msgParam = JSON.stringify({ mediaId, fileName: filename, fileType: ext });
     } else {
-      // file type
+      // File-like media (including video)
+      // Note: sampleVideo requires a cover image (picMediaId) which we don't have,
+      // so we fall back to sampleFile for video to avoid .octet-stream issues.
       const filename = path.basename(mediaPath);
-      const ext = path.extname(mediaPath).slice(1) || 'file';
+      const defaultExt = mediaType === 'video' ? 'mp4' : 'file';
+      const ext = path.extname(mediaPath).slice(1) || defaultExt;
       msgKey = 'sampleFile';
       msgParam = JSON.stringify({ mediaId, fileName: filename, fileType: ext });
     }
