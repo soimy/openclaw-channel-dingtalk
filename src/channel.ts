@@ -995,8 +995,14 @@ export const dingtalkPlugin = {
         const maxRetries = 5;
         const retryDelay = 3000; // 3 seconds
         let attempt = 0;
+        let lastError: any;
 
         while (attempt < maxRetries) {
+          // Check abortSignal before each attempt
+          if (abortSignal?.aborted) {
+            throw new Error('Connection aborted');
+          }
+
           try {
             await client.connect();
             if (ctx.log?.info) {
@@ -1005,19 +1011,27 @@ export const dingtalkPlugin = {
             return;
           } catch (error: any) {
             attempt++;
+            lastError = error;
             if (ctx.log?.warn) {
               ctx.log.warn(`[${account.accountId}] DingTalk connection failed (attempt ${attempt}/${maxRetries}): ${error.message}`);
             }
 
             if (attempt >= maxRetries) {
               if (ctx.log?.error) {
-                ctx.log.error(`[${account.accountId}] DingTalk failed to connect after ${maxRetries} attempts`);
+                ctx.log.error(`[${account.accountId}] DingTalk failed to connect after ${maxRetries} attempts. Last error: ${lastError?.message}`, lastError);
               }
               throw error;
             }
 
-            // Wait before retrying
-            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            // Wait before retrying with abortable sleep
+            await Promise.race([
+              new Promise(resolve => setTimeout(resolve, retryDelay)),
+              new Promise((_, reject) => {
+                if (abortSignal) {
+                  abortSignal.addEventListener('abort', () => reject(new Error('Connection aborted')), { once: true });
+                }
+              }),
+            ]);
           }
         }
       };
@@ -1032,7 +1046,8 @@ export const dingtalkPlugin = {
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] Stopping DingTalk Stream client...`);
           }
-        });
+          client.disconnect();
+        }, { once: true });
       }
       return {
         stop: () => {
@@ -1041,6 +1056,7 @@ export const dingtalkPlugin = {
           if (ctx.log?.info) {
             ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
           }
+          client.disconnect();
         },
       };
     },
