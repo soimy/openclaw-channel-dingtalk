@@ -27,6 +27,11 @@ export class ConnectionManager {
   private reconnectTimer?: NodeJS.Timeout;
   private stopped: boolean = false;
   
+  // Runtime monitoring resources
+  private healthCheckInterval?: NodeJS.Timeout;
+  private socketCloseHandler?: (code: number, reason: string) => void;
+  private socketErrorHandler?: (error: Error) => void;
+  
   // Client reference
   private client: DWClient;
   
@@ -45,11 +50,13 @@ export class ConnectionManager {
   /**
    * Calculate next reconnection delay with exponential backoff and jitter
    * Formula: delay = min(initialDelay * 2^attempt, maxDelay) * (1 ± jitter)
+   * @param attempt Zero-based attempt number (0 for first retry, 1 for second, etc.)
    */
   private calculateNextDelay(attempt: number): number {
     const { initialDelay, maxDelay, jitter } = this.config;
     
     // Exponential backoff: initialDelay * 2^attempt
+    // For attempt=0 (first retry), this gives initialDelay * 1 = initialDelay
     const exponentialDelay = initialDelay * Math.pow(2, attempt);
     
     // Cap at maxDelay
@@ -84,13 +91,14 @@ export class ConnectionManager {
       
       // Connection successful
       this.state = ConnectionStateEnum.CONNECTED;
+      const successfulAttempt = this.attemptCount;
       this.attemptCount = 0; // Reset counter on success
       
       this.log?.info?.(
         `[${this.accountId}] DingTalk Stream client connected successfully`
       );
       
-      return { success: true, attempt: this.attemptCount };
+      return { success: true, attempt: successfulAttempt };
     } catch (err: any) {
       this.log?.error?.(
         `[${this.accountId}] Connection attempt ${this.attemptCount} failed: ${err.message}`
@@ -105,8 +113,9 @@ export class ConnectionManager {
         return { success: false, attempt: this.attemptCount, error: err };
       }
       
-      // Calculate next retry delay
-      const nextDelay = this.calculateNextDelay(this.attemptCount);
+      // Calculate next retry delay (use attemptCount-1 for zero-based exponent)
+      // This ensures first retry uses 2^0 = 1x initialDelay
+      const nextDelay = this.calculateNextDelay(this.attemptCount - 1);
       
       this.log?.warn?.(
         `[${this.accountId}] Will retry connection in ${(nextDelay / 1000).toFixed(2)}s (attempt ${this.attemptCount + 1}/${this.config.maxAttempts})`
@@ -156,14 +165,19 @@ export class ConnectionManager {
   private setupRuntimeReconnection(): void {
     this.log?.debug?.(`[${this.accountId}] Setting up runtime reconnection monitoring`);
     
+    // Clean up any existing monitoring resources before setting up new ones
+    this.cleanupRuntimeMonitoring();
+    
     // Access DWClient internals to monitor connection state
     const client = this.client as any;
     
     // Monitor client's 'connected' property changes
     // We'll set up an interval to periodically check connection health
-    const healthCheckInterval = setInterval(() => {
+    this.healthCheckInterval = setInterval(() => {
       if (this.stopped) {
-        clearInterval(healthCheckInterval);
+        if (this.healthCheckInterval) {
+          clearInterval(this.healthCheckInterval);
+        }
         return;
       }
       
@@ -172,13 +186,12 @@ export class ConnectionManager {
         this.log?.warn?.(
           `[${this.accountId}] Connection health check failed - detected disconnection`
         );
-        clearInterval(healthCheckInterval);
+        if (this.healthCheckInterval) {
+          clearInterval(this.healthCheckInterval);
+        }
         this.handleRuntimeDisconnection();
       }
     }, 5000); // Check every 5 seconds
-    
-    // Store interval ID for cleanup
-    (this as any).healthCheckInterval = healthCheckInterval;
     
     // Additionally, if we have access to the socket, monitor its events
     // The DWClient uses 'ws' WebSocket library which extends EventEmitter
@@ -186,20 +199,22 @@ export class ConnectionManager {
       const socket = client.socket;
       
       // Handler for socket close event
-      const onSocketClose = (code: number, reason: string) => {
+      this.socketCloseHandler = (code: number, reason: string) => {
         this.log?.warn?.(
           `[${this.accountId}] WebSocket closed event (code: ${code}, reason: ${reason || 'none'})`
         );
         
         // Only trigger reconnection if we were previously connected and not stopping
         if (!this.stopped && this.state === ConnectionStateEnum.CONNECTED) {
-          clearInterval(healthCheckInterval);
+          if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+          }
           this.handleRuntimeDisconnection();
         }
       };
       
       // Handler for socket error event
-      const onSocketError = (error: Error) => {
+      this.socketErrorHandler = (error: Error) => {
         this.log?.error?.(
           `[${this.accountId}] WebSocket error event: ${error?.message || 'Unknown error'}`
         );
@@ -207,12 +222,38 @@ export class ConnectionManager {
       
       // Listen to socket events
       // Use 'once' for close to avoid duplicate reconnection triggers
-      socket.once('close', onSocketClose);
-      socket.on('error', onSocketError);
+      socket.once('close', this.socketCloseHandler);
+      // Use 'once' for error as well to prevent accumulation across reconnects
+      socket.once('error', this.socketErrorHandler);
+    }
+  }
+
+  /**
+   * Clean up runtime monitoring resources (intervals and event listeners)
+   */
+  private cleanupRuntimeMonitoring(): void {
+    // Clear health check interval
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = undefined;
+      this.log?.debug?.(`[${this.accountId}] Health check interval cleared`);
+    }
+    
+    // Remove socket event listeners if they exist
+    const client = this.client as any;
+    if (client.socket) {
+      const socket = client.socket;
       
-      // Store handlers for cleanup
-      (this as any).socketCloseHandler = onSocketClose;
-      (this as any).socketErrorHandler = onSocketError;
+      if (this.socketCloseHandler) {
+        socket.removeListener('close', this.socketCloseHandler);
+        this.socketCloseHandler = undefined;
+      }
+      if (this.socketErrorHandler) {
+        socket.removeListener('error', this.socketErrorHandler);
+        this.socketErrorHandler = undefined;
+      }
+      
+      this.log?.debug?.(`[${this.accountId}] Socket event listeners removed`);
     }
   }
 
@@ -272,32 +313,8 @@ export class ConnectionManager {
     // Clear reconnect timer
     this.clearReconnectTimer();
     
-    // Clear health check interval
-    const healthCheckInterval = (this as any).healthCheckInterval;
-    if (healthCheckInterval) {
-      clearInterval(healthCheckInterval);
-      (this as any).healthCheckInterval = undefined;
-      this.log?.debug?.(`[${this.accountId}] Health check interval cleared`);
-    }
-    
-    // Remove socket event listeners if they exist
-    const client = this.client as any;
-    if (client.socket) {
-      const socket = client.socket;
-      const closeHandler = (this as any).socketCloseHandler;
-      const errorHandler = (this as any).socketErrorHandler;
-      
-      if (closeHandler) {
-        socket.removeListener('close', closeHandler);
-        (this as any).socketCloseHandler = undefined;
-      }
-      if (errorHandler) {
-        socket.removeListener('error', errorHandler);
-        (this as any).socketErrorHandler = undefined;
-      }
-      
-      this.log?.debug?.(`[${this.accountId}] Socket event listeners removed`);
-    }
+    // Clean up runtime monitoring resources
+    this.cleanupRuntimeMonitoring();
     
     // Disconnect client
     try {

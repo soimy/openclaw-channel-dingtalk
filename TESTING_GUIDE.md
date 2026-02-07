@@ -1,9 +1,7 @@
-/**
- * Manual Test Guide for Connection Robustness
- * 
- * This file provides instructions for manually testing the connection robustness implementation.
- * These tests cannot be automated without a test DingTalk environment.
- */
+# Manual Test Guide for Connection Robustness
+
+This file provides instructions for manually testing the connection robustness implementation.
+These tests cannot be automated without a test DingTalk environment.
 
 ## Test Scenarios
 
