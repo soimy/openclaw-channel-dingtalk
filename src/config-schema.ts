@@ -45,22 +45,32 @@ export const DingTalkConfigSchema = z.object({
   messageType: z.enum(['markdown', 'card']).optional().default('markdown'),
 
   /** Card template ID for AI interactive cards
-   * Default: '382e4302-551d-4880-bf29-a30acfab2e71.schema' (DingTalk official AI Card template)
-   * Note: This is the official AI Card template ID provided by DingTalk for AI streaming cards.
-   * If using custom templates, obtain the template ID from DingTalk Developer Console.
+   * obtain the template ID from DingTalk Developer Console.
+   * ref: https://github.com/soimy/openclaw-channel-dingtalk/blob/main/README.md#3-%E5%BB%BA%E7%AB%8B%E5%8D%A1%E7%89%87%E6%A8%A1%E6%9D%BF%E5%8F%AF%E9%80%89
    */
-  cardTemplateId: z.string().optional().default('382e4302-551d-4880-bf29-a30acfab2e71.schema'),
+  cardTemplateId: z.string().optional(),
+
+  /** Card template key for streaming updates
+   * Default: 'msgContent' - maps to the content field in the card template
+   * This key is used in the streaming API to update specific fields in the card.
+   */
+  cardTemplateKey: z.string().optional().default('content'),
 
   /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
-  groups: z.record(z.string(), z.object({
-    systemPrompt: z.string().optional(),
-  })).optional(),
+  groups: z
+    .record(
+      z.string(),
+      z.object({
+        systemPrompt: z.string().optional(),
+      })
+    )
+    .optional(),
 
   /** Multi-account configuration */
   accounts: z.record(z.string(), z.unknown()).optional(),
 
   /** Connection robustness configuration */
-  
+
   /** Maximum number of connection attempts before giving up (default: 10) */
   maxConnectionAttempts: z.number().int().min(1).optional().default(10),
 

@@ -29,6 +29,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   debug?: boolean;
   messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
+  cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
@@ -55,6 +56,7 @@ export interface DingTalkChannelConfig {
   debug?: boolean;
   messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
+  cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
@@ -124,7 +126,7 @@ export interface DingTalkInboundMessage {
       type: string;
       text?: string;
       atName?: string;
-      downloadCode?: string;  // For picture type in richText
+      downloadCode?: string; // For picture type in richText
     }>;
   };
   conversationType: string;
@@ -432,7 +434,7 @@ export const AICardStatus = {
 /**
  * AI Card state type
  */
-export type AICardState = typeof AICardStatus[keyof typeof AICardStatus];
+export type AICardState = (typeof AICardStatus)[keyof typeof AICardStatus];
 
 /**
  * AI Card instance
@@ -445,54 +447,6 @@ export interface AICardInstance {
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
-}
-
-/**
- * AI Card create request (new API)
- */
-export interface AICardCreateRequest {
-  cardTemplateId: string;
-  outTrackId: string;
-  cardData: {
-    cardParamMap: Record<string, any>;
-  };
-  callbackType?: string;
-  imGroupOpenSpaceModel?: {
-    supportForward: boolean;
-  };
-  imRobotOpenSpaceModel?: {
-    supportForward: boolean;
-  };
-}
-
-/**
- * AI Card deliver request (new API)
- */
-export interface AICardDeliverRequest {
-  outTrackId: string;
-  userIdType: number;
-  openSpaceId?: string;
-  imGroupOpenDeliverModel?: {
-    robotCode: string;
-  };
-  imRobotOpenDeliverModel?: {
-    spaceType: string;
-  };
-}
-
-/**
- * AI Card update request (new API)
- */
-export interface AICardUpdateRequest {
-  outTrackId: string;
-  cardData: {
-    cardParamMap: {
-      flowStatus: string;
-      msgContent: string;
-      staticMsgContent?: string;
-      sys_full_json_obj?: string;
-    };
-  };
 }
 
 /**

@@ -1,4 +1,4 @@
-# DingTalk Channel for OpenClaw 
+# DingTalk Channel for OpenClaw
 
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
@@ -68,6 +68,7 @@ openclaw plugins update dingtalk
 - ✅ **Card.Streaming.Write** — 对卡片进行流式更新
 
 **步骤：**
+
 1. 进入应用 → 权限管理
 2. 搜索「Card」相关权限
 3. 勾选上述两个权限
@@ -75,27 +76,35 @@ openclaw plugins update dingtalk
 
 ### 3. 建立卡片模板
 
-如需使用 AI 互动卡片功能，需要在钉钉卡片平台创建模板：
-
 **步骤：**
+
 1. 访问 [钉钉卡片平台](https://open-dev.dingtalk.com/fe/card)
 2. 进入「我的模板」
 3. 点击「创建模板」
 4. 卡片模板场景选择 **「AI 卡片」**
-5. **无需选择预设模板**，直接点击保存
-6. 复制模板 ID（格式如：`xxxxx-xxxxx-xxxxx.schema`）
-7. 将 templateId 配置到 `openclaw.json` 的 `cardTemplateId` 字段
-8. 或在OpenClaw控制台的Channel标签->Dingtalk配置面板-> Card Template Id填入
+5. 按需设计卡片排版,点击保存并发布
+6. 记下模板中定义的内容字段名称
+7. 复制模板 ID（格式如：`xxxxx-xxxxx-xxxxx.schema`）
+8. 将 templateId 配置到 `openclaw.json` 的 `cardTemplateId` 字段
+9. 或在OpenClaw控制台的Channel标签->Dingtalk配置面板-> Card Template Id填入
+10. 将记下的内容字段变量名配置到 `openclaw.json` 的 `cardTemplateKey` 字段
+11. 或在OpenClaw控制台的Channel标签->Dingtalk配置面板-> Card Template Key填入
+
+**说明：**
+
+- 使用 DingTalk 官方 AI 卡片模板时，`cardTemplateKey` 默认为 `'msgContent'`，无需修改
+- 如果您创建自定义卡片模板，需要确保模板中包含相应的内容字段，并将 `cardTemplateKey` 配置为该字段名称
 
 **模板配置示例：**
+
 ```json5
 {
-  "channels": {
-    "dingtalk": {
-      "messageType": "card",
-      "cardTemplateId": "你复制的模板ID" // 粘贴复制的模板 ID
-    }
-  }
+  channels: {
+    dingtalk: {
+      messageType: 'card',
+      cardTemplateId: '你复制的模板ID', // 粘贴复制的模板 ID
+    },
+  },
 }
 ```
 
@@ -112,6 +121,7 @@ openclaw plugins update dingtalk
 ### 5. 配置 OpenClaw
 
 在 `~/.openclaw/openclaw.json` 的 `channels` 下添加：
+
 > 只添加dingtalk部分，内容自己替换
 
 ```json5
@@ -128,8 +138,8 @@ openclaw plugins update dingtalk
       "corpId": "dingxxxxxx",
       "agentId": "123456789",
       "dmPolicy": "open",
-      "groupPolicy": "open",      
-      "messageType": "markdown",       
+      "groupPolicy": "open",
+      "messageType": "markdown",
       "debug": false
     }
   },
@@ -145,24 +155,25 @@ openclaw gateway restart
 
 ## 配置选项
 
-| 选项                       | 类型     | 默认值                                                          | 说明                                      |
-| -------------------------- | -------- | --------------------------------------------------------------- | ----------------------------------------- |
-| `enabled`                  | boolean  | `true`                                                          | 是否启用                                  |
-| `clientId`                 | string   | 必填                                                            | 应用的 AppKey                             |
-| `clientSecret`             | string   | 必填                                                            | 应用的 AppSecret                          |
-| `robotCode`                | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |
-| `corpId`                   | string   | -                                                               | 企业 ID                                   |
-| `agentId`                  | string   | -                                                               | 应用 ID                                   |
-| `dmPolicy`                 | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |
-| `groupPolicy`              | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
-| `allowFrom`                | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
-| `messageType`              | string   | `"markdown"`                                                    | 消息类型：markdown/card                   |
-| `cardTemplateId`           | string   | `"382e4302-551d-4880-bf29-a30acfab2e71.schema"`                 | AI 互动卡片模板 ID（仅当 messageType=card）|
-| `debug`                    | boolean  | `false`                                                         | 是否开启调试日志                          |
-| `maxConnectionAttempts`    | number   | `10`                                                            | 最大连接尝试次数                          |
-| `initialReconnectDelay`    | number   | `1000`                                                          | 初始重连延迟（毫秒）                      |
-| `maxReconnectDelay`        | number   | `60000`                                                         | 最大重连延迟（毫秒）                      |
-| `reconnectJitter`          | number   | `0.3`                                                           | 重连延迟抖动因子（0-1）                   |
+| 选项                    | 类型     | 默认值                                          | 说明                                        |
+| ----------------------- | -------- | ----------------------------------------------- | ------------------------------------------- |
+| `enabled`               | boolean  | `true`                                          | 是否启用                                    |
+| `clientId`              | string   | 必填                                            | 应用的 AppKey                               |
+| `clientSecret`          | string   | 必填                                            | 应用的 AppSecret                            |
+| `robotCode`             | string   | -                                               | 机器人代码（用于下载媒体和发送卡片）        |
+| `corpId`                | string   | -                                               | 企业 ID                                     |
+| `agentId`               | string   | -                                               | 应用 ID                                     |
+| `dmPolicy`              | string   | `"open"`                                        | 私聊策略：open/pairing/allowlist            |
+| `groupPolicy`           | string   | `"open"`                                        | 群聊策略：open/allowlist                    |
+| `allowFrom`             | string[] | `[]`                                            | 允许的发送者 ID 列表                        |
+| `messageType`           | string   | `"markdown"`                                    | 消息类型：markdown/card                     |
+| `cardTemplateId`        | string   |                                                 | AI 互动卡片模板 ID（仅当 messageType=card） |
+| `cardTemplateKey`       | string   | `"content"`                                     | 卡片模板内容字段键（仅当 messageType=card） |
+| `debug`                 | boolean  | `false`                                         | 是否开启调试日志                            |
+| `maxConnectionAttempts` | number   | `10`                                            | 最大连接尝试次数                            |
+| `initialReconnectDelay` | number   | `1000`                                          | 初始重连延迟（毫秒）                        |
+| `maxReconnectDelay`     | number   | `60000`                                         | 最大重连延迟（毫秒）                        |
+| `reconnectJitter`       | number   | `0.3`                                           | 重连延迟抖动因子（0-1）                     |
 
 ### 连接鲁棒性配置
 
@@ -207,39 +218,39 @@ openclaw gateway restart
 
 ### 发送
 
-| 类型         | 支持 | 说明                                       |
-| ------------ | ---- | ------------------------------------------ |
-| 文本         | ✅   | 完整支持                                   |
-| Markdown     | ✅   | 自动检测或手动指定                         |
-| 互动卡片     | ✅   | 支持流式更新，适用于 AI 实时输出           |
-| 图片         | ⏳   | 需要通过媒体上传 API                       |
+| 类型     | 支持 | 说明                             |
+| -------- | ---- | -------------------------------- |
+| 文本     | ✅   | 完整支持                         |
+| Markdown | ✅   | 自动检测或手动指定               |
+| 互动卡片 | ✅   | 支持流式更新，适用于 AI 实时输出 |
+| 图片     | ⏳   | 需要通过媒体上传 API             |
 
 ## API 消耗说明
 
 ### Text/Markdown 模式
 
-| 操作     | API 调用次数 | 说明 |
-|---------|-----------|------|
-| 获取 Token | 1 | 共享/缓存（60 秒检查过期一次） |
-| 发送消息 | 1 | 使用 `/v1.0/robot/oToMessages/batchSend` 或 `/v1.0/robot/groupMessages/send` |
-| **总计** | **2** | 每条回复 1 次 |
+| 操作       | API 调用次数 | 说明                                                                         |
+| ---------- | ------------ | ---------------------------------------------------------------------------- |
+| 获取 Token | 1            | 共享/缓存（60 秒检查过期一次）                                               |
+| 发送消息   | 1            | 使用 `/v1.0/robot/oToMessages/batchSend` 或 `/v1.0/robot/groupMessages/send` |
+| **总计**   | **2**        | 每条回复 1 次                                                                |
 
 ### Card（AI 互动卡片）模式
 
-| 阶段 | API 调用 | 说明 |
-|-----|---------|------|
-| **创建卡片** | 1 | `POST /v1.0/card/instances/createAndDeliver` |
-| **流式更新** | M | M = 回复块数量，每块一次 `PUT /v1.0/card/streaming` |
-| **完成卡片** | 包含在最后一次流更新中 | 使用 `isFinalize=true` 标记 |
-| **总计** | **1 + M** | M = Agent 产生的回复块数 |
+| 阶段         | API 调用               | 说明                                                |
+| ------------ | ---------------------- | --------------------------------------------------- |
+| **创建卡片** | 1                      | `POST /v1.0/card/instances/createAndDeliver`        |
+| **流式更新** | M                      | M = 回复块数量，每块一次 `PUT /v1.0/card/streaming` |
+| **完成卡片** | 包含在最后一次流更新中 | 使用 `isFinalize=true` 标记                         |
+| **总计**     | **1 + M**              | M = Agent 产生的回复块数                            |
 
 ### 典型场景成本对比
 
-| 场景 | Text/Markdown | Card | 节省 |
-|-----|--------------|------|------|
-| 简短回复（1 块） | 2 | 2 | ✓ 相同 |
-| 中等回复（5 块） | 6 | 6 | ✓ 相同 |
-| 长回复（10 块） | 12 | 11 | ✓ 1 次 |
+| 场景             | Text/Markdown | Card | 节省   |
+| ---------------- | ------------- | ---- | ------ |
+| 简短回复（1 块） | 2             | 2    | ✓ 相同 |
+| 中等回复（5 块） | 6             | 6    | ✓ 相同 |
+| 长回复（10 块）  | 12            | 11   | ✓ 1 次 |
 
 ### 优化策略
 
@@ -259,31 +270,39 @@ openclaw gateway restart
 插件支持两种消息回复类型，可通过 `messageType` 配置：
 
 ### 1. markdown（Markdown 格式）**【默认】**
+
 - 支持富文本格式（标题、粗体、列表等）
 - 自动检测消息是否包含 Markdown 语法
 - 适用于大多数场景
 
 ### 2. card（AI 互动卡片）
+
 - 支持流式更新（实时显示 AI 生成内容）
 - 更好的视觉呈现和交互体验
 - 支持 Markdown 格式渲染
 - 通过 `cardTemplateId` 指定模板
+- 通过 `cardTemplateKey` 指定内容字段
 - **适用于 AI 对话场景**
 
 **AI Card API 特性：**
 当配置 `messageType: 'card'` 时：
+
 1. 使用 `/v1.0/card/instances/createAndDeliver` 创建并投放卡片
 2. 使用 `/v1.0/card/streaming` 实现真正的流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
 4. 更稳定的流式体验，无需手动节流
 
 **配置示例：**
+
 ```json5
 {
   messageType: 'card', // 启用 AI 互动卡片模式
   cardTemplateId: '382e4302-551d-4880-bf29-a30acfab2e71.schema', // AI 卡片模板 ID（默认值）
+  cardTemplateKey: 'msgContent', // 卡片内容字段键（默认值：msgContent）
 }
 ```
+
+> **注意**：`cardTemplateKey` 应与您的卡片模板中定义的字段名称一致。默认值为 `'msgContent'`，适用于 DingTalk 官方 AI 卡片模板。如果您使用自定义模板，请根据模板定义的字段名称进行配置。
 
 ## 使用示例
 

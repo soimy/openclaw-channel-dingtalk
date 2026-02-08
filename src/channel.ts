@@ -111,10 +111,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
 /**
  * Check if sender is allowed based on allowFrom list
  */
-function isSenderAllowed(params: {
-  allow: NormalizedAllowFrom;
-  senderId?: string;
-}): boolean {
+function isSenderAllowed(params: { allow: NormalizedAllowFrom; senderId?: string }): boolean {
   const { allow, senderId } = params;
   if (!allow.hasEntries) return true;
   if (allow.hasWildcard) return true;
@@ -170,9 +167,9 @@ function detectMarkdownAndExtractTitle(
     options.title ||
     (useMarkdown
       ? text
-        .split('\n')[0]
-        .replace(/^[#*\s\->]+/, '')
-        .slice(0, 20) || defaultTitle
+          .split('\n')[0]
+          .replace(/^[#*\s\->]+/, '')
+          .slice(0, 20) || defaultTitle
       : defaultTitle);
 
   return { useMarkdown, title };
@@ -190,7 +187,9 @@ function noteGroupMember(storePath: string, groupId: string, userId: string, nam
   if (!userId || !name) return;
   const filePath = groupMembersFilePath(storePath, groupId);
   let roster: Record<string, string> = {};
-  try { roster = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch {}
+  try {
+    roster = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {}
   if (roster[userId] === name) return;
   roster[userId] = name;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -200,7 +199,11 @@ function noteGroupMember(storePath: string, groupId: string, userId: string, nam
 function formatGroupMembers(storePath: string, groupId: string): string | undefined {
   const filePath = groupMembersFilePath(storePath, groupId);
   let roster: Record<string, string> = {};
-  try { roster = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return undefined; }
+  try {
+    roster = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return undefined;
+  }
   const entries = Object.entries(roster);
   if (entries.length === 0) return undefined;
   return entries.map(([id, name]) => `${name} (${id})`).join(', ');
@@ -378,18 +381,20 @@ async function sendProactiveTextOrMarkdown(
   // Use shared helper function for markdown detection and title extraction
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'OpenClaw 提醒');
 
-  log?.debug?.(`[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${resolvedTarget} with title "${title}"`);
+  log?.debug?.(
+    `[DingTalk] Sending proactive message to ${isGroup ? 'group' : 'user'} ${resolvedTarget} with title "${title}"`
+  );
 
   // Choose msgKey based on whether we're sending markdown or plain text
   // Note: DingTalk's proactive message API uses predefined message templates
   // sampleMarkdown supports markdown formatting, sampleText for plain text
   const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
-  const msgParam = useMarkdown ? JSON.stringify({title, text}) : JSON.stringify({ content: text });
+  const msgParam = useMarkdown ? JSON.stringify({ title, text }) : JSON.stringify({ content: text });
 
   const payload: ProactiveMessagePayload = {
     robotCode: config.robotCode || config.clientId,
     msgKey,
-    msgParam
+    msgParam,
   };
 
   if (isGroup) {
@@ -532,9 +537,7 @@ async function downloadMedia(
     const downloadUrl = payload?.downloadUrl ?? payload?.data?.downloadUrl;
     if (!downloadUrl) {
       const payloadDetail = formatAxiosErrorData(payload);
-      log?.error?.(
-        `[DingTalk] downloadMedia missing downloadUrl. payload=${payloadDetail ?? 'unknown'}`
-      );
+      log?.error?.(`[DingTalk] downloadMedia missing downloadUrl. payload=${payloadDetail ?? 'unknown'}`);
       return null;
     }
     const mediaResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
@@ -648,7 +651,7 @@ async function sendBySession(
     const mediaId = await uploadMedia(config, options.mediaPath, options.mediaType, log);
     if (mediaId) {
       let body: any;
-      
+
       // Construct message body based on media type
       if (options.mediaType === 'image') {
         body = { msgtype: 'image', image: { media_id: mediaId } };
@@ -725,9 +728,13 @@ async function createAICard(
 
     const isGroup = conversationId.startsWith('cid');
 
+    if (!config.cardTemplateId) {
+      throw new Error('DingTalk cardTemplateId is not configured.');
+    }
+
     // Build the createAndDeliver request body
     const createAndDeliverBody = {
-      cardTemplateId: config.cardTemplateId || '382e4302-551d-4880-bf29-a30acfab2e71.schema',
+      cardTemplateId: config.cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
         cardParamMap: {},
@@ -744,7 +751,7 @@ async function createAICard(
     if (isGroup && !config.robotCode) {
       log?.warn?.(
         '[DingTalk][AICard] robotCode not configured, using clientId as fallback. ' +
-        'For best compatibility, set robotCode explicitly in config.'
+          'For best compatibility, set robotCode explicitly in config.'
       );
     }
 
@@ -820,7 +827,7 @@ async function streamAICard(
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.cardInstanceId,
     guid: randomUUID(), // Use crypto.randomUUID() for robust GUID generation
-    key: 'content',
+    key: card.config?.cardTemplateKey || 'content',
     content: content,
     isFull: true, // Always full replacement for Markdown content
     isFinalize: finished, // Set to true on final update to close the streaming channel
@@ -847,6 +854,41 @@ async function streamAICard(
       card.state = AICardStatus.INPUTING;
     }
   } catch (err: any) {
+    // Handle 500 unknownError - likely cardTemplateKey mismatch with card template variables
+    if (err.response?.status === 500 && err.response?.data?.code === 'unknownError') {
+      const usedKey = streamBody.key;
+      const cardTemplateId = card.config?.cardTemplateId || '(unknown)';
+      const errorMsg =
+        `⚠️ **[DingTalk] AI Card 串流更新失败 (500 unknownError)**\n\n` +
+        `这通常是因为 \`cardTemplateKey\` (当前值: \`${usedKey}\`) 与钉钉卡片模板 \`${cardTemplateId}\` 中定义的正文变量名不匹配。\n\n` +
+        `**建议操作**：\n` +
+        `1. 前往钉钉开发者后台检查该模板的“变量管理”\n` +
+        `2. 确保配置中的 \`cardTemplateKey\` 与模板中用于显示内容的字段变量名完全一致\n\n` +
+        `*注意：当前及后续消息将自动转为 Markdown 发送，直到问题修复。*\n` +
+        `*参考文档: https://github.com/soimy/openclaw-channel-dingtalk/blob/main/README.md#3-%E5%BB%BA%E7%AB%8B%E5%8D%A1%E7%89%87%E6%A8%A1%E6%9D%BF%E5%8F%AF%E9%80%89`;
+
+
+      log?.error?.(
+        `[DingTalk][AICard] Streaming failed with 500 unknownError. Key: ${usedKey}, Template: ${cardTemplateId}. ` +
+          `Verify that "cardTemplateKey" matches the content field variable name in your card template.`
+      );
+
+      card.state = AICardStatus.FAILED;
+      card.lastUpdated = Date.now();
+
+      if (card.config) {
+        // Send notification directly to user via Markdown fallback
+        // We don't pass accountId here to ensure it doesn't try to use AI Card recursion
+        try {
+          await sendMessage(card.config, card.conversationId, errorMsg, { log });
+        } catch (sendErr: any) {
+          log?.warn?.(`[DingTalk][AICard] Failed to send error notification to user: ${sendErr.message}`);
+        }
+      }
+
+      throw err;
+    }
+
     // Handle 401 errors specifically - try to refresh token once
     if (err.response?.status === 401 && card.config) {
       log?.warn?.('[DingTalk][AICard] Received 401 error, attempting token refresh and retry...');
@@ -856,9 +898,7 @@ async function streamAICard(
         const retryResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
           headers: { 'x-acs-dingtalk-access-token': card.accessToken, 'Content-Type': 'application/json' },
         });
-        log?.debug?.(
-          `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`
-        );
+        log?.debug?.(`[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`);
         // Update state on successful retry
         card.lastUpdated = Date.now();
         if (finished) {
@@ -1044,10 +1084,11 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   // GroupSystemPrompt is injected into the system prompt on every turn (unlike
   // group intro which only fires on the first turn). Embed DingTalk IDs here so
   // the AI always has access to conversationId.
-  const groupSystemPrompt = !isDirect ? [
-    `DingTalk group context: conversationId=${groupId}`,
-    groupConfig?.systemPrompt?.trim(),
-  ].filter(Boolean).join('\n') : undefined;
+  const groupSystemPrompt = !isDirect
+    ? [`DingTalk group context: conversationId=${groupId}`, groupConfig?.systemPrompt?.trim()]
+        .filter(Boolean)
+        .join('\n')
+    : undefined;
 
   if (!isDirect) {
     noteGroupMember(storePath, groupId, senderId, senderName);
@@ -1124,11 +1165,15 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
       log?.debug?.('[DingTalk] Reusing existing active AI card for this conversation.');
     } else {
       // Create a new AI card
-      const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
-      if (aiCard) {
-        currentAICard = aiCard;
-      } else {
-        log?.warn?.('[DingTalk] Failed to create AI card, fallback to text/markdown.');
+      try {
+        const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
+        if (aiCard) {
+          currentAICard = aiCard;
+        } else {
+          log?.warn?.('[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.');
+        }
+      } catch (err: any) {
+        log?.warn?.(`[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`);
       }
     }
   }
@@ -1183,8 +1228,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   if (useCardMode && currentAICard) {
     try {
       // Helper function to check if a value is a non-empty string
-      const isNonEmptyString = (value: any): boolean =>
-        typeof value === 'string' && value.trim().length > 0;
+      const isNonEmptyString = (value: any): boolean => typeof value === 'string' && value.trim().length > 0;
 
       // Validate that we have actual content before finalization
       const hasLastCardContent = isNonEmptyString(lastCardContent);
@@ -1195,9 +1239,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         await finishAICard(currentAICard, finalContent, log);
       } else {
         // No textual content was produced; skip finalization with empty content
-        log?.debug?.(
-          '[DingTalk] Skipping AI Card finalization because no textual content was produced.'
-        );
+        log?.debug?.('[DingTalk] Skipping AI Card finalization because no textual content was produced.');
         // Still mark the card as finished to allow cleanup
         currentAICard.state = AICardStatus.FINISHED;
         currentAICard.lastUpdated = Date.now();
@@ -1443,17 +1485,12 @@ export const dingtalkPlugin = {
 
       ctx.log?.debug?.(
         `[${account.accountId}] Connection config: maxAttempts=${connectionConfig.maxAttempts}, ` +
-        `initialDelay=${connectionConfig.initialDelay}ms, maxDelay=${connectionConfig.maxDelay}ms, ` +
-        `jitter=${connectionConfig.jitter}`
+          `initialDelay=${connectionConfig.initialDelay}ms, maxDelay=${connectionConfig.maxDelay}ms, ` +
+          `jitter=${connectionConfig.jitter}`
       );
 
       // Create connection manager
-      const connectionManager = new ConnectionManager(
-        client,
-        account.accountId,
-        connectionConfig,
-        ctx.log
-      );
+      const connectionManager = new ConnectionManager(client, account.accountId, connectionConfig, ctx.log);
 
       // Track stopped state
       let stopped = false;
@@ -1466,7 +1503,7 @@ export const dingtalkPlugin = {
           ctx.log?.warn?.(`[${account.accountId}] Abort signal already active, skipping connection`);
           throw new Error('Connection aborted before start');
         }
-        
+
         abortSignal.addEventListener('abort', () => {
           if (stopped) return;
           stopped = true;
@@ -1479,9 +1516,7 @@ export const dingtalkPlugin = {
       try {
         await connectionManager.connect();
       } catch (err: any) {
-        ctx.log?.error?.(
-          `[${account.accountId}] Failed to establish connection: ${err.message}`
-        );
+        ctx.log?.error?.(`[${account.accountId}] Failed to establish connection: ${err.message}`);
         throw err;
       }
 
