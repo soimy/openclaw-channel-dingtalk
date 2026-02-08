@@ -35,6 +35,7 @@ export class ConnectionManager {
   
   // Sleep abort control
   private sleepTimeout?: NodeJS.Timeout;
+  private sleepResolve?: () => void;
   
   // Client reference
   private client: DWClient;
@@ -164,6 +165,12 @@ export class ConnectionManager {
         // Connection successful
         this.setupRuntimeReconnection();
         return;
+      }
+      
+      // Check if connection was stopped during connect
+      if (result.error?.message === 'Connection manager stopped during connect') {
+        this.log?.info?.(`[${this.accountId}] Connection cancelled: manager stopped during connect`);
+        throw new Error('Connection cancelled: connection manager stopped');
       }
       
       if (!result.nextDelay || this.attemptCount >= this.config.maxAttempts) {
@@ -367,8 +374,10 @@ export class ConnectionManager {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
+      this.sleepResolve = resolve;
       this.sleepTimeout = setTimeout(() => {
         this.sleepTimeout = undefined;
+        this.sleepResolve = undefined;
         resolve();
       }, ms);
     });
@@ -376,12 +385,18 @@ export class ConnectionManager {
 
   /**
    * Cancel any in-flight sleep operation
+   * Resolves the pending promise immediately so await unblocks
    */
   private cancelSleep(): void {
     if (this.sleepTimeout) {
       clearTimeout(this.sleepTimeout);
       this.sleepTimeout = undefined;
       this.log?.debug?.(`[${this.accountId}] Sleep timeout cancelled`);
+    }
+    // Resolve the pending promise so await unblocks immediately
+    if (this.sleepResolve) {
+      this.sleepResolve();
+      this.sleepResolve = undefined;
     }
   }
 
