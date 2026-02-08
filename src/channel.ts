@@ -1455,6 +1455,26 @@ export const dingtalkPlugin = {
         ctx.log
       );
 
+      // Track stopped state
+      let stopped = false;
+
+      // Setup abort signal handler BEFORE connecting
+      // This allows the abort signal to cancel in-flight connection attempts
+      if (abortSignal) {
+        // Check if already aborted before we even start
+        if (abortSignal.aborted) {
+          ctx.log?.warn?.(`[${account.accountId}] Abort signal already active, skipping connection`);
+          throw new Error('Connection aborted before start');
+        }
+        
+        abortSignal.addEventListener('abort', () => {
+          if (stopped) return;
+          stopped = true;
+          ctx.log?.info?.(`[${account.accountId}] Abort signal received, stopping DingTalk Stream client...`);
+          connectionManager.stop();
+        });
+      }
+
       // Connect with robust retry logic
       try {
         await connectionManager.connect();
@@ -1463,19 +1483,6 @@ export const dingtalkPlugin = {
           `[${account.accountId}] Failed to establish connection: ${err.message}`
         );
         throw err;
-      }
-
-      // Track stopped state
-      let stopped = false;
-
-      // Setup abort signal handler for graceful shutdown
-      if (abortSignal) {
-        abortSignal.addEventListener('abort', () => {
-          if (stopped) return;
-          stopped = true;
-          ctx.log?.info?.(`[${account.accountId}] Abort signal received, stopping DingTalk Stream client...`);
-          connectionManager.stop();
-        });
       }
 
       // Return stop handler

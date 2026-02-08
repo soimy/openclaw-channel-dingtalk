@@ -31,6 +31,11 @@ export class ConnectionManager {
   private healthCheckInterval?: NodeJS.Timeout;
   private socketCloseHandler?: (code: number, reason: string) => void;
   private socketErrorHandler?: (error: Error) => void;
+  private monitoredSocket?: any; // Store the socket instance we attached listeners to
+  
+  // Sleep abort control
+  private sleepTimeout?: NodeJS.Timeout;
+  private sleepResolve?: () => void;
   
   // Client reference
   private client: DWClient;
@@ -88,6 +93,20 @@ export class ConnectionManager {
     try {
       // Call DWClient connect method
       await this.client.connect();
+      
+      // Re-check stopped flag after async connect() completes
+      // This prevents race condition where stop() is called during connection
+      if (this.stopped) {
+        this.log?.warn?.(
+          `[${this.accountId}] Connection succeeded but manager was stopped during connect - disconnecting`
+        );
+        try {
+          this.client.disconnect();
+        } catch (disconnectErr: any) {
+          this.log?.debug?.(`[${this.accountId}] Error during post-connect disconnect: ${disconnectErr.message}`);
+        }
+        return { success: false, attempt: this.attemptCount, error: new Error('Connection manager stopped during connect') };
+      }
       
       // Connection successful
       this.state = ConnectionStateEnum.CONNECTED;
@@ -148,6 +167,12 @@ export class ConnectionManager {
         return;
       }
       
+      // Check if connection was stopped during connect
+      if (result.error?.message === 'Connection manager stopped during connect') {
+        this.log?.info?.(`[${this.accountId}] Connection cancelled: manager stopped during connect`);
+        throw new Error('Connection cancelled: connection manager stopped');
+      }
+      
       if (!result.nextDelay || this.attemptCount >= this.config.maxAttempts) {
         // No more retries
         throw new Error(`Failed to connect after ${this.attemptCount} attempts`);
@@ -197,6 +222,8 @@ export class ConnectionManager {
     // The DWClient uses 'ws' WebSocket library which extends EventEmitter
     if (client.socket) {
       const socket = client.socket;
+      // Store the socket instance we're attaching listeners to
+      this.monitoredSocket = socket;
       
       // Handler for socket close event
       this.socketCloseHandler = (code: number, reason: string) => {
@@ -239,10 +266,9 @@ export class ConnectionManager {
       this.log?.debug?.(`[${this.accountId}] Health check interval cleared`);
     }
     
-    // Remove socket event listeners if they exist
-    const client = this.client as any;
-    if (client.socket) {
-      const socket = client.socket;
+    // Remove socket event listeners from the stored socket instance
+    if (this.monitoredSocket) {
+      const socket = this.monitoredSocket;
       
       if (this.socketCloseHandler) {
         socket.removeListener('close', this.socketCloseHandler);
@@ -253,7 +279,8 @@ export class ConnectionManager {
         this.socketErrorHandler = undefined;
       }
       
-      this.log?.debug?.(`[${this.accountId}] Socket event listeners removed`);
+      this.log?.debug?.(`[${this.accountId}] Socket event listeners removed from monitored socket`);
+      this.monitoredSocket = undefined;
     }
   }
 
@@ -313,6 +340,9 @@ export class ConnectionManager {
     // Clear reconnect timer
     this.clearReconnectTimer();
     
+    // Cancel any in-flight sleep (retry delay)
+    this.cancelSleep();
+    
     // Clean up runtime monitoring resources
     this.cleanupRuntimeMonitoring();
     
@@ -340,11 +370,34 @@ export class ConnectionManager {
 
   /**
    * Sleep utility for retry delays
+   * Returns a promise that resolves after ms or can be cancelled via cancelSleep()
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      setTimeout(resolve, ms);
+      this.sleepResolve = resolve;
+      this.sleepTimeout = setTimeout(() => {
+        this.sleepTimeout = undefined;
+        this.sleepResolve = undefined;
+        resolve();
+      }, ms);
     });
+  }
+
+  /**
+   * Cancel any in-flight sleep operation
+   * Resolves the pending promise immediately so await unblocks
+   */
+  private cancelSleep(): void {
+    if (this.sleepTimeout) {
+      clearTimeout(this.sleepTimeout);
+      this.sleepTimeout = undefined;
+      this.log?.debug?.(`[${this.accountId}] Sleep timeout cancelled`);
+    }
+    // Resolve the pending promise so await unblocks immediately
+    if (this.sleepResolve) {
+      this.sleepResolve();
+      this.sleepResolve = undefined;
+    }
   }
 
   /**
