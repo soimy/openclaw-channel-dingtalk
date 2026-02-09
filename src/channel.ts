@@ -1548,8 +1548,8 @@ export const dingtalkPlugin = {
       const connectionManager = new ConnectionManager(client, account.accountId, connectionConfig, ctx.log);
 
       // Track stopped state to prevent duplicate stop operations
-      // Note: Node.js single-threaded event loop ensures snapshot updates are atomic
-      // The 'stopped' flag prevents multiple termination paths from updating state concurrently
+      // The 'stopped' flag guards against multiple termination paths (abort signal, explicit stop)
+      // from executing concurrently and ensures each lifecycle transition updates snapshot only once
       let stopped = false;
 
       // Setup abort signal handler BEFORE connecting
