@@ -61,7 +61,7 @@ const DINGTALK_API = 'https://api.dingtalk.com';
 
 const processedMessages = new Map<string, number>(); // Map<dedupKey, expiresAt>
 const MESSAGE_DEDUP_TTL = 5000; // 5 seconds
-let messageCounter = 0; // Counter for deterministic cleanup triggering
+let messageCounter = 0; // Counter for deterministic cleanup triggering (safe due to Node.js single-threaded event loop)
 
 // Check if message was already processed (with lazy cleanup of expired entries)
 function isMessageProcessed(dedupKey: string): boolean {
@@ -1471,7 +1471,8 @@ export const dingtalkPlugin = {
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
 
           // Message deduplication: use bot-scoped key (robotKey:msgId) to prevent cross-bot conflicts
-          // robotKey fallback chain ensures consistent key per bot instance (config values should remain stable)
+          // robotKey priority: robotCode (DingTalk's bot identifier) > clientId (app key) > accountId (local ID)
+          // This ensures consistent keys per bot instance (config values remain stable during runtime)
           const robotKey = config.robotCode || config.clientId || account.accountId;
           const msgId = data.msgId || messageId;
           
