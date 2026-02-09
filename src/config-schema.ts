@@ -4,7 +4,7 @@ import { z } from 'zod';
  * DingTalk configuration schema using Zod
  * Mirrors the structure needed for proper control-ui rendering
  */
-export const DingTalkConfigSchema = z.object({
+export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
   /** Account name (optional display name) */
   name: z.string().optional(),
 
