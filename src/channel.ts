@@ -57,28 +57,40 @@ const DINGTALK_API = 'https://api.dingtalk.com';
 
 // ============ Message Deduplication ============
 // Prevents duplicate message processing when DingTalk retries delivery
+// Uses pure in-memory storage with short TTL and lazy cleanup during processing
 
-const processedMessages = new Map<string, number>();
-const MESSAGE_DEDUP_TTL = 5 * 60 * 1000; // 5 minutes
-const MESSAGE_DEDUP_CLEANUP_THRESHOLD = 100;
+const processedMessages = new Map<string, number>(); // Map<dedupKey, expiresAt>
+const MESSAGE_DEDUP_TTL = 5000; // 5 seconds
 
-function cleanupProcessedMessages(): void {
+// Check if message was already processed (with lazy cleanup of expired entries)
+function isMessageProcessed(dedupKey: string): boolean {
   const now = Date.now();
-  for (const [msgId, timestamp] of processedMessages.entries()) {
-    if (now - timestamp > MESSAGE_DEDUP_TTL) {
-      processedMessages.delete(msgId);
-    }
+  const expiresAt = processedMessages.get(dedupKey);
+  
+  if (expiresAt === undefined) {
+    return false;
   }
+  
+  // Lazy cleanup: remove expired entry if found
+  if (now >= expiresAt) {
+    processedMessages.delete(dedupKey);
+    return false;
+  }
+  
+  return true;
 }
 
-function isMessageProcessed(messageId: string): boolean {
-  return processedMessages.has(messageId);
-}
-
-function markMessageProcessed(messageId: string): void {
-  processedMessages.set(messageId, Date.now());
-  if (processedMessages.size >= MESSAGE_DEDUP_CLEANUP_THRESHOLD) {
-    cleanupProcessedMessages();
+// Mark message as processed with bot-scoped key
+function markMessageProcessed(dedupKey: string): void {
+  const expiresAt = Date.now() + MESSAGE_DEDUP_TTL;
+  processedMessages.set(dedupKey, expiresAt);
+  
+  // Lazy cleanup: remove expired entries opportunistically during normal operation
+  const now = Date.now();
+  for (const [key, expiry] of processedMessages.entries()) {
+    if (now >= expiry) {
+      processedMessages.delete(key);
+    }
   }
 }
 
@@ -1452,8 +1464,11 @@ export const dingtalkPlugin = {
           }
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
 
-          // Message deduplication: skip if already processed
-          const dedupKey = data.msgId || messageId;
+          // Message deduplication: use bot-scoped key (robotKey:msgId) to prevent cross-bot conflicts
+          const robotKey = config.robotCode || config.clientId || account.accountId;
+          const msgId = data.msgId || messageId;
+          const dedupKey = msgId ? `${robotKey}:${msgId}` : '';
+          
           if (dedupKey && isMessageProcessed(dedupKey)) {
             ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
             return;
