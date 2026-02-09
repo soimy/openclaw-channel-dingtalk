@@ -85,11 +85,14 @@ function markMessageProcessed(dedupKey: string): void {
   const expiresAt = Date.now() + MESSAGE_DEDUP_TTL;
   processedMessages.set(dedupKey, expiresAt);
   
-  // Lazy cleanup: remove expired entries opportunistically during normal operation
-  const now = Date.now();
-  for (const [key, expiry] of processedMessages.entries()) {
-    if (now >= expiry) {
-      processedMessages.delete(key);
+  // Lazy cleanup: remove expired entries opportunistically (every ~10 messages to balance performance)
+  // With 5s TTL, Map stays small, but we avoid cleanup on every message
+  if (Math.random() < 0.1) {
+    const now = Date.now();
+    for (const [key, expiry] of processedMessages.entries()) {
+      if (now >= expiry) {
+        processedMessages.delete(key);
+      }
     }
   }
 }
@@ -1467,13 +1470,16 @@ export const dingtalkPlugin = {
           // Message deduplication: use bot-scoped key (robotKey:msgId) to prevent cross-bot conflicts
           const robotKey = config.robotCode || config.clientId || account.accountId;
           const msgId = data.msgId || messageId;
-          const dedupKey = msgId ? `${robotKey}:${msgId}` : '';
           
-          if (dedupKey && isMessageProcessed(dedupKey)) {
-            ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
-            return;
-          }
-          if (dedupKey) {
+          // Skip dedup if we don't have a message ID (extremely rare edge case)
+          if (!msgId) {
+            ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
+          } else {
+            const dedupKey = `${robotKey}:${msgId}`;
+            if (isMessageProcessed(dedupKey)) {
+              ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
+              return;
+            }
             markMessageProcessed(dedupKey);
           }
 
