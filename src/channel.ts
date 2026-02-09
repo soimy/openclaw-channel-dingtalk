@@ -60,7 +60,8 @@ const DINGTALK_API = 'https://api.dingtalk.com';
 // Uses pure in-memory storage with short TTL and lazy cleanup during processing
 
 const processedMessages = new Map<string, number>(); // Map<dedupKey, expiresAt>
-const MESSAGE_DEDUP_TTL = 5000; // 5 seconds
+const MESSAGE_DEDUP_TTL = 60000; // 60 seconds
+const MESSAGE_DEDUP_MAX_SIZE = 1000; // Hard cap to prevent memory pressure during bursts
 let messageCounter = 0; // Counter for deterministic cleanup triggering (safe due to Node.js single-threaded event loop)
 
 // Check if message was already processed (with lazy cleanup of expired entries)
@@ -86,8 +87,28 @@ function markMessageProcessed(dedupKey: string): void {
   const expiresAt = Date.now() + MESSAGE_DEDUP_TTL;
   processedMessages.set(dedupKey, expiresAt);
   
+  // Hard cap: if Map exceeds max size, force immediate cleanup
+  if (processedMessages.size > MESSAGE_DEDUP_MAX_SIZE) {
+    const now = Date.now();
+    for (const [key, expiry] of processedMessages.entries()) {
+      if (now >= expiry) {
+        processedMessages.delete(key);
+      }
+    }
+    // If still over limit after cleanup, clear oldest entries (safety valve)
+    if (processedMessages.size > MESSAGE_DEDUP_MAX_SIZE) {
+      const entries = Array.from(processedMessages.entries());
+      entries.sort((a, b) => a[1] - b[1]); // Sort by expiresAt (oldest first)
+      const removeCount = processedMessages.size - MESSAGE_DEDUP_MAX_SIZE;
+      for (let i = 0; i < removeCount; i++) {
+        processedMessages.delete(entries[i][0]);
+      }
+    }
+    return; // Skip regular cleanup since we just did a full sweep
+  }
+  
   // Lazy cleanup: remove expired entries deterministically every 10 messages
-  // With 5s TTL, Map stays small, but we avoid cleanup on every message for performance
+  // With 60s TTL, Map stays small under normal load, but we avoid cleanup on every message for performance
   messageCounter++;
   if (messageCounter >= 10) {
     messageCounter = 0;
