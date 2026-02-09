@@ -96,12 +96,13 @@ function markMessageProcessed(dedupKey: string): void {
       }
     }
     // If still over limit after cleanup, clear oldest entries (safety valve)
+    // Maps maintain insertion order, so we can delete early entries
     if (processedMessages.size > MESSAGE_DEDUP_MAX_SIZE) {
-      const entries = Array.from(processedMessages.entries());
-      entries.sort((a, b) => a[1] - b[1]); // Sort by expiresAt (oldest first)
       const removeCount = processedMessages.size - MESSAGE_DEDUP_MAX_SIZE;
-      for (let i = 0; i < removeCount; i++) {
-        processedMessages.delete(entries[i][0]);
+      let removed = 0;
+      for (const key of processedMessages.keys()) {
+        processedMessages.delete(key);
+        if (++removed >= removeCount) break;
       }
     }
     return; // Skip regular cleanup since we just did a full sweep
