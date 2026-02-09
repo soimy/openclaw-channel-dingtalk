@@ -1453,7 +1453,8 @@ export const dingtalkPlugin = {
           const data = JSON.parse(res.data) as DingTalkInboundMessage;
 
           // Message deduplication: skip if already processed
-          const dedupKey = data.msgId || messageId;
+          const robotKey = config.robotCode || config.clientId || account.accountId;
+          const dedupKey = `${robotKey}:${data.msgId || messageId}`;
           if (dedupKey && isMessageProcessed(dedupKey)) {
             ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
             return;
