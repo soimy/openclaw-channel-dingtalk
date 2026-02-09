@@ -1594,23 +1594,35 @@ export const dingtalkPlugin = {
             running: true,
             lastStartAt: getCurrentTimestamp(),
             lastError: null,
+
+        // Only mark as running if we weren't stopped and the connection is actually established.
+        if (!stopped && connectionManager.isConnected()) {
+          // Update snapshot: connection successful, channel is now running
+          ctx.updateSnapshot?.({
+            running: true,
+            lastStartAt: getCurrentTimestamp(),
+            lastError: null,
           });
+          ctx.log?.info?.(
+            `[${account.accountId}] DingTalk Stream client connected successfully`
+          );
         } else {
-          // Startup was cancelled or connection is not established; do not overwrite stopped snapshot
+          // Startup was cancelled or connection is not established; do not overwrite stopped snapshot.
           ctx.log?.info?.(
             `[${account.accountId}] DingTalk Stream client connect() completed but channel is ` +
             `not running (stopped=${stopped}, connected=${connectionManager.isConnected()})`
           );
         }
       } catch (err: any) {
-        ctx.log?.error?.(`[${account.accountId}] Failed to establish connection: ${err.message}`);
-        
+        ctx.log?.error?.(
+          `[${account.accountId}] Failed to establish connection: ${err.message}`
+        );
+
         // Update snapshot: connection failed
         ctx.updateSnapshot?.({
           running: false,
           lastError: err.message || 'Connection failed',
         });
-        
         throw err;
       }
 
