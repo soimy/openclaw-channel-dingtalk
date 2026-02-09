@@ -1558,6 +1558,14 @@ export const dingtalkPlugin = {
         // Check if already aborted before we even start
         if (abortSignal.aborted) {
           ctx.log?.warn?.(`[${account.accountId}] Abort signal already active, skipping connection`);
+          
+          // Update snapshot: channel aborted before start
+          ctx.updateSnapshot?.({
+            running: false,
+            lastStopAt: getCurrentTimestamp(),
+            lastError: 'Connection aborted before start',
+          });
+          
           throw new Error('Connection aborted before start');
         }
 
@@ -1579,13 +1587,21 @@ export const dingtalkPlugin = {
       try {
         await connectionManager.connect();
         
-        // Update snapshot: connection successful, channel is now running
-        ctx.updateSnapshot?.({
-          running: true,
-          lastStartAt: getCurrentTimestamp(),
-          lastError: null,
-        });
-        ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
+        // Only mark as running if we weren't stopped and the connection is actually established
+        if (!stopped && connectionManager.isConnected()) {
+          // Update snapshot: connection successful, channel is now running
+          ctx.updateSnapshot?.({
+            running: true,
+            lastStartAt: getCurrentTimestamp(),
+            lastError: null,
+          });
+        } else {
+          // Startup was cancelled or connection is not established; do not overwrite stopped snapshot
+          ctx.log?.info?.(
+            `[${account.accountId}] DingTalk Stream client connect() completed but channel is ` +
+            `not running (stopped=${stopped}, connected=${connectionManager.isConnected()})`
+          );
+        }
       } catch (err: any) {
         ctx.log?.error?.(`[${account.accountId}] Failed to establish connection: ${err.message}`);
         
