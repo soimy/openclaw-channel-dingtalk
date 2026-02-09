@@ -1557,14 +1557,35 @@ export const dingtalkPlugin = {
           stopped = true;
           ctx.log?.info?.(`[${account.accountId}] Abort signal received, stopping DingTalk Stream client...`);
           connectionManager.stop();
+          
+          // Update snapshot: channel stopped by abort signal
+          ctx.updateSnapshot?.({
+            running: false,
+            lastStopAt: new Date().toISOString(),
+          });
         });
       }
 
       // Connect with robust retry logic
       try {
         await connectionManager.connect();
+        
+        // Update snapshot: connection successful, channel is now running
+        ctx.updateSnapshot?.({
+          running: true,
+          lastStartAt: new Date().toISOString(),
+          lastError: null,
+        });
+        ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
       } catch (err: any) {
         ctx.log?.error?.(`[${account.accountId}] Failed to establish connection: ${err.message}`);
+        
+        // Update snapshot: connection failed
+        ctx.updateSnapshot?.({
+          running: false,
+          lastError: err.message || 'Connection failed',
+        });
+        
         throw err;
       }
 
@@ -1575,6 +1596,13 @@ export const dingtalkPlugin = {
           stopped = true;
           ctx.log?.info?.(`[${account.accountId}] Stopping DingTalk Stream client...`);
           connectionManager.stop();
+          
+          // Update snapshot: channel stopped
+          ctx.updateSnapshot?.({
+            running: false,
+            lastStopAt: new Date().toISOString(),
+          });
+          
           ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client stopped`);
         },
       };

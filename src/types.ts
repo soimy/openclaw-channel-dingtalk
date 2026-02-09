@@ -299,6 +299,7 @@ export interface GatewayStartContext {
   cfg: OpenClawConfig;
   abortSignal?: AbortSignal;
   log?: Logger;
+  updateSnapshot?: (snapshot: Partial<{ running: boolean; lastStartAt: string | null; lastStopAt: string | null; lastError: string | null }>) => void;
 }
 
 /**
