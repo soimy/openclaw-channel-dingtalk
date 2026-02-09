@@ -292,6 +292,16 @@ export interface Logger {
 }
 
 /**
+ * Channel runtime snapshot
+ */
+export interface ChannelSnapshot {
+  running: boolean;
+  lastStartAt: string | null;
+  lastStopAt: string | null;
+  lastError: string | null;
+}
+
+/**
  * Plugin gateway start context
  */
 export interface GatewayStartContext {
@@ -299,7 +309,7 @@ export interface GatewayStartContext {
   cfg: OpenClawConfig;
   abortSignal?: AbortSignal;
   log?: Logger;
-  updateSnapshot?: (snapshot: Partial<{ running: boolean; lastStartAt: string | null; lastStopAt: string | null; lastError: string | null }>) => void;
+  updateSnapshot?: (snapshot: Partial<ChannelSnapshot>) => void;
 }
 
 /**

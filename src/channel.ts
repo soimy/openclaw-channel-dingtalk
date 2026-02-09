@@ -32,6 +32,13 @@ import type {
 import { AICardStatus } from './types';
 import { detectMediaTypeFromExtension, uploadMedia as uploadMediaUtil } from './media-utils';
 
+/**
+ * Get current timestamp in ISO 8601 format for status tracking
+ */
+function getCurrentTimestamp(): string {
+  return new Date().toISOString();
+}
+
 // Access Token cache - keyed by clientId for multi-account support
 interface TokenCache {
   accessToken: string;
@@ -1540,7 +1547,9 @@ export const dingtalkPlugin = {
       // Create connection manager
       const connectionManager = new ConnectionManager(client, account.accountId, connectionConfig, ctx.log);
 
-      // Track stopped state
+      // Track stopped state to prevent duplicate stop operations
+      // Note: Node.js single-threaded event loop ensures snapshot updates are atomic
+      // The 'stopped' flag prevents multiple termination paths from updating state concurrently
       let stopped = false;
 
       // Setup abort signal handler BEFORE connecting
@@ -1561,7 +1570,7 @@ export const dingtalkPlugin = {
           // Update snapshot: channel stopped by abort signal
           ctx.updateSnapshot?.({
             running: false,
-            lastStopAt: new Date().toISOString(),
+            lastStopAt: getCurrentTimestamp(),
           });
         });
       }
@@ -1573,7 +1582,7 @@ export const dingtalkPlugin = {
         // Update snapshot: connection successful, channel is now running
         ctx.updateSnapshot?.({
           running: true,
-          lastStartAt: new Date().toISOString(),
+          lastStartAt: getCurrentTimestamp(),
           lastError: null,
         });
         ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
@@ -1600,7 +1609,7 @@ export const dingtalkPlugin = {
           // Update snapshot: channel stopped
           ctx.updateSnapshot?.({
             running: false,
-            lastStopAt: new Date().toISOString(),
+            lastStopAt: getCurrentTimestamp(),
           });
           
           ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client stopped`);
