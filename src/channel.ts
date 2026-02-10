@@ -1649,6 +1649,12 @@ export const dingtalkPlugin = {
         return { ok: false, error: error.message };
       }
     },
+    buildAccountSnapshot: ({ snapshot }: any) => ({
+      running: snapshot?.running ?? false,
+      lastStartAt: snapshot?.lastStartAt ?? null,
+      lastStopAt: snapshot?.lastStopAt ?? null,
+      lastError: snapshot?.lastError ?? null,
+    }),
     buildChannelSummary: ({ snapshot }: any) => ({
       configured: snapshot?.configured ?? false,
       running: snapshot?.running ?? false,

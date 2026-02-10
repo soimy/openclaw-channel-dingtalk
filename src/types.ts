@@ -379,6 +379,7 @@ export interface DingTalkChannelPlugin {
       lastError: null;
     };
     probe: (params: any) => Promise<{ ok: boolean; error?: string; details?: any }>;
+    buildAccountSnapshot: (params: any) => any;
     buildChannelSummary: (params: any) => any;
   };
 }
