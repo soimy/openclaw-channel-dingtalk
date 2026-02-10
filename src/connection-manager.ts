@@ -314,15 +314,28 @@ export class ConnectionManager {
    */
   private async reconnect(): Promise<void> {
     if (this.stopped) return;
-    
+
     this.log?.info?.(`[${this.accountId}] Attempting to reconnect...`);
-    
+
     try {
       await this.connect();
       this.log?.info?.(`[${this.accountId}] Reconnection successful`);
     } catch (err: any) {
+      if (this.stopped) return;
+
       this.log?.error?.(`[${this.accountId}] Reconnection failed: ${err.message}`);
       this.state = ConnectionStateEnum.FAILED;
+
+      // Continue runtime recovery instead of getting stuck in FAILED.
+      const delay = this.calculateNextDelay(0);
+      this.attemptCount = 0;
+      this.clearReconnectTimer();
+      this.log?.warn?.(
+        `[${this.accountId}] Reconnection cycle failed; scheduling next reconnect in ${(delay / 1000).toFixed(2)}s`
+      );
+      this.reconnectTimer = setTimeout(() => {
+        void this.reconnect();
+      }, delay);
     }
   }
 
