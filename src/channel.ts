@@ -1370,7 +1370,7 @@ export const dingtalkPlugin = {
   },
   messaging: {
     normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
-    targetResolver: { looksLikeId: (id: string): boolean => /^[\w-/=]+$/.test(id), hint: '<conversationId>' },
+    targetResolver: { looksLikeId: (id: string): boolean => /^[\w+\-/=]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
     deliveryMode: 'direct',
