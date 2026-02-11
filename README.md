@@ -177,6 +177,9 @@ openclaw gateway restart
 | `initialReconnectDelay` | number   | `1000`                                          | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`                                         | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`                                           | 重连延迟抖动因子（0-1）                     |
+| `dmScriptEnabled`       | boolean  | `false`                                         | （可选）私聊脚本模式：启用后，DM 优先调用本地脚本生成回复，失败则回退原有 AI 对话管道 |
+| `dmScriptPath`          | string   | -                                               | （可选）脚本绝对路径（Node.js 可执行的 .js/.mjs），仅在 dmScriptEnabled=true 时生效 |
+| `dmScriptTimeoutMs`     | number   | `15000`                                         | （可选）脚本超时（毫秒），仅在 dmScriptEnabled=true 时生效 |
 
 ### 连接鲁棒性配置
 
@@ -192,6 +195,58 @@ openclaw gateway restart
 示例延迟序列（默认配置）：~1s, ~2s, ~4s, ~8s, ~16s, ~32s, ~60s（达到上限）
 
 更多详情请参阅 [CONNECTION_ROBUSTNESS.md](./CONNECTION_ROBUSTNESS.md)。
+
+## DM 脚本模式（可选）
+
+> 默认关闭。用于需要**确定性/可审计**的企业场景：把私聊消息交给你自己的本地脚本处理，而不是依赖 prompt 约束。
+
+### 如何启用
+
+在 `openclaw.json`（或控制台）里对某个 DingTalk account 配置：
+
+```json
+{
+  "channels": {
+    "dingtalk": {
+      "accounts": {
+        "mn": {
+          "dmScriptEnabled": true,
+          "dmScriptPath": "/abs/path/to/trip_turn.mjs",
+          "dmScriptTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+### 脚本约定
+
+插件会用 `node` 执行脚本，并传入参数（示例）：
+
+- `--sessionKey dingtalk:dm:<senderId>`
+- `--message <原始文本>`
+- `--conversationType 1`
+- `--conversationId <conversationId>`
+- `--senderStaffId <senderId>`
+- `--nowMs <timestamp>`
+
+脚本需要在 stdout 输出 JSON，至少包含：
+
+```json
+{ "ok": true, "reply": "..." }
+```
+
+### 回退策略
+
+- 当脚本执行成功且返回 `reply`：插件直接把 `reply` 发回钉钉，并结束本次处理。
+- 当脚本超时/报错/输出无法解析：插件会记录错误日志，然后**回退到原有的 agent/LLM 对话管道**（保证系统可用）。
+
+### 安全建议
+
+- 只对私聊启用（本功能目前就是 DM 触发）。
+- 脚本路径必须是绝对路径，且确保运行用户有权限读取。
+- 脚本内部不要打印敏感信息到 stdout/stderr；必要时在脚本里自行脱敏。
 
 ## 安全策略
 
