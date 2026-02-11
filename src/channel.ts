@@ -166,6 +166,14 @@ function isSenderAllowed(params: { allow: NormalizedAllowFrom; senderId?: string
   return false;
 }
 
+// 群组通道授权
+function isSenderGroupAllowed(params: { allow: NormalizedAllowFrom; groupId?: string }): boolean {
+  const { allow, groupId } = params;
+  
+  if (groupId && allow.entriesLower.includes(groupId.toLowerCase())) return true;
+  return false;
+}
+
 // Helper function to check if a card is in a terminal state
 function isCardInTerminalState(state: string): boolean {
   return state === AICardStatus.FINISHED || state === AICardStatus.FAILED;
@@ -1101,13 +1109,44 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
       // 'open' policy - allow all
       commandAuthorized = true;
     }
+  } else {
+    // 群组通道授权
+    const groupPolicy = dingtalkConfig.groupPolicy || 'open';
+    const allowFrom = dingtalkConfig.allowFrom || [];
+
+    if (groupPolicy === 'allowlist') {
+      const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
+      const isAllowed = isSenderGroupAllowed({ allow: normalizedAllowFrom, groupId });
+     
+      if (!isAllowed) {
+        log?.debug?.(
+          `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} not in allowlist (groupPolicy=allowlist)`
+        );
+
+        try {
+          await sendBySession(
+            dingtalkConfig,
+            sessionWebhook,
+            `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
+            { log, atUserId: senderId }
+          );
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
+        }
+
+        return;
+      }
+
+      log?.debug?.(`[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId} in allowlist`);
+    }
   }
 
   const route = rt.channel.routing.resolveAgentRoute({
     cfg,
     channel: 'dingtalk',
     accountId,
-    peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },
+    // agent权限和openclaw保持一致
+    peer: { kind: isDirect ? 'direct' : 'group', id: isDirect ? senderId : groupId },
   });
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
