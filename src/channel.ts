@@ -1,5 +1,7 @@
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
 import axios from 'axios';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -38,6 +40,8 @@ import { detectMediaTypeFromExtension, uploadMedia as uploadMediaUtil } from './
 function getCurrentTimestamp(): string {
   return new Date().toISOString();
 }
+
+const execFileAsync = promisify(execFile);
 
 // Access Token cache - keyed by clientId for multi-account support
 interface TokenCache {
@@ -1233,6 +1237,52 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
+
+  // Optional: deterministic DM handling via local script
+  if (isDirect && dingtalkConfig.dmScriptEnabled) {
+    try {
+      const scriptPath = dingtalkConfig.dmScriptPath;
+      if (!scriptPath) throw new Error('dmScriptEnabled=true but dmScriptPath is not set');
+
+      const { stdout } = await execFileAsync(
+        'node',
+        [
+          scriptPath,
+          '--sessionKey',
+          `dingtalk:dm:${senderId}`,
+          '--message',
+          content.text,
+          '--conversationType',
+          String(data.conversationType || '1'),
+          '--conversationId',
+          String(data.conversationId || ''),
+          '--senderStaffId',
+          String(senderId || ''),
+          '--nowMs',
+          String(Number(data.createAt || Date.now())),
+        ],
+        {
+          timeout: Number(dingtalkConfig.dmScriptTimeoutMs || 15000),
+          maxBuffer: 1024 * 1024,
+        }
+      );
+
+      const out = JSON.parse(String(stdout || '{}'));
+      const replyText = String(out.reply || '').trim();
+      if (replyText) {
+        await sendMessage(dingtalkConfig, to, replyText, {
+          sessionWebhook,
+          atUserId: null,
+          log,
+          accountId,
+        });
+      }
+      return;
+    } catch (err: any) {
+      log?.error?.(`[DingTalk] DM script failed; falling back to agent pipeline: ${err?.message || String(err)}`);
+      // fall through to default agent pipeline
+    }
+  }
 
   // Determine if we are in card mode, if so, create or reuse card instance first
   const useCardMode = dingtalkConfig.messageType === 'card';

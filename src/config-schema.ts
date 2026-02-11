@@ -38,6 +38,19 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
   /** Show thinking indicator while processing */
   showThinking: z.boolean().optional().default(true),
 
+  /**
+   * If enabled, for DingTalk direct messages (DM) the plugin will invoke a local script
+   * (Node.js) and use its returned {reply} as the outbound response.
+   * This allows deterministic, non-LLM, policy-driven handling.
+   */
+  dmScriptEnabled: z.boolean().optional().default(false),
+
+  /** Absolute path to the DM handler script (used when dmScriptEnabled=true). */
+  dmScriptPath: z.string().optional(),
+
+  /** Script execution timeout in milliseconds (used when dmScriptEnabled=true). */
+  dmScriptTimeoutMs: z.number().int().min(1000).optional().default(15000),
+
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
