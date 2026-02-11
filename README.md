@@ -198,13 +198,21 @@ openclaw gateway restart
 
 ## DM 脚本模式（可选）
 
-> 默认关闭。用于需要**确定性/可审计**的企业场景：把私聊消息交给你自己的本地脚本处理，而不是依赖 prompt 约束。
+> 默认关闭（`dmScriptEnabled=false`）。
+>
+> 适用于需要 **确定性 / 可审计 / 可控输出** 的企业场景：把 DingTalk 私聊消息交给你自己的本地脚本处理，而不是依赖 prompt 约束。
 
-### 如何启用
+### 特性
+
+- **仅作用于私聊（DM）**：群聊不受影响。
+- **可逐账号开启**：`channels.dingtalk.accounts.<accountId>` 下配置。
+- **安全回退**：脚本失败/超时/输出不合法时，自动回退到原有 agent/LLM 管道（不影响可用性）。
+
+### 快速启用（openclaw.json）
 
 在 `openclaw.json`（或控制台）里对某个 DingTalk account 配置：
 
-```json
+```jsonc
 {
   "channels": {
     "dingtalk": {
@@ -220,33 +228,58 @@ openclaw gateway restart
 }
 ```
 
-### 脚本约定
+### 调用约定（脚本入参）
 
-插件会用 `node` 执行脚本，并传入参数（示例）：
+插件会使用 `node` 执行脚本，并传入以下参数：
 
-- `--sessionKey dingtalk:dm:<senderId>`
-- `--message <原始文本>`
-- `--conversationType 1`
-- `--conversationId <conversationId>`
-- `--senderStaffId <senderId>`
-- `--nowMs <timestamp>`
+- `--sessionKey`：`dingtalk:dm:<senderId>`（用于脚本侧做多轮状态）
+- `--message`：原始文本内容
+- `--conversationType`：`1`（DM）
+- `--conversationId`：会话 ID
+- `--senderStaffId`：发送者工号/用户 ID
+- `--nowMs`：消息时间戳（毫秒）
 
-脚本需要在 stdout 输出 JSON，至少包含：
+### 输出约定（stdout JSON）
+
+脚本必须在 `stdout` 输出 JSON。最小返回格式：
 
 ```json
 { "ok": true, "reply": "..." }
 ```
 
-### 回退策略
+建议（可选字段）：
 
-- 当脚本执行成功且返回 `reply`：插件直接把 `reply` 发回钉钉，并结束本次处理。
-- 当脚本超时/报错/输出无法解析：插件会记录错误日志，然后**回退到原有的 agent/LLM 对话管道**（保证系统可用）。
+```json
+{
+  "ok": true,
+  "reply": "...",
+  "done": false,
+  "openUrl": null
+}
+```
 
-### 安全建议
+> 说明：插件只消费 `reply` 字段作为回包文本；其他字段由脚本自行管理（例如用于会话存储/调试）。
 
-- 只对私聊启用（本功能目前就是 DM 触发）。
-- 脚本路径必须是绝对路径，且确保运行用户有权限读取。
-- 脚本内部不要打印敏感信息到 stdout/stderr；必要时在脚本里自行脱敏。
+### 回退策略（重要）
+
+- 当脚本执行成功且返回 `reply`：插件直接发送 `reply` 并 **return**（不进入 agent/LLM）。
+- 当脚本出现以下任一情况：
+  - 超时（`dmScriptTimeoutMs`）
+  - 进程执行失败
+  - `stdout` 不是合法 JSON
+  - JSON 中无 `reply`
+
+  插件会记录错误日志：
+  - `DM script failed; falling back to agent pipeline: ...`
+
+  然后回退到原有的 agent/LLM 对话管道。
+
+### 安全与运维建议
+
+- **强烈建议脚本内部做脱敏**：不要把 token/secret/用户隐私打印到 stdout/stderr。
+- `dmScriptPath` 必须是**绝对路径**，并确保 gateway 运行用户有可执行/可读权限。
+- 建议脚本实现 **幂等** 与 **超时自处理**（例如内部 I/O 也应设置超时），避免阻塞。
+- 推荐脚本实现自己的 **session TTL**（例如 10 分钟无交互自动重置），避免历史上下文污染新请求。
 
 ## 安全策略
 
