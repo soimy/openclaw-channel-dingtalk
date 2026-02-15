@@ -67,7 +67,12 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
     .optional(),
 
   /** Multi-account configuration */
-  accounts: z.record(z.string(), z.lazy(() => DingTalkConfigSchema)).optional(),
+  accounts: z
+    .record(
+      z.string(),
+      z.lazy(() => DingTalkConfigSchema)
+    )
+    .optional(),
 
   /** Connection robustness configuration */
 
