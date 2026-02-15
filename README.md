@@ -52,6 +52,39 @@ openclaw plugins update dingtalk
 
 ## 配置
 
+OpenClaw 支持**交互式配置**和**手动配置文件**两种方式。
+
+### 方法 1：交互式配置（推荐）
+
+使用 OpenClaw 命令行向导式配置插件参数：
+
+```bash
+# 方式 A：使用 onboard 命令
+openclaw onboard
+
+# 方式 B：直接配置 channels 部分
+openclaw configure --section channels
+```
+
+交互式配置流程：
+
+1. **选择插件** — 在插件列表中选择 `dingtalk` 或 `DingTalk (钉钉)`
+2. **Client ID** — 输入钉钉应用的 AppKey
+3. **Client Secret** — 输入钉钉应用的 AppSecret
+4. **完整配置** — 可选配置 Robot Code、Corp ID、Agent ID（推荐）
+5. **卡片模式** — 可选启用 AI 互动卡片模式
+   - 如启用，需输入 Card Template ID 和 Card Template Key
+6. **私聊策略** — 选择 `open`（开放）或 `allowlist`（白名单）
+7. **群聊策略** — 选择 `open`（开放）或 `allowlist`（白名单）
+
+配置完成后会自动保存并重启 Gateway。
+
+---
+
+### 方法 2：手动配置文件
+
+如果需要手动编辑配置文件，请继续以下步骤：
+
 ### 1. 创建钉钉应用
 
 1. 访问 [钉钉开发者后台](https://open-dev.dingtalk.com/)
@@ -101,7 +134,7 @@ openclaw plugins update dingtalk
 {
   "channels": {
     "dingtalk": {
-      ... 
+      ...
       "messageType": 'card',
       "cardTemplateId": '你复制的模板ID',
       "cardTemplateKey": '你模板的内容变量',
@@ -121,9 +154,9 @@ openclaw plugins update dingtalk
 - **Corp ID** (企业 ID)
 - **Agent ID** (应用 ID)
 
-### 5. 配置 OpenClaw
+### 5. 手动配置 OpenClaw
 
-在 `~/.openclaw/openclaw.json` 的 `channels` 下添加：
+在 `~/.openclaw/openclaw.json` 的 `channels` 下添加（仅作参考，交互式配置会自动生成）：
 
 > 只添加dingtalk部分，内容自己替换
 
@@ -152,31 +185,33 @@ openclaw plugins update dingtalk
 
 ### 6. 重启 Gateway
 
+> 使用交互式配置时，Gateway 会自动重启。使用手动配置时需要手动执行：
+
 ```bash
 openclaw gateway restart
 ```
 
 ## 配置选项
 
-| 选项                    | 类型     | 默认值                                          | 说明                                        |
-| ----------------------- | -------- | ----------------------------------------------- | ------------------------------------------- |
-| `enabled`               | boolean  | `true`                                          | 是否启用                                    |
-| `clientId`              | string   | 必填                                            | 应用的 AppKey                               |
-| `clientSecret`          | string   | 必填                                            | 应用的 AppSecret                            |
-| `robotCode`             | string   | -                                               | 机器人代码（用于下载媒体和发送卡片）        |
-| `corpId`                | string   | -                                               | 企业 ID                                     |
-| `agentId`               | string   | -                                               | 应用 ID                                     |
-| `dmPolicy`              | string   | `"open"`                                        | 私聊策略：open/pairing/allowlist            |
-| `groupPolicy`           | string   | `"open"`                                        | 群聊策略：open/allowlist                    |
-| `allowFrom`             | string[] | `[]`                                            | 允许的发送者 ID 列表                        |
-| `messageType`           | string   | `"markdown"`                                    | 消息类型：markdown/card                     |
-| `cardTemplateId`        | string   |                                                 | AI 互动卡片模板 ID（仅当 messageType=card） |
-| `cardTemplateKey`       | string   | `"content"`                                     | 卡片模板内容字段键（仅当 messageType=card） |
-| `debug`                 | boolean  | `false`                                         | 是否开启调试日志                            |
-| `maxConnectionAttempts` | number   | `10`                                            | 最大连接尝试次数                            |
-| `initialReconnectDelay` | number   | `1000`                                          | 初始重连延迟（毫秒）                        |
-| `maxReconnectDelay`     | number   | `60000`                                         | 最大重连延迟（毫秒）                        |
-| `reconnectJitter`       | number   | `0.3`                                           | 重连延迟抖动因子（0-1）                     |
+| 选项                    | 类型     | 默认值       | 说明                                        |
+| ----------------------- | -------- | ------------ | ------------------------------------------- |
+| `enabled`               | boolean  | `true`       | 是否启用                                    |
+| `clientId`              | string   | 必填         | 应用的 AppKey                               |
+| `clientSecret`          | string   | 必填         | 应用的 AppSecret                            |
+| `robotCode`             | string   | -            | 机器人代码（用于下载媒体和发送卡片）        |
+| `corpId`                | string   | -            | 企业 ID                                     |
+| `agentId`               | string   | -            | 应用 ID                                     |
+| `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
+| `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
+| `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
+| `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
+| `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
+| `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
+| `maxConnectionAttempts` | number   | `10`         | 最大连接尝试次数                            |
+| `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
+| `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
+| `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
 
 ### 连接鲁棒性配置
 
