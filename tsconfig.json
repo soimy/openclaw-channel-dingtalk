@@ -24,7 +24,12 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "rootDir": ".",
-    "types": ["node"]
+    "baseUrl": ".",
+    "types": ["node"],
+    "paths": {
+      "openclaw/plugin-sdk": ["../../dist/plugin-sdk/plugin-sdk/index.d.ts"],
+      "openclaw/plugin-sdk/*": ["../../dist/plugin-sdk/plugin-sdk/*.d.ts"]
+    }
   },
   "include": ["index.ts", "src/**/*.ts", "utils.ts"],
   "exclude": ["node_modules", "dist"]

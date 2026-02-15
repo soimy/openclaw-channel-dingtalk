@@ -9,7 +9,13 @@
  * - Session and token management
  */
 
-import type { OpenClawConfig } from 'openclaw/plugin-sdk';
+import type {
+  OpenClawConfig,
+  ChannelLogSink as SDKChannelLogSink,
+  ChannelAccountSnapshot as SDKChannelAccountSnapshot,
+  ChannelGatewayContext as SDKChannelGatewayContext,
+  ChannelPlugin as SDKChannelPlugin,
+} from "openclaw/plugin-sdk";
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -22,12 +28,12 @@ export interface DingTalkConfig extends OpenClawConfig {
   agentId?: string;
   name?: string;
   enabled?: boolean;
-  dmPolicy?: 'open' | 'pairing' | 'allowlist';
-  groupPolicy?: 'open' | 'allowlist';
+  dmPolicy?: "open" | "pairing" | "allowlist";
+  groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   showThinking?: boolean;
   debug?: boolean;
-  messageType?: 'markdown' | 'card';
+  messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
@@ -50,12 +56,12 @@ export interface DingTalkChannelConfig {
   corpId?: string;
   agentId?: string;
   name?: string;
-  dmPolicy?: 'open' | 'pairing' | 'allowlist';
-  groupPolicy?: 'open' | 'allowlist';
+  dmPolicy?: "open" | "pairing" | "allowlist";
+  groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   showThinking?: boolean;
   debug?: boolean;
-  messageType?: 'markdown' | 'card';
+  messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
@@ -160,7 +166,7 @@ export interface SendMessageOptions {
   mediaPath?: string;
   filePath?: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'voice' | 'video' | 'file';
+  mediaType?: "image" | "voice" | "video" | "file";
 }
 
 /**
@@ -232,7 +238,7 @@ export interface AxiosRequestConfig {
   method?: string;
   data?: any;
   headers?: Record<string, string>;
-  responseType?: 'arraybuffer' | 'json' | 'text';
+  responseType?: "arraybuffer" | "json" | "text";
 }
 
 /**
@@ -283,14 +289,8 @@ export interface RetryOptions {
 
 /**
  * Channel log sink
- * Matches OpenClaw SDK's ChannelLogSink type
  */
-export interface ChannelLogSink {
-  info: (msg: string) => void;
-  warn: (msg: string) => void;
-  error: (msg: string) => void;
-  debug?: (msg: string) => void;
-}
+export type ChannelLogSink = SDKChannelLogSink;
 
 /**
  * @deprecated Use ChannelLogSink instead
@@ -299,61 +299,8 @@ export type Logger = ChannelLogSink;
 
 /**
  * Channel account snapshot
- * Matches OpenClaw SDK's ChannelAccountSnapshot type
  */
-export interface ChannelAccountSnapshot {
-  accountId: string;
-  name?: string;
-  enabled?: boolean;
-  configured?: boolean;
-  linked?: boolean;
-  running?: boolean;
-  connected?: boolean;
-  reconnectAttempts?: number;
-  lastConnectedAt?: number | null;
-  lastDisconnect?:
-    | string
-    | {
-        at: number;
-        status?: number;
-        error?: string;
-        loggedOut?: boolean;
-      }
-    | null;
-  lastMessageAt?: number | null;
-  lastEventAt?: number | null;
-  lastError?: string | null;
-  lastStartAt?: number | null;
-  lastStopAt?: number | null;
-  lastInboundAt?: number | null;
-  lastOutboundAt?: number | null;
-  mode?: string;
-  dmPolicy?: string;
-  allowFrom?: string[];
-  tokenSource?: string;
-  botTokenSource?: string;
-  appTokenSource?: string;
-  credentialSource?: string;
-  secretSource?: string;
-  audienceType?: string;
-  audience?: string;
-  webhookPath?: string;
-  webhookUrl?: string;
-  baseUrl?: string;
-  allowUnmentionedGroups?: boolean;
-  cliPath?: string | null;
-  dbPath?: string | null;
-  port?: number | null;
-  probe?: unknown;
-  lastProbeAt?: number | null;
-  audit?: unknown;
-  application?: unknown;
-  bot?: unknown;
-  publicKey?: string | null;
-  profile?: unknown;
-  channelAccessToken?: string;
-  channelSecret?: string;
-}
+export type ChannelAccountSnapshot = SDKChannelAccountSnapshot;
 
 /**
  * @deprecated Use ChannelAccountSnapshot instead
@@ -362,18 +309,8 @@ export type ChannelSnapshot = ChannelAccountSnapshot;
 
 /**
  * Plugin gateway start context
- * Matches OpenClaw SDK's ChannelGatewayContext type
  */
-export interface GatewayStartContext {
-  cfg: OpenClawConfig;
-  accountId: string;
-  account: ResolvedAccount;
-  runtime: unknown;
-  abortSignal: AbortSignal;
-  log?: ChannelLogSink;
-  getStatus: () => ChannelAccountSnapshot;
-  setStatus: (next: ChannelAccountSnapshot) => void;
-}
+export type GatewayStartContext = SDKChannelGatewayContext<ResolvedAccount>;
 
 /**
  * Plugin gateway account stop result
@@ -384,157 +321,8 @@ export interface GatewayStopResult {
 
 /**
  * DingTalk channel plugin definition
- * Matches OpenClaw SDK's ChannelPlugin type structure
  */
-export interface DingTalkChannelPlugin {
-  id: 'dingtalk';
-  meta: {
-    id: 'dingtalk';
-    label: string;
-    selectionLabel: string;
-    docsPath: string;
-    docsLabel?: string;
-    blurb: string;
-    aliases: string[];
-    order?: number;
-  };
-  capabilities: {
-    chatTypes: ('direct' | 'group')[];
-    reactions: boolean;
-    threads: boolean;
-    media: boolean;
-    nativeCommands: boolean;
-    blockStreaming: boolean;
-    outbound: boolean;
-  };
-  defaults?: {
-    queue?: {
-      debounceMs?: number;
-    };
-  };
-  reload?: {
-    configPrefixes: string[];
-    noopPrefixes?: string[];
-  };
-  onboarding?: {
-    channel: string;
-    getStatus: (params: { cfg: OpenClawConfig }) => Promise<{
-      channel: string;
-      configured: boolean;
-      statusLines: string[];
-      selectionHint: string;
-      quickstartScore: number;
-    }>;
-    configure: (params: {
-      cfg: OpenClawConfig;
-      prompter: unknown;
-      accountOverrides: Record<string, string>;
-      shouldPromptAccountIds: boolean;
-    }) => Promise<{ cfg: OpenClawConfig; accountId: string }>;
-  };
-  config: {
-    listAccountIds: (cfg: OpenClawConfig) => string[];
-    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => ResolvedAccount & { configured: boolean };
-    defaultAccountId: (cfg?: OpenClawConfig) => string;
-    setAccountEnabled?: (params: { cfg: OpenClawConfig; accountId: string; enabled: boolean }) => OpenClawConfig;
-    deleteAccount?: (params: { cfg: OpenClawConfig; accountId: string }) => OpenClawConfig;
-    isConfigured: (account: ResolvedAccount, cfg?: OpenClawConfig) => boolean;
-    describeAccount: (account: ResolvedAccount, cfg?: OpenClawConfig) => AccountDescriptor;
-  };
-  configSchema?: {
-    schema: Record<string, unknown>;
-    uiHints?: Record<
-      string,
-      { label?: string; help?: string; advanced?: boolean; sensitive?: boolean; placeholder?: string }
-    >;
-  };
-  security: {
-    resolveDmPolicy: (ctx: { account: ResolvedAccount; cfg: OpenClawConfig }) => {
-      policy: 'open' | 'pairing' | 'allowlist';
-      allowFrom: string[];
-      policyPath: string;
-      allowFromPath: string;
-      approveHint: string;
-      normalizeEntry: (raw: string) => string;
-    } | null;
-    collectWarnings?: (ctx: { account: ResolvedAccount; cfg: OpenClawConfig }) => string[] | Promise<string[]>;
-  };
-  groups: {
-    resolveRequireMention: (ctx: { cfg: OpenClawConfig; groupChannel?: string; groupId?: string }) => boolean;
-    resolveGroupIntroHint?: (ctx: { groupId?: string; groupChannel?: string }) => string | undefined;
-  };
-  messaging: {
-    normalizeTarget: (params: { target?: string }) => { targetId: string } | null;
-    targetResolver: {
-      looksLikeId: (id: string) => boolean;
-      hint: string;
-    };
-  };
-  outbound: {
-    deliveryMode: 'direct' | 'gateway' | 'hybrid';
-    resolveTarget?: (params: {
-      cfg?: OpenClawConfig;
-      to?: string;
-      allowFrom?: string[];
-      accountId?: string | null;
-      mode?: string;
-    }) => { ok: true; to: string } | { ok: false; error: Error };
-    sendText: (ctx: {
-      cfg: OpenClawConfig;
-      to: string;
-      text: string;
-      replyToId?: string | null;
-      threadId?: string | number | null;
-      accountId?: string | null;
-    }) => Promise<{ ok: boolean; messageId?: string; data?: unknown; error?: string | Error }>;
-    sendMedia?: (ctx: {
-      cfg: OpenClawConfig;
-      to: string;
-      text?: string;
-      mediaUrl?: string;
-      mediaPath?: string;
-      mediaType?: 'image' | 'voice' | 'video' | 'file';
-      accountId?: string | null;
-    }) => Promise<{ ok: boolean; messageId?: string; data?: unknown; error?: string | Error }>;
-  };
-  status: {
-    defaultRuntime?: ChannelSnapshot & { accountId: string };
-    collectStatusIssues?: (accounts: (ChannelSnapshot & { configured: boolean; accountId: string })[]) => Array<{
-      channel: string;
-      accountId: string;
-      kind: 'config' | 'runtime' | 'auth';
-      message: string;
-    }>;
-    buildChannelSummary?: (params: {
-      account: ResolvedAccount;
-      cfg: OpenClawConfig;
-      defaultAccountId: string;
-      snapshot: ChannelSnapshot;
-    }) => Record<string, unknown>;
-    probeAccount?: (params: {
-      account: ResolvedAccount & { configured: boolean };
-      timeoutMs: number;
-      cfg: OpenClawConfig;
-    }) => Promise<{ ok: boolean; error?: string; details?: unknown }>;
-    buildAccountSnapshot: (params: {
-      account: ResolvedAccount & { configured: boolean };
-      cfg: OpenClawConfig;
-      runtime?: ChannelSnapshot;
-      snapshot?: ChannelSnapshot;
-      probe?: { ok: boolean; error?: string; details?: unknown };
-    }) => ChannelSnapshot & {
-      accountId: string;
-      name?: string;
-      enabled: boolean;
-      configured: boolean;
-      clientId?: string | null;
-      probe?: { ok: boolean; error?: string; details?: unknown };
-    };
-  };
-  gateway: {
-    startAccount: (ctx: GatewayStartContext) => Promise<GatewayStopResult>;
-  };
-}
+export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }>;
 
 /**
  * Result of target resolution validation
@@ -579,7 +367,7 @@ export interface SendMediaParams {
  * DingTalk outbound handler configuration
  */
 export interface DingTalkOutboundHandler {
-  deliveryMode: 'direct' | 'queued' | 'batch';
+  deliveryMode: "direct" | "queued" | "batch";
   resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
   sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
   sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
@@ -589,10 +377,10 @@ export interface DingTalkOutboundHandler {
  * AI Card status constants
  */
 export const AICardStatus = {
-  PROCESSING: '1',
-  INPUTING: '2',
-  FINISHED: '3',
-  FAILED: '5',
+  PROCESSING: "1",
+  INPUTING: "2",
+  FINISHED: "3",
+  FAILED: "5",
 } as const;
 
 /**
@@ -630,11 +418,11 @@ export interface AICardStreamingRequest {
  * Connection state enum for lifecycle management
  */
 export enum ConnectionState {
-  DISCONNECTED = 'DISCONNECTED',
-  CONNECTING = 'CONNECTING',
-  CONNECTED = 'CONNECTED',
-  DISCONNECTING = 'DISCONNECTING',
-  FAILED = 'FAILED',
+  DISCONNECTED = "DISCONNECTED",
+  CONNECTING = "CONNECTING",
+  CONNECTED = "CONNECTED",
+  DISCONNECTING = "DISCONNECTING",
+  FAILED = "FAILED",
 }
 
 /**
@@ -661,7 +449,7 @@ export interface ConnectionAttemptResult {
 
 // ============ Onboarding Helper Functions ============
 
-const DEFAULT_ACCOUNT_ID = 'default';
+const DEFAULT_ACCOUNT_ID = "default";
 
 /**
  * List all DingTalk account IDs from config
@@ -696,15 +484,18 @@ export interface ResolvedDingTalkAccount extends DingTalkConfig {
 /**
  * Resolve a specific DingTalk account configuration
  */
-export function resolveDingTalkAccount(cfg: OpenClawConfig, accountId?: string | null): ResolvedDingTalkAccount {
+export function resolveDingTalkAccount(
+  cfg: OpenClawConfig,
+  accountId?: string | null,
+): ResolvedDingTalkAccount {
   const id = accountId || DEFAULT_ACCOUNT_ID;
   const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
 
   // If default account, return top-level config
   if (id === DEFAULT_ACCOUNT_ID) {
     const config: DingTalkConfig = {
-      clientId: dingtalk?.clientId ?? '',
-      clientSecret: dingtalk?.clientSecret ?? '',
+      clientId: dingtalk?.clientId ?? "",
+      clientSecret: dingtalk?.clientSecret ?? "",
       robotCode: dingtalk?.robotCode,
       corpId: dingtalk?.corpId,
       agentId: dingtalk?.agentId,
@@ -744,8 +535,8 @@ export function resolveDingTalkAccount(cfg: OpenClawConfig, accountId?: string |
 
   // Account doesn't exist, return empty config
   return {
-    clientId: '',
-    clientSecret: '',
+    clientId: "",
+    clientSecret: "",
     accountId: id,
     configured: false,
   };

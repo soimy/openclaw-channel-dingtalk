@@ -24,6 +24,7 @@ import type {
   SessionWebhookResponse,
   AxiosResponse,
   Logger,
+  ResolvedAccount,
   GatewayStartContext,
   GatewayStopResult,
   AICardInstance,
@@ -1322,7 +1323,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
       const hasQueuedFinalString = isNonEmptyString(queuedFinal);
 
       if (hasLastCardContent || hasQueuedFinalString) {
-        const finalContent = hasLastCardContent ? lastCardContent : (queuedFinal as string);
+        const finalContent =
+          hasLastCardContent && typeof lastCardContent === 'string'
+            ? lastCardContent
+            : typeof queuedFinal === 'string'
+              ? queuedFinal
+              : '';
         await finishAICard(currentAICard, finalContent, log);
       } else {
         // No textual content was produced; skip finalization with empty content
@@ -1361,30 +1367,14 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     aliases: ['dd', 'ding'],
   },
   configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
-  onboarding: dingtalkOnboardingAdapter as {
-    channel: string;
-    getStatus: (params: { cfg: OpenClawConfig }) => Promise<{
-      channel: string;
-      configured: boolean;
-      statusLines: string[];
-      selectionHint: string;
-      quickstartScore: number;
-    }>;
-    configure: (params: {
-      cfg: OpenClawConfig;
-      prompter: unknown;
-      accountOverrides: Record<string, string>;
-      shouldPromptAccountIds: boolean;
-    }) => Promise<{ cfg: OpenClawConfig; accountId: string }>;
-  },
+  onboarding: dingtalkOnboardingAdapter,
   capabilities: {
-    chatTypes: ['direct', 'group'],
+    chatTypes: ['direct', 'group'] as Array<'direct' | 'group'>,
     reactions: false,
     threads: false,
     media: true,
     nativeCommands: false,
     blockStreaming: false,
-    outbound: true,
   },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
@@ -1411,8 +1401,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       };
     },
     defaultAccountId: (): string => 'default',
-    isConfigured: (account: any): boolean => Boolean(account.config?.clientId && account.config?.clientSecret),
-    describeAccount: (account: any) => ({
+    isConfigured: (account: ResolvedAccount): boolean => Boolean(account.config?.clientId && account.config?.clientSecret),
+    describeAccount: (account: ResolvedAccount) => ({
       accountId: account.accountId,
       name: account.config?.name || 'DingTalk',
       enabled: account.enabled,
@@ -1438,23 +1428,23 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
   },
   messaging: {
-    normalizeTarget: ({ target }: any) => (target ? { targetId: target.replace(/^(dingtalk|dd|ding):/i, '') } : null),
+    normalizeTarget: (raw: string) => (raw ? raw.replace(/^(dingtalk|dd|ding):/i, '') : undefined),
     targetResolver: { looksLikeId: (id: string): boolean => /^[\w+\-/=]+$/.test(id), hint: '<conversationId>' },
   },
   outbound: {
-    deliveryMode: 'direct',
+    deliveryMode: 'direct' as const,
     resolveTarget: ({ to }: any) => {
       const trimmed = to?.trim();
       if (!trimmed) {
         return {
-          ok: false,
+          ok: false as const,
           error: new Error('DingTalk message requires --to <conversationId>'),
         };
       }
       // Strip group: or user: prefix and resolve original case-sensitive conversationId
       const { targetId } = stripTargetPrefix(trimmed);
       const resolved = resolveOriginalPeerId(targetId);
-      return { ok: true, to: resolved };
+      return { ok: true as const, to: resolved };
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
@@ -1463,12 +1453,16 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         if (result.ok) {
           const data = result.data as any;
-          const messageId = data?.processQueryKey || data?.messageId;
-          return { ok: true, via: 'dingtalk', messageId, data: result.data };
+          const messageId = String(data?.processQueryKey || data?.messageId || randomUUID());
+          return {
+            channel: 'dingtalk',
+            messageId,
+            meta: result.data ? { data: result.data as unknown as Record<string, unknown> } : undefined,
+          };
         }
-        return { ok: false, error: result.error };
+        throw new Error(typeof result.error === 'string' ? result.error : JSON.stringify(result.error));
       } catch (err: any) {
-        return { ok: false, error: err.response?.data || err.message };
+        throw new Error(typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendText failed');
       }
     },
     sendMedia: async ({
@@ -1482,9 +1476,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       log,
     }: any) => {
       const config = getConfig(cfg, accountId);
-      if (!config.clientId) {
-        return { ok: false, error: 'DingTalk not configured' };
-      }
+      if (!config.clientId) throw new Error('DingTalk not configured');
 
       // Support mediaPath, filePath, and mediaUrl parameter names
       const actualMediaPath = mediaPath || filePath || mediaUrl;
@@ -1494,15 +1486,14 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       );
 
       if (!actualMediaPath) {
-        return {
-          ok: false,
-          error: `mediaPath, filePath, or mediaUrl is required. Received: ${JSON.stringify({
+        throw new Error(
+          `mediaPath, filePath, or mediaUrl is required. Received: ${JSON.stringify({
             to,
             mediaPath,
             filePath,
             mediaUrl,
-          })}`,
-        };
+          })}`
+        );
       }
 
       try {
@@ -1518,12 +1509,16 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         if (result.ok) {
           // Extract messageId from DingTalk response for CLI display
           const data = result.data;
-          const messageId = result.messageId || data?.processQueryKey || data?.messageId;
-          return { ok: true, via: 'dingtalk', messageId, data: result.data };
+          const messageId = String(result.messageId || data?.processQueryKey || data?.messageId || randomUUID());
+          return {
+            channel: 'dingtalk',
+            messageId,
+            meta: result.data ? { data: result.data as unknown as Record<string, unknown> } : undefined,
+          };
         }
-        return { ok: false, error: result.error };
+        throw new Error(typeof result.error === 'string' ? result.error : JSON.stringify(result.error));
       } catch (err: any) {
-        return { ok: false, error: err.response?.data || err.message };
+        throw new Error(typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendMedia failed');
       }
     },
   },
@@ -1727,7 +1722,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             {
               channel: 'dingtalk',
               accountId: account.accountId,
-              kind: 'config',
+              kind: 'config' as const,
               message: 'Account not configured (missing clientId or clientSecret)',
             },
           ];
