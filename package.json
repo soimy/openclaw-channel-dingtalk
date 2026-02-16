@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/dingtalk",
+  "name": "@soimy/openclaw-dingtalk",
   "version": "2.6.1",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "main": "index.ts",
@@ -59,7 +59,7 @@
       ]
     },
     "install": {
-      "npmSpec": "@openclaw/dingtalk",
+      "npmSpec": "@soimy/openclaw-dingtalk",
       "localPath": ".",
       "defaultChoice": "npm"
     }

@@ -6,7 +6,7 @@
 
 1. **npm 账号**
    - 需要有 npm 账号（https://www.npmjs.com/）
-   - 需要有 `@openclaw` organization 的发布权限
+   - 需要有 `@soimy` scope 的发布权限（或你本人的账号可发布该 scope）
 
 2. **认证登录**
    ```bash
@@ -68,7 +68,7 @@ npm run publish
 npm publish --access public
 ```
 
-**注意**：由于这是 scoped package (`@openclaw/dingtalk`)，必须使用 `--access public` 标志。
+**注意**：由于这是 scoped package (`@soimy/openclaw-dingtalk`)，必须使用 `--access public` 标志。
 
 ### 5. 验证发布
 
@@ -76,13 +76,13 @@ npm publish --access public
 
 ```bash
 # 查看包信息
-npm info @openclaw/dingtalk
+npm info @soimy/openclaw-dingtalk
 
 # 查看最新版本
-npm view @openclaw/dingtalk version
+npm view @soimy/openclaw-dingtalk version
 
 # 查看包内容
-npm view @openclaw/dingtalk
+npm view @soimy/openclaw-dingtalk
 ```
 
 ### 6. 测试安装
@@ -91,10 +91,10 @@ npm view @openclaw/dingtalk
 
 ```bash
 # 通过 OpenClaw CLI 安装
-openclaw plugins install @openclaw/dingtalk
+openclaw plugins install @soimy/openclaw-dingtalk
 
 # 或通过 npm 直接安装（仅测试）
-npm install @openclaw/dingtalk
+npm install @soimy/openclaw-dingtalk
 ```
 
 ## 发布检查清单
@@ -110,7 +110,7 @@ npm install @openclaw/dingtalk
 - [ ] 版本号已更新（`npm version`）
 - [ ] `.npmignore` 配置正确
 - [ ] 已登录 npm (`npm whoami`)
-- [ ] 有 `@openclaw` organization 发布权限
+- [ ] 有 `@soimy` scope 发布权限
 
 ## 文件包含规则
 
@@ -138,7 +138,7 @@ npm install @openclaw/dingtalk
 
 **A:** 确保：
 1. 已登录正确的 npm 账号：`npm whoami`
-2. 该账号有 `@openclaw` organization 的发布权限
+2. 该账号有 `@soimy` scope 的发布权限
 3. 使用了 `--access public` 标志
 
 ### Q: 如何撤销已发布的版本？
@@ -146,7 +146,7 @@ npm install @openclaw/dingtalk
 **A:** 在发布后 72 小时内可以撤销：
 
 ```bash
-npm unpublish @openclaw/dingtalk@版本号
+npm unpublish @soimy/openclaw-dingtalk@版本号
 ```
 
 **警告**：不建议撤销已被用户使用的版本，应发布修复版本。
@@ -166,7 +166,7 @@ npm publish --access public --tag beta
 用户可通过以下方式安装：
 
 ```bash
-openclaw plugins install @openclaw/dingtalk@beta
+openclaw plugins install @soimy/openclaw-dingtalk@beta
 ```
 
 ## 参考资源
