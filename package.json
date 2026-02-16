@@ -1,6 +1,6 @@
 {
   "name": "openclaw-dingtalk",
-  "version": "2.6.3",
+  "version": "2.6.4",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "main": "index.ts",
   "type": "module",
