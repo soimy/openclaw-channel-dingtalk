@@ -1,7 +1,6 @@
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream';
 import axios from 'axios';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
@@ -309,73 +308,6 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
-const DEFAULT_AGENT_ID = 'main';
-const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-const INVALID_AGENT_ID_CHARS_RE = /[^a-z0-9_-]+/g;
-const LEADING_DASH_RE = /^-+/;
-const TRAILING_DASH_RE = /-+$/;
-
-function normalizeAgentId(value: string | undefined | null): string {
-  const trimmed = (value ?? '').trim();
-  if (!trimmed) return DEFAULT_AGENT_ID;
-  if (VALID_AGENT_ID_RE.test(trimmed)) return trimmed.toLowerCase();
-  return (
-    trimmed
-      .toLowerCase()
-      .replace(INVALID_AGENT_ID_CHARS_RE, '-')
-      .replace(LEADING_DASH_RE, '')
-      .replace(TRAILING_DASH_RE, '')
-      .slice(0, 64) || DEFAULT_AGENT_ID
-  );
-}
-
-function resolveUserPath(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return trimmed;
-  if (trimmed.startsWith('~')) {
-    const expanded = trimmed.replace(/^~(?=$|[\\/])/, os.homedir());
-    return path.resolve(expanded);
-  }
-  return path.resolve(trimmed);
-}
-
-function resolveDefaultAgentWorkspaceDir(): string {
-  const profile = process.env.OPENCLAW_PROFILE?.trim();
-  if (profile && profile.toLowerCase() !== 'default') {
-    return path.join(os.homedir(), '.openclaw', `workspace-${profile}`);
-  }
-  return path.join(os.homedir(), '.openclaw', 'workspace');
-}
-
-interface AgentConfig {
-  id?: string;
-  default?: boolean;
-  workspace?: string;
-}
-
-function resolveDefaultAgentId(cfg: OpenClawConfig): string {
-  const agents: AgentConfig[] = cfg.agents?.list ?? [];
-  if (agents.length === 0) return DEFAULT_AGENT_ID;
-  const defaults = agents.filter((agent: AgentConfig) => agent?.default);
-  const chosen = (defaults[0] ?? agents[0])?.id?.trim();
-  return normalizeAgentId(chosen || DEFAULT_AGENT_ID);
-}
-
-function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string): string {
-  const id = normalizeAgentId(agentId);
-  const agents: AgentConfig[] = cfg.agents?.list ?? [];
-  const agent = agents.find((entry: AgentConfig) => normalizeAgentId(entry?.id) === id);
-  const configured = agent?.workspace?.trim();
-  if (configured) return resolveUserPath(configured);
-  const defaultAgentId = resolveDefaultAgentId(cfg);
-  if (id === defaultAgentId) {
-    const fallback = cfg.agents?.defaults?.workspace?.trim();
-    if (fallback) return resolveUserPath(fallback);
-    return resolveDefaultAgentWorkspaceDir();
-  }
-  return path.join(os.homedir(), '.openclaw', `workspace-${id}`);
-}
-
 // Get Access Token with retry logic - uses clientId-based cache for multi-account support
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const cacheKey = config.clientId;
@@ -554,14 +486,14 @@ async function sendProactiveMedia(
   }
 }
 
-// Download media file to agent workspace (sandbox-compatible)
-// workspacePath: the agent's workspace directory (e.g., /home/node/.openclaw/workspace)
+// Download media file using runtime's saveMediaBuffer (sandbox-compatible)
+// Uses global media dir (~/.openclaw/media/inbound) instead of workspace
 async function downloadMedia(
   config: DingTalkConfig,
   downloadCode: string,
-  workspacePath: string,
   log?: Logger
 ): Promise<MediaFile | null> {
+  const rt = getDingTalkRuntime();
   const formatAxiosErrorData = (value: unknown): string | undefined => {
     if (value === null || value === undefined) return undefined;
     if (Buffer.isBuffer(value)) return `<buffer ${value.length} bytes>`;
@@ -602,18 +534,11 @@ async function downloadMedia(
     const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
-    // Save to agent workspace's media/inbound/ directory (sandbox-compatible)
-    // This ensures the file is accessible within the sandbox
-    const mediaDir = path.join(workspacePath, 'media', 'inbound');
-    fs.mkdirSync(mediaDir, { recursive: true });
-
-    const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
-    const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const mediaPath = path.join(mediaDir, filename);
-
-    fs.writeFileSync(mediaPath, buffer);
-    log?.debug?.(`[DingTalk] Media saved to workspace: ${mediaPath}`);
-    return { path: mediaPath, mimeType: contentType };
+    // Use runtime's saveMediaBuffer to save to global media dir (~/.openclaw/media/inbound)
+    // This is consistent with other channels (Feishu, Telegram, etc.)
+    const saved = await rt.channel.media.saveMediaBuffer(buffer, contentType, 'inbound');
+    log?.debug?.(`[DingTalk] Media saved: ${saved.path}`);
+    return { path: saved.path, mimeType: saved.contentType ?? contentType };
   } catch (err: any) {
     if (log?.error) {
       if (axios.isAxiosError(err)) {
@@ -1152,13 +1077,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   });
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
-  const workspacePath = resolveAgentWorkspaceDir(cfg, route.agentId);
 
-  // Download media to agent workspace (must be after route is resolved for correct workspace)
+  // Download media using runtime's saveMediaBuffer (saves to global media dir)
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, workspacePath, log);
+    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
