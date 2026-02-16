@@ -853,6 +853,26 @@ async function createAICard(
 }
 
 /**
+ * Format thinking content for display in AI Card
+ * Truncates to 100 characters and wraps in code block
+ */
+function formatThinkingForCard(thinking: string): string {
+  if (!thinking) return '';
+  const truncated = thinking.slice(0, 100);
+  return `🤔 **思考中**\n\`\`\`\n${truncated}\n\`\`\``;
+}
+
+/**
+ * Format tool result for display in AI Card
+ * Truncates to 100 characters and wraps in code block
+ */
+function formatToolResultForCard(result: string): string {
+  if (!result) return '';
+  const truncated = result.slice(0, 100);
+  return `🛠️ **工具执行**\n\`\`\`\n${truncated}\n\`\`\``;
+}
+
+/**
  * Stream update AI Card content using the new DingTalk API
  * Always use isFull=true to fully replace the Markdown content
  * @param card AI Card instance
@@ -1292,10 +1312,19 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     cfg,
     dispatcherOptions: {
       responsePrefix: '',
-      deliver: async (payload: any) => {
+      deliver: async (payload: any, info?: { kind: string }) => {
         try {
           const textToSend = payload.markdown || payload.text;
           if (!textToSend) return;
+
+          // Handle tool results separately for AI Card streaming
+          if (dingtalkConfig.showThinkingStream && useCardMode && currentAICard && info?.kind === 'tool') {
+            const toolText = formatToolResultForCard(textToSend);
+            if (toolText) {
+              await streamAICard(currentAICard, toolText, false, log);
+              return; // Don't send via sendMessage for tool results in card mode
+            }
+          }
 
           lastCardContent = textToSend;
           await sendMessage(dingtalkConfig, to, textToSend, {
@@ -1307,6 +1336,19 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         } catch (err: any) {
           log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
           throw err;
+        }
+      },
+    },
+    replyOptions: {
+      onReasoningStream: async (payload: any) => {
+        if (!dingtalkConfig.showThinkingStream) return;
+        if (!useCardMode || !currentAICard) return;
+        const thinkingText = formatThinkingForCard(payload.text);
+        if (!thinkingText) return;
+        try {
+          await streamAICard(currentAICard, thinkingText, false, log);
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Thinking stream update failed: ${err.message}`);
         }
       },
     },
@@ -1401,7 +1443,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       };
     },
     defaultAccountId: (): string => 'default',
-    isConfigured: (account: ResolvedAccount): boolean => Boolean(account.config?.clientId && account.config?.clientSecret),
+    isConfigured: (account: ResolvedAccount): boolean =>
+      Boolean(account.config?.clientId && account.config?.clientSecret),
     describeAccount: (account: ResolvedAccount) => ({
       accountId: account.accountId,
       name: account.config?.name || 'DingTalk',
@@ -1462,7 +1505,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         }
         throw new Error(typeof result.error === 'string' ? result.error : JSON.stringify(result.error));
       } catch (err: any) {
-        throw new Error(typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendText failed');
+        throw new Error(
+          typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendText failed'
+        );
       }
     },
     sendMedia: async ({
@@ -1518,7 +1563,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         }
         throw new Error(typeof result.error === 'string' ? result.error : JSON.stringify(result.error));
       } catch (err: any) {
-        throw new Error(typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendMedia failed');
+        throw new Error(
+          typeof err?.response?.data === 'string' ? err.response.data : err?.message || 'sendMedia failed'
+        );
       }
     },
   },

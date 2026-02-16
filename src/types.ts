@@ -15,7 +15,7 @@ import type {
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelPlugin as SDKChannelPlugin,
-} from "openclaw/plugin-sdk";
+} from 'openclaw/plugin-sdk';
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -28,12 +28,13 @@ export interface DingTalkConfig extends OpenClawConfig {
   agentId?: string;
   name?: string;
   enabled?: boolean;
-  dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  dmPolicy?: 'open' | 'pairing' | 'allowlist';
+  groupPolicy?: 'open' | 'allowlist';
   allowFrom?: string[];
   showThinking?: boolean;
+  showThinkingStream?: boolean;
   debug?: boolean;
-  messageType?: "markdown" | "card";
+  messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
@@ -56,12 +57,13 @@ export interface DingTalkChannelConfig {
   corpId?: string;
   agentId?: string;
   name?: string;
-  dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  dmPolicy?: 'open' | 'pairing' | 'allowlist';
+  groupPolicy?: 'open' | 'allowlist';
   allowFrom?: string[];
   showThinking?: boolean;
+  showThinkingStream?: boolean;
   debug?: boolean;
-  messageType?: "markdown" | "card";
+  messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string }>;
@@ -166,7 +168,7 @@ export interface SendMessageOptions {
   mediaPath?: string;
   filePath?: string;
   mediaUrl?: string;
-  mediaType?: "image" | "voice" | "video" | "file";
+  mediaType?: 'image' | 'voice' | 'video' | 'file';
 }
 
 /**
@@ -238,7 +240,7 @@ export interface AxiosRequestConfig {
   method?: string;
   data?: any;
   headers?: Record<string, string>;
-  responseType?: "arraybuffer" | "json" | "text";
+  responseType?: 'arraybuffer' | 'json' | 'text';
 }
 
 /**
@@ -367,7 +369,7 @@ export interface SendMediaParams {
  * DingTalk outbound handler configuration
  */
 export interface DingTalkOutboundHandler {
-  deliveryMode: "direct" | "queued" | "batch";
+  deliveryMode: 'direct' | 'queued' | 'batch';
   resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
   sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
   sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: any; error?: any }>;
@@ -377,10 +379,10 @@ export interface DingTalkOutboundHandler {
  * AI Card status constants
  */
 export const AICardStatus = {
-  PROCESSING: "1",
-  INPUTING: "2",
-  FINISHED: "3",
-  FAILED: "5",
+  PROCESSING: '1',
+  INPUTING: '2',
+  FINISHED: '3',
+  FAILED: '5',
 } as const;
 
 /**
@@ -418,11 +420,11 @@ export interface AICardStreamingRequest {
  * Connection state enum for lifecycle management
  */
 export enum ConnectionState {
-  DISCONNECTED = "DISCONNECTED",
-  CONNECTING = "CONNECTING",
-  CONNECTED = "CONNECTED",
-  DISCONNECTING = "DISCONNECTING",
-  FAILED = "FAILED",
+  DISCONNECTED = 'DISCONNECTED',
+  CONNECTING = 'CONNECTING',
+  CONNECTED = 'CONNECTED',
+  DISCONNECTING = 'DISCONNECTING',
+  FAILED = 'FAILED',
 }
 
 /**
@@ -449,7 +451,7 @@ export interface ConnectionAttemptResult {
 
 // ============ Onboarding Helper Functions ============
 
-const DEFAULT_ACCOUNT_ID = "default";
+const DEFAULT_ACCOUNT_ID = 'default';
 
 /**
  * List all DingTalk account IDs from config
@@ -484,18 +486,15 @@ export interface ResolvedDingTalkAccount extends DingTalkConfig {
 /**
  * Resolve a specific DingTalk account configuration
  */
-export function resolveDingTalkAccount(
-  cfg: OpenClawConfig,
-  accountId?: string | null,
-): ResolvedDingTalkAccount {
+export function resolveDingTalkAccount(cfg: OpenClawConfig, accountId?: string | null): ResolvedDingTalkAccount {
   const id = accountId || DEFAULT_ACCOUNT_ID;
   const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
 
   // If default account, return top-level config
   if (id === DEFAULT_ACCOUNT_ID) {
     const config: DingTalkConfig = {
-      clientId: dingtalk?.clientId ?? "",
-      clientSecret: dingtalk?.clientSecret ?? "",
+      clientId: dingtalk?.clientId ?? '',
+      clientSecret: dingtalk?.clientSecret ?? '',
       robotCode: dingtalk?.robotCode,
       corpId: dingtalk?.corpId,
       agentId: dingtalk?.agentId,
@@ -535,8 +534,8 @@ export function resolveDingTalkAccount(
 
   // Account doesn't exist, return empty config
   return {
-    clientId: "",
-    clientSecret: "",
+    clientId: '',
+    clientSecret: '',
     accountId: id,
     configured: false,
   };

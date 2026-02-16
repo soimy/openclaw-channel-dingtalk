@@ -38,6 +38,9 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
   /** Show thinking indicator while processing */
   showThinking: z.boolean().optional().default(true),
 
+  /** Show thinking and tool_use streams in AI Card (only applies when messageType='card') */
+  showThinkingStream: z.boolean().optional().default(true),
+
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
