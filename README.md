@@ -14,7 +14,17 @@
 
 ## 安装
 
-### 方法 A：通过远程仓库安装 (推荐)
+### 方法 A：通过 npm 包安装 (推荐)
+
+在 OpenClaw 初次启动（onboarding）时，DingTalk 频道插件会自动出现在可选频道列表中。选择 DingTalk 后，OpenClaw 会自动从 npm 下载并安装 `@openclaw/dingtalk` 包，无需手动操作。
+
+也可以手动通过 npm 包名安装：
+
+```bash
+openclaw plugins install @openclaw/dingtalk
+```
+
+### 方法 B：通过远程仓库安装
 
 直接运行 openclaw 插件安装命令，openclaw 会自动处理下载、安装依赖和注册：
 
@@ -22,7 +32,7 @@
 openclaw plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
 ```
 
-### 方法 B：通过本地源码安装
+### 方法 C：通过本地源码安装
 
 如果你想对插件进行二次开发，可以先克隆仓库：
 
@@ -38,7 +48,7 @@ npm install
 openclaw plugins install -l .
 ```
 
-### 方法 C：手动安装
+### 方法 D：手动安装
 
 1. 将本目录下载或复制到 `~/.openclaw/extensions/dingtalk`。
 2. 确保包含 `index.ts`, `openclaw.plugin.json` 和 `package.json`。

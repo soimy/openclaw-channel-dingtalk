@@ -59,7 +59,7 @@
     "install": {
       "npmSpec": "@openclaw/dingtalk",
       "localPath": "extensions/dingtalk-channel",
-      "defaultChoice": "local"
+      "defaultChoice": "npm"
     }
   }
 }
