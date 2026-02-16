@@ -7,7 +7,9 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint index.ts src/",
-    "lint:fix": "eslint --fix index.ts src/ && prettier --write index.ts src/"
+    "lint:fix": "eslint --fix index.ts src/ && prettier --write index.ts src/",
+    "prepublishOnly": "npm run type-check && npm run lint",
+    "publish": "npm publish --access public"
   },
   "keywords": [
     "clawdbot",
@@ -58,7 +60,7 @@
     },
     "install": {
       "npmSpec": "@openclaw/dingtalk",
-      "localPath": "extensions/dingtalk-channel",
+      "localPath": ".",
       "defaultChoice": "npm"
     }
   }
