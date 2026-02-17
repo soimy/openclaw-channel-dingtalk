@@ -637,9 +637,72 @@ async function downloadMedia(
 function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   const msgtype = data.msgtype || 'text';
 
+  // Helper function to format quoted content from DingTalk's reply message structure
+  const formatQuotedContent = (): string => {
+    const textField = data.text as any;
+
+    // Case 1: isReplyMsg=true WITH repliedMsg content (desktop client)
+    if (textField?.isReplyMsg && textField?.repliedMsg) {
+      const repliedMsg = textField.repliedMsg;
+      const content = repliedMsg?.content;
+
+      // Try plain text format first
+      if (content?.text) {
+        const quoteText = content.text.trim();
+        if (quoteText) {
+          return `[引用消息: "${quoteText}"]\n\n`;
+        }
+      }
+
+      // Handle richText format
+      if (content?.richText && Array.isArray(content.richText)) {
+        const textParts: string[] = [];
+        for (const part of content.richText) {
+          if (part.msgType === 'text' && part.content) {
+            textParts.push(part.content);
+          } else if (part.msgType === 'emoji' || part.type === 'emoji') {
+            textParts.push(part.content || '[表情]');
+          } else if (part.msgType === 'picture' || part.type === 'picture') {
+            textParts.push('[图片]');
+          } else if (part.msgType === 'at' || part.type === 'at') {
+            textParts.push(`@${part.content || part.atName || '某人'}`);
+          } else if (part.text) {
+            textParts.push(part.text);
+          }
+        }
+        const quoteText = textParts.join('').trim();
+        if (quoteText) {
+          return `[引用消息: "${quoteText}"]\n\n`;
+        }
+      }
+    }
+
+    // Case 2: isReplyMsg=true WITHOUT repliedMsg (mobile client - only has originalMsgId)
+    if (textField?.isReplyMsg && !textField?.repliedMsg && data.originalMsgId) {
+      return `[这是一条引用消息，原消息ID: ${data.originalMsgId}]\n\n`;
+    }
+
+    // Fallback: Check for quoteMessage field (legacy format)
+    if (data.quoteMessage) {
+      const quoteText = data.quoteMessage.text?.content?.trim() || '';
+      if (quoteText) {
+        return `[引用消息: "${quoteText}"]\n\n`;
+      }
+    }
+
+    // Fallback: Check for quoteContent in content field
+    if (data.content?.quoteContent) {
+      return `[引用消息: "${data.content.quoteContent}"]\n\n`;
+    }
+
+    return '';
+  };
+
+  const quotedPrefix = formatQuotedContent();
+
   // Logic for different message types
   if (msgtype === 'text') {
-    return { text: data.text?.content?.trim() || '', messageType: 'text' };
+    return { text: quotedPrefix + (data.text?.content?.trim() || ''), messageType: 'text' };
   }
 
   // Improved richText parsing: join all text/at components and extract first picture
@@ -657,7 +720,7 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
       }
     }
     return {
-      text: text.trim() || (pictureDownloadCode ? '<media:image>' : '[富文本消息]'),
+      text: quotedPrefix + (text.trim() || (pictureDownloadCode ? '<media:image>' : '[富文本消息]')),
       mediaPath: pictureDownloadCode,
       mediaType: pictureDownloadCode ? 'image' : undefined,
       messageType: 'richText',
