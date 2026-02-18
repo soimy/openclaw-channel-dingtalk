@@ -6,7 +6,7 @@
 
 ### Priority: High
 
-- [ ] **[#112](https://github.com/soimy/openclaw-channel-dingtalk/issues/112)** - dingtalk plugins 不能正常链接，request failed with status code 400
+- [x] **[#112](https://github.com/soimy/openclaw-channel-dingtalk/issues/112)** - dingtalk plugins 不能正常链接，request failed with status code 400
   - 连接尝试 10 次后失败，返回 400 错误
   - 可能与配置或用户 ID 格式相关
   - Dup: #63
@@ -71,7 +71,7 @@
   - 目标：支持用户中断正在执行的任务
   - 场景：AI 执行错误任务时可以及时停止
 
-- [ ] **[#63](https://github.com/soimy/openclaw-channel-dingtalk/issues/63)** - 主动发送消息支持
+- [x] **[#63](https://github.com/soimy/openclaw-channel-dingtalk/issues/63)** - 主动发送消息支持
   - 目标：支持 agent 主动向用户发送消息
   - 相关：定时提醒、cron job 等场景
 

@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
-import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
+import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from './utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
 import { registerPeerId, resolveOriginalPeerId } from './peer-id-registry';

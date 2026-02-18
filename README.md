@@ -14,12 +14,12 @@
 
 ## 安装
 
-### 方法 A：通过远程仓库安装 (推荐)
+### 方法 A：通过 npm 包安装 (推荐)
 
-直接运行 openclaw 插件安装命令，openclaw 会自动处理下载、安装依赖和注册：
+手动通过 npm 包名安装：
 
 ```bash
-openclaw plugins install https://github.com/soimy/openclaw-channel-dingtalk.git
+openclaw plugins install @soimy/dingtalk
 ```
 
 ### 方法 B：通过本地源码安装
@@ -47,7 +47,7 @@ openclaw plugins install -l .
 ## 更新
 
 ```
-openclaw plugins update dingtalk
+openclaw plugins update @soimy/dingtalk
 ```
 
 ## 配置
@@ -77,15 +77,15 @@ openclaw configure --section channels
 6. **私聊策略** — 选择 `open`（开放）或 `allowlist`（白名单）
 7. **群聊策略** — 选择 `open`（开放）或 `allowlist`（白名单）
 
+> 所有的参数参考下文中的钉钉开发者平台配置指南
+
 配置完成后会自动保存并重启 Gateway。
 
 ---
 
-### 方法 2：手动配置文件
+#### 钉钉开发者平台配置指南
 
-如果需要手动编辑配置文件，请继续以下步骤：
-
-### 1. 创建钉钉应用
+##### 1. 创建钉钉应用
 
 1. 访问 [钉钉开发者后台](https://open-dev.dingtalk.com/)
 2. 创建企业内部应用
@@ -93,7 +93,7 @@ openclaw configure --section channels
 4. 配置消息接收模式为 **Stream 模式**
 5. 发布应用
 
-### 2. 配置权限管理
+##### 2. 配置权限管理
 
 在应用的权限管理页面，需要开启以下权限：
 
@@ -107,7 +107,7 @@ openclaw configure --section channels
 3. 勾选上述两个权限
 4. 保存权限配置
 
-### 3. 建立卡片模板
+##### 3. 建立卡片模板(可选)
 
 **步骤：**
 
@@ -128,23 +128,7 @@ openclaw configure --section channels
 - 使用 DingTalk 官方 AI 卡片模板时，`cardTemplateKey` 默认为 `'msgContent'`，无需修改
 - 如果您创建自定义卡片模板，需要确保模板中包含相应的内容字段，并将 `cardTemplateKey` 配置为该字段名称
 
-**模板配置示例：**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      ...
-      "messageType": 'card',
-      "cardTemplateId": '你复制的模板ID',
-      "cardTemplateKey": '你模板的内容变量',
-      ...
-    },
-  },
-}
-```
-
-### 4. 获取凭证
+##### 4. 获取凭证
 
 从开发者后台获取：
 
@@ -154,11 +138,11 @@ openclaw configure --section channels
 - **Corp ID** (企业 ID)
 - **Agent ID** (应用 ID)
 
-### 5. 手动配置 OpenClaw
+### 方法 2：手动配置文件
 
 在 `~/.openclaw/openclaw.json` 的 `channels` 下添加（仅作参考，交互式配置会自动生成）：
 
-> 只添加dingtalk部分，内容自己替换
+> 只添加dingtalk部分，内容参考上文钉钉开发者配置指南
 
 ```json5
 {
@@ -175,15 +159,18 @@ openclaw configure --section channels
       "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
-      "messageType": "markdown",
-      "debug": false
+      "debug": false,
+      "messageType": "markdown", // 或 "card"
+      // 仅card需要配置
+      "cardTemplateId": "你复制的模板ID",
+      "cardTemplateKey": "你模板的内容变量"
     }
   },
   ...
 }
 ```
 
-### 6. 重启 Gateway
+最后重启 Gateway
 
 > 使用交互式配置时，Gateway 会自动重启。使用手动配置时需要手动执行：
 
