@@ -1479,13 +1479,13 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       if (!config.clientId) throw new Error('DingTalk not configured');
 
       // Support mediaPath, filePath, and mediaUrl parameter names
-      const actualMediaPath = mediaPath || filePath || mediaUrl;
+      const rawMediaPath = mediaPath || filePath || mediaUrl;
 
       getLogger()?.debug?.(
-        `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, actualMediaPath=${actualMediaPath}`
+        `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, rawMediaPath=${rawMediaPath}`
       );
 
-      if (!actualMediaPath) {
+      if (!rawMediaPath) {
         throw new Error(
           `mediaPath, filePath, or mediaUrl is required. Received: ${JSON.stringify({
             to,
@@ -1495,6 +1495,13 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           })}`
         );
       }
+
+      // Resolve user path to expand ~ and relative paths
+      const actualMediaPath = resolveUserPath(rawMediaPath);
+
+      getLogger()?.debug?.(
+        `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`
+      );
 
       try {
         // Detect media type from file extension if not provided
