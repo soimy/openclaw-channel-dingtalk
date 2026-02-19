@@ -677,7 +677,7 @@ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
       }
     }
 
-    // Case 2: isReplyMsg=true WITHOUT repliedMsg (mobile client - only has originalMsgId)
+    // Case 2: isReplyMsg=true WITHOUT repliedMsg (rich media quote, mobile or desktop - only has originalMsgId)
     if (textField?.isReplyMsg && !textField?.repliedMsg && data.originalMsgId) {
       return `[这是一条引用消息，原消息ID: ${data.originalMsgId}]\n\n`;
     }

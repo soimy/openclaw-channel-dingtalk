@@ -157,7 +157,7 @@ export interface DingTalkInboundMessage {
     senderNick?: string;
     senderId?: string;
   };
-  // 手机端引用，仅有消息ID
+  // 富媒体引用，仅有消息ID的情况（包括手机端和PC端）
   originalMsgId?: string;
   conversationType: string;
   conversationId: string;
