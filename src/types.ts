@@ -123,6 +123,19 @@ export interface DingTalkInboundMessage {
   createAt: number;
   text?: {
     content: string;
+    isReplyMsg?: boolean;        // 是否是回复消息
+    repliedMsg?: {               // 被回复的消息
+      content?: {
+        text?: string;
+        richText?: Array<{
+          msgType?: string;
+          type?: string;
+          content?: string;
+          code?: string;
+          atName?: string;
+        }>;
+      };
+    };
   };
   content?: {
     downloadCode?: string;
@@ -134,7 +147,18 @@ export interface DingTalkInboundMessage {
       atName?: string;
       downloadCode?: string; // For picture type in richText
     }>;
+    quoteContent?: string;       // 替代引用格式
   };
+  // Legacy 引用格式
+  quoteMessage?: {
+    msgId?: string;
+    msgtype?: string;
+    text?: { content: string; };
+    senderNick?: string;
+    senderId?: string;
+  };
+  // 富媒体引用，仅有消息ID的情况（包括手机端和PC端）
+  originalMsgId?: string;
   conversationType: string;
   conversationId: string;
   conversationTitle?: string;

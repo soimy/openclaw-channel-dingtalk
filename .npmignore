@@ -1,0 +1,40 @@
+# Development and build files
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+
+# Documentation and project files
+docs/
+AGENTS.md
+TODO.md
+RELEASES.md
+.git/
+.github/
+
+# Configuration files
+.eslintrc.json
+.prettierrc.json
+commitlint.config.js
+tsconfig.json
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.opencode/
+
+# OpenCode and tooling files
+.oxfmtrc.jsonc
+.oxlintrc.json
+.sisyphus/
+
+# Logs and credentials
+*.log
+npm-debug.log*
+credentials.json
+.env
+
+# Test files (if any)
+test/
+tests/
+*.test.ts
+*.spec.ts

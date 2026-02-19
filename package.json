@@ -1,9 +1,15 @@
 {
-  "name": "@openclaw/dingtalk",
-  "version": "2.6.1",
+  "name": "@soimy/dingtalk",
+  "version": "2.6.5",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "main": "index.ts",
   "type": "module",
+  "files": [
+    "index.ts",
+    "src",
+    "openclaw.plugin.json",
+    "clawbot.plugin.json"
+  ],
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint index.ts src/",
@@ -18,8 +24,17 @@
     "钉钉",
     "bot"
   ],
-  "author": "sym",
+  "author": "YM Shen <soimy@163.com> (http://github.com/soimy)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soimy/openclaw-channel-dingtalk.git"
+  },
+  "homepage": "https://github.com/soimy/openclaw-channel-dingtalk",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "dependencies": {
     "axios": "^1.6.0",
     "dingtalk-stream": "^2.1.4",
@@ -34,6 +49,9 @@
     "eslint-config-prettier": "^9.0.0",
     "prettier": "^3.0.0",
     "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.13"
   },
   "openclaw": {
     "extensions": [
@@ -57,9 +75,9 @@
       ]
     },
     "install": {
-      "npmSpec": "@openclaw/dingtalk",
-      "localPath": "extensions/dingtalk-channel",
-      "defaultChoice": "local"
+      "npmSpec": "@soimy/dingtalk",
+      "localPath": ".",
+      "defaultChoice": "npm"
     }
   }
 }
