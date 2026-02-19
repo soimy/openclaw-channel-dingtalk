@@ -1744,6 +1744,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             lastError: null,
           });
           ctx.log?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
+
+          // Keep startAccount alive until the connection manager is explicitly stopped.
+          // The Gateway treats the Promise resolution as "channel finished" and would
+          // trigger auto-restart if we returned here immediately after connecting.
+          await connectionManager.waitForStop();
         } else {
           // Startup was cancelled or connection is not established; do not overwrite stopped snapshot.
           ctx.log?.info?.(

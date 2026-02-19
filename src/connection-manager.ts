@@ -37,6 +37,9 @@ export class ConnectionManager {
   private sleepTimeout?: NodeJS.Timeout;
   private sleepResolve?: () => void;
 
+  // Stop signal for waitForStop()
+  private stopPromiseResolvers: Array<() => void> = [];
+
   // Client reference
   private client: DWClient;
 
@@ -366,6 +369,27 @@ export class ConnectionManager {
 
     this.state = ConnectionStateEnum.DISCONNECTED;
     this.log?.info?.(`[${this.accountId}] Connection manager stopped`);
+
+    // Resolve all pending waitForStop() promises
+    for (const resolve of this.stopPromiseResolvers) {
+      resolve();
+    }
+    this.stopPromiseResolvers = [];
+  }
+
+  /**
+   * Returns a Promise that resolves when the connection manager is stopped.
+   * Useful for keeping a caller alive (e.g. startAccount) until the channel
+   * is explicitly stopped via stop() or an abort signal handler that calls stop().
+   * Safe to call concurrently; all pending callers are resolved when stop() is called.
+   */
+  public waitForStop(): Promise<void> {
+    if (this.stopped) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.stopPromiseResolvers.push(resolve);
+    });
   }
 
   /**
