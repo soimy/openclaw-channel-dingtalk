@@ -103,8 +103,7 @@ function applyAccountConfig(params: {
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
     ...(input.cardTemplateId ? { cardTemplateId: input.cardTemplateId } : {}),
-    ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {}),
-    ...(input.showThinkingStream !== undefined ? { showThinkingStream: input.showThinkingStream } : {}),
+    ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {})
   };
 
   if (useDefault) {
@@ -239,7 +238,6 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
     let cardTemplateId: string | undefined;
     let cardTemplateKey: string | undefined;
     let messageType: 'markdown' | 'card' = 'markdown';
-    let showThinkingStream = false;
 
     if (wantsCardMode) {
       await prompter.note(
@@ -271,11 +269,6 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
             initialValue: resolved.cardTemplateKey ?? 'msgContent',
           })
         ).trim() || 'msgContent';
-
-      showThinkingStream = await prompter.confirm({
-        message: 'Show thinking and tool use in AI Card? (displays thinking process and tool execution)',
-        initialValue: resolved.showThinkingStream ?? false,
-      });
 
       messageType = 'card';
     }
@@ -323,7 +316,6 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         messageType,
         cardTemplateId,
         cardTemplateKey,
-        showThinkingStream,
       },
     });
 
