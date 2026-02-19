@@ -65,6 +65,9 @@ const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // DingTalk API base URL
 const DINGTALK_API = 'https://api.dingtalk.com';
 
+// Thinking and tool usage message truncate length
+const THINKING_TRUNCATE_LENGTH = 500;
+
 // ============ Message Deduplication ============
 // Prevents duplicate message processing when DingTalk retries delivery
 // Uses pure in-memory storage with short TTL and lazy cleanup during processing
@@ -853,23 +856,26 @@ async function createAICard(
 }
 
 /**
- * Format thinking content for display in AI Card
- * Truncates to 100 characters and wraps in code block
+ * Format thinking/tool content for display in AI Card
+ * Truncates to configured length and adds "> " prefix to each line
  */
-function formatThinkingForCard(thinking: string): string {
-  if (!thinking) return '';
-  const truncated = thinking.slice(0, 100);
-  return `🤔 **思考中**\n\`\`\`\n${truncated}\n\`\`\``;
-}
+function formatContentForCard(content: string, type: 'thinking' | 'tool'): string {
+  if (!content) return '';
 
-/**
- * Format tool result for display in AI Card
- * Truncates to 100 characters and wraps in code block
- */
-function formatToolResultForCard(result: string): string {
-  if (!result) return '';
-  const truncated = result.slice(0, 100);
-  return `🛠️ **工具执行**\n\`\`\`\n${truncated}\n\`\`\``;
+  // truncate to configured length, add ellipsis if truncated
+  const truncated = content.slice(0, THINKING_TRUNCATE_LENGTH) + (content.length > THINKING_TRUNCATE_LENGTH ? '…' : '');
+
+  // split into lines, then escape leading/trailing underscore per line, then prefix with ">"
+  const quotedLines = truncated
+    .split('\n')
+    .map((line) => line.replace(/^_(?=[^ ])/, '*').replace(/(?<=[^ ])_(?=$)/, '*'))
+    .map((line) => `> ${line}`)
+    .join('\n');
+
+  const emoji = type === 'thinking' ? '🤔' : '🛠️';
+  const label = type === 'thinking' ? '思考中' : '工具执行';
+
+  return `${emoji} **${label}**\n${quotedLines}`;
 }
 
 /**
@@ -1318,8 +1324,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
           if (!textToSend) return;
 
           // Handle tool results separately for AI Card streaming
-          if (dingtalkConfig.showThinkingStream && useCardMode && currentAICard && info?.kind === 'tool') {
-            const toolText = formatToolResultForCard(textToSend);
+          //
+          // Note: use /verbose on in conversation to get tool execution info
+          //
+          if (useCardMode && currentAICard && info?.kind === 'tool') {
+            log?.info?.(`[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`);
+            const toolText = formatContentForCard(textToSend, 'tool');
             if (toolText) {
               await streamAICard(currentAICard, toolText, false, log);
               return; // Don't send via sendMessage for tool results in card mode
@@ -1340,10 +1350,12 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
       },
     },
     replyOptions: {
+      // Handle reasoning stream updates to update the AI Card content in real-time
+      // Note: use /reasoning stream in conversation to get reasoning stream updates
+      //
       onReasoningStream: async (payload: any) => {
-        if (!dingtalkConfig.showThinkingStream) return;
-        if (!useCardMode || !currentAICard) return;
-        const thinkingText = formatThinkingForCard(payload.text);
+        if (!useCardMode || !currentAICard) { return; }
+        const thinkingText = formatContentForCard(payload.text, 'thinking');
         if (!thinkingText) return;
         try {
           await streamAICard(currentAICard, thinkingText, false, log);

@@ -32,7 +32,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   groupPolicy?: 'open' | 'allowlist';
   allowFrom?: string[];
   showThinking?: boolean;
-  showThinkingStream?: boolean;
   debug?: boolean;
   messageType?: 'markdown' | 'card';
   cardTemplateId?: string;
@@ -61,7 +60,6 @@ export interface DingTalkChannelConfig {
   groupPolicy?: 'open' | 'allowlist';
   allowFrom?: string[];
   showThinking?: boolean;
-  showThinkingStream?: boolean;
   debug?: boolean;
   messageType?: 'markdown' | 'card';
   cardTemplateId?: string;

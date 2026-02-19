@@ -38,19 +38,6 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
   /** Show thinking indicator while processing */
   showThinking: z.boolean().optional().default(true),
 
-  /** Show thinking and tool_use streams in AI Card (only applies when messageType='card') 
-   * Note: Enabling this will cause the AI Card to update in real-time with the thinking 
-   * and tool use streams, providing a more interactive experience. This is only applicable 
-   * when messageType is set to 'card'. If messageType is 'markdown', this setting will 
-   * have no effect.
-   * 
-   * Caution: Enabling this may increase the number of API calls and updates to the card, 
-   * which could lead to rate limits or performance issues if the AI response is very long 
-   * or if there are many concurrent users. 
-   * Use with consideration of your expected load and response lengths.
-  */
-  showThinkingStream: z.boolean().optional().default(false),
-
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
