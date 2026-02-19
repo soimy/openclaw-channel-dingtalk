@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-/**
- * DingTalk configuration schema using Zod
- * Mirrors the structure needed for proper control-ui rendering
- */
-export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
+const DingTalkAccountConfigSchema = z.object({
   /** Account name (optional display name) */
   name: z.string().optional(),
 
@@ -66,14 +62,6 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
     )
     .optional(),
 
-  /** Multi-account configuration */
-  accounts: z
-    .record(
-      z.string(),
-      z.lazy(() => DingTalkConfigSchema)
-    )
-    .optional(),
-
   /** Connection robustness configuration */
 
   /** Maximum number of connection attempts before giving up (default: 10) */
@@ -87,6 +75,20 @@ export const DingTalkConfigSchema: z.ZodTypeAny = z.object({
 
   /** Jitter factor for reconnection delay randomization (0-1, default: 0.3) */
   reconnectJitter: z.number().min(0).max(1).optional().default(0.3),
+});
+
+/**
+ * DingTalk configuration schema using Zod
+ * Mirrors the structure needed for proper control-ui rendering
+ */
+export const DingTalkConfigSchema: z.ZodTypeAny = DingTalkAccountConfigSchema.extend({
+  /** Multi-account configuration */
+  accounts: z
+    .record(
+      z.string(),
+      DingTalkAccountConfigSchema.optional()
+    )
+    .optional(),
 });
 
 export type DingTalkConfig = z.infer<typeof DingTalkConfigSchema>;
