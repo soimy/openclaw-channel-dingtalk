@@ -25,12 +25,12 @@
     "resolveJsonModule": true,
     "rootDir": ".",
     "baseUrl": ".",
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "paths": {
       "openclaw/plugin-sdk": ["../../dist/plugin-sdk/plugin-sdk/index.d.ts"],
       "openclaw/plugin-sdk/*": ["../../dist/plugin-sdk/plugin-sdk/*.d.ts"]
     }
   },
-  "include": ["index.ts", "src/**/*.ts"],
+  "include": ["index.ts", "src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

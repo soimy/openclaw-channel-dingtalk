@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-02-21
+**Generated:** 2026-02-22
 **Type:** OpenClaw DingTalk Channel Plugin
 
 ## OVERVIEW
@@ -156,6 +156,12 @@ npm run lint
 
 # Lint + fix
 npm run lint:fix
+
+# Unit + integration tests
+pnpm test
+
+# Coverage report (V8)
+pnpm test:coverage
 ```
 
 **Note:** No build script; plugin runs directly via OpenClaw runtime.
@@ -178,5 +184,7 @@ npm run lint:fix
 
 **Testing:**
 
-- No dedicated test suite in this extension currently
-- Use type-check + lint + integration runs in OpenClaw runtime
+- Vitest test suite is initialized with unit + integration coverage under `tests/`
+- Network calls are mocked in tests (`vi.mock`), no real DingTalk API requests are made
+- CI should run `pnpm test` on every push and pull request
+- Coverage can be generated with `pnpm test:coverage`

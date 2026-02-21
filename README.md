@@ -496,6 +496,37 @@ await finishAICard(card, finalText, log);
 - **src/types.ts**: 类型定义
 - **utils.ts**: 通用工具函数
 
+## 测试
+
+项目已基于 Vitest 初始化自动化测试，目录结构如下：
+
+```text
+tests/
+  unit/
+    sign.test.ts               # HmacSHA256 + Base64 签名测试
+    message-transform.test.ts  # 文本/Markdown 消息转换测试
+  integration/
+    send-lifecycle.test.ts     # 插件 outbound.sendText 生命周期适配测试
+```
+
+### 运行测试
+
+```bash
+# 安装依赖（pnpm）
+pnpm install
+
+# 运行全部测试
+pnpm test
+
+# 生成覆盖率报告（coverage/）
+pnpm test:coverage
+```
+
+### Mock 约束
+
+- 所有测试中的网络请求均通过 `vi.mock('axios')` 拦截，禁止真实调用钉钉 API。
+- 集成测试通过模块 mock 隔离 `openclaw/plugin-sdk`、`dingtalk-stream` 等外部依赖。
+
 ## 许可
 
 MIT

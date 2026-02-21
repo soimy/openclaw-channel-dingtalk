@@ -4,6 +4,7 @@ package-lock.json
 
 # Build files
 dist/
+coverage/
 *.js.map
 
 # Logs
