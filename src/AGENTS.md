@@ -1,63 +1,78 @@
 # SOURCE DIRECTORY
 
-**Parent:** `./AGENTS.md`
+**Parent:** `../AGENTS.md`
 
 ## OVERVIEW
 
-All DingTalk plugin implementation logic.
+`src/` contains the full DingTalk channel implementation, now split by method category and runtime responsibility.
 
 ## STRUCTURE
 
 ```
 src/
-├── channel.ts        # Main plugin definition, API calls, message handling, AI Card
-├── types.ts          # Type definitions (30+ interfaces, AI Card types)
-├── runtime.ts        # Runtime getter/setter pattern
-└── config-schema.ts  # Zod validation for configuration
+├── channel.ts             # Plugin assembly: config/outbound/gateway/status + exports
+├── inbound-handler.ts     # Inbound workflow orchestration
+├── send-service.ts        # Outbound messaging service
+├── card-service.ts        # AI Card state machine + cache
+├── auth.ts                # Access token management
+├── access-control.ts      # DM/group policy helpers
+├── message-utils.ts       # Content extraction + markdown detection
+├── config.ts              # Config/account/path/target helper functions
+├── dedup.ts               # Retry dedup map + cleanup strategy
+├── logger-context.ts      # Shared logger context
+├── media-utils.ts         # Media upload/type detection
+├── connection-manager.ts  # Stream reconnect lifecycle
+├── peer-id-registry.ts    # Case-preserving conversationId registry
+├── onboarding.ts          # Onboarding adapter
+├── runtime.ts             # Runtime setter/getter
+├── config-schema.ts       # Zod schema
+└── types.ts               # Shared types/constants
 ```
 
 ## WHERE TO LOOK
 
-| Task                      | Location               | Notes                                        |
-| ------------------------- | ---------------------- | -------------------------------------------- |
-| Channel plugin definition | `channel.ts:862`       | `dingtalkPlugin` export                      |
-| AI Card operations        | `channel.ts:374-600`   | createAICard, streamAICard, finishAICard     |
-| Message sending           | `channel.ts:520-700`   | sendMessage, sendBySession                   |
-| Token management          | `channel.ts:156-177`   | getAccessToken with cache                    |
-| Message processing        | `channel.ts:643-859`   | handleDingTalkMessage, extractMessageContent |
-| Type exports              | `types.ts`             | All interfaces/constants                     |
-| Public API exports        | `channel.ts:1068-1076` | sendBySession, createAICard, etc.            |
+| Task | Location | Notes |
+| --- | --- | --- |
+| Inbound processing main entry | `inbound-handler.ts` | `handleDingTalkMessage` |
+| Inbound media download | `inbound-handler.ts` | `downloadMedia` |
+| Session/proactive message send | `send-service.ts` | `sendBySession`, `sendProactive*` |
+| Message mode auto-selection | `send-service.ts` | `sendMessage` card/markdown fallback |
+| AI Card create/stream/finalize | `card-service.ts` | card lifecycle + cache |
+| Token cache | `auth.ts` | `getAccessToken` |
+| Allowlist checks | `access-control.ts` | normalized allowFrom matching |
+| Inbound payload parsing | `message-utils.ts` | `extractMessageContent` |
+| Target/config/workspace helpers | `config.ts` | `getConfig`, `resolveAgentWorkspaceDir`, `stripTargetPrefix` |
+| Plugin wiring | `channel.ts` | exports `dingtalkPlugin` |
 
 ## CONVENTIONS
 
-Same as root. No src-specific deviations.
+- Keep `channel.ts` lightweight; add new behavior to service modules first.
+- Cross-module reusable logic belongs in `*-service.ts` / `*-utils.ts`.
+- Preserve existing log prefix style: `[DingTalk]`, `[DingTalk][AICard]`, `[accountId]`.
+- Prefer explicit comments for behavior-critical branches (authorization, retry/fallback, state transitions).
 
 ## ANTI-PATTERNS
 
 **Prohibited:**
 
-- Mutating module-level state outside of initialized functions
-- Creating multiple AI Card instances for same conversationId (use cached)
-- Calling DingTalk APIs without access token
-- Suppressing errors in async handlers
+- Re-introducing large business logic blocks into `channel.ts`
+- Bypassing token retrieval before DingTalk API calls
+- Updating card cache state without terminal-state semantics
+- Removing dedup guard from gateway callback path
 
 ## UNIQUE STYLES
 
-**AI Card State Machine:**
+**Inbound Handler as Orchestrator:**
 
-- States: PROCESSING → INPUTING → FINISHED/FAILED
-- Cached in `Map<string, AICardInstance>` with TTL cleanup
-- Terminal states (FINISHED/FAILED) cleaned after 1 hour
+- `inbound-handler.ts` coordinates policy, routing, session recording, reply dispatch, and AI Card finalization.
+- Lower-level calls are delegated to `send-service.ts` and `card-service.ts`.
 
-**Access Token Caching:**
+**Card Fallback Design:**
 
-- Module-level variables: `accessToken`, `accessTokenExpiry`
-- Refresh 60s before expiry
-- Retry logic for 401/429/5xx errors
+- If card stream fails, mark card `FAILED` and continue delivery via markdown/text path.
+- Priority is no message loss over card rendering fidelity.
 
-**Message Type Handling:**
+**Workspace-first Media Strategy:**
 
-- `text`: Plain text messages
-- `richText`: Extract text + @mentions
-- `picture/audio/video/file`: Download to `/tmp/dingtalk_*`
-- Auto-detect Markdown syntax for auto-formatting
+- Inbound media is persisted under the resolved agent workspace, not temp-only paths.
+- This keeps files accessible to downstream sandboxed tools.
