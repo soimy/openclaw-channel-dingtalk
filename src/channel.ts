@@ -1827,6 +1827,15 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         throw err;
       }
 
+      // Keep the promise pending until the channel is stopped.
+      // OpenClaw core treats a resolved startAccount promise as channel exit,
+      // which triggers auto-restart. We must stay pending for the channel's lifetime.
+      if (!stopped && abortSignal && !abortSignal.aborted) {
+        await new Promise<void>((resolve) => {
+          abortSignal.addEventListener('abort', () => resolve(), { once: true });
+        });
+      }
+
       // Return stop handler
       return {
         stop: () => {
