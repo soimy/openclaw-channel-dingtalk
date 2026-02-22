@@ -2,8 +2,9 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { dingtalkPlugin } from "./src/channel";
 import { setDingTalkRuntime } from "./src/runtime";
+import type { DingtalkPluginModule } from "./src/types";
 
-const plugin = {
+const plugin: DingtalkPluginModule = {
   id: "dingtalk",
   name: "DingTalk Channel",
   description: "DingTalk (钉钉) messaging channel via Stream mode",

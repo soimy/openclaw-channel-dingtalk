@@ -11,11 +11,20 @@
 
 import type {
   OpenClawConfig,
+  OpenClawPluginApi,
   ChannelLogSink as SDKChannelLogSink,
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelPlugin as SDKChannelPlugin,
 } from "openclaw/plugin-sdk";
+
+export interface DingtalkPluginModule {
+  id: string;
+  name: string;
+  description?: string;
+  configSchema?: unknown;
+  register?: (api: OpenClawPluginApi) => void | Promise<void>;
+}
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
