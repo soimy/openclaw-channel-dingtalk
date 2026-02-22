@@ -61,6 +61,12 @@ function buildRuntime() {
     return {
         channel: {
             routing: { resolveAgentRoute: vi.fn().mockReturnValue({ agentId: 'main', sessionKey: 's1', mainSessionKey: 's1' }) },
+            media: {
+                saveMediaBuffer: vi.fn().mockResolvedValue({
+                    path: '/tmp/.openclaw/media/inbound/test-file.png',
+                    contentType: 'image/png',
+                }),
+            },
             session: {
                 resolveStorePath: vi.fn().mockReturnValue('/tmp/store.json'),
                 readSessionUpdatedAt: vi.fn().mockReturnValue(null),
@@ -106,26 +112,21 @@ describe('inbound-handler', () => {
     });
 
     it('downloadMedia returns file meta when DingTalk download succeeds', async () => {
-        const workspacePath = '/tmp';
         mockedAxiosPost.mockResolvedValueOnce({ data: { downloadUrl: 'https://download.url/file' } } as any);
         mockedAxiosGet.mockResolvedValueOnce({
             data: Buffer.from('abc'),
             headers: { 'content-type': 'image/png' },
         } as any);
 
-        const result = await downloadMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_1' } as any,
-            'download_code_1',
-            workspacePath
-        );
+        const result = await downloadMedia({ clientId: 'id', clientSecret: 'sec', robotCode: 'robot_1' } as any, 'download_code_1');
 
         expect(result).toBeTruthy();
         expect(result?.mimeType).toBe('image/png');
-        expect(result?.path).toContain('/media/inbound/');
+        expect(result?.path).toContain('/.openclaw/media/inbound/');
     });
 
     it('downloadMedia returns null when robotCode missing', async () => {
-        const result = await downloadMedia({ clientId: 'id', clientSecret: 'sec' } as any, 'download_code_1', '/tmp');
+        const result = await downloadMedia({ clientId: 'id', clientSecret: 'sec' } as any, 'download_code_1');
 
         expect(result).toBeNull();
         expect(mockedAxiosPost).not.toHaveBeenCalled();

@@ -13,7 +13,7 @@ import {
   isCardInTerminalState,
   streamAICard,
 } from "./card-service";
-import { resolveAgentWorkspaceDir, resolveGroupConfig } from "./config";
+import { resolveGroupConfig } from "./config";
 import { setCurrentLogger } from "./logger-context";
 import { extractMessageContent } from "./message-utils";
 import { registerPeerId } from "./peer-id-registry";
@@ -64,15 +64,15 @@ function formatGroupMembers(storePath: string, groupId: string): string | undefi
 }
 
 /**
- * Download DingTalk media file to agent workspace (sandbox-compatible).
- * Files are stored under `<workspace>/media/inbound` so downstream tools can read them.
+ * Download DingTalk media file via runtime media service (sandbox-compatible).
+ * Files are stored in the global media inbound directory.
  */
 export async function downloadMedia(
   config: DingTalkConfig,
   downloadCode: string,
-  workspacePath: string,
   log?: any,
 ): Promise<MediaFile | null> {
+  const rt = getDingTalkRuntime();
   const formatAxiosErrorData = (value: unknown): string | undefined => {
     if (value === null || value === undefined) {
       return undefined;
@@ -123,17 +123,10 @@ export async function downloadMedia(
     const contentType = mediaResponse.headers["content-type"] || "application/octet-stream";
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
-    // Save into agent workspace to avoid sandbox/tmp path accessibility issues.
-    const mediaDir = path.join(workspacePath, "media", "inbound");
-    fs.mkdirSync(mediaDir, { recursive: true });
-
-    const ext = contentType.split("/")[1]?.split(";")[0] || "bin";
-    const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const mediaPath = path.join(mediaDir, filename);
-
-    fs.writeFileSync(mediaPath, buffer);
-    log?.debug?.(`[DingTalk] Media saved to workspace: ${mediaPath}`);
-    return { path: mediaPath, mimeType: contentType };
+    // Keep inbound media handling consistent with other channels.
+    const saved = await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound");
+    log?.debug?.(`[DingTalk] Media saved: ${saved.path}`);
+    return { path: saved.path, mimeType: saved.contentType ?? contentType };
   } catch (err: any) {
     if (log?.error) {
       if (axios.isAxiosError(err)) {
@@ -268,16 +261,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     peer: { kind: isDirect ? "direct" : "group", id: isDirect ? senderId : groupId },
   });
 
-  // Route resolved before media download so we can persist media in the target agent workspace.
+  // Route resolved before media download for session context and routing metadata.
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
-  const workspacePath = resolveAgentWorkspaceDir(cfg, route.agentId);
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, workspacePath, log);
+    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
