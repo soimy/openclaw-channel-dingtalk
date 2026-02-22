@@ -13,10 +13,10 @@ export type NormalizedAllowFrom = {
  */
 export function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   const entries = (list ?? []).map((value) => String(value).trim()).filter(Boolean);
-  const hasWildcard = entries.includes('*');
+  const hasWildcard = entries.includes("*");
   const normalized = entries
-    .filter((value) => value !== '*')
-    .map((value) => value.replace(/^(dingtalk|dd|ding):/i, ''));
+    .filter((value) => value !== "*")
+    .map((value) => value.replace(/^(dingtalk|dd|ding):/i, ""));
   const normalizedLower = normalized.map((value) => value.toLowerCase());
   return {
     entries: normalized,
@@ -26,16 +26,30 @@ export function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
   };
 }
 
-export function isSenderAllowed(params: { allow: NormalizedAllowFrom; senderId?: string }): boolean {
+export function isSenderAllowed(params: {
+  allow: NormalizedAllowFrom;
+  senderId?: string;
+}): boolean {
   const { allow, senderId } = params;
-  if (!allow.hasEntries) return true;
-  if (allow.hasWildcard) return true;
-  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) return true;
+  if (!allow.hasEntries) {
+    return true;
+  }
+  if (allow.hasWildcard) {
+    return true;
+  }
+  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) {
+    return true;
+  }
   return false;
 }
 
-export function isSenderGroupAllowed(params: { allow: NormalizedAllowFrom; groupId?: string }): boolean {
+export function isSenderGroupAllowed(params: {
+  allow: NormalizedAllowFrom;
+  groupId?: string;
+}): boolean {
   const { allow, groupId } = params;
-  if (groupId && allow.entriesLower.includes(groupId.toLowerCase())) return true;
+  if (groupId && allow.entriesLower.includes(groupId.toLowerCase())) {
+    return true;
+  }
   return false;
 }

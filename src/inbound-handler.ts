@@ -1,35 +1,48 @@
-import axios from 'axios';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { getDingTalkRuntime } from './runtime';
-import { maskSensitiveData } from './utils';
-import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from './access-control';
-import { resolveAgentWorkspaceDir, resolveGroupConfig } from './config';
-import { registerPeerId } from './peer-id-registry';
-import { extractMessageContent } from './message-utils';
-import { sendBySession, sendMessage } from './send-service';
-import { getAccessToken } from './auth';
-import { cleanupCardCache, createAICard, finishAICard, formatContentForCard, getActiveCardIdByTarget, getCardById, isCardInTerminalState, streamAICard } from './card-service';
-import { setCurrentLogger } from './logger-context';
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from './types';
-import { AICardStatus } from './types';
+import * as fs from "node:fs";
+import * as path from "node:path";
+import axios from "axios";
+import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from "./access-control";
+import { getAccessToken } from "./auth";
+import {
+  cleanupCardCache,
+  createAICard,
+  finishAICard,
+  formatContentForCard,
+  getActiveCardIdByTarget,
+  getCardById,
+  isCardInTerminalState,
+  streamAICard,
+} from "./card-service";
+import { resolveAgentWorkspaceDir, resolveGroupConfig } from "./config";
+import { setCurrentLogger } from "./logger-context";
+import { extractMessageContent } from "./message-utils";
+import { registerPeerId } from "./peer-id-registry";
+import { getDingTalkRuntime } from "./runtime";
+import { sendBySession, sendMessage } from "./send-service";
+import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
+import { AICardStatus } from "./types";
+import { maskSensitiveData } from "./utils";
 
 // ============ Group Members Persistence ============
 
 function groupMembersFilePath(storePath: string, groupId: string): string {
-  const dir = path.join(path.dirname(storePath), 'dingtalk-members');
-  const safeId = groupId.replace(/\+/g, '-').replace(/\//g, '_');
+  const dir = path.join(path.dirname(storePath), "dingtalk-members");
+  const safeId = groupId.replace(/\+/g, "-").replace(/\//g, "_");
   return path.join(dir, `${safeId}.json`);
 }
 
 function noteGroupMember(storePath: string, groupId: string, userId: string, name: string): void {
-  if (!userId || !name) return;
+  if (!userId || !name) {
+    return;
+  }
   const filePath = groupMembersFilePath(storePath, groupId);
   let roster: Record<string, string> = {};
   try {
-    roster = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    roster = JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {}
-  if (roster[userId] === name) return;
+  if (roster[userId] === name) {
+    return;
+  }
   roster[userId] = name;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(roster, null, 2));
@@ -39,13 +52,15 @@ function formatGroupMembers(storePath: string, groupId: string): string | undefi
   const filePath = groupMembersFilePath(storePath, groupId);
   let roster: Record<string, string> = {};
   try {
-    roster = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    roster = JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
     return undefined;
   }
   const entries = Object.entries(roster);
-  if (entries.length === 0) return undefined;
-  return entries.map(([id, name]) => `${name} (${id})`).join(', ');
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return entries.map(([id, name]) => `${name} (${id})`).join(", ");
 }
 
 /**
@@ -56,13 +71,21 @@ export async function downloadMedia(
   config: DingTalkConfig,
   downloadCode: string,
   workspacePath: string,
-  log?: any
+  log?: any,
 ): Promise<MediaFile | null> {
   const formatAxiosErrorData = (value: unknown): string | undefined => {
-    if (value === null || value === undefined) return undefined;
-    if (Buffer.isBuffer(value)) return `<buffer ${value.length} bytes>`;
-    if (value instanceof ArrayBuffer) return `<arraybuffer ${value.byteLength} bytes>`;
-    if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    if (Buffer.isBuffer(value)) {
+      return `<buffer ${value.length} bytes>`;
+    }
+    if (value instanceof ArrayBuffer) {
+      return `<arraybuffer ${value.byteLength} bytes>`;
+    }
+    if (typeof value === "string") {
+      return value.length > 500 ? `${value.slice(0, 500)}…` : value;
+    }
     try {
       return JSON.stringify(maskSensitiveData(value));
     } catch {
@@ -71,38 +94,40 @@ export async function downloadMedia(
   };
 
   if (!downloadCode) {
-    log?.error?.('[DingTalk] downloadMedia requires downloadCode to be provided.');
+    log?.error?.("[DingTalk] downloadMedia requires downloadCode to be provided.");
     return null;
   }
   if (!config.robotCode) {
     if (log?.error) {
-      log.error('[DingTalk] downloadMedia requires robotCode to be configured.');
+      log.error("[DingTalk] downloadMedia requires robotCode to be configured.");
     }
     return null;
   }
   try {
     const token = await getAccessToken(config, log);
     const response = await axios.post(
-      'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
+      "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
       { downloadCode, robotCode: config.robotCode },
-      { headers: { 'x-acs-dingtalk-access-token': token } }
+      { headers: { "x-acs-dingtalk-access-token": token } },
     );
     const payload = response.data as Record<string, any>;
     const downloadUrl = payload?.downloadUrl ?? payload?.data?.downloadUrl;
     if (!downloadUrl) {
       const payloadDetail = formatAxiosErrorData(payload);
-      log?.error?.(`[DingTalk] downloadMedia missing downloadUrl. payload=${payloadDetail ?? 'unknown'}`);
+      log?.error?.(
+        `[DingTalk] downloadMedia missing downloadUrl. payload=${payloadDetail ?? "unknown"}`,
+      );
       return null;
     }
-    const mediaResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
-    const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
+    const mediaResponse = await axios.get(downloadUrl, { responseType: "arraybuffer" });
+    const contentType = mediaResponse.headers["content-type"] || "application/octet-stream";
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
     // Save into agent workspace to avoid sandbox/tmp path accessibility issues.
-    const mediaDir = path.join(workspacePath, 'media', 'inbound');
+    const mediaDir = path.join(workspacePath, "media", "inbound");
     fs.mkdirSync(mediaDir, { recursive: true });
 
-    const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
+    const ext = contentType.split("/")[1]?.split(";")[0] || "bin";
     const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const mediaPath = path.join(mediaDir, filename);
 
@@ -115,9 +140,11 @@ export async function downloadMedia(
         const status = err.response?.status;
         const statusText = err.response?.statusText;
         const dataDetail = formatAxiosErrorData(err.response?.data);
-        const code = err.code ? ` code=${err.code}` : '';
-        const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ''}` : '';
-        log.error(`[DingTalk] Failed to download media:${statusLabel}${code} message=${err.message}`);
+        const code = err.code ? ` code=${err.code}` : "";
+        const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ""}` : "";
+        log.error(
+          `[DingTalk] Failed to download media:${statusLabel}${code} message=${err.message}`,
+        );
         if (dataDetail) {
           log.error(`[DingTalk] downloadMedia response data: ${dataDetail}`);
         }
@@ -136,48 +163,56 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Save logger globally so shared services can log consistently without threading log everywhere.
   setCurrentLogger(log);
 
-  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+  log?.debug?.("[DingTalk] Full Inbound Data:", JSON.stringify(maskSensitiveData(data)));
 
   // Clean up old terminal cards opportunistically on inbound traffic.
   cleanupCardCache();
 
   // 1) Ignore self messages from bot.
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
-    log?.debug?.('[DingTalk] Ignoring robot self-message');
+    log?.debug?.("[DingTalk] Ignoring robot self-message");
     return;
   }
 
   const content = extractMessageContent(data);
-  if (!content.text) return;
+  if (!content.text) {
+    return;
+  }
 
-  const isDirect = data.conversationType === '1';
+  const isDirect = data.conversationType === "1";
   const senderId = data.senderStaffId || data.senderId;
-  const senderName = data.senderNick || 'Unknown';
+  const senderName = data.senderNick || "Unknown";
   const groupId = data.conversationId;
-  const groupName = data.conversationTitle || 'Group';
+  const groupName = data.conversationTitle || "Group";
 
   // Register original peer IDs to preserve case-sensitive DingTalk conversation IDs.
-  if (groupId) registerPeerId(groupId);
-  if (senderId) registerPeerId(senderId);
+  if (groupId) {
+    registerPeerId(groupId);
+  }
+  if (senderId) {
+    registerPeerId(senderId);
+  }
 
   // 2) Authorization guard (DM/group policy).
   let commandAuthorized = true;
   if (isDirect) {
-    const dmPolicy = dingtalkConfig.dmPolicy || 'open';
+    const dmPolicy = dingtalkConfig.dmPolicy || "open";
     const allowFrom = dingtalkConfig.allowFrom || [];
 
-    if (dmPolicy === 'allowlist') {
+    if (dmPolicy === "allowlist") {
       const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
       const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });
 
       if (!isAllowed) {
-        log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
+        log?.debug?.(
+          `[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`,
+        );
         try {
           await sendBySession(
             dingtalkConfig,
             sessionWebhook,
             `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
-            { log }
+            { log },
           );
         } catch (err: any) {
           log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
@@ -187,23 +222,23 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       }
 
       log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
-    } else if (dmPolicy === 'pairing') {
+    } else if (dmPolicy === "pairing") {
       // SDK pairing flow performs actual authorization checks.
       commandAuthorized = true;
     } else {
       commandAuthorized = true;
     }
   } else {
-    const groupPolicy = dingtalkConfig.groupPolicy || 'open';
+    const groupPolicy = dingtalkConfig.groupPolicy || "open";
     const allowFrom = dingtalkConfig.allowFrom || [];
 
-    if (groupPolicy === 'allowlist') {
+    if (groupPolicy === "allowlist") {
       const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
       const isAllowed = isSenderGroupAllowed({ allow: normalizedAllowFrom, groupId });
 
       if (!isAllowed) {
         log?.debug?.(
-          `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} not in allowlist (groupPolicy=allowlist)`
+          `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} not in allowlist (groupPolicy=allowlist)`,
         );
 
         try {
@@ -211,7 +246,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             dingtalkConfig,
             sessionWebhook,
             `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
-            { log, atUserId: senderId }
+            { log, atUserId: senderId },
           );
         } catch (err: any) {
           log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
@@ -220,19 +255,23 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         return;
       }
 
-      log?.debug?.(`[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId} in allowlist`);
+      log?.debug?.(
+        `[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId} in allowlist`,
+      );
     }
   }
 
   const route = rt.channel.routing.resolveAgentRoute({
     cfg,
-    channel: 'dingtalk',
+    channel: "dingtalk",
     accountId,
-    peer: { kind: isDirect ? 'direct' : 'group', id: isDirect ? senderId : groupId },
+    peer: { kind: isDirect ? "direct" : "group", id: isDirect ? senderId : groupId },
   });
 
   // Route resolved before media download so we can persist media in the target agent workspace.
-  const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
+  const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+    agentId: route.agentId,
+  });
   const workspacePath = resolveAgentWorkspaceDir(cfg, route.agentId);
 
   let mediaPath: string | undefined;
@@ -245,12 +284,17 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
+  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
+    storePath,
+    sessionKey: route.sessionKey,
+  });
 
   const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
   // GroupSystemPrompt is injected every turn (not only first-turn intro).
   const groupSystemPrompt = !isDirect
-    ? [`DingTalk group context: conversationId=${groupId}`, groupConfig?.systemPrompt?.trim()].filter(Boolean).join('\n')
+    ? [`DingTalk group context: conversationId=${groupId}`, groupConfig?.systemPrompt?.trim()]
+        .filter(Boolean)
+        .join("\n")
     : undefined;
 
   if (!isDirect) {
@@ -260,11 +304,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
   const body = rt.channel.reply.formatInboundEnvelope({
-    channel: 'DingTalk',
+    channel: "DingTalk",
     from: fromLabel,
     timestamp: data.createAt,
     body: content.text,
-    chatType: isDirect ? 'direct' : 'group',
+    chatType: isDirect ? "direct" : "group",
     sender: { name: senderName, id: senderId },
     previousTimestamp,
     envelope: envelopeOptions,
@@ -279,13 +323,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     To: to,
     SessionKey: route.sessionKey,
     AccountId: accountId,
-    ChatType: isDirect ? 'direct' : 'group',
+    ChatType: isDirect ? "direct" : "group",
     ConversationLabel: fromLabel,
     GroupSubject: isDirect ? undefined : groupName,
     SenderName: senderName,
     SenderId: senderId,
-    Provider: 'dingtalk',
-    Surface: 'dingtalk',
+    Provider: "dingtalk",
+    Surface: "dingtalk",
     MessageSid: data.msgId,
     Timestamp: data.createAt,
     MediaPath: mediaPath,
@@ -295,7 +339,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     GroupSystemPrompt: groupSystemPrompt,
     GroupChannel: isDirect ? undefined : route.sessionKey,
     CommandAuthorized: commandAuthorized,
-    OriginatingChannel: 'dingtalk',
+    OriginatingChannel: "dingtalk",
     OriginatingTo: to,
   });
 
@@ -303,7 +347,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     storePath,
     sessionKey: ctx.SessionKey || route.sessionKey,
     ctx,
-    updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
+    updateLastRoute: { sessionKey: route.mainSessionKey, channel: "dingtalk", to, accountId },
     onRecordError: (err: unknown) => {
       log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
     },
@@ -312,9 +356,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
   // 3) Select response mode (card vs markdown).
-  const useCardMode = dingtalkConfig.messageType === 'card';
+  const useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard = undefined;
-  let lastCardContent = '';
+  let lastCardContent = "";
 
   if (useCardMode) {
     const targetKey = `${accountId}:${to}`;
@@ -324,17 +368,21 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // Reuse active non-terminal card to keep one card per conversation.
     if (existingCard && !isCardInTerminalState(existingCard.state)) {
       currentAICard = existingCard;
-      log?.debug?.('[DingTalk] Reusing existing active AI card for this conversation.');
+      log?.debug?.("[DingTalk] Reusing existing active AI card for this conversation.");
     } else {
       try {
         const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
         if (aiCard) {
           currentAICard = aiCard;
         } else {
-          log?.warn?.('[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.');
+          log?.warn?.(
+            "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
+          );
         }
       } catch (err: any) {
-        log?.warn?.(`[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`);
+        log?.warn?.(
+          `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
+        );
       }
     }
   }
@@ -342,9 +390,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // 4) Optional "thinking..." feedback for non-card mode.
   if (dingtalkConfig.showThinking !== false) {
     try {
-      const thinkingText = '🤔 思考中，请稍候...';
+      const thinkingText = "🤔 思考中，请稍候...";
       if (useCardMode && currentAICard) {
-        log?.debug?.('[DingTalk] AI Card in thinking state, skipping thinking message send.');
+        log?.debug?.("[DingTalk] AI Card in thinking state, skipping thinking message send.");
       } else {
         lastCardContent = thinkingText;
         await sendMessage(dingtalkConfig, to, thinkingText, {
@@ -363,16 +411,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     ctx,
     cfg,
     dispatcherOptions: {
-      responsePrefix: '',
+      responsePrefix: "",
       deliver: async (payload: any, info?: { kind: string }) => {
         try {
           const textToSend = payload.markdown || payload.text;
-          if (!textToSend) return;
+          if (!textToSend) {
+            return;
+          }
 
           // Tool outputs are rendered into card stream as a separate formatted block.
-          if (useCardMode && currentAICard && info?.kind === 'tool') {
-            log?.info?.(`[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`);
-            const toolText = formatContentForCard(textToSend, 'tool');
+          if (useCardMode && currentAICard && info?.kind === "tool") {
+            log?.info?.(
+              `[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`,
+            );
+            const toolText = formatContentForCard(textToSend, "tool");
             if (toolText) {
               await streamAICard(currentAICard, toolText, false, log);
               return;
@@ -398,8 +450,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (!useCardMode || !currentAICard) {
           return;
         }
-        const thinkingText = formatContentForCard(payload.text, 'thinking');
-        if (!thinkingText) return;
+        const thinkingText = formatContentForCard(payload.text, "thinking");
+        if (!thinkingText) {
+          return;
+        }
         try {
           await streamAICard(currentAICard, thinkingText, false, log);
         } catch (err: any) {
@@ -412,21 +466,24 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // 5) Finalize card stream if card mode is active.
   if (useCardMode && currentAICard) {
     try {
-      const isNonEmptyString = (value: any): boolean => typeof value === 'string' && value.trim().length > 0;
+      const isNonEmptyString = (value: any): boolean =>
+        typeof value === "string" && value.trim().length > 0;
 
       const hasLastCardContent = isNonEmptyString(lastCardContent);
       const hasQueuedFinalString = isNonEmptyString(queuedFinal);
 
       if (hasLastCardContent || hasQueuedFinalString) {
         const finalContent =
-          hasLastCardContent && typeof lastCardContent === 'string'
+          hasLastCardContent && typeof lastCardContent === "string"
             ? lastCardContent
-            : typeof queuedFinal === 'string'
+            : typeof queuedFinal === "string"
               ? queuedFinal
-              : '';
+              : "";
         await finishAICard(currentAICard, finalContent, log);
       } else {
-        log?.debug?.('[DingTalk] Skipping AI Card finalization because no textual content was produced.');
+        log?.debug?.(
+          "[DingTalk] Skipping AI Card finalization because no textual content was produced.",
+        );
         currentAICard.state = AICardStatus.FINISHED;
         currentAICard.lastUpdated = Date.now();
       }

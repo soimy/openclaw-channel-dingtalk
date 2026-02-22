@@ -6,6 +6,8 @@
   "experimentalSortPackageJson": {
     "sortScripts": true,
   },
+  "tabWidth": 2,
+  "useTabs": false,
   "ignorePatterns": [
     "apps/",
     "assets/",

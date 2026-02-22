@@ -14,7 +14,9 @@ const peerIdMap = new Map<string, string>();
  * Register an original peer ID, keyed by its lowercased form.
  */
 export function registerPeerId(originalId: string): void {
-  if (!originalId) return;
+  if (!originalId) {
+    return;
+  }
   peerIdMap.set(originalId.toLowerCase(), originalId);
 }
 
@@ -23,7 +25,9 @@ export function registerPeerId(originalId: string): void {
  * Returns the original if found, otherwise returns the input as-is.
  */
 export function resolveOriginalPeerId(id: string): string {
-  if (!id) return id;
+  if (!id) {
+    return id;
+  }
   return peerIdMap.get(id.toLowerCase()) || id;
 }
 

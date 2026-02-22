@@ -1,12 +1,14 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2023",
     "module": "ESNext",
-    "lib": ["ES2020"],
+    "lib": ["ES2023"],
     "moduleResolution": "bundler",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "noEmit": true,
+    "noEmitOnError": true,
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -24,13 +26,13 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "rootDir": ".",
-    "baseUrl": ".",
+    "useDefineForClassFields": false,
     "types": ["node", "vitest/globals"],
     "paths": {
       "openclaw/plugin-sdk": ["../../dist/plugin-sdk/plugin-sdk/index.d.ts"],
       "openclaw/plugin-sdk/*": ["../../dist/plugin-sdk/plugin-sdk/*.d.ts"]
     }
   },
-  "include": ["index.ts", "src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "include": ["index.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

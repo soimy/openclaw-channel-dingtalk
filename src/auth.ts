@@ -1,6 +1,6 @@
-import axios from 'axios';
-import { retryWithBackoff } from './utils';
-import type { DingTalkConfig, Logger, TokenInfo } from './types';
+import axios from "axios";
+import type { DingTalkConfig, Logger, TokenInfo } from "./types";
+import { retryWithBackoff } from "./utils";
 
 interface TokenCache {
   accessToken: string;
@@ -25,10 +25,13 @@ export async function getAccessToken(config: DingTalkConfig, log?: Logger): Prom
 
   const token = await retryWithBackoff(
     async () => {
-      const response = await axios.post<TokenInfo>('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
-        appKey: config.clientId,
-        appSecret: config.clientSecret,
-      });
+      const response = await axios.post<TokenInfo>(
+        "https://api.dingtalk.com/v1.0/oauth2/accessToken",
+        {
+          appKey: config.clientId,
+          appSecret: config.clientSecret,
+        },
+      );
 
       accessTokenCache.set(cacheKey, {
         accessToken: response.data.accessToken,
@@ -37,7 +40,7 @@ export async function getAccessToken(config: DingTalkConfig, log?: Logger): Prom
 
       return response.data.accessToken;
     },
-    { maxRetries: 3, log }
+    { maxRetries: 3, log },
   );
 
   return token;

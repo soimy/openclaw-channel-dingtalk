@@ -1,9 +1,9 @@
-import type { OpenClawConfig, ChannelOnboardingAdapter, WizardPrompter } from 'openclaw/plugin-sdk';
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId, formatDocsLink } from 'openclaw/plugin-sdk';
-import type { DingTalkConfig, DingTalkChannelConfig } from './types.js';
-import { listDingTalkAccountIds, resolveDingTalkAccount } from './types.js';
+import type { OpenClawConfig, ChannelOnboardingAdapter, WizardPrompter } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId, formatDocsLink } from "openclaw/plugin-sdk";
+import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
+import { listDingTalkAccountIds, resolveDingTalkAccount } from "./types.js";
 
-const channel = 'dingtalk' as const;
+const channel = "dingtalk" as const;
 
 function isConfigured(account: DingTalkConfig): boolean {
   return Boolean(account.clientId && account.clientSecret);
@@ -23,7 +23,9 @@ function applyAccountNameToChannelSection(params: {
   name?: string;
 }): OpenClawConfig {
   const { cfg, channelKey, name } = params;
-  if (!name) return cfg;
+  if (!name) {
+    return cfg;
+  }
   const base = cfg.channels?.[channelKey] as DingTalkChannelConfig | undefined;
   return {
     ...cfg,
@@ -64,15 +66,15 @@ async function promptDingTalkAccountId(options: {
 async function noteDingTalkHelp(prompter: WizardPrompter): Promise<void> {
   await prompter.note(
     [
-      'You need DingTalk application credentials.',
-      '1. Visit https://open-dev.dingtalk.com/',
-      '2. Create an enterprise internal application',
+      "You need DingTalk application credentials.",
+      "1. Visit https://open-dev.dingtalk.com/",
+      "2. Create an enterprise internal application",
       "3. Enable 'Robot' capability",
       "4. Configure message receiving mode as 'Stream mode'",
-      '5. Copy Client ID (AppKey) and Client Secret (AppSecret)',
-      `Docs: ${formatDocsLink('/channels/dingtalk', 'channels/dingtalk')}`,
-    ].join('\n'),
-    'DingTalk setup'
+      "5. Copy Client ID (AppKey) and Client Secret (AppSecret)",
+      `Docs: ${formatDocsLink("/channels/dingtalk", "channels/dingtalk")}`,
+    ].join("\n"),
+    "DingTalk setup",
   );
 }
 
@@ -86,7 +88,7 @@ function applyAccountConfig(params: {
 
   const namedConfig = applyAccountNameToChannelSection({
     cfg,
-    channelKey: 'dingtalk',
+    channelKey: "dingtalk",
     accountId,
     name: input.name,
   });
@@ -103,7 +105,7 @@ function applyAccountConfig(params: {
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
     ...(input.cardTemplateId ? { cardTemplateId: input.cardTemplateId } : {}),
-    ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {})
+    ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {}),
   };
 
   if (useDefault) {
@@ -121,7 +123,8 @@ function applyAccountConfig(params: {
   }
 
   const accounts = (base as { accounts?: Record<string, unknown> }).accounts ?? {};
-  const existingAccount = (base as { accounts?: Record<string, Record<string, unknown>> }).accounts?.[accountId] ?? {};
+  const existingAccount =
+    (base as { accounts?: Record<string, Record<string, unknown>> }).accounts?.[accountId] ?? {};
 
   return {
     ...namedConfig,
@@ -155,8 +158,8 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
     return Promise.resolve({
       channel,
       configured,
-      statusLines: [`DingTalk: ${configured ? 'configured' : 'needs setup'}`],
-      selectionHint: configured ? 'configured' : '钉钉企业机器人',
+      statusLines: [`DingTalk: ${configured ? "configured" : "needs setup"}`],
+      selectionHint: configured ? "configured" : "钉钉企业机器人",
       quickstartScore: configured ? 1 : 4,
     });
   },
@@ -168,7 +171,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       accountId = await promptDingTalkAccountId({
         cfg,
         prompter,
-        label: 'DingTalk',
+        label: "DingTalk",
         currentId: accountId,
         listAccountIds: listDingTalkAccountIds,
         defaultAccountId: DEFAULT_ACCOUNT_ID,
@@ -179,21 +182,21 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
     await noteDingTalkHelp(prompter);
 
     const clientId = await prompter.text({
-      message: 'Client ID (AppKey)',
-      placeholder: 'dingxxxxxxxx',
+      message: "Client ID (AppKey)",
+      placeholder: "dingxxxxxxxx",
       initialValue: resolved.clientId ?? undefined,
-      validate: (value) => (String(value ?? '').trim() ? undefined : 'Required'),
+      validate: (value) => (String(value ?? "").trim() ? undefined : "Required"),
     });
 
     const clientSecret = await prompter.text({
-      message: 'Client Secret (AppSecret)',
-      placeholder: 'xxx-xxx-xxx-xxx',
+      message: "Client Secret (AppSecret)",
+      placeholder: "xxx-xxx-xxx-xxx",
       initialValue: resolved.clientSecret ?? undefined,
-      validate: (value) => (String(value ?? '').trim() ? undefined : 'Required'),
+      validate: (value) => (String(value ?? "").trim() ? undefined : "Required"),
     });
 
     const wantsFullConfig = await prompter.confirm({
-      message: 'Configure robot code, corp ID, and agent ID? (recommended for full features)',
+      message: "Configure robot code, corp ID, and agent ID? (recommended for full features)",
       initialValue: false,
     });
 
@@ -205,100 +208,100 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       robotCode =
         String(
           await prompter.text({
-            message: 'Robot Code',
-            placeholder: 'dingxxxxxxxx',
+            message: "Robot Code",
+            placeholder: "dingxxxxxxxx",
             initialValue: resolved.robotCode ?? undefined,
-          })
+          }),
         ).trim() || undefined;
 
       corpId =
         String(
           await prompter.text({
-            message: 'Corp ID',
-            placeholder: 'dingxxxxxxxx',
+            message: "Corp ID",
+            placeholder: "dingxxxxxxxx",
             initialValue: resolved.corpId ?? undefined,
-          })
+          }),
         ).trim() || undefined;
 
       agentId =
         String(
           await prompter.text({
-            message: 'Agent ID',
-            placeholder: '123456789',
+            message: "Agent ID",
+            placeholder: "123456789",
             initialValue: resolved.agentId ? String(resolved.agentId) : undefined,
-          })
+          }),
         ).trim() || undefined;
     }
 
     const wantsCardMode = await prompter.confirm({
-      message: 'Enable AI interactive card mode? (for streaming AI responses)',
-      initialValue: resolved.messageType === 'card',
+      message: "Enable AI interactive card mode? (for streaming AI responses)",
+      initialValue: resolved.messageType === "card",
     });
 
     let cardTemplateId: string | undefined;
     let cardTemplateKey: string | undefined;
-    let messageType: 'markdown' | 'card' = 'markdown';
+    let messageType: "markdown" | "card" = "markdown";
 
     if (wantsCardMode) {
       await prompter.note(
         [
-          'Create an AI card template in DingTalk Developer Console:',
-          'https://open-dev.dingtalk.com/fe/card',
+          "Create an AI card template in DingTalk Developer Console:",
+          "https://open-dev.dingtalk.com/fe/card",
           "1. Go to 'My Templates' > 'Create Template'",
           "2. Select 'AI Card' scenario",
-          '3. Design your card and publish',
-          '4. Copy the Template ID (e.g., xxx.schema)',
-        ].join('\n'),
-        'Card Template Setup'
+          "3. Design your card and publish",
+          "4. Copy the Template ID (e.g., xxx.schema)",
+        ].join("\n"),
+        "Card Template Setup",
       );
 
       cardTemplateId =
         String(
           await prompter.text({
-            message: 'Card Template ID',
-            placeholder: 'xxxxx-xxxxx-xxxxx.schema',
+            message: "Card Template ID",
+            placeholder: "xxxxx-xxxxx-xxxxx.schema",
             initialValue: resolved.cardTemplateId ?? undefined,
-          })
+          }),
         ).trim() || undefined;
 
       cardTemplateKey =
         String(
           await prompter.text({
-            message: 'Card Template Key (content field name)',
-            placeholder: 'msgContent',
-            initialValue: resolved.cardTemplateKey ?? 'msgContent',
-          })
-        ).trim() || 'msgContent';
+            message: "Card Template Key (content field name)",
+            placeholder: "msgContent",
+            initialValue: resolved.cardTemplateKey ?? "msgContent",
+          }),
+        ).trim() || "msgContent";
 
-      messageType = 'card';
+      messageType = "card";
     }
 
     const dmPolicyValue = await prompter.select({
-      message: 'Direct message policy',
+      message: "Direct message policy",
       options: [
-        { label: 'Open - anyone can DM', value: 'open' },
-        { label: 'Allowlist - only allowed users', value: 'allowlist' },
+        { label: "Open - anyone can DM", value: "open" },
+        { label: "Allowlist - only allowed users", value: "allowlist" },
       ],
-      initialValue: resolved.dmPolicy ?? 'open',
+      initialValue: resolved.dmPolicy ?? "open",
     });
 
     let allowFrom: string[] | undefined;
-    if (dmPolicyValue === 'allowlist') {
+    if (dmPolicyValue === "allowlist") {
       const entry = await prompter.text({
-        message: 'Allowed user IDs (comma-separated)',
-        placeholder: 'user1, user2',
+        message: "Allowed user IDs (comma-separated)",
+        placeholder: "user1, user2",
       });
-      const parsed = parseList(String(entry ?? ''));
+      const parsed = parseList(String(entry ?? ""));
       allowFrom = parsed.length > 0 ? parsed : undefined;
     }
 
     const groupPolicyValue = await prompter.select({
-      message: 'Group message policy',
+      message: "Group message policy",
       options: [
-        { label: 'Open - any group can use bot', value: 'open' },
-        { label: 'Allowlist - only allowed groups', value: 'allowlist' },
+        { label: "Open - any group can use bot", value: "open" },
+        { label: "Allowlist - only allowed groups", value: "allowlist" },
       ],
-      initialValue: resolved.groupPolicy ?? 'open',
+      initialValue: resolved.groupPolicy ?? "open",
     });
 
     const next = applyAccountConfig({
@@ -310,8 +313,8 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         robotCode,
         corpId,
         agentId,
-        dmPolicy: dmPolicyValue as 'open' | 'allowlist',
-        groupPolicy: groupPolicyValue as 'open' | 'allowlist',
+        dmPolicy: dmPolicyValue as "open" | "allowlist",
+        groupPolicy: groupPolicyValue as "open" | "allowlist",
         allowFrom,
         messageType,
         cardTemplateId,

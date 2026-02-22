@@ -1,7 +1,7 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
-import type { Logger, RetryOptions } from './types';
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { Logger, RetryOptions } from "./types";
 
 /**
  * Mask sensitive fields in data for safe logging
@@ -12,23 +12,23 @@ export function maskSensitiveData(data: unknown): any {
     return data;
   }
 
-  if (typeof data !== 'object') {
+  if (typeof data !== "object") {
     return data as string | number;
   }
 
   const masked = JSON.parse(JSON.stringify(data)) as Record<string, any>;
-  const sensitiveFields = ['token', 'accessToken'];
+  const sensitiveFields = new Set(["token", "accessToken"]);
 
   function maskObj(obj: any): void {
     for (const key in obj) {
-      if (sensitiveFields.includes(key)) {
+      if (sensitiveFields.has(key)) {
         const val = obj[key];
-        if (typeof val === 'string' && val.length > 6) {
-          obj[key] = val.slice(0, 3) + '*'.repeat(val.length - 6) + val.slice(-3);
-        } else if (typeof val === 'string') {
-          obj[key] = '*'.repeat(val.length);
+        if (typeof val === "string" && val.length > 6) {
+          obj[key] = val.slice(0, 3) + "*".repeat(val.length - 6) + val.slice(-3);
+        } else if (typeof val === "string") {
+          obj[key] = "*".repeat(val.length);
         }
-      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      } else if (typeof obj[key] === "object" && obj[key] !== null) {
         maskObj(obj[key]);
       }
     }
@@ -53,7 +53,9 @@ export function cleanupOrphanedTempFiles(log?: Logger): number {
     const maxAge = 24 * 60 * 60 * 1000;
 
     for (const file of files) {
-      if (!dingtalkPattern.test(file)) continue;
+      if (!dingtalkPattern.test(file)) {
+        continue;
+      }
 
       const filePath = path.join(tempDir, file);
       try {
@@ -82,7 +84,10 @@ export function cleanupOrphanedTempFiles(log?: Logger): number {
  * Retry logic for API calls with exponential backoff
  * Handles transient failures like 401 token expiry
  */
-export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {},
+): Promise<T> {
   const { maxRetries = 3, baseDelayMs = 100, log } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -90,7 +95,8 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
       return await fn();
     } catch (err: any) {
       const statusCode = err.response?.status;
-      const isRetryable = statusCode === 401 || statusCode === 429 || (statusCode && statusCode >= 500);
+      const isRetryable =
+        statusCode === 401 || statusCode === 429 || (statusCode && statusCode >= 500);
 
       if (!isRetryable || attempt === maxRetries) {
         throw err;
@@ -102,5 +108,5 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     }
   }
 
-  throw new Error('Retry exhausted without returning');
+  throw new Error("Retry exhausted without returning");
 }

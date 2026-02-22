@@ -1,40 +1,43 @@
-# Development and build files
+# VCS / CI / editor metadata
+.git/
+.github/
+.vscode/
+.opencode/
+.sisyphus/
+.DS_Store
+
+# Dependencies and lockfiles
 node_modules/
 pnpm-lock.yaml
 package-lock.json
 
-# Documentation and project files
-docs/
-AGENTS.md
-TODO.md
-RELEASES.md
-.git/
-.github/
-
-# Configuration files
-.eslintrc.json
-.prettierrc.json
-commitlint.config.js
-tsconfig.json
-
-# IDE and OS files
-.DS_Store
-.vscode/
-.opencode/
-
-# OpenCode and tooling files
-.oxfmtrc.jsonc
-.oxlintrc.json
-.sisyphus/
-
-# Logs and credentials
+# Local logs and secrets
 *.log
 npm-debug.log*
 credentials.json
 .env
 
-# Test files (if any)
+# Documentation and planning files
+docs/
+AGENTS.md
+TODO.md
+RELEASES.md
+
+# Development-only configuration
+tsconfig.json
+vitest.config.ts
+.eslintrc.json
+.prettierrc.json
+.oxfmtrc.jsonc
+.oxlintrc.json
+commitlint.config.js
+
+# Tests
 test/
 tests/
 *.test.ts
 *.spec.ts
+
+# Non-runtime files inside src/
+src/AGENTS.md
+src/*.code-workspace

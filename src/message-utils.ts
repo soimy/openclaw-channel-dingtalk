@@ -1,4 +1,4 @@
-import type { DingTalkInboundMessage, MessageContent, SendMessageOptions } from './types';
+import type { DingTalkInboundMessage, MessageContent, SendMessageOptions } from "./types";
 
 /**
  * Auto-detect markdown usage and derive message title.
@@ -7,17 +7,17 @@ import type { DingTalkInboundMessage, MessageContent, SendMessageOptions } from 
 export function detectMarkdownAndExtractTitle(
   text: string,
   options: SendMessageOptions,
-  defaultTitle: string
+  defaultTitle: string,
 ): { useMarkdown: boolean; title: string } {
-  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes('\n');
+  const hasMarkdown = /^[#*>-]|[*_`#[\]]/.test(text) || text.includes("\n");
   const useMarkdown = options.useMarkdown !== false && (options.useMarkdown || hasMarkdown);
 
   const title =
     options.title ||
     (useMarkdown
       ? text
-          .split('\n')[0]
-          .replace(/^[#*\s\->]+/, '')
+          .split("\n")[0]
+          .replace(/^[#*\s\->]+/, "")
           .slice(0, 20) || defaultTitle
       : defaultTitle);
 
@@ -25,7 +25,7 @@ export function detectMarkdownAndExtractTitle(
 }
 
 export function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
-  const msgtype = data.msgtype || 'text';
+  const msgtype = data.msgtype || "text";
 
   // Normalize quote/reply metadata into a readable text prefix so the agent can understand message context.
   const formatQuotedContent = (): string => {
@@ -45,19 +45,19 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       if (content?.richText && Array.isArray(content.richText)) {
         const textParts: string[] = [];
         for (const part of content.richText) {
-          if (part.msgType === 'text' && part.content) {
+          if (part.msgType === "text" && part.content) {
             textParts.push(part.content);
-          } else if (part.msgType === 'emoji' || part.type === 'emoji') {
-            textParts.push(part.content || '[表情]');
-          } else if (part.msgType === 'picture' || part.type === 'picture') {
-            textParts.push('[图片]');
-          } else if (part.msgType === 'at' || part.type === 'at') {
-            textParts.push(`@${part.content || part.atName || '某人'}`);
+          } else if (part.msgType === "emoji" || part.type === "emoji") {
+            textParts.push(part.content || "[表情]");
+          } else if (part.msgType === "picture" || part.type === "picture") {
+            textParts.push("[图片]");
+          } else if (part.msgType === "at" || part.type === "at") {
+            textParts.push(`@${part.content || part.atName || "某人"}`);
           } else if (part.text) {
             textParts.push(part.text);
           }
         }
-        const quoteText = textParts.join('').trim();
+        const quoteText = textParts.join("").trim();
         if (quoteText) {
           return `[引用消息: "${quoteText}"]\n\n`;
         }
@@ -70,7 +70,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     }
 
     if (data.quoteMessage) {
-      const quoteText = data.quoteMessage.text?.content?.trim() || '';
+      const quoteText = data.quoteMessage.text?.content?.trim() || "";
       if (quoteText) {
         return `[引用消息: "${quoteText}"]\n\n`;
       }
@@ -80,59 +80,74 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       return `[引用消息: "${data.content.quoteContent}"]\n\n`;
     }
 
-    return '';
+    return "";
   };
 
   const quotedPrefix = formatQuotedContent();
 
   // Unified extraction by DingTalk msgtype for downstream routing/agent processing.
-  if (msgtype === 'text') {
-    return { text: quotedPrefix + (data.text?.content?.trim() || ''), messageType: 'text' };
+  if (msgtype === "text") {
+    return { text: quotedPrefix + (data.text?.content?.trim() || ""), messageType: "text" };
   }
 
-  if (msgtype === 'richText') {
+  if (msgtype === "richText") {
     const richTextParts = data.content?.richText || [];
-    let text = '';
+    let text = "";
     let pictureDownloadCode: string | undefined;
     // Keep first image downloadCode while preserving readable text and @mention parts.
     for (const part of richTextParts) {
-      if (part.text && (part.type === 'text' || part.type === undefined)) text += part.text;
-      if (part.type === 'at' && part.atName) text += `@${part.atName} `;
-      if (part.type === 'picture' && part.downloadCode && !pictureDownloadCode) {
+      if (part.text && (part.type === "text" || part.type === undefined)) {
+        text += part.text;
+      }
+      if (part.type === "at" && part.atName) {
+        text += `@${part.atName} `;
+      }
+      if (part.type === "picture" && part.downloadCode && !pictureDownloadCode) {
         pictureDownloadCode = part.downloadCode;
       }
     }
     return {
-      text: quotedPrefix + (text.trim() || (pictureDownloadCode ? '<media:image>' : '[富文本消息]')),
+      text:
+        quotedPrefix + (text.trim() || (pictureDownloadCode ? "<media:image>" : "[富文本消息]")),
       mediaPath: pictureDownloadCode,
-      mediaType: pictureDownloadCode ? 'image' : undefined,
-      messageType: 'richText',
+      mediaType: pictureDownloadCode ? "image" : undefined,
+      messageType: "richText",
     };
   }
 
-  if (msgtype === 'picture') {
-    return { text: '<media:image>', mediaPath: data.content?.downloadCode, mediaType: 'image', messageType: 'picture' };
-  }
-
-  if (msgtype === 'audio') {
+  if (msgtype === "picture") {
     return {
-      text: data.content?.recognition || '<media:voice>',
+      text: "<media:image>",
       mediaPath: data.content?.downloadCode,
-      mediaType: 'audio',
-      messageType: 'audio',
+      mediaType: "image",
+      messageType: "picture",
     };
   }
 
-  if (msgtype === 'video') {
-    return { text: '<media:video>', mediaPath: data.content?.downloadCode, mediaType: 'video', messageType: 'video' };
+  if (msgtype === "audio") {
+    return {
+      text: data.content?.recognition || "<media:voice>",
+      mediaPath: data.content?.downloadCode,
+      mediaType: "audio",
+      messageType: "audio",
+    };
   }
 
-  if (msgtype === 'file') {
+  if (msgtype === "video") {
     return {
-      text: `<media:file> (${data.content?.fileName || '文件'})`,
+      text: "<media:video>",
       mediaPath: data.content?.downloadCode,
-      mediaType: 'file',
-      messageType: 'file',
+      mediaType: "video",
+      messageType: "video",
+    };
+  }
+
+  if (msgtype === "file") {
+    return {
+      text: `<media:file> (${data.content?.fileName || "文件"})`,
+      mediaPath: data.content?.downloadCode,
+      mediaType: "file",
+      messageType: "file",
     };
   }
 

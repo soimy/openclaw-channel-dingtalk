@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 const DingTalkAccountConfigSchema = z.object({
   /** Account name (optional display name) */
@@ -23,10 +23,10 @@ const DingTalkAccountConfigSchema = z.object({
   agentId: z.union([z.string(), z.number()]).optional(),
 
   /** Direct message policy: open, pairing, or allowlist */
-  dmPolicy: z.enum(['open', 'pairing', 'allowlist']).optional().default('open'),
+  dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 
   /** Group message policy: open or allowlist */
-  groupPolicy: z.enum(['open', 'allowlist']).optional().default('open'),
+  groupPolicy: z.enum(["open", "allowlist"]).optional().default("open"),
 
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
@@ -38,7 +38,7 @@ const DingTalkAccountConfigSchema = z.object({
   debug: z.boolean().optional().default(false),
 
   /** Message type for replies: markdown or card */
-  messageType: z.enum(['markdown', 'card']).optional().default('markdown'),
+  messageType: z.enum(["markdown", "card"]).optional().default("markdown"),
 
   /** Card template ID for AI interactive cards
    * obtain the template ID from DingTalk Developer Console.
@@ -50,7 +50,7 @@ const DingTalkAccountConfigSchema = z.object({
    * Default: 'msgContent' - maps to the content field in the card template
    * This key is used in the streaming API to update specific fields in the card.
    */
-  cardTemplateKey: z.string().optional().default('content'),
+  cardTemplateKey: z.string().optional().default("content"),
 
   /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
   groups: z
@@ -58,7 +58,7 @@ const DingTalkAccountConfigSchema = z.object({
       z.string(),
       z.object({
         systemPrompt: z.string().optional(),
-      })
+      }),
     )
     .optional(),
 
@@ -83,12 +83,7 @@ const DingTalkAccountConfigSchema = z.object({
  */
 export const DingTalkConfigSchema: z.ZodTypeAny = DingTalkAccountConfigSchema.extend({
   /** Multi-account configuration */
-  accounts: z
-    .record(
-      z.string(),
-      DingTalkAccountConfigSchema.optional()
-    )
-    .optional(),
+  accounts: z.record(z.string(), DingTalkAccountConfigSchema.optional()).optional(),
 });
 
 export type DingTalkConfig = z.infer<typeof DingTalkConfigSchema>;

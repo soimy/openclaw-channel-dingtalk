@@ -5,14 +5,14 @@
  * Provides functions for media type detection and file upload to DingTalk media servers.
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { promises as fsPromises } from 'fs';
-import axios from 'axios';
-import FormData from 'form-data';
-import type { DingTalkConfig, Logger } from './types';
+import * as fs from "fs";
+import { promises as fsPromises } from "fs";
+import * as path from "path";
+import axios from "axios";
+import FormData from "form-data";
+import type { DingTalkConfig, Logger } from "./types";
 
-export type DingTalkMediaType = 'image' | 'voice' | 'video' | 'file';
+export type DingTalkMediaType = "image" | "voice" | "video" | "file";
 
 /**
  * Detect media type from file extension
@@ -28,15 +28,15 @@ export type DingTalkMediaType = 'image' | 'voice' | 'video' | 'file';
 export function detectMediaTypeFromExtension(filePath: string): DingTalkMediaType {
   const ext = path.extname(filePath).toLowerCase();
 
-  if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext)) {
-    return 'image';
-  } else if (['.mp3', '.amr', '.wav'].includes(ext)) {
-    return 'voice';
-  } else if (['.mp4', '.avi', '.mov'].includes(ext)) {
-    return 'video';
+  if ([".jpg", ".jpeg", ".png", ".gif", ".bmp"].includes(ext)) {
+    return "image";
+  } else if ([".mp3", ".amr", ".wav"].includes(ext)) {
+    return "voice";
+  } else if ([".mp4", ".avi", ".mov"].includes(ext)) {
+    return "video";
   }
 
-  return 'file';
+  return "file";
 }
 
 /**
@@ -68,7 +68,7 @@ export async function uploadMedia(
   mediaPath: string,
   mediaType: DingTalkMediaType,
   getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
-  log?: Logger
+  log?: Logger,
 ): Promise<string | null> {
   let fileStream: fs.ReadStream | null = null;
 
@@ -81,7 +81,9 @@ export async function uploadMedia(
     if (stats.size > sizeLimit) {
       const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
       const limitMB = (sizeLimit / (1024 * 1024)).toFixed(2);
-      log?.error?.(`[DingTalk] Media file too large: ${sizeMB}MB exceeds ${limitMB}MB limit for ${mediaType}`);
+      log?.error?.(
+        `[DingTalk] Media file too large: ${sizeMB}MB exceeds ${limitMB}MB limit for ${mediaType}`,
+      );
       return null;
     }
 
@@ -91,7 +93,7 @@ export async function uploadMedia(
 
     // Upload to DingTalk's media server using form-data
     const form = new FormData();
-    form.append('media', fileStream, { filename });
+    form.append("media", fileStream, { filename });
 
     const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
 
@@ -104,7 +106,9 @@ export async function uploadMedia(
     });
 
     if (response.data?.errcode === 0 && response.data?.media_id) {
-      log?.debug?.(`[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`);
+      log?.debug?.(
+        `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`,
+      );
       return response.data.media_id;
     } else {
       log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
@@ -112,9 +116,9 @@ export async function uploadMedia(
     }
   } catch (err: any) {
     // Handle file system errors (e.g., file not found, permission denied)
-    if (err.code === 'ENOENT') {
+    if (err.code === "ENOENT") {
       log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
-    } else if (err.code === 'EACCES') {
+    } else if (err.code === "EACCES") {
       log?.error?.(`[DingTalk] Permission denied accessing media file: ${mediaPath}`);
     } else {
       log?.error?.(`[DingTalk] Failed to upload media: ${err.message}`);

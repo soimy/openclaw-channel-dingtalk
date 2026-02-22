@@ -9,9 +9,14 @@
  * - Structured logging for all connection events
  */
 
-import type { DWClient } from 'dingtalk-stream';
-import type { ConnectionState, ConnectionManagerConfig, ConnectionAttemptResult, Logger } from './types';
-import { ConnectionState as ConnectionStateEnum } from './types';
+import type { DWClient } from "dingtalk-stream";
+import type {
+  ConnectionState,
+  ConnectionManagerConfig,
+  ConnectionAttemptResult,
+  Logger,
+} from "./types";
+import { ConnectionState as ConnectionStateEnum } from "./types";
 
 /**
  * ConnectionManager handles the robust connection lifecycle for DWClient
@@ -84,14 +89,20 @@ export class ConnectionManager {
    */
   private async attemptConnection(): Promise<ConnectionAttemptResult> {
     if (this.stopped) {
-      return { success: false, attempt: this.attemptCount, error: new Error('Connection manager stopped') };
+      return {
+        success: false,
+        attempt: this.attemptCount,
+        error: new Error("Connection manager stopped"),
+      };
     }
 
     this.attemptCount++;
     this.state = ConnectionStateEnum.CONNECTING;
     this.notifyStateChange();
 
-    this.log?.info?.(`[${this.accountId}] Connection attempt ${this.attemptCount}/${this.config.maxAttempts}...`);
+    this.log?.info?.(
+      `[${this.accountId}] Connection attempt ${this.attemptCount}/${this.config.maxAttempts}...`,
+    );
 
     try {
       // Call DWClient connect method
@@ -101,17 +112,19 @@ export class ConnectionManager {
       // This prevents race condition where stop() is called during connection
       if (this.stopped) {
         this.log?.warn?.(
-          `[${this.accountId}] Connection succeeded but manager was stopped during connect - disconnecting`
+          `[${this.accountId}] Connection succeeded but manager was stopped during connect - disconnecting`,
         );
         try {
           this.client.disconnect();
         } catch (disconnectErr: any) {
-          this.log?.debug?.(`[${this.accountId}] Error during post-connect disconnect: ${disconnectErr.message}`);
+          this.log?.debug?.(
+            `[${this.accountId}] Error during post-connect disconnect: ${disconnectErr.message}`,
+          );
         }
         return {
           success: false,
           attempt: this.attemptCount,
-          error: new Error('Connection manager stopped during connect'),
+          error: new Error("Connection manager stopped during connect"),
         };
       }
 
@@ -125,14 +138,16 @@ export class ConnectionManager {
 
       return { success: true, attempt: successfulAttempt };
     } catch (err: any) {
-      this.log?.error?.(`[${this.accountId}] Connection attempt ${this.attemptCount} failed: ${err.message}`);
+      this.log?.error?.(
+        `[${this.accountId}] Connection attempt ${this.attemptCount} failed: ${err.message}`,
+      );
 
       // Check if we've exceeded max attempts
       if (this.attemptCount >= this.config.maxAttempts) {
         this.state = ConnectionStateEnum.FAILED;
-        this.notifyStateChange('Max connection attempts reached');
+        this.notifyStateChange("Max connection attempts reached");
         this.log?.error?.(
-          `[${this.accountId}] Max connection attempts (${this.config.maxAttempts}) reached. Giving up.`
+          `[${this.accountId}] Max connection attempts (${this.config.maxAttempts}) reached. Giving up.`,
         );
         return { success: false, attempt: this.attemptCount, error: err };
       }
@@ -142,7 +157,7 @@ export class ConnectionManager {
       const nextDelay = this.calculateNextDelay(this.attemptCount - 1);
 
       this.log?.warn?.(
-        `[${this.accountId}] Will retry connection in ${(nextDelay / 1000).toFixed(2)}s (attempt ${this.attemptCount + 1}/${this.config.maxAttempts})`
+        `[${this.accountId}] Will retry connection in ${(nextDelay / 1000).toFixed(2)}s (attempt ${this.attemptCount + 1}/${this.config.maxAttempts})`,
       );
 
       return { success: false, attempt: this.attemptCount, error: err, nextDelay };
@@ -154,13 +169,15 @@ export class ConnectionManager {
    */
   public async connect(): Promise<void> {
     if (this.stopped) {
-      throw new Error('Cannot connect: connection manager is stopped');
+      throw new Error("Cannot connect: connection manager is stopped");
     }
 
     // Clear any existing reconnect timer
     this.clearReconnectTimer();
 
-    this.log?.info?.(`[${this.accountId}] Starting DingTalk Stream client with robust connection...`);
+    this.log?.info?.(
+      `[${this.accountId}] Starting DingTalk Stream client with robust connection...`,
+    );
 
     // Keep trying until success or max attempts reached
     while (!this.stopped && this.state !== ConnectionStateEnum.CONNECTED) {
@@ -173,9 +190,11 @@ export class ConnectionManager {
       }
 
       // Check if connection was stopped during connect
-      if (result.error?.message === 'Connection manager stopped during connect') {
-        this.log?.info?.(`[${this.accountId}] Connection cancelled: manager stopped during connect`);
-        throw new Error('Connection cancelled: connection manager stopped');
+      if (result.error?.message === "Connection manager stopped during connect") {
+        this.log?.info?.(
+          `[${this.accountId}] Connection cancelled: manager stopped during connect`,
+        );
+        throw new Error("Connection cancelled: connection manager stopped");
       }
 
       if (!result.nextDelay || this.attemptCount >= this.config.maxAttempts) {
@@ -213,7 +232,9 @@ export class ConnectionManager {
 
       // If we believe we're connected but DWClient disagrees, trigger reconnection
       if (this.state === ConnectionStateEnum.CONNECTED && !client.connected) {
-        this.log?.warn?.(`[${this.accountId}] Connection health check failed - detected disconnection`);
+        this.log?.warn?.(
+          `[${this.accountId}] Connection health check failed - detected disconnection`,
+        );
         if (this.healthCheckInterval) {
           clearInterval(this.healthCheckInterval);
         }
@@ -230,7 +251,9 @@ export class ConnectionManager {
 
       // Handler for socket close event
       this.socketCloseHandler = (code: number, reason: string) => {
-        this.log?.warn?.(`[${this.accountId}] WebSocket closed event (code: ${code}, reason: ${reason || 'none'})`);
+        this.log?.warn?.(
+          `[${this.accountId}] WebSocket closed event (code: ${code}, reason: ${reason || "none"})`,
+        );
 
         // Only trigger reconnection if we were previously connected and not stopping
         if (!this.stopped && this.state === ConnectionStateEnum.CONNECTED) {
@@ -243,14 +266,16 @@ export class ConnectionManager {
 
       // Handler for socket error event
       this.socketErrorHandler = (error: Error) => {
-        this.log?.error?.(`[${this.accountId}] WebSocket error event: ${error?.message || 'Unknown error'}`);
+        this.log?.error?.(
+          `[${this.accountId}] WebSocket error event: ${error?.message || "Unknown error"}`,
+        );
       };
 
       // Listen to socket events
       // Use 'once' for close to avoid duplicate reconnection triggers
-      socket.once('close', this.socketCloseHandler);
+      socket.once("close", this.socketCloseHandler);
       // Use 'once' for error as well to prevent accumulation across reconnects
-      socket.once('error', this.socketErrorHandler);
+      socket.once("error", this.socketErrorHandler);
     }
   }
 
@@ -270,11 +295,11 @@ export class ConnectionManager {
       const socket = this.monitoredSocket;
 
       if (this.socketCloseHandler) {
-        socket.removeListener('close', this.socketCloseHandler);
+        socket.removeListener("close", this.socketCloseHandler);
         this.socketCloseHandler = undefined;
       }
       if (this.socketErrorHandler) {
-        socket.removeListener('error', this.socketErrorHandler);
+        socket.removeListener("error", this.socketErrorHandler);
         this.socketErrorHandler = undefined;
       }
 
@@ -287,12 +312,16 @@ export class ConnectionManager {
    * Handle runtime disconnection and trigger reconnection
    */
   private handleRuntimeDisconnection(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
-    this.log?.warn?.(`[${this.accountId}] Runtime disconnection detected, initiating reconnection...`);
+    this.log?.warn?.(
+      `[${this.accountId}] Runtime disconnection detected, initiating reconnection...`,
+    );
 
     this.state = ConnectionStateEnum.DISCONNECTED;
-    this.notifyStateChange('Runtime disconnection detected');
+    this.notifyStateChange("Runtime disconnection detected");
     this.attemptCount = 0; // Reset attempt counter for runtime reconnection
 
     // Clear any existing timer
@@ -300,7 +329,9 @@ export class ConnectionManager {
 
     // Start reconnection with initial delay
     const delay = this.calculateNextDelay(0);
-    this.log?.info?.(`[${this.accountId}] Scheduling reconnection in ${(delay / 1000).toFixed(2)}s`);
+    this.log?.info?.(
+      `[${this.accountId}] Scheduling reconnection in ${(delay / 1000).toFixed(2)}s`,
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnect().catch((err) => {
@@ -313,7 +344,9 @@ export class ConnectionManager {
    * Reconnect after runtime disconnection
    */
   private async reconnect(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     this.log?.info?.(`[${this.accountId}] Attempting to reconnect...`);
 
@@ -321,7 +354,9 @@ export class ConnectionManager {
       await this.connect();
       this.log?.info?.(`[${this.accountId}] Reconnection successful`);
     } catch (err: any) {
-      if (this.stopped) return;
+      if (this.stopped) {
+        return;
+      }
 
       this.log?.error?.(`[${this.accountId}] Reconnection failed: ${err.message}`);
       this.state = ConnectionStateEnum.FAILED;
@@ -332,7 +367,7 @@ export class ConnectionManager {
       this.attemptCount = 0;
       this.clearReconnectTimer();
       this.log?.warn?.(
-        `[${this.accountId}] Reconnection cycle failed; scheduling next reconnect in ${(delay / 1000).toFixed(2)}s`
+        `[${this.accountId}] Reconnection cycle failed; scheduling next reconnect in ${(delay / 1000).toFixed(2)}s`,
       );
       this.reconnectTimer = setTimeout(() => {
         void this.reconnect();
@@ -344,7 +379,9 @@ export class ConnectionManager {
    * Stop the connection manager and cleanup resources
    */
   public stop(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     this.log?.info?.(`[${this.accountId}] Stopping connection manager...`);
 

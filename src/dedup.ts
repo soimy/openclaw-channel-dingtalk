@@ -44,7 +44,9 @@ export function markMessageProcessed(dedupKey: string): void {
       let removed = 0;
       for (const key of processedMessages.keys()) {
         processedMessages.delete(key);
-        if (++removed >= removeCount) break;
+        if (++removed >= removeCount) {
+          break;
+        }
       }
     }
     return;
