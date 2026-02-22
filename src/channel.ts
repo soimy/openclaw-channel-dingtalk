@@ -4,7 +4,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
 import { createAICard, streamAICard, finishAICard } from "./card-service";
-import { getConfig, isConfigured, resolveUserPath, stripTargetPrefix } from "./config";
+import { getConfig, isConfigured, resolveRelativePath, stripTargetPrefix } from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "./dedup";
@@ -188,7 +188,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       }
 
-      const actualMediaPath = resolveUserPath(rawMediaPath);
+      const actualMediaPath = resolveRelativePath(rawMediaPath);
 
       getLogger()?.debug?.(
         `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`,

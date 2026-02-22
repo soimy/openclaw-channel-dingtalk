@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getConfig, isConfigured, resolveUserPath } from '../../src/config';
+import { getConfig, isConfigured, resolveRelativePath, resolveUserPath } from '../../src/config';
 
 describe('config advanced', () => {
     it('getConfig resolves account override and top-level fallback', () => {
@@ -26,13 +26,19 @@ describe('config advanced', () => {
         expect(isConfigured({ channels: { dingtalk: { clientId: 'id' } } } as any)).toBe(false);
     });
 
-    it('resolveUserPath expands home and normalizes absolute path', () => {
+    it('resolveRelativePath expands home and normalizes absolute/relative path', () => {
         const home = os.homedir();
-        expect(resolveUserPath('~')).toBe(path.resolve(home));
-        expect(resolveUserPath('~/a/b')).toBe(path.resolve(path.join(home, 'a/b')));
-        expect(resolveUserPath('~\\a\\b')).toBe(path.resolve(path.join(home, 'a', 'b')));
-        expect(resolveUserPath('/tmp/x')).toBe(path.resolve('/tmp/x'));
-        expect(resolveUserPath('./tmp/x')).toBe(path.resolve('./tmp/x'));
+        expect(resolveRelativePath('~')).toBe(path.resolve(home));
+        expect(resolveRelativePath('~/a/b')).toBe(path.resolve(path.join(home, 'a/b')));
+        expect(resolveRelativePath('~\\a\\b')).toBe(path.resolve(path.join(home, 'a', 'b')));
+        expect(resolveRelativePath('/tmp/x')).toBe(path.resolve(path.sep, 'tmp', 'x'));
+        expect(resolveRelativePath('./tmp/x')).toBe(path.resolve(process.cwd(), 'tmp', 'x'));
+        expect(resolveRelativePath('../tmp/x')).toBe(path.resolve(process.cwd(), '..', 'tmp', 'x'));
+        expect(resolveRelativePath('..\\tmp\\x')).toBe(path.resolve(process.cwd(), '..', 'tmp', 'x'));
+    });
+
+    it('resolveUserPath remains as backward-compatible alias', () => {
+        expect(resolveUserPath('..\\tmp\\x')).toBe(resolveRelativePath('..\\tmp\\x'));
     });
 
 });

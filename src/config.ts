@@ -25,24 +25,32 @@ export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
-export function resolveUserPath(input: string): string {
+export function resolveRelativePath(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) {
     return trimmed;
   }
+
+  const segments = (value: string): string[] => value.split(/[\\/]+/).filter(Boolean);
 
   // Expand bare "~" and "~/" or "~\\" prefixes into the user home directory.
   if (trimmed === "~") {
     return path.resolve(os.homedir());
   }
   if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
-    const segments = trimmed.slice(2).split(/[\\/]+/).filter(Boolean);
-    return path.resolve(path.join(os.homedir(), ...segments));
+    return path.resolve(os.homedir(), ...segments(trimmed.slice(2)));
   }
 
-  // Resolve relative path against cwd and normalize absolute path consistently.
-  return path.resolve(trimmed);
+  // Treat both "/" and "\\" as absolute root prefixes for cross-platform input.
+  if (/^[\\/]/.test(trimmed)) {
+    return path.resolve(path.sep, ...segments(trimmed));
+  }
+
+  // Resolve relative path against cwd; supports mixed separators and "..\\..".
+  return path.resolve(process.cwd(), ...segments(trimmed));
 }
+
+export const resolveUserPath = resolveRelativePath;
 
 export function resolveGroupConfig(
   cfg: DingTalkConfig,
