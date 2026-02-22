@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getConfig, isConfigured, resolveAgentWorkspaceDir, resolveUserPath } from '../../src/config';
+import { getConfig, isConfigured, resolveUserPath } from '../../src/config';
 
 describe('config advanced', () => {
     it('getConfig resolves account override and top-level fallback', () => {
@@ -32,17 +32,4 @@ describe('config advanced', () => {
         expect(resolveUserPath('/tmp/x')).toBe(path.resolve('/tmp/x'));
     });
 
-    it('resolveAgentWorkspaceDir honors agent workspace and defaults', () => {
-        const cfg = {
-            agents: {
-                list: [
-                    { id: 'main', default: true, workspace: '~/custom-main' },
-                    { id: 'other' },
-                ],
-            },
-        } as any;
-
-        expect(resolveAgentWorkspaceDir(cfg, 'main')).toContain('custom-main');
-        expect(resolveAgentWorkspaceDir(cfg, 'other')).toContain('workspace-other');
-    });
 });

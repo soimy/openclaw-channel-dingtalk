@@ -47,7 +47,7 @@ Current architecture is modularized by responsibility. `src/channel.ts` is now a
 | Token management | `src/auth.ts` | `getAccessToken` with clientId-scoped cache |
 | Access control | `src/access-control.ts` | DM/group allowlist helpers |
 | Message parsing | `src/message-utils.ts` | quote parsing + richText/media extraction |
-| Config/path helpers | `src/config.ts` | `getConfig`, `resolveAgentWorkspaceDir`, `stripTargetPrefix` |
+| Config/path helpers | `src/config.ts` | `getConfig`, `resolveUserPath`, `stripTargetPrefix` |
 | Deduplication | `src/dedup.ts` | message retry dedup keys |
 | Type definitions | `src/types.ts` | DingTalk and plugin types/constants |
 
@@ -57,7 +57,7 @@ Current architecture is modularized by responsibility. `src/channel.ts` is now a
 | --- | --- | --- | --- |
 | `dingtalkPlugin` | const | `src/channel.ts` | Main channel plugin definition |
 | `handleDingTalkMessage` | function | `src/inbound-handler.ts` | Process inbound messages end-to-end |
-| `downloadMedia` | function | `src/inbound-handler.ts` | Download inbound media to agent workspace |
+| `downloadMedia` | function | `src/inbound-handler.ts` | Download inbound media via runtime media service |
 | `sendBySession` | function | `src/send-service.ts` | Send replies via session webhook |
 | `sendMessage` | function | `src/send-service.ts` | Auto send (card/text/markdown fallback) |
 | `sendProactiveMedia` | function | `src/send-service.ts` | Proactive media send |

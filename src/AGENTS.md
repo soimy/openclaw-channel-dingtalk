@@ -41,7 +41,7 @@ src/
 | Token cache | `auth.ts` | `getAccessToken` |
 | Allowlist checks | `access-control.ts` | normalized allowFrom matching |
 | Inbound payload parsing | `message-utils.ts` | `extractMessageContent` |
-| Target/config/workspace helpers | `config.ts` | `getConfig`, `resolveAgentWorkspaceDir`, `stripTargetPrefix` |
+| Target/config/workspace helpers | `config.ts` | `getConfig`, `resolveUserPath`, `stripTargetPrefix` |
 | Plugin wiring | `channel.ts` | exports `dingtalkPlugin` |
 
 ## CONVENTIONS

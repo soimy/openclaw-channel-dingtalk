@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAgentId, resolveGroupConfig, stripTargetPrefix } from '../../src/config';
+import { resolveGroupConfig, stripTargetPrefix } from '../../src/config';
 
 describe('config helpers', () => {
-    it('normalizes agent id to safe lowercase token', () => {
-        expect(normalizeAgentId(' Agent@Main ')).toBe('agent-main');
-        expect(normalizeAgentId('')).toBe('main');
-        expect(normalizeAgentId('__A__')).toBe('__a__');
-    });
-
     it('resolves group config with exact match then wildcard fallback', () => {
         const cfg = {
             groups: {
