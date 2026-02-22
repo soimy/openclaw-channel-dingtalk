@@ -28,14 +28,7 @@ import type {
   ResolvedAccount,
 } from "./types";
 import { ConnectionState } from "./types";
-import { cleanupOrphanedTempFiles } from "./utils";
-
-/**
- * Get current timestamp in ISO-compatible epoch milliseconds for status tracking.
- */
-function getCurrentTimestamp(): number {
-  return Date.now();
-}
+import { cleanupOrphanedTempFiles, getCurrentTimestamp } from "./utils";
 
 // DingTalk Channel Definition (assembly layer).
 // Heavy logic is delegated to service modules for maintainability.

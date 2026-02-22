@@ -110,3 +110,10 @@ export async function retryWithBackoff<T>(
 
   throw new Error("Retry exhausted without returning");
 }
+
+/**
+ * Get current timestamp in ISO-compatible epoch milliseconds for status tracking.
+ */
+export function getCurrentTimestamp(): number {
+  return Date.now();
+}
