@@ -28,8 +28,11 @@ describe('config advanced', () => {
 
     it('resolveUserPath expands home and normalizes absolute path', () => {
         const home = os.homedir();
+        expect(resolveUserPath('~')).toBe(path.resolve(home));
         expect(resolveUserPath('~/a/b')).toBe(path.resolve(path.join(home, 'a/b')));
+        expect(resolveUserPath('~\\a\\b')).toBe(path.resolve(path.join(home, 'a', 'b')));
         expect(resolveUserPath('/tmp/x')).toBe(path.resolve('/tmp/x'));
+        expect(resolveUserPath('./tmp/x')).toBe(path.resolve('./tmp/x'));
     });
 
 });

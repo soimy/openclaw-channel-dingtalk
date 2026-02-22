@@ -30,10 +30,17 @@ export function resolveUserPath(input: string): string {
   if (!trimmed) {
     return trimmed;
   }
-  if (trimmed.startsWith("~")) {
-    const expanded = trimmed.replace(/^~(?=$|[\\/])/, os.homedir());
-    return path.resolve(expanded);
+
+  // Expand bare "~" and "~/" or "~\\" prefixes into the user home directory.
+  if (trimmed === "~") {
+    return path.resolve(os.homedir());
   }
+  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+    const segments = trimmed.slice(2).split(/[\\/]+/).filter(Boolean);
+    return path.resolve(path.join(os.homedir(), ...segments));
+  }
+
+  // Resolve relative path against cwd and normalize absolute path consistently.
   return path.resolve(trimmed);
 }
 
