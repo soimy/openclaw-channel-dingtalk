@@ -258,4 +258,43 @@ describe('ConnectionManager', () => {
         expect(client.connect.mock.calls.length).toBeGreaterThanOrEqual(2);
         expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Runtime counters (socket-close)'));
     });
+
+    it('stops runtime reconnect loop when max reconnect cycles is reached', async () => {
+        const socket = new EventEmitter();
+        const onStateChange = vi.fn();
+        const client = {
+            connected: true,
+            socket,
+            connect: vi
+                .fn()
+                .mockResolvedValueOnce(undefined)
+                .mockRejectedValue(new Error('reconnect failed')),
+            disconnect: vi.fn(),
+        } as any;
+
+        const manager = new ConnectionManager(client, 'main', {
+            maxAttempts: 1,
+            initialDelay: 100,
+            maxDelay: 1000,
+            jitter: 0,
+            maxReconnectCycles: 2,
+            onStateChange,
+        });
+
+        await manager.connect();
+        client.connected = false;
+
+        await vi.advanceTimersByTimeAsync(10000);
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(client.connect).toHaveBeenCalledTimes(3);
+        expect(manager.getState()).toBe(ConnectionState.FAILED);
+        expect(onStateChange).toHaveBeenCalledWith(
+            ConnectionState.FAILED,
+            'Max runtime reconnect cycles (2) reached'
+        );
+
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(client.connect).toHaveBeenCalledTimes(3);
+    });
 });

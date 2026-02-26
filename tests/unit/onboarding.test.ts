@@ -27,10 +27,12 @@ describe('dingtalkOnboardingAdapter', () => {
             .mockResolvedValueOnce('12345')
             .mockResolvedValueOnce('tmpl.schema')
             .mockResolvedValueOnce('msgContent')
-            .mockResolvedValueOnce('user_a, user_b');
+            .mockResolvedValueOnce('user_a, user_b')
+            .mockResolvedValueOnce('7');
 
         const confirm = vi
             .fn()
+            .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true);
 
@@ -54,6 +56,7 @@ describe('dingtalkOnboardingAdapter', () => {
         expect(result.cfg.channels.dingtalk.cardTemplateId).toBe('tmpl.schema');
         expect(result.cfg.channels.dingtalk.cardTemplateKey).toBe('msgContent');
         expect(result.cfg.channels.dingtalk.allowFrom).toEqual(['user_a', 'user_b']);
+        expect(result.cfg.channels.dingtalk.maxReconnectCycles).toBe(7);
         expect(note).toHaveBeenCalled();
     });
 });

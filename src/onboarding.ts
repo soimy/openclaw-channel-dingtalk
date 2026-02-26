@@ -106,6 +106,9 @@ function applyAccountConfig(params: {
     ...(input.messageType ? { messageType: input.messageType } : {}),
     ...(input.cardTemplateId ? { cardTemplateId: input.cardTemplateId } : {}),
     ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {}),
+    ...(typeof input.maxReconnectCycles === "number"
+      ? { maxReconnectCycles: input.maxReconnectCycles }
+      : {}),
   };
 
   if (useDefault) {
@@ -304,6 +307,35 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       initialValue: resolved.groupPolicy ?? "open",
     });
 
+    let maxReconnectCycles: number | undefined;
+    const wantsReconnectLimits = await prompter.confirm({
+      message: "Configure runtime reconnect cycle limit? (recommended)",
+      initialValue: typeof resolved.maxReconnectCycles === "number",
+    });
+    if (wantsReconnectLimits) {
+      const parsedCycles = Number(
+        String(
+          await prompter.text({
+            message: "Max runtime reconnect cycles",
+            placeholder: "10",
+            initialValue: String(resolved.maxReconnectCycles ?? 10),
+            validate: (value) => {
+              const raw = String(value ?? "").trim();
+              const num = Number(raw);
+              if (!raw) {
+                return "Required";
+              }
+              if (!Number.isInteger(num) || num < 1) {
+                return "Must be an integer >= 1";
+              }
+              return undefined;
+            },
+          }),
+        ).trim(),
+      );
+      maxReconnectCycles = Number.isInteger(parsedCycles) && parsedCycles > 0 ? parsedCycles : 10;
+    }
+
     const next = applyAccountConfig({
       cfg,
       accountId,
@@ -319,6 +351,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         messageType,
         cardTemplateId,
         cardTemplateKey,
+        maxReconnectCycles,
       },
     });
 

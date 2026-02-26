@@ -566,6 +566,7 @@ export function resolveDingTalkAccount(
       initialReconnectDelay: dingtalk?.initialReconnectDelay,
       maxReconnectDelay: dingtalk?.maxReconnectDelay,
       reconnectJitter: dingtalk?.reconnectJitter,
+      maxReconnectCycles: dingtalk?.maxReconnectCycles,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
     };
     return {

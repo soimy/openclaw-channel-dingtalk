@@ -148,4 +148,19 @@ describe('gateway.startAccount lifecycle', () => {
         result.stop();
         expect(shared.stopMock).toHaveBeenCalledTimes(1);
     });
+
+    it('passes maxReconnectCycles from account config to connection manager', async () => {
+        const { ctx } = createStartContext();
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            maxReconnectCycles: 7,
+        } as any;
+
+        await dingtalkPlugin.gateway.startAccount(ctx as any);
+
+        expect(shared.connectionConfig).toMatchObject({
+            maxReconnectCycles: 7,
+        });
+    });
 });

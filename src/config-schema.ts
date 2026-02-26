@@ -76,6 +76,9 @@ const DingTalkAccountConfigSchema = z.object({
   /** Jitter factor for reconnection delay randomization (0-1, default: 0.3) */
   reconnectJitter: z.number().min(0).max(1).optional().default(0.3),
 
+  /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
+  maxReconnectCycles: z.number().int().min(1).optional().default(10),
+
   proactivePermissionHint: z
     .object({
       enabled: z.boolean().optional().default(true),
