@@ -37,6 +37,8 @@ export class ConnectionManager {
   private static readonly HEALTH_CHECK_INTERVAL_MS = 5000;
   private static readonly HEALTH_CHECK_GRACE_MS = 3000;
   private static readonly HEALTH_CHECK_UNHEALTHY_THRESHOLD = 2;
+  private static readonly DEFAULT_MAX_RECONNECT_CYCLES = 10;
+  private runtimeReconnectCycles: number = 0;
   private runtimeCounters = {
     healthUnhealthyChecks: 0,
     healthTriggeredReconnects: 0,
@@ -159,6 +161,9 @@ export class ConnectionManager {
       this.attemptCount = 0; // Reset counter on success
 
       this.log?.info?.(`[${this.accountId}] DingTalk Stream client connected successfully`);
+
+      // Reset runtime reconnect cycle counter on successful connection
+      this.runtimeReconnectCycles = 0;
 
       return { success: true, attempt: successfulAttempt };
     } catch (err: any) {
@@ -427,17 +432,34 @@ export class ConnectionManager {
       this.log?.error?.(`[${this.accountId}] Reconnection failed: ${err.message}`);
       this.runtimeCounters.reconnectFailures += 1;
       this.logRuntimeCounters("reconnect-failed");
+
+      // Track runtime reconnect cycles to prevent infinite loops
+      this.runtimeReconnectCycles += 1;
+      const maxCycles = this.config.maxReconnectCycles ?? ConnectionManager.DEFAULT_MAX_RECONNECT_CYCLES;
+
+      if (this.runtimeReconnectCycles >= maxCycles) {
+        this.log?.error?.(
+          `[${this.accountId}] Max runtime reconnect cycles (${maxCycles}) reached. Giving up. ` +
+          `Please check network connectivity or restart the gateway.`,
+        );
+        this.state = ConnectionStateEnum.FAILED;
+        this.connectedAt = undefined;
+        this.consecutiveUnhealthyChecks = 0;
+        this.notifyStateChange(`Max runtime reconnect cycles (${maxCycles}) reached`);
+        return;
+      }
+
       this.state = ConnectionStateEnum.FAILED;
       this.connectedAt = undefined;
       this.consecutiveUnhealthyChecks = 0;
       this.notifyStateChange(err.message);
 
-      // Continue runtime recovery instead of getting stuck in FAILED.
-      const delay = this.calculateNextDelay(0);
+      // Continue runtime recovery with exponential backoff based on cycle count
+      const delay = this.calculateNextDelay(Math.min(this.runtimeReconnectCycles - 1, 6)); // Cap at ~64x initial delay
       this.attemptCount = 0;
       this.clearReconnectTimer();
       this.log?.warn?.(
-        `[${this.accountId}] Reconnection cycle failed; scheduling next reconnect in ${(delay / 1000).toFixed(2)}s`,
+        `[${this.accountId}] Reconnection cycle ${this.runtimeReconnectCycles}/${maxCycles} failed; scheduling next reconnect in ${(delay / 1000).toFixed(2)}s`,
       );
       this.reconnectTimer = setTimeout(() => {
         void this.reconnect();

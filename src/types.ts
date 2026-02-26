@@ -52,6 +52,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   initialReconnectDelay?: number;
   maxReconnectDelay?: number;
   reconnectJitter?: number;
+  /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
+  maxReconnectCycles?: number;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -83,6 +85,8 @@ export interface DingTalkChannelConfig {
   initialReconnectDelay?: number;
   maxReconnectDelay?: number;
   reconnectJitter?: number;
+  /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
+  maxReconnectCycles?: number;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -476,6 +480,8 @@ export interface ConnectionManagerConfig {
   initialDelay: number;
   maxDelay: number;
   jitter: number;
+  /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
+  maxReconnectCycles?: number;
   /** Callback invoked when connection state changes */
   onStateChange?: (state: ConnectionState, error?: string) => void;
 }

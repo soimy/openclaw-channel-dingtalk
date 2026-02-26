@@ -381,6 +381,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         initialDelay: config.initialReconnectDelay ?? 1000,
         maxDelay: config.maxReconnectDelay ?? 60000,
         jitter: config.reconnectJitter ?? 0.3,
+        maxReconnectCycles: config.maxReconnectCycles,
         onStateChange: (state: ConnectionState, error?: string) => {
           if (stopped) {
             return;
