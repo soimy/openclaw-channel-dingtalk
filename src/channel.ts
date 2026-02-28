@@ -563,7 +563,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         clientId: config.clientId,
         clientSecret: config.clientSecret,
         debug: config.debug || false,
-        keepAlive: !useConnectionManager,
+        // keepAlive can be noisy/unstable in some network/proxy environments.
+        keepAlive: config.keepAlive ?? false,
       });
 
       instrumentConnectionStages(client);

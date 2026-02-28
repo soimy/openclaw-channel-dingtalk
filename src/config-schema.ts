@@ -90,6 +90,9 @@ const DingTalkAccountConfigSchema = z.object({
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb: z.number().int().min(1).optional(),
 
+  /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
+  keepAlive: z.boolean().optional().default(false),
+
   proactivePermissionHint: z
     .object({
       enabled: z.boolean().optional().default(true),
