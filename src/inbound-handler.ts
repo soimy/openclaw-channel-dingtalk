@@ -4,6 +4,7 @@ import { getAccessToken } from "./auth";
 import {
   cleanupCardCache,
   createAICard,
+  deleteActiveCardByTarget,
   finishAICard,
   formatContentForCard,
   getActiveCardIdByTarget,
@@ -417,11 +418,36 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const existingCardId = getActiveCardIdByTarget(targetKey);
     const existingCard = existingCardId ? getCardById(existingCardId) : undefined;
 
-    // Reuse active non-terminal card to keep one card per conversation.
-    if (existingCard && !isCardInTerminalState(existingCard.state)) {
-      currentAICard = existingCard;
-      log?.debug?.("[DingTalk] Reusing existing active AI card for this conversation.");
-    } else {
+    // Check for stale cards (stuck in non-terminal state for > 5 minutes) and force-close them
+    // to prevent permanently spinning cards that block new responses on the same conversation.
+    const CARD_STALE_THRESHOLD_MS = 5 * 60 * 1000;
+    if (existingCard) {
+      if (!isCardInTerminalState(existingCard.state)) {
+        const cardAge = Date.now() - existingCard.createdAt;
+        if (cardAge > CARD_STALE_THRESHOLD_MS) {
+          log?.warn?.(
+            `[DingTalk] Stale card detected (age=${Math.floor(cardAge / 1000)}s), forcing close`,
+          );
+          try {
+            await streamAICard(existingCard, "会话超时", true, log);
+          } catch (err: any) {
+            log?.debug?.(`[DingTalk] Failed to close stale card: ${err.message}`);
+          }
+          existingCard.state = AICardStatus.FAILED;
+          existingCard.lastUpdated = Date.now();
+          deleteActiveCardByTarget(targetKey);
+        } else {
+          // Valid active card, reuse it.
+          currentAICard = existingCard;
+          log?.debug?.("[DingTalk] Reusing existing active AI card for this conversation.");
+        }
+      } else {
+        // Card is terminal; clean up stale mapping so a new card can be created.
+        deleteActiveCardByTarget(targetKey);
+      }
+    }
+
+    if (!currentAICard) {
       try {
         const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
         if (aiCard) {
@@ -499,11 +525,33 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             const toolText = formatContentForCard(textToSend, "tool");
             if (toolText) {
               await streamAICard(currentAICard, toolText, false, log);
+              // Track tool output as fallback final content so finalization doesn't
+              // replace it with the "✅ Done" placeholder when there is no direct AI text.
+              lastCardContent = toolText;
               return;
             }
           }
 
           lastCardContent = textToSend;
+
+          // In card mode, stream directly to the AI card to avoid sendMessage's markdown
+          // fallback path which would send a duplicate text message alongside the card.
+          if (useCardMode && currentAICard && !isCardInTerminalState(currentAICard.state)) {
+            try {
+              await streamAICard(currentAICard, textToSend, false, log);
+            } catch (streamErr: any) {
+              log?.error?.(`[DingTalk] Card stream update failed: ${(streamErr as Error).message}`);
+              if ((streamErr as any)?.response?.data !== undefined) {
+                log?.error?.(
+                  formatDingTalkErrorPayloadLog("inbound.replyDeliver.stream", (streamErr as any).response.data),
+                );
+              }
+              currentAICard.state = AICardStatus.FAILED;
+              currentAICard.lastUpdated = Date.now();
+            }
+            return;
+          }
+
           await sendMessage(dingtalkConfig, to, textToSend, {
             sessionWebhook,
             atUserId: !isDirect ? senderId : null,
@@ -581,11 +629,21 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         const finalContent = finalContentCandidate;
         await finishAICard(currentAICard, finalContent, log);
       } else {
-        const defaultFinalContent = "✅ Done";
-        log?.debug?.(
-          "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
-        );
-        await finishAICard(currentAICard, defaultFinalContent, log);
+        // No text from deliver callback — but the card may have received content via sendMessage
+        // (e.g. proactive notifications sent through a tool call). Use lastStreamedContent tracked
+        // on the card instance itself as the final content so it isn't replaced with "✅ Done".
+        const lastStreamed = currentAICard.lastStreamedContent;
+        if (lastStreamed && lastStreamed.trim().length > 0) {
+          log?.debug?.(
+            `[DingTalk] No deliver-callback text; using lastStreamedContent (len=${lastStreamed.length}) as final card content.`,
+          );
+          await finishAICard(currentAICard, lastStreamed, log);
+        } else {
+          log?.debug?.(
+            "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
+          );
+          await finishAICard(currentAICard, "✅ Done", log);
+        }
       }
     } catch (err: any) {
       log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);

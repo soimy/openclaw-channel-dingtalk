@@ -362,12 +362,14 @@ export async function sendMessage(
             await streamAICard(activeCard, text, false, log);
             return { ok: true };
           } catch (err: any) {
-            // Mark failed and continue to markdown fallback to avoid message loss.
-            log?.warn?.(
-              `[DingTalk] AI Card streaming failed, fallback to markdown: ${err.message}`,
+            // In card mode do NOT fall through to markdown — that would produce a duplicate text
+            // message alongside the still-visible card.  Return an error so callers can decide.
+            log?.error?.(
+              `[DingTalk] AI Card streaming failed: ${err.message}`,
             );
             activeCard.state = AICardStatus.FAILED;
             activeCard.lastUpdated = Date.now();
+            return { ok: false, error: err.message };
           }
         } else {
           deleteActiveCardByTarget(targetKey);

@@ -16,6 +16,7 @@ import {
   detectMediaTypeFromExtension,
   sendMessage,
   sendProactiveMedia,
+  sendProactiveTextOrMarkdown,
   sendBySession,
   uploadMedia,
 } from "./send-service";
@@ -170,22 +171,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
       try {
-        const result = await sendMessage(config, to, text, { log, accountId });
-        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
-        if (result.ok) {
-          const data = result.data as any;
-          const messageId = String(data?.processQueryKey || data?.messageId || randomUUID());
-          return {
-            channel: "dingtalk",
-            messageId,
-            meta: result.data
-              ? { data: result.data as unknown as Record<string, unknown> }
-              : undefined,
-          };
-        }
-        throw new Error(
-          typeof result.error === "string" ? result.error : JSON.stringify(result.error),
-        );
+        // Proactive messages must bypass sendMessage's card-streaming path so they
+        // are delivered as independent markdown messages and do not overwrite the
+        // AI card that is concurrently streaming the reply to the same conversation.
+        const result = await sendProactiveTextOrMarkdown(config, to, text, { log, accountId });
+        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" sent as proactive markdown`);
+        const data = result as any;
+        const messageId = String(data?.processQueryKey || data?.messageId || randomUUID());
+        return {
+          channel: "dingtalk",
+          messageId,
+          meta: result ? { data: result as unknown as Record<string, unknown> } : undefined,
+        };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
           log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));

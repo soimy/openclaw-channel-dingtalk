@@ -140,6 +140,8 @@ export async function createAICard(
     );
 
     const isGroup = conversationId.startsWith("cid");
+    // For IM_ROBOT single chat, the openSpaceId must use the sender's userId, not conversationId.
+    const spaceId = isGroup ? conversationId : (data.senderStaffId || data.senderId);
 
     if (!config.cardTemplateId) {
       throw new Error("DingTalk cardTemplateId is not configured.");
@@ -150,19 +152,23 @@ export async function createAICard(
       cardTemplateId: config.cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
-        cardParamMap: {},
+        // DingTalk streaming API requires at least one field in cardParamMap to accept subsequent
+        // PUT /v1.0/card/streaming updates; an empty map causes param.empty errors.
+        cardParamMap: { content: "" },
       },
       callbackType: "STREAM",
       imGroupOpenSpaceModel: { supportForward: true },
       imRobotOpenSpaceModel: { supportForward: true },
       openSpaceId: isGroup
-        ? `dtv1.card//IM_GROUP.${conversationId}`
-        : `dtv1.card//IM_ROBOT.${conversationId}`,
+        ? `dtv1.card//IM_GROUP.${spaceId}`
+        : `dtv1.card//IM_ROBOT.${spaceId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
         ? { robotCode: config.robotCode || config.clientId }
         : undefined,
-      imRobotOpenDeliverModel: !isGroup ? { spaceType: "IM_ROBOT" } : undefined,
+      imRobotOpenDeliverModel: !isGroup
+        ? { spaceType: "IM_ROBOT", robotCode: config.robotCode || config.clientId }
+        : undefined,
     };
 
     if (isGroup && !config.robotCode) {
@@ -274,6 +280,7 @@ export async function streamAICard(
     );
 
     card.lastUpdated = Date.now();
+    card.lastStreamedContent = content;
     if (finished) {
       card.state = AICardStatus.FINISHED;
     } else if (card.state === AICardStatus.PROCESSING) {
