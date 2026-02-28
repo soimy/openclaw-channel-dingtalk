@@ -185,7 +185,7 @@ openclaw configure --section channels
 
 **说明：**
 
-- 使用 DingTalk 官方 AI 卡片模板时，`cardTemplateKey` 默认为 `'msgContent'`，无需修改
+- 使用 DingTalk 官方 AI 卡片模板时，`cardTemplateKey` 默认为 `'content'`，无需修改
 - 如果您创建自定义卡片模板，需要确保模板中包含相应的内容字段，并将 `cardTemplateKey` 配置为该字段名称
 
 ##### 4. 获取凭证
@@ -407,11 +407,11 @@ openclaw gateway restart
 {
   messageType: 'card', // 启用 AI 互动卡片模式
   cardTemplateId: '382e4302-551d-4880-bf29-a30acfab2e71.schema', // AI 卡片模板 ID（默认值）
-  cardTemplateKey: 'msgContent', // 卡片内容字段键（默认值：msgContent）
+  cardTemplateKey: 'content', // 卡片内容字段键（默认值：content）
 }
 ```
 
-> **注意**：`cardTemplateKey` 应与您的卡片模板中定义的字段名称一致。默认值为 `'msgContent'`，适用于 DingTalk 官方 AI 卡片模板。如果您使用自定义模板，请根据模板定义的字段名称进行配置。
+> **注意**：`cardTemplateKey` 应与您的卡片模板中定义的字段名称一致。默认值为 `'content'`，适用于 DingTalk 官方 AI 卡片模板。如果您使用自定义模板，请根据模板定义的字段名称进行配置。
 
 ## 使用示例
 
