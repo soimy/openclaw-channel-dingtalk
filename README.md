@@ -320,6 +320,11 @@ openclaw gateway restart
 | 视频     | ✅   | 先上传媒体再发送                 |
 | 文件     | ✅   | 先上传媒体再发送                 |
 
+> **重要限制：**
+> 当前**不支持图片的图文混排**。也就是说，Markdown 消息和 AI 互动卡片目前都只能发送文本内容，不能在同一条消息中同时内嵌图片。
+> 如果需要发送图片，请单独调用 `outbound.sendMedia(...)` 或 `sendProactiveMedia(...)`。
+> 无论是**本地图片路径**还是**远程 HTTP(S) 图片 URL**，都支持单独发送；远程图片会先下载到临时文件，再上传到钉钉后发送。
+
 ## API 消耗说明
 
 ### Text/Markdown 模式
@@ -379,6 +384,7 @@ openclaw gateway restart
 - 通过 `cardTemplateKey` 指定内容字段
 - **适用于 AI 对话场景**
 - 支持在卡片中实时显示 AI 思考过程（推理流）和工具执行结果
+- 当前卡片模式仅支持**文本内容流式更新**，不支持图片图文混排
 
 **AI Card API 特性：**
 当配置 `messageType: 'card'` 时：
@@ -424,6 +430,59 @@ openclaw gateway restart
 
 1. **私聊机器人** — 找到机器人，发送消息
 2. **群聊 @机器人** — 在群里 @机器人名称 + 消息
+
+如果你是通过 OpenClaw 的 outbound 能力主动发消息，也可以直接调用：
+
+```typescript
+import { dingtalkPlugin } from './src/channel';
+
+const cfg = {
+  channels: {
+    dingtalk: {
+      clientId: 'dingxxxxxx',
+      clientSecret: 'your-app-secret',
+      robotCode: 'dingxxxxxx',
+    },
+  },
+};
+
+// 发送本地图片
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'cidxxxxxxxx',
+  mediaPath: '/absolute/path/to/photo.png',
+  accountId: 'default',
+});
+
+// 发送远程图片 URL（插件会先下载到临时文件，再上传到钉钉）
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'cidxxxxxxxx',
+  mediaUrl: 'https://example.com/banner.jpg',
+  accountId: 'default',
+});
+
+// 发送文件或其他媒体，也可以显式指定 mediaType
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'user_123456',
+  mediaPath: '/absolute/path/to/manual.pdf',
+  mediaType: 'file',
+  accountId: 'default',
+});
+```
+
+`to` 支持两类目标：
+
+- 群会话：`cid...`
+- 单聊用户：`userId`，或显式写成 `user:<userId>`
+
+如果你传入的是远程图片 URL，插件当前会按下面的方式处理：
+
+1. 下载远程图片到本地临时文件
+2. 调用钉钉媒体上传接口获取 `media_id`
+3. 以独立图片消息发送
+4. 发送完成后清理临时文件
 
 ## 故障排除
 
@@ -570,7 +629,12 @@ getAccessToken(config, log); // 获取访问令牌
 **使用示例：**
 
 ```typescript
-import { createAICard, streamAICard, finishAICard } from './src/channel';
+import {
+  createAICard,
+  finishAICard,
+  sendProactiveMedia,
+  streamAICard,
+} from './src/channel';
 
 // 创建 AI 卡片
 const card = await createAICard(config, conversationId, messageData, log);
@@ -582,6 +646,12 @@ for (const chunk of aiResponseChunks) {
 
 // 完成并关闭卡片
 await finishAICard(card, finalText, log);
+
+// 主动发送图片
+await sendProactiveMedia(config, 'cidxxxxxxxx', '/absolute/path/to/photo.png', 'image', {
+  accountId: 'default',
+  log,
+});
 ```
 
 ### 架构
