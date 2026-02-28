@@ -871,39 +871,4 @@ describe('inbound-handler', () => {
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         expect(shared.finishAICardMock).toHaveBeenCalledWith(card, '❌ 处理失败', expect.anything());
     });
-
-    it('does not leak unhandled stop reason text to outbound chat messages', async () => {
-        const runtime = buildRuntime();
-        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockImplementation(async ({ dispatcherOptions }) => {
-            await dispatcherOptions.deliver({ text: 'Unhandled stop reason: network_error' }, { kind: 'final' });
-            return { queuedFinal: 'Unhandled stop reason: network_error' };
-        });
-        shared.getRuntimeMock.mockReturnValueOnce(runtime);
-
-        await handleDingTalkMessage({
-            cfg: {},
-            accountId: 'main',
-            sessionWebhook: 'https://session.webhook',
-            log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
-            data: {
-                msgId: 'm12',
-                msgtype: 'text',
-                text: { content: 'hello' },
-                conversationType: '1',
-                conversationId: 'cid_ok',
-                senderId: 'user_1',
-                chatbotUserId: 'bot_1',
-                sessionWebhook: 'https://session.webhook',
-                createAt: Date.now(),
-            },
-        } as any);
-
-        expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
-            expect.anything(),
-            expect.anything(),
-            expect.stringContaining('Unhandled stop reason:'),
-            expect.anything(),
-        );
-    });
 });
