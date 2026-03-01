@@ -285,7 +285,7 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-        expect(shared.finishAICardMock).toHaveBeenCalledWith(card, '✅ Done', undefined);
+        expect(shared.finishAICardMock).toHaveBeenCalledWith(card, '✅ 完成', undefined);
     });
 
     it('handleDingTalkMessage skips finishAICard when current card is already terminal', async () => {

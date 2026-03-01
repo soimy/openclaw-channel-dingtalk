@@ -678,18 +678,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       } else {
         const kindLabel =
           producedMediaKind === "image"
-            ? "image"
+            ? "图片"
             : producedMediaKind === "video"
-              ? "video"
+              ? "视频"
               : producedMediaKind === "voice"
-                ? "voice"
+                ? "语音"
                 : producedMediaKind === "file"
-                  ? "file"
-                  : "media";
+                  ? "文件"
+                  : "媒体消息";
 
         const defaultFinalContent = producedMediaKind && !producedTextOutput
-          ? `✅ Sent ${kindLabel}.`
-          : "✅ Done";
+          ? `✅ 已发送${kindLabel}。`
+          : "✅ 完成";
 
         log?.debug?.(
           "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
