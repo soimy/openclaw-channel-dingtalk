@@ -576,13 +576,20 @@ export function resolveDingTalkAccount(
     };
   }
 
-  // If named account, get from accounts object
+  // If named account, merge channel-level defaults with account-level overrides
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
+    const { accounts: _accounts, ...channelDefaults } = dingtalk as DingTalkChannelConfig;
+    const merged: Record<string, unknown> = { ...channelDefaults };
+    for (const [key, value] of Object.entries(accountConfig)) {
+      if (value !== undefined) {
+        merged[key] = value;
+      }
+    }
     return {
-      ...accountConfig,
+      ...(merged as DingTalkConfig),
       accountId: id,
-      configured: Boolean(accountConfig.clientId && accountConfig.clientSecret),
+      configured: Boolean(merged.clientId && merged.clientSecret),
     };
   }
 

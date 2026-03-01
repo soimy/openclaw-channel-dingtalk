@@ -33,6 +33,36 @@ describe('channel config + status helpers', () => {
         expect(dingtalkPlugin.config.describeAccount(account).name).toBe('Main');
     });
 
+    it('resolveAccount merges channel-level defaults into named account', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    dmPolicy: 'allowlist',
+                    allowFrom: ['user1'],
+                    messageType: 'card',
+                    cardTemplateId: 'tpl.schema',
+                    showThinking: false,
+                    accounts: {
+                        main: { clientId: 'id1', clientSecret: 'sec1', name: 'Main' },
+                        custom: { clientId: 'id2', clientSecret: 'sec2', dmPolicy: 'open' },
+                    },
+                },
+            },
+        } as any;
+
+        const main = dingtalkPlugin.config.resolveAccount(cfg, 'main');
+        expect(main.config.clientId).toBe('id1');
+        expect(main.config.dmPolicy).toBe('allowlist');
+        expect(main.config.allowFrom).toEqual(['user1']);
+        expect(main.config.messageType).toBe('card');
+        expect(main.config.cardTemplateId).toBe('tpl.schema');
+        expect(main.config.showThinking).toBe(false);
+
+        const custom = dingtalkPlugin.config.resolveAccount(cfg, 'custom');
+        expect(custom.config.dmPolicy).toBe('open');
+        expect(custom.config.messageType).toBe('card');
+    });
+
     it('validates outbound resolveTarget and messaging/security helpers', () => {
         const resolved = dingtalkPlugin.outbound.resolveTarget({ to: 'group:cidAbC' } as any);
         const invalid = dingtalkPlugin.outbound.resolveTarget({ to: '   ' } as any);
