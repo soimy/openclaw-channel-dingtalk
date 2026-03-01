@@ -542,7 +542,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             }
 
             const pathish =
-              p.mediaPath || p.filePath || p.mediaUrl || p.path || p.url || p.media || p.file;
+              p.mediaUrl ||
+              (Array.isArray(p.mediaUrls) && p.mediaUrls.length > 0 ? p.mediaUrls[0] : undefined) ||
+              p.mediaPath ||
+              p.filePath ||
+              p.path ||
+              p.url ||
+              p.media ||
+              p.file;
             const byPath = inferMediaKindFromPath(pathish);
             if (byPath) {
               return byPath;
