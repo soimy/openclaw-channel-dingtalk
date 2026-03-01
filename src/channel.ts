@@ -363,7 +363,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
               );
               stats.inflightSkipped += 1;
-              acknowledge();
+              // Do not acknowledge in-flight duplicates before the original handler succeeds.
+              // If the original later fails, early-acking the duplicate can suppress server redelivery.
               logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
               return;
             }
