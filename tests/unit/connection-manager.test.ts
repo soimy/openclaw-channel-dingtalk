@@ -45,6 +45,62 @@ describe('ConnectionManager', () => {
         expect(onStateChange).toHaveBeenCalledWith(ConnectionState.CONNECTED, undefined);
     });
 
+    it('cleans up previous client resources before each connect attempt', async () => {
+        const client = {
+            connected: true,
+            socket: new EventEmitter(),
+            disconnect: vi.fn(),
+            connect: vi.fn().mockResolvedValue(undefined),
+        } as any;
+
+        const manager = new ConnectionManager(client, 'main', {
+            maxAttempts: 1,
+            initialDelay: 100,
+            maxDelay: 1000,
+            jitter: 0,
+        });
+
+        await manager.connect();
+
+        expect(client.disconnect).toHaveBeenCalledTimes(1);
+        expect(client.connect).toHaveBeenCalledTimes(1);
+        expect(client.disconnect.mock.invocationCallOrder[0]).toBeLessThan(client.connect.mock.invocationCallOrder[0]);
+    });
+
+    it('logs debug and continues when pre-connect disconnect throws', async () => {
+        const log = {
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+            debug: vi.fn(),
+        };
+        const client = {
+            connected: true,
+            socket: new EventEmitter(),
+            disconnect: vi.fn().mockImplementation(() => {
+                throw new Error('pre-cleanup failed');
+            }),
+            connect: vi.fn().mockResolvedValue(undefined),
+        } as any;
+
+        const manager = new ConnectionManager(
+            client,
+            'main',
+            {
+                maxAttempts: 1,
+                initialDelay: 100,
+                maxDelay: 1000,
+                jitter: 0,
+            },
+            log,
+        );
+
+        await manager.connect();
+
+        expect(client.connect).toHaveBeenCalledTimes(1);
+        expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('pre-connect'));
+    });
+
     it('retries and eventually fails after max attempts', async () => {
         const client = {
             connected: false,
