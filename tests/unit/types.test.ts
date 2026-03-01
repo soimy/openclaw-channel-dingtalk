@@ -61,4 +61,19 @@ describe('types helpers', () => {
             configured: false,
         });
     });
+
+    it('resolves default account with mediaMaxMb from config', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'cli',
+                    clientSecret: 'sec',
+                    mediaMaxMb: 50,
+                },
+            },
+        } as any;
+
+        const account = resolveDingTalkAccount(cfg, 'default');
+        expect(account.mediaMaxMb).toBe(50);
+    });
 });

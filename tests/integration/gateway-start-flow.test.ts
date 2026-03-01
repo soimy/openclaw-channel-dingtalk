@@ -7,6 +7,9 @@ const shared = vi.hoisted(() => ({
     isConnectedMock: vi.fn(),
     cleanupOrphanedTempFilesMock: vi.fn(),
     connectionConfig: undefined as any,
+    clientConnectMock: vi.fn(),
+    clientDisconnectMock: vi.fn(),
+    dwClientConfig: undefined as any,
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -17,11 +20,16 @@ vi.mock('dingtalk-stream', () => ({
     TOPIC_ROBOT: 'TOPIC_ROBOT',
     DWClient: class {
         config: Record<string, unknown>;
+        connect: () => Promise<void>;
+        disconnect: () => void;
         registerCallbackListener: (topic: string, cb: (res: unknown) => Promise<void>) => void;
         socketCallBackResponse: (messageId: string, payload: unknown) => void;
 
-        constructor() {
-            this.config = {};
+        constructor(config: Record<string, unknown>) {
+            this.config = config;
+            shared.dwClientConfig = this.config;
+            this.connect = shared.clientConnectMock;
+            this.disconnect = shared.clientDisconnectMock;
             this.registerCallbackListener = vi.fn();
             this.socketCallBackResponse = vi.fn();
         }
@@ -54,6 +62,8 @@ vi.mock('../../src/utils', async () => {
 });
 
 import { dingtalkPlugin } from '../../src/channel';
+
+const startGatewayAccount = (ctx: any): Promise<any> => dingtalkPlugin.gateway!.startAccount!(ctx as any);
 
 function createStartContext(abortSignal?: AbortSignal) {
     let status = {
@@ -98,10 +108,14 @@ describe('gateway.startAccount lifecycle', () => {
         shared.isConnectedMock.mockReset();
         shared.cleanupOrphanedTempFilesMock.mockReset();
         shared.connectionConfig = undefined;
+        shared.clientConnectMock.mockReset();
+        shared.clientDisconnectMock.mockReset();
+        shared.dwClientConfig = undefined;
 
         shared.connectMock.mockResolvedValue(undefined);
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(true);
+        shared.clientConnectMock.mockResolvedValue(undefined);
     });
 
     it('fails fast when abortSignal is already aborted before start', async () => {
@@ -109,7 +123,7 @@ describe('gateway.startAccount lifecycle', () => {
         controller.abort();
         const { ctx, setStatusCalls } = createStartContext(controller.signal);
 
-        await expect(dingtalkPlugin.gateway.startAccount(ctx as any)).rejects.toThrow('Connection aborted before start');
+        await expect(startGatewayAccount(ctx as any)).rejects.toThrow('Connection aborted before start');
 
         expect(shared.connectMock).not.toHaveBeenCalled();
         expect(setStatusCalls.some((s) => s.lastError === 'Connection aborted before start')).toBe(true);
@@ -118,7 +132,7 @@ describe('gateway.startAccount lifecycle', () => {
     it('connects, waits for stop, and executes stop callback', async () => {
         const { ctx, setStatusCalls } = createStartContext();
 
-        const stopResult = await dingtalkPlugin.gateway.startAccount(ctx as any);
+        const stopResult = await startGatewayAccount(ctx as any);
 
         expect(shared.cleanupOrphanedTempFilesMock).toHaveBeenCalledTimes(1);
         expect(shared.connectMock).toHaveBeenCalledTimes(1);
@@ -140,7 +154,7 @@ describe('gateway.startAccount lifecycle', () => {
         });
         shared.isConnectedMock.mockReturnValue(false);
 
-        const result = await dingtalkPlugin.gateway.startAccount(ctx as any);
+        const result = await startGatewayAccount(ctx as any);
 
         expect(shared.stopMock).toHaveBeenCalledTimes(1);
         expect(setStatusCalls.some((s) => s.running === false && s.lastStopAt !== null)).toBe(true);
@@ -157,10 +171,34 @@ describe('gateway.startAccount lifecycle', () => {
             maxReconnectCycles: 7,
         } as any;
 
-        await dingtalkPlugin.gateway.startAccount(ctx as any);
+        await startGatewayAccount(ctx as any);
 
         expect(shared.connectionConfig).toMatchObject({
             maxReconnectCycles: 7,
         });
+    });
+
+    it('uses DWClient native heartbeat and reconnect when useConnectionManager is false', async () => {
+        const { ctx, setStatusCalls } = createStartContext();
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+        } as any;
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(shared.connectMock).not.toHaveBeenCalled();
+        expect(shared.connectionConfig).toBeUndefined();
+        expect(shared.clientConnectMock).toHaveBeenCalledTimes(1);
+        expect(shared.dwClientConfig).toMatchObject({
+            keepAlive: true,
+            autoReconnect: true,
+        });
+        expect(setStatusCalls.some((s) => s.running === true && s.lastStartAt !== null)).toBe(true);
+
+        stopResult.stop();
+        expect(shared.clientDisconnectMock).toHaveBeenCalledTimes(1);
+        expect(shared.stopMock).not.toHaveBeenCalled();
     });
 });

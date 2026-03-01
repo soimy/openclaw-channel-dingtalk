@@ -226,6 +226,7 @@ openclaw configure --section channels
       "groupPolicy": "open",
       "debug": false,
       "messageType": "markdown", // 或 "card"
+      // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
       // 仅card需要配置
       "cardTemplateId": "你复制的模板ID",
       "cardTemplateKey": "你模板的内容变量"
@@ -260,6 +261,7 @@ openclaw gateway restart
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
 | `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
+| `mediaMaxMb`            | number   | -            | 接收文件大小上限（MB），不设则使用 runtime 默认值（5 MB） |
 | `maxConnectionAttempts` | number   | `10`         | 最大连接尝试次数                            |
 | `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |

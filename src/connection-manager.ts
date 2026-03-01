@@ -129,7 +129,20 @@ export class ConnectionManager {
     );
 
     try {
-      // Call DWClient connect method
+      // Ensure previous connection resources (heartbeat timers, old sockets) are
+      // fully cleaned up before establishing a new connection.  The DWClient
+      // _connect() method does not clear its internal heartbeat interval, so a
+      // stale timer from a prior session can terminate the newly created socket
+      // before it finishes the handshake (manifests as code-1006 / "WebSocket was
+      // closed before the connection was established").
+      try {
+        this.client.disconnect();
+      } catch (disconnectErr: any) {
+        this.log?.debug?.(
+          `[${this.accountId}] pre-connect cleanup disconnect failed: ${disconnectErr.message}`,
+        );
+      }
+
       await this.client.connect();
 
       // Re-check stopped flag after async connect() completes

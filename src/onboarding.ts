@@ -109,6 +109,10 @@ function applyAccountConfig(params: {
     ...(typeof input.maxReconnectCycles === "number"
       ? { maxReconnectCycles: input.maxReconnectCycles }
       : {}),
+    ...(typeof input.useConnectionManager === "boolean"
+      ? { useConnectionManager: input.useConnectionManager }
+      : {}),
+    ...(typeof input.mediaMaxMb === "number" ? { mediaMaxMb: input.mediaMaxMb } : {}),
   };
 
   if (useDefault) {
@@ -336,6 +340,36 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       maxReconnectCycles = Number.isInteger(parsedCycles) && parsedCycles > 0 ? parsedCycles : 10;
     }
 
+    let mediaMaxMb: number | undefined;
+    const wantsMediaMax = await prompter.confirm({
+      message: "Configure inbound media max size in MB? (optional)",
+      initialValue: typeof resolved.mediaMaxMb === "number",
+    });
+    if (wantsMediaMax) {
+      const parsedMediaMax = Number(
+        String(
+          await prompter.text({
+            message: "Max inbound media size (MB)",
+            placeholder: "20",
+            initialValue:
+              typeof resolved.mediaMaxMb === "number" ? String(resolved.mediaMaxMb) : "20",
+            validate: (value) => {
+              const raw = String(value ?? "").trim();
+              const num = Number(raw);
+              if (!raw) {
+                return "Required";
+              }
+              if (!Number.isInteger(num) || num < 1) {
+                return "Must be an integer >= 1";
+              }
+              return undefined;
+            },
+          }),
+        ).trim(),
+      );
+      mediaMaxMb = Number.isInteger(parsedMediaMax) && parsedMediaMax > 0 ? parsedMediaMax : 20;
+    }
+
     const next = applyAccountConfig({
       cfg,
       accountId,
@@ -352,6 +386,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         cardTemplateId,
         cardTemplateKey,
         maxReconnectCycles,
+        mediaMaxMb,
       },
     });
 
