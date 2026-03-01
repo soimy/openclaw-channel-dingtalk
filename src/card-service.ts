@@ -19,6 +19,10 @@ const CARD_CACHE_TTL = 60 * 60 * 1000;
 // Thinking/tool stream snippets are truncated to keep card updates compact.
 const THINKING_TRUNCATE_LENGTH = 500;
 
+function getProxyBypassOption(config: DingTalkConfig): { proxy: false } | Record<string, never> {
+  return config.bypassProxyForSend ? { proxy: false } : {};
+}
+
 // AI Card instance cache for streaming updates.
 const aiCardInstances = new Map<string, AICardInstance>();
 // accountId:conversationId -> cardInstanceId
@@ -125,6 +129,7 @@ async function sendTemplateMismatchNotification(
       method: "POST",
       data: payload,
       headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+      ...getProxyBypassOption(config),
     });
   } catch (sendErr: any) {
     log?.warn?.(`[DingTalk][AICard] Failed to send error notification to user: ${sendErr.message}`);
@@ -189,6 +194,7 @@ export async function createAICard(
       createAndDeliverBody,
       {
         headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+        ...getProxyBypassOption(config),
       },
     );
     log?.debug?.(
@@ -278,6 +284,7 @@ export async function streamAICard(
         "x-acs-dingtalk-access-token": card.accessToken,
         "Content-Type": "application/json",
       },
+      ...(card.config ? getProxyBypassOption(card.config) : {}),
     });
     log?.debug?.(
       `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`,
@@ -324,6 +331,7 @@ export async function streamAICard(
             "x-acs-dingtalk-access-token": card.accessToken,
             "Content-Type": "application/json",
           },
+          ...(card.config ? getProxyBypassOption(card.config) : {}),
         });
         log?.debug?.(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,

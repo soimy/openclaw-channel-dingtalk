@@ -82,6 +82,9 @@ const DingTalkAccountConfigSchema = z.object({
   /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
   keepAlive: z.boolean().optional().default(false),
 
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send APIs */
+  bypassProxyForSend: z.boolean().optional().default(false),
+
   proactivePermissionHint: z
     .object({
       enabled: z.boolean().optional().default(true),

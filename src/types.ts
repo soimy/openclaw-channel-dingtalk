@@ -56,6 +56,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   maxReconnectCycles?: number;
   /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
   keepAlive?: boolean;
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send APIs */
+  bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -91,6 +93,8 @@ export interface DingTalkChannelConfig {
   maxReconnectCycles?: number;
   /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
   keepAlive?: boolean;
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send APIs */
+  bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
