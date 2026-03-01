@@ -412,6 +412,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   let currentAICard = undefined;
   let lastCardContent = "";
 
+  type ProducedMediaKind = "image" | "video" | "voice" | "file" | "unknown";
+  let producedMediaKind: ProducedMediaKind | null = null;
+  let producedTextOutput = false;
+
   if (useCardMode) {
     const targetKey = `${accountId}:${to}`;
     const existingCardId = getActiveCardIdByTarget(targetKey);
@@ -469,10 +473,101 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       responsePrefix: "",
       deliver: async (payload: any, info?: { kind: string }) => {
         try {
+          const isNonEmptyString = (value: unknown): value is string =>
+            typeof value === "string" && value.trim().length > 0;
+
+          const normalizeMediaKind = (raw: unknown): ProducedMediaKind | null => {
+            if (typeof raw !== "string") {
+              return null;
+            }
+            const v = raw.trim().toLowerCase();
+            if (v === "image" || v === "img" || v === "photo" || v === "picture") {
+              return "image";
+            }
+            if (v === "video" || v === "mp4" || v === "mov") {
+              return "video";
+            }
+            if (v === "voice" || v === "audio" || v === "wav" || v === "mp3" || v === "m4a") {
+              return "voice";
+            }
+            if (v === "file" || v === "attachment" || v === "document") {
+              return "file";
+            }
+            return "unknown";
+          };
+
+          const inferMediaKindFromPath = (p: unknown): ProducedMediaKind | null => {
+            if (typeof p !== "string") {
+              return null;
+            }
+            const s = p.toLowerCase();
+            if (s.match(/\.(png|jpe?g|gif|webp|bmp|heic)(\?|#|$)/)) {
+              return "image";
+            }
+            if (s.match(/\.(mp4|mov|mkv|webm|avi)(\?|#|$)/)) {
+              return "video";
+            }
+            if (s.match(/\.(mp3|wav|m4a|aac|flac|ogg)(\?|#|$)/)) {
+              return "voice";
+            }
+            if (s.match(/\.[a-z0-9]{1,8}(\?|#|$)/)) {
+              return "file";
+            }
+            return null;
+          };
+
+          const extractMediaKind = (p: any): ProducedMediaKind | null => {
+            if (!p || typeof p !== "object") {
+              return null;
+            }
+
+            const directMediaType = normalizeMediaKind(p.mediaType);
+            if (directMediaType) {
+              return directMediaType;
+            }
+
+            const contentType = p.mimeType || p.contentType;
+            if (isNonEmptyString(contentType)) {
+              const ct = contentType.toLowerCase();
+              if (ct.startsWith("image/")) {
+                return "image";
+              }
+              if (ct.startsWith("video/")) {
+                return "video";
+              }
+              if (ct.startsWith("audio/")) {
+                return "voice";
+              }
+              return "file";
+            }
+
+            const pathish =
+              p.mediaPath || p.filePath || p.mediaUrl || p.path || p.url || p.media || p.file;
+            const byPath = inferMediaKindFromPath(pathish);
+            if (byPath) {
+              return byPath;
+            }
+
+            if (Array.isArray(p.attachments) && p.attachments.length > 0) {
+              return extractMediaKind(p.attachments[0]) || "file";
+            }
+
+            return null;
+          };
+
+          const maybeMediaKind = extractMediaKind(payload);
+          if (maybeMediaKind) {
+            if (!producedMediaKind || producedMediaKind === "unknown") {
+              producedMediaKind = maybeMediaKind;
+            }
+          }
+
           const textToSend = payload.markdown || payload.text;
           if (!textToSend) {
             return;
           }
+
+          producedTextOutput = true;
 
           if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
             log?.warn?.(`[DingTalk] Suppressed stop reason from outbound chat content: ${textToSend}`);
@@ -581,7 +676,21 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         const finalContent = finalContentCandidate;
         await finishAICard(currentAICard, finalContent, log);
       } else {
-        const defaultFinalContent = "✅ Done";
+        const kindLabel =
+          producedMediaKind === "image"
+            ? "image"
+            : producedMediaKind === "video"
+              ? "video"
+              : producedMediaKind === "voice"
+                ? "voice"
+                : producedMediaKind === "file"
+                  ? "file"
+                  : "media";
+
+        const defaultFinalContent = producedMediaKind && !producedTextOutput
+          ? `✅ Sent ${kindLabel}.`
+          : "✅ Done";
+
         log?.debug?.(
           "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
         );
