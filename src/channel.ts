@@ -30,7 +30,8 @@ import type {
 import { ConnectionState } from "./types";
 import { cleanupOrphanedTempFiles, formatDingTalkErrorPayloadLog, getCurrentTimestamp } from "./utils";
 
-const processingDedupKeys = new Set<string>();
+const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
+const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
 const inboundCountersByAccount = new Map<
   string,
   {
@@ -350,17 +351,25 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             return;
           }
 
-          if (processingDedupKeys.has(dedupKey)) {
-            ctx.log?.debug?.(
-              `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
-            );
-            stats.inflightSkipped += 1;
-            acknowledge();
-            logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
-            return;
+          const inflightSince = processingDedupKeys.get(dedupKey);
+          if (inflightSince !== undefined) {
+            if (Date.now() - inflightSince > INFLIGHT_TTL_MS) {
+              ctx.log?.warn?.(
+                `[${account.accountId}] Releasing stale in-flight lock for ${dedupKey} (held ${Date.now() - inflightSince}ms > TTL ${INFLIGHT_TTL_MS}ms)`,
+              );
+              processingDedupKeys.delete(dedupKey);
+            } else {
+              ctx.log?.debug?.(
+                `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
+              );
+              stats.inflightSkipped += 1;
+              acknowledge();
+              logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
+              return;
+            }
           }
 
-          processingDedupKeys.add(dedupKey);
+          processingDedupKeys.set(dedupKey, Date.now());
           try {
             await handleDingTalkMessage({
               cfg,
@@ -410,6 +419,22 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               lastError: null,
             });
           } else if (state === ConnectionState.FAILED || state === ConnectionState.DISCONNECTED) {
+            // Clear stale in-flight locks for this account on disconnect.
+            // DingTalk will redeliver unacknowledged messages on reconnect; without
+            // this cleanup the redelivered messages would be silently skipped forever.
+            const robotKey = config.robotCode || config.clientId || account.accountId;
+            let cleared = 0;
+            for (const key of processingDedupKeys.keys()) {
+              if (key.startsWith(`${robotKey}:`)) {
+                processingDedupKeys.delete(key);
+                cleared++;
+              }
+            }
+            if (cleared > 0) {
+              ctx.log?.info?.(
+                `[${account.accountId}] Cleared ${cleared} stale in-flight lock(s) on disconnect`,
+              );
+            }
             ctx.setStatus({
               ...ctx.getStatus(),
               running: false,
