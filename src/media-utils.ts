@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promises as fsPromises } from "node:fs";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import axios from "axios";
 import FormData from "form-data";
@@ -159,6 +160,11 @@ function isPrivateOrLocalHost(hostname: string): boolean {
   return false;
 }
 
+async function resolveHostname(hostname: string): Promise<Array<{ address: string; family: number }>> {
+  const records = await dnsLookup(hostname, { all: true, verbatim: true });
+  return Array.isArray(records) ? records : [records];
+}
+
 function detectExtensionFromContentType(contentType?: string): string {
   const normalized = contentType?.split(";")[0]?.trim().toLowerCase();
   switch (normalized) {
@@ -210,11 +216,38 @@ export async function prepareMediaInput(
     throw new Error(`remote media URL points to private or local network host: ${parsedUrl.hostname}`);
   }
 
+  const isIpLiteralHost = isIP(parsedUrl.hostname) !== 0;
+  let pinnedResolved: { address: string; family: number } | undefined;
+  if (!isIpLiteralHost) {
+    const resolvedRecords = await resolveHostname(parsedUrl.hostname);
+    if (resolvedRecords.length === 0) {
+      throw new Error(`remote media URL host cannot be resolved: ${parsedUrl.hostname}`);
+    }
+
+    if (!inAllowlist && resolvedRecords.some((record) => isPrivateOrLocalHost(record.address))) {
+      throw new Error(`remote media URL host resolves to private or local network address: ${parsedUrl.hostname}`);
+    }
+
+    pinnedResolved = resolvedRecords[0];
+  }
+
+  const lookup = pinnedResolved
+    ? async (hostname: string): Promise<{ address: string; family: number }> => {
+        if (hostname === parsedUrl.hostname) {
+          return pinnedResolved;
+        }
+
+        throw new Error(`remote media URL redirected to unexpected host: ${hostname}`);
+      }
+    : undefined;
+
   const response = await axios.get(trimmed, {
     responseType: "arraybuffer",
     maxBodyLength: REMOTE_MEDIA_MAX_BYTES,
     maxContentLength: REMOTE_MEDIA_MAX_BYTES,
     timeout: REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS,
+    maxRedirects: 0,
+    lookup,
   });
   const contentType =
     typeof response.headers?.["content-type"] === "string"

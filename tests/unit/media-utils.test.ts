@@ -1,8 +1,9 @@
 import * as fs from 'node:fs';
+import * as dnsPromises from 'node:dns/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import axios from 'axios';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectMediaTypeFromExtension, prepareMediaInput, uploadMedia } from '../../src/media-utils';
 
 vi.mock('axios', () => {
@@ -17,8 +18,13 @@ vi.mock('axios', () => {
     };
 });
 
+vi.mock('node:dns/promises', () => ({
+    lookup: vi.fn(),
+}));
+
 const mockedAxiosGet = vi.mocked((axios as any).get);
 const mockedAxiosPost = vi.mocked((axios as any).post);
+const mockedDnsLookup = vi.mocked((dnsPromises as any).lookup);
 
 function createTempFile(content: Buffer): string {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-media-')), `f_${Date.now()}.bin`);
@@ -29,6 +35,11 @@ function createTempFile(content: Buffer): string {
 afterEach(() => {
     mockedAxiosGet.mockReset();
     mockedAxiosPost.mockReset();
+    mockedDnsLookup.mockReset();
+});
+
+beforeEach(() => {
+    mockedDnsLookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as any);
 });
 
 describe('media-utils', () => {
@@ -85,6 +96,32 @@ describe('media-utils', () => {
             /private or local network host/
         );
         expect(mockedAxiosGet).not.toHaveBeenCalled();
+    });
+
+    it('rejects hostname that resolves to private network IP when not allowlisted', async () => {
+        mockedDnsLookup.mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }] as any);
+
+        await expect(prepareMediaInput('https://public.example.com/path/photo.png')).rejects.toThrow(
+            /resolves to private or local network address/
+        );
+        expect(mockedAxiosGet).not.toHaveBeenCalled();
+    });
+
+    it('allows hostname resolving to private IP when hostname is explicitly allowlisted', async () => {
+        mockedDnsLookup.mockResolvedValueOnce([{ address: '192.168.1.10', family: 4 }] as any);
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: Buffer.from('img'),
+            headers: { 'content-type': 'image/png' },
+        } as any);
+
+        const prepared = await prepareMediaInput(
+            'https://files.internal.example/path/photo.png',
+            undefined,
+            ['files.internal.example']
+        );
+
+        expect(fs.existsSync(prepared.path)).toBe(true);
+        await prepared.cleanup?.();
     });
 
     it('allows private host when host is explicitly in mediaUrlAllowlist', async () => {
