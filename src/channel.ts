@@ -234,7 +234,17 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
       let preparedMedia;
       try {
-        preparedMedia = await prepareMediaInput(rawMediaPath, log);
+        try {
+          preparedMedia = await prepareMediaInput(rawMediaPath, log);
+        } catch (err: any) {
+          if (err?.response?.data !== undefined) {
+            log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data));
+          }
+          throw new Error(`remote media preparation failed: ${err?.message || "unknown error"}`, {
+            cause: err,
+          });
+        }
+
         const actualMediaPath = preparedMedia.cleanup
           ? preparedMedia.path
           : resolveRelativePath(preparedMedia.path);
@@ -244,10 +254,21 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
 
         const mediaType = providedMediaType || detectMediaTypeFromExtension(actualMediaPath);
-        const result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, {
-          log,
-          accountId,
-        });
+        let result;
+        try {
+          result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, {
+            log,
+            accountId,
+          });
+        } catch (err: any) {
+          if (err?.response?.data !== undefined) {
+            log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia.send", err.response.data));
+          }
+          throw new Error(`proactive media send failed: ${err?.message || "unknown error"}`, {
+            cause: err,
+          });
+        }
+
         getLogger()?.debug?.(
           `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`,
         );

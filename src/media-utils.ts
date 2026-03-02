@@ -6,9 +6,11 @@
  */
 
 import * as fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promises as fsPromises } from "node:fs";
+import { isIP } from "node:net";
 import axios from "axios";
 import FormData from "form-data";
 import type { DingTalkConfig, Logger } from "./types";
@@ -20,6 +22,9 @@ export interface PreparedMediaInput {
   path: string;
   cleanup?: () => Promise<void>;
 }
+
+const REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS = 10_000;
+const REMOTE_MEDIA_MAX_BYTES = 20 * 1024 * 1024;
 
 /**
  * Detect media type from file extension
@@ -53,6 +58,44 @@ function isRemoteMediaUrl(input: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
+    return true;
+  }
+
+  const ipVersion = isIP(normalized);
+  if (ipVersion === 4) {
+    const parts = normalized.split(".").map((part) => Number.parseInt(part, 10));
+    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+      return true;
+    }
+
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+
+  if (ipVersion === 6) {
+    if (normalized === "::1") {
+      return true;
+    }
+    return normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80");
+  }
+
+  return false;
 }
 
 function detectExtensionFromContentType(contentType?: string): string {
@@ -91,18 +134,24 @@ export async function prepareMediaInput(
     return { path: trimmed };
   }
 
+  const parsedUrl = new URL(trimmed);
+  if (isPrivateOrLocalHost(parsedUrl.hostname)) {
+    throw new Error(`remote media URL points to private or local network host: ${parsedUrl.hostname}`);
+  }
+
   const response = await axios.get(trimmed, {
     responseType: "arraybuffer",
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
+    maxBodyLength: REMOTE_MEDIA_MAX_BYTES,
+    maxContentLength: REMOTE_MEDIA_MAX_BYTES,
+    timeout: REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS,
   });
   const contentType =
     typeof response.headers?.["content-type"] === "string"
       ? response.headers["content-type"]
       : undefined;
-  const urlPath = new URL(trimmed).pathname;
+  const urlPath = parsedUrl.pathname;
   const ext = path.extname(urlPath) || detectExtensionFromContentType(contentType) || ".bin";
-  const tempPath = path.join(os.tmpdir(), `dingtalk_${Date.now()}${ext}`);
+  const tempPath = path.join(os.tmpdir(), `dingtalk_${randomUUID()}${ext}`);
   const buffer = Buffer.isBuffer(response.data)
     ? response.data
     : Buffer.from(response.data as ArrayBuffer);
@@ -119,7 +168,7 @@ export async function prepareMediaInput(
         const code = typeof err === "object" && err !== null && "code" in err ? err.code : undefined;
         if (code !== "ENOENT") {
           const message = err instanceof Error ? err.message : String(err);
-          log?.debug?.(`[DingTalk] Failed to remove temp media ${tempPath}: ${message}`);
+          log?.warn?.(`[DingTalk] Failed to remove temp media ${tempPath}: ${message}`);
         }
       }
     },

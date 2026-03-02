@@ -67,11 +67,40 @@ describe('media-utils', () => {
             debug: vi.fn(),
         } as any);
 
-        expect(prepared.path).toMatch(/dingtalk_\d+\.png$/);
+        expect(prepared.path).toMatch(/dingtalk_[0-9a-f-]{36}\.png$/);
         expect(fs.existsSync(prepared.path)).toBe(true);
+        const requestConfig = mockedAxiosGet.mock.calls[0]?.[1] as Record<string, unknown>;
+        expect(requestConfig.timeout).toBe(10000);
+        expect(requestConfig.maxContentLength).toBe(20 * 1024 * 1024);
 
         await prepared.cleanup?.();
         expect(fs.existsSync(prepared.path)).toBe(false);
+    });
+
+    it('rejects local or private network media URLs', async () => {
+        await expect(prepareMediaInput('http://127.0.0.1/internal.png')).rejects.toThrow(
+            /private or local network host/
+        );
+        await expect(prepareMediaInput('http://localhost/internal.png')).rejects.toThrow(
+            /private or local network host/
+        );
+        expect(mockedAxiosGet).not.toHaveBeenCalled();
+    });
+
+    it('logs warn when cleanup fails for unexpected file-system errors', async () => {
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: Buffer.from('img'),
+            headers: { 'content-type': 'image/png' },
+        } as any);
+
+        const log = { warn: vi.fn(), debug: vi.fn() } as any;
+        const prepared = await prepareMediaInput('https://example.com/path/photo', log);
+        const unlinkSpy = vi.spyOn(fs.promises, 'unlink').mockRejectedValueOnce({ code: 'EPERM', message: 'denied' } as any);
+
+        await prepared.cleanup?.();
+
+        expect(log.warn).toHaveBeenCalledTimes(1);
+        unlinkSpy.mockRestore();
     });
 
     it('returns null when file exceeds media size limit', async () => {
