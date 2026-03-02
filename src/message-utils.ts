@@ -27,6 +27,21 @@ export function detectMarkdownAndExtractTitle(
 export function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   const msgtype = data.msgtype || "text";
 
+  const extractQuotedMedia = (): { mediaPath?: string; mediaType?: string } => {
+    const textField = data.text as any;
+    const repliedMsg = textField?.repliedMsg;
+    const richText = repliedMsg?.content?.richText;
+    if (!Array.isArray(richText)) {
+      return {};
+    }
+    for (const part of richText) {
+      if ((part.msgType === "picture" || part.type === "picture") && part.downloadCode) {
+        return { mediaPath: part.downloadCode, mediaType: "image" };
+      }
+    }
+    return {};
+  };
+
   // Normalize quote/reply metadata into a readable text prefix so the agent can understand message context.
   const formatQuotedContent = (): string => {
     const textField = data.text as any;
@@ -87,7 +102,9 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
   // Unified extraction by DingTalk msgtype for downstream routing/agent processing.
   if (msgtype === "text") {
-    return { text: quotedPrefix + (data.text?.content?.trim() || ""), messageType: "text" };
+    const text = quotedPrefix + (data.text?.content?.trim() || "");
+    const quotedMedia = extractQuotedMedia();
+    return { text, messageType: "text", ...quotedMedia };
   }
 
   if (msgtype === "richText") {
@@ -106,11 +123,14 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         pictureDownloadCode = part.downloadCode;
       }
     }
+    const quotedMedia = !pictureDownloadCode ? extractQuotedMedia() : {};
     return {
       text:
-        quotedPrefix + (text.trim() || (pictureDownloadCode ? "<media:image>" : "[富文本消息]")),
-      mediaPath: pictureDownloadCode,
-      mediaType: pictureDownloadCode ? "image" : undefined,
+        quotedPrefix +
+        (text.trim() ||
+          (pictureDownloadCode || quotedMedia.mediaPath ? "<media:image>" : "[富文本消息]")),
+      mediaPath: pictureDownloadCode || quotedMedia.mediaPath,
+      mediaType: pictureDownloadCode ? "image" : quotedMedia.mediaType,
       messageType: "richText",
     };
   }
