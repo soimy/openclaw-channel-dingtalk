@@ -47,7 +47,7 @@ const DingTalkAccountConfigSchema = z.object({
   cardTemplateId: z.string().optional(),
 
   /** Card template key for streaming updates
-   * Default: 'msgContent' - maps to the content field in the card template
+   * Default: 'content' - maps to the content field in the card template
    * This key is used in the streaming API to update specific fields in the card.
    */
   cardTemplateKey: z.string().optional().default("content"),

@@ -275,10 +275,10 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         String(
           await prompter.text({
             message: "Card Template Key (content field name)",
-            placeholder: "msgContent",
-            initialValue: resolved.cardTemplateKey ?? "msgContent",
+            placeholder: "content",
+            initialValue: resolved.cardTemplateKey ?? "content",
           }),
-        ).trim() || "msgContent";
+        ).trim() || "content";
 
       messageType = "card";
     }
