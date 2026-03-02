@@ -495,7 +495,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             const spaceType = typeof data?.spaceType === "string" ? data.spaceType : "";
             const spaceId = typeof data?.spaceId === "string" ? data.spaceId : undefined;
             const userId = typeof data?.userId === "string" ? data.userId : undefined;
-            const target = spaceType.toLowerCase() === "im" ? userId : spaceId;
+            // Prefer conversation space (group/thread) to avoid OTO permission limits.
+            const target = spaceId || userId;
 
             ctx.log?.info?.(
               `[${account.accountId}] [DingTalk][CardCallback] feedback branch entered: actionId=${actionId}, spaceType=${spaceType}, spaceId=${spaceId || ""}, userId=${userId || ""}`,
