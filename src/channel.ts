@@ -235,7 +235,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       let preparedMedia;
       try {
         try {
-          preparedMedia = await prepareMediaInput(rawMediaPath, log);
+          preparedMedia = await prepareMediaInput(rawMediaPath, log, config.mediaUrlAllowlist);
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
             log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data));

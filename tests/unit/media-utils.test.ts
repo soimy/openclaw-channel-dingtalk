@@ -87,6 +87,29 @@ describe('media-utils', () => {
         expect(mockedAxiosGet).not.toHaveBeenCalled();
     });
 
+    it('allows private host when host is explicitly in mediaUrlAllowlist', async () => {
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: Buffer.from('img'),
+            headers: { 'content-type': 'image/png' },
+        } as any);
+
+        const prepared = await prepareMediaInput(
+            'http://192.168.1.23/path/photo.png',
+            undefined,
+            ['192.168.1.23']
+        );
+
+        expect(fs.existsSync(prepared.path)).toBe(true);
+        await prepared.cleanup?.();
+    });
+
+    it('rejects remote hosts not listed in mediaUrlAllowlist when allowlist is configured', async () => {
+        await expect(
+            prepareMediaInput('https://example.com/path/photo.png', undefined, ['cdn.example.com'])
+        ).rejects.toThrow(/not in mediaUrlAllowlist/);
+        expect(mockedAxiosGet).not.toHaveBeenCalled();
+    });
+
     it('logs warn when cleanup fails for unexpected file-system errors', async () => {
         mockedAxiosGet.mockResolvedValueOnce({
             data: Buffer.from('img'),

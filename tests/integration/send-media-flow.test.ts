@@ -115,6 +115,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         expect(prepareMediaInputMock).toHaveBeenCalledWith(
             'https://example.com/photo.png',
+            undefined,
             undefined
         );
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
@@ -153,5 +154,32 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         ).rejects.toThrow(/remote media preparation failed/);
 
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('passes mediaUrlAllowlist from account config to media preparation', async () => {
+        prepareMediaInputMock.mockResolvedValueOnce({ path: '/tmp/dingtalk_123.png', cleanup: vi.fn() });
+        detectMediaTypeFromExtensionMock.mockReturnValueOnce('image');
+        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'm_1' });
+
+        await dingtalkPlugin.outbound.sendMedia({
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        clientId: 'id',
+                        clientSecret: 'sec',
+                        mediaUrlAllowlist: ['192.168.1.23', 'cdn.example.com'],
+                    },
+                },
+            },
+            to: 'cidA1B2C3',
+            mediaUrl: 'http://192.168.1.23/photo.png',
+            accountId: 'default',
+        });
+
+        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+            'http://192.168.1.23/photo.png',
+            undefined,
+            ['192.168.1.23', 'cdn.example.com']
+        );
     });
 });

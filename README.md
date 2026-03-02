@@ -258,6 +258,7 @@ openclaw gateway restart
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -325,6 +326,7 @@ openclaw gateway restart
 > 如果需要发送图片，请单独调用 `outbound.sendMedia(...)` 或 `sendProactiveMedia(...)`。
 > 无论是**本地图片路径**还是**远程 HTTP(S) 图片 URL**，都支持单独发送；远程图片会先下载到临时文件，再上传到钉钉后发送。
 > 远程 URL 下载默认限制为：**10 秒超时**、**20MB 上限**，并拒绝 `localhost` / 内网地址（如 `127.0.0.1`、`10.x.x.x`、`192.168.x.x`、`172.16-31.x.x`）以降低 SSRF 风险。
+> 如需从受控内网媒体服务下载，请配置 `mediaUrlAllowlist`（例如 `192.168.1.23`、`files.internal.example`、`10.0.0.0/8`）；配置后仅白名单主机可下载。
 
 ## API 消耗说明
 

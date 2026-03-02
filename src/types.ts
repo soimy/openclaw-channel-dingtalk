@@ -40,6 +40,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
+  mediaUrlAllowlist?: string[];
   showThinking?: boolean;
   debug?: boolean;
   messageType?: "markdown" | "card";
@@ -74,6 +75,7 @@ export interface DingTalkChannelConfig {
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
+  mediaUrlAllowlist?: string[];
   showThinking?: boolean;
   debug?: boolean;
   messageType?: "markdown" | "card";

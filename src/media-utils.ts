@@ -26,6 +26,67 @@ export interface PreparedMediaInput {
 const REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS = 10_000;
 const REMOTE_MEDIA_MAX_BYTES = 20 * 1024 * 1024;
 
+function normalizeAllowlistEntry(entry: string): string {
+  return entry.trim().toLowerCase();
+}
+
+function isIPv4InCidr(ipv4: string, cidr: string): boolean {
+  const [network, rawMask] = cidr.split("/");
+  const mask = Number.parseInt(rawMask || "", 10);
+  if (!network || Number.isNaN(mask) || mask < 0 || mask > 32) {
+    return false;
+  }
+
+  const ipParts = ipv4.split(".").map((part) => Number.parseInt(part, 10));
+  const networkParts = network.split(".").map((part) => Number.parseInt(part, 10));
+  if (
+    ipParts.length !== 4 ||
+    networkParts.length !== 4 ||
+    ipParts.some((part) => Number.isNaN(part)) ||
+    networkParts.some((part) => Number.isNaN(part))
+  ) {
+    return false;
+  }
+
+  let ipValue = 0;
+  let networkValue = 0;
+  for (let i = 0; i < 4; i++) {
+    ipValue = (ipValue << 8) + ipParts[i];
+    networkValue = (networkValue << 8) + networkParts[i];
+  }
+
+  const maskBits = mask === 0 ? 0 : (~0 << (32 - mask)) >>> 0;
+  return (ipValue & maskBits) === (networkValue & maskBits);
+}
+
+function matchesAllowlistHost(hostname: string, port: string, entry: string): boolean {
+  const normalizedHost = hostname.toLowerCase();
+  const normalizedEntry = normalizeAllowlistEntry(entry);
+  if (!normalizedEntry) {
+    return false;
+  }
+
+  if (normalizedEntry.includes("/")) {
+    return isIP(normalizedHost) === 4 && isIPv4InCidr(normalizedHost, normalizedEntry);
+  }
+
+  if (normalizedEntry.startsWith("*.")) {
+    const suffix = normalizedEntry.slice(1);
+    return normalizedHost.endsWith(suffix);
+  }
+
+  if (normalizedEntry.includes(":")) {
+    return `${normalizedHost}:${port}` === normalizedEntry;
+  }
+
+  return normalizedHost === normalizedEntry;
+}
+
+function isAllowedByMediaUrlAllowlist(url: URL, mediaUrlAllowlist: string[]): boolean {
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  return mediaUrlAllowlist.some((entry) => matchesAllowlistHost(url.hostname, port, entry));
+}
+
 /**
  * Detect media type from file extension
  * Matches DingTalk's supported media types:
@@ -128,6 +189,7 @@ function detectExtensionFromContentType(contentType?: string): string {
 export async function prepareMediaInput(
   input: string,
   log?: Logger,
+  mediaUrlAllowlist?: string[],
 ): Promise<PreparedMediaInput> {
   const trimmed = input.trim();
   if (!isRemoteMediaUrl(trimmed)) {
@@ -135,7 +197,16 @@ export async function prepareMediaInput(
   }
 
   const parsedUrl = new URL(trimmed);
-  if (isPrivateOrLocalHost(parsedUrl.hostname)) {
+  const isPrivateHost = isPrivateOrLocalHost(parsedUrl.hostname);
+  const allowlist = mediaUrlAllowlist?.filter((entry) => entry.trim().length > 0) || [];
+  const allowlistConfigured = allowlist.length > 0;
+  const inAllowlist = allowlistConfigured ? isAllowedByMediaUrlAllowlist(parsedUrl, allowlist) : false;
+
+  if (allowlistConfigured && !inAllowlist) {
+    throw new Error(`remote media URL host is not in mediaUrlAllowlist: ${parsedUrl.hostname}`);
+  }
+
+  if (isPrivateHost && !inAllowlist) {
     throw new Error(`remote media URL points to private or local network host: ${parsedUrl.hostname}`);
   }
 
