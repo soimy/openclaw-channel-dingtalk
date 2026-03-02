@@ -27,6 +27,8 @@ function getProxyBypassOption(config: DingTalkConfig): { proxy: false } | Record
 const aiCardInstances = new Map<string, AICardInstance>();
 // accountId:conversationId -> cardInstanceId
 const activeCardsByTarget = new Map<string, string>();
+// Keep last rendered markdown content per card for post-feedback re-render.
+const lastCardContentById = new Map<string, string>();
 
 function extractCardOutboundMessageId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") {
@@ -46,6 +48,10 @@ export function getCardById(cardId: string): AICardInstance | undefined {
   return aiCardInstances.get(cardId);
 }
 
+export function getLastCardContent(cardId: string): string | undefined {
+  return lastCardContentById.get(cardId);
+}
+
 export function getActiveCardIdByTarget(targetKey: string): string | undefined {
   return activeCardsByTarget.get(targetKey);
 }
@@ -60,6 +66,7 @@ export function cleanupCardCache(): void {
   for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
     if (isCardInTerminalState(instance.state) && now - instance.lastUpdated > CARD_CACHE_TTL) {
       aiCardInstances.delete(cardInstanceId);
+      lastCardContentById.delete(cardInstanceId);
       for (const [targetKey, mappedCardId] of activeCardsByTarget.entries()) {
         if (mappedCardId === cardInstanceId) {
           activeCardsByTarget.delete(targetKey);
@@ -291,6 +298,7 @@ export async function streamAICard(
     );
 
     card.lastUpdated = Date.now();
+    lastCardContentById.set(card.cardInstanceId, content);
     if (finished) {
       card.state = AICardStatus.FINISHED;
     } else if (card.state === AICardStatus.PROCESSING) {
@@ -379,4 +387,59 @@ export async function finishAICard(
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
   // Finalize by streaming one last full payload with isFinalize=true.
   await streamAICard(card, content, true, log);
+}
+
+export async function renderCardFeedbackState(
+  outTrackId: string,
+  feedback: "feedback_up" | "feedback_down",
+  log?: Logger,
+): Promise<boolean> {
+  const card = aiCardInstances.get(outTrackId);
+  if (!card || !card.config) {
+    return false;
+  }
+
+  const base = lastCardContentById.get(outTrackId) || "";
+  const marker =
+    feedback === "feedback_up"
+      ? "\n\n---\n✅ 反馈已记录：赞"
+      : "\n\n---\n⚠️ 反馈已记录：踩";
+  const content = `${base}${marker}`;
+
+  const body: AICardStreamingRequest = {
+    outTrackId: card.cardInstanceId,
+    guid: randomUUID(),
+    key: card.config?.cardTemplateKey || "content",
+    content,
+    isFull: true,
+    isFinalize: true,
+    isError: false,
+  };
+
+  try {
+    const resp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, body, {
+      headers: {
+        "x-acs-dingtalk-access-token": card.accessToken,
+        "Content-Type": "application/json",
+      },
+      ...(card.config ? getProxyBypassOption(card.config) : {}),
+    });
+    log?.debug?.(
+      `[DingTalk][AICard] Feedback render success: status=${resp.status}, outTrackId=${outTrackId}, feedback=${feedback}`,
+    );
+    card.state = AICardStatus.FINISHED;
+    card.lastUpdated = Date.now();
+    lastCardContentById.set(outTrackId, content);
+    return true;
+  } catch (err: any) {
+    log?.warn?.(
+      `[DingTalk][AICard] Feedback render failed: outTrackId=${outTrackId}, feedback=${feedback}, error=${err.message}`,
+    );
+    if (err.response?.data !== undefined) {
+      log?.warn?.(
+        formatDingTalkErrorPayloadLog("card.feedbackRender", err.response.data, "[DingTalk][AICard]"),
+      );
+    }
+    return false;
+  }
 }
