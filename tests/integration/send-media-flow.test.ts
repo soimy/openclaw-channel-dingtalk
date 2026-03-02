@@ -1,8 +1,9 @@
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { detectMediaTypeFromExtensionMock, sendProactiveMediaMock } = vi.hoisted(() => ({
+const { detectMediaTypeFromExtensionMock, prepareMediaInputMock, sendProactiveMediaMock } = vi.hoisted(() => ({
     detectMediaTypeFromExtensionMock: vi.fn(),
+    prepareMediaInputMock: vi.fn(),
     sendProactiveMediaMock: vi.fn(),
 }));
 
@@ -23,12 +24,18 @@ vi.mock('../../src/send-service', async () => ({
     uploadMedia: vi.fn(),
 }));
 
+vi.mock('../../src/media-utils', async () => ({
+    prepareMediaInput: prepareMediaInputMock,
+}));
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('dingtalkPlugin.outbound.sendMedia flow', () => {
     beforeEach(() => {
         detectMediaTypeFromExtensionMock.mockReset();
+        prepareMediaInputMock.mockReset();
         sendProactiveMediaMock.mockReset();
+        prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
     });
 
     it('auto-detects mediaType and sends with resolved absolute path', async () => {
@@ -87,6 +94,39 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         );
     });
 
+    it('downloads remote mediaUrl before upload when input is an HTTP URL', async () => {
+        prepareMediaInputMock.mockResolvedValueOnce({
+            path: '/tmp/dingtalk_123.png',
+            cleanup: vi.fn(),
+        });
+        detectMediaTypeFromExtensionMock.mockReturnValueOnce('image');
+        sendProactiveMediaMock.mockResolvedValueOnce({
+            ok: true,
+            data: { processQueryKey: 'remote_1' },
+            messageId: 'remote_1',
+        });
+
+        await dingtalkPlugin.outbound.sendMedia({
+            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            to: 'cidA1B2C3',
+            mediaUrl: 'https://example.com/photo.png',
+            accountId: 'default',
+        });
+
+        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+            'https://example.com/photo.png',
+            undefined,
+            undefined
+        );
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            '/tmp/dingtalk_123.png',
+            'image',
+            expect.objectContaining({ accountId: 'default' })
+        );
+    });
+
     it('throws when DingTalk send returns known error code', async () => {
         detectMediaTypeFromExtensionMock.mockReturnValueOnce('file');
         sendProactiveMediaMock.mockResolvedValueOnce({ ok: false, error: 'DingTalk API error 300001' });
@@ -99,5 +139,49 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
                 accountId: 'default',
             })
         ).rejects.toThrow(/300001/);
+    });
+
+    it('throws download-stage error and does not call proactive send', async () => {
+        const err = new Error('remote media URL points to private or local network host');
+        (err as any).code = 'ERR_MEDIA_PRIVATE_HOST';
+        prepareMediaInputMock.mockRejectedValueOnce(err);
+
+        await expect(
+            dingtalkPlugin.outbound.sendMedia({
+                cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+                to: 'cidA1B2C3',
+                mediaUrl: 'http://127.0.0.1/photo.png',
+                accountId: 'default',
+            })
+        ).rejects.toThrow(/remote media preparation failed: \[ERR_MEDIA_PRIVATE_HOST\]/);
+
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('passes mediaUrlAllowlist from account config to media preparation', async () => {
+        prepareMediaInputMock.mockResolvedValueOnce({ path: '/tmp/dingtalk_123.png', cleanup: vi.fn() });
+        detectMediaTypeFromExtensionMock.mockReturnValueOnce('image');
+        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'm_1' });
+
+        await dingtalkPlugin.outbound.sendMedia({
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        clientId: 'id',
+                        clientSecret: 'sec',
+                        mediaUrlAllowlist: ['192.168.1.23', 'cdn.example.com'],
+                    },
+                },
+            },
+            to: 'cidA1B2C3',
+            mediaUrl: 'http://192.168.1.23/photo.png',
+            accountId: 'default',
+        });
+
+        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+            'http://192.168.1.23/photo.png',
+            undefined,
+            ['192.168.1.23', 'cdn.example.com']
+        );
     });
 });

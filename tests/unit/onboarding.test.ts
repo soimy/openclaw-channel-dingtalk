@@ -28,6 +28,7 @@ describe('dingtalkOnboardingAdapter', () => {
             .mockResolvedValueOnce('tmpl.schema')
             .mockResolvedValueOnce('')
             .mockResolvedValueOnce('user_a, user_b')
+            .mockResolvedValueOnce('')
             .mockResolvedValueOnce('7')
             .mockResolvedValueOnce('20');
 
@@ -64,6 +65,7 @@ describe('dingtalkOnboardingAdapter', () => {
         expect(dingtalkConfig.cardTemplateId).toBe('tmpl.schema');
         expect(dingtalkConfig.cardTemplateKey).toBe('content');
         expect(dingtalkConfig.allowFrom).toEqual(['user_a', 'user_b']);
+        expect(dingtalkConfig.mediaUrlAllowlist).toBeUndefined();
         expect(dingtalkConfig.maxReconnectCycles).toBe(7);
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
         expect(note).toHaveBeenCalled();

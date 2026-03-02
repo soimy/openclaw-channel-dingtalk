@@ -74,6 +74,23 @@ describe('send-service media branches', () => {
         expect(mockedAxios).not.toHaveBeenCalled();
     });
 
+    it('sendProactiveMedia maps image payload to sampleImageMsg template', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_img_2');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
+
+        const result = await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            '/tmp/a.png',
+            'image'
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.data.msgKey).toBe('sampleImageMsg');
+        expect(JSON.parse(req.data.msgParam)).toEqual({ photoURL: 'media_img_2' });
+        expect(result.ok).toBe(true);
+    });
+
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
         mockedUploadMedia.mockResolvedValueOnce('media_voice_1');
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);

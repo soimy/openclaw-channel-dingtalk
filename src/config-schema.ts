@@ -31,6 +31,8 @@ const DingTalkAccountConfigSchema = z.object({
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
+  mediaUrlAllowlist: z.array(z.string()).optional(),
+
   /** Show thinking indicator while processing */
   showThinking: z.boolean().optional().default(true),
 
