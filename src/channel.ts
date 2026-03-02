@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
+import type {
+  ChannelMessageActionAdapter,
+  OpenClawConfig,
+} from "openclaw/plugin-sdk";
+import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
 import { createAICard, streamAICard, finishAICard } from "./card-service";
 import { getConfig, isConfigured, resolveRelativePath, stripTargetPrefix } from "./config";
@@ -72,6 +75,165 @@ function logInboundCounters(log: any, accountId: string, reason: string): void {
   );
 }
 
+type DingTalkOutboundMediaType = "image" | "voice" | "video" | "file";
+
+function normalizeOutboundMediaType(value?: string | null): DingTalkOutboundMediaType | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "image" || normalized === "voice" || normalized === "video" || normalized === "file") {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+
+function readBooleanLikeParam(params: Record<string, unknown>, key: string): boolean | undefined {
+  const value = params[key];
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
+function resolveSendMediaType(params: {
+  mediaType?: string | null;
+  mediaPath: string;
+  asVoice: boolean;
+}): DingTalkOutboundMediaType {
+  if (params.asVoice) {
+    return "voice";
+  }
+
+  const explicitType = normalizeOutboundMediaType(params.mediaType);
+  if (explicitType) {
+    return explicitType;
+  }
+
+  return detectMediaTypeFromExtension(params.mediaPath);
+}
+
+const dingtalkMessageActions: ChannelMessageActionAdapter = {
+  listActions: () => ["send"],
+  supportsAction: ({ action }) => action === "send",
+  extractToolSend: ({ args }) => pluginSdk.extractToolSend(args, "sendMessage"),
+  handleAction: async ({ action, params, cfg, accountId, dryRun }) => {
+    if (action !== "send") {
+      throw new Error(`Action ${action} is not supported for provider dingtalk.`);
+    }
+
+    const to = pluginSdk.readStringParam(params, "to", { required: true });
+    const mediaInput =
+      pluginSdk.readStringParam(params, "media", { trim: false }) ??
+      pluginSdk.readStringParam(params, "path", { trim: false }) ??
+      pluginSdk.readStringParam(params, "filePath", { trim: false }) ??
+      pluginSdk.readStringParam(params, "mediaUrl", { trim: false });
+
+    const hasMedia = Boolean(mediaInput && mediaInput.trim());
+    const caption = pluginSdk.readStringParam(params, "caption", { allowEmpty: true }) ?? "";
+    let message =
+      pluginSdk.readStringParam(params, "message", {
+        required: !hasMedia,
+        allowEmpty: true,
+      }) ?? "";
+
+    if (!message.trim() && caption.trim()) {
+      message = caption;
+    }
+
+    const asVoice = readBooleanLikeParam(params, "asVoice") === true;
+    const requestedMediaType = pluginSdk.readStringParam(params, "mediaType");
+
+    const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
+
+    if (dryRun) {
+      return pluginSdk.jsonResult({
+        ok: true,
+        dryRun: true,
+        to: target,
+        hasMedia,
+        asVoice,
+      });
+    }
+
+    const log = getLogger();
+    const config = getConfig(cfg, accountId ?? undefined);
+
+    if (hasMedia && mediaInput) {
+      const mediaPath = resolveRelativePath(mediaInput);
+      const mediaType = resolveSendMediaType({
+        mediaType: requestedMediaType ?? undefined,
+        mediaPath,
+        asVoice,
+      });
+      const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
+        log,
+        accountId: accountId ?? undefined,
+      });
+
+      if (!result.ok) {
+        throw new Error(result.error || "send media failed");
+      }
+
+      return pluginSdk.jsonResult({
+        ok: true,
+        to: target,
+        mediaType,
+        messageId: result.messageId ?? null,
+        result: result.data ?? null,
+      });
+    }
+
+    if (asVoice) {
+      throw new Error(
+        "DingTalk send with asVoice requires media/path/filePath/mediaUrl pointing to an audio file.",
+      );
+    }
+
+    if (!message.trim()) {
+      throw new Error("send requires message when media is not provided");
+    }
+
+    const result = await sendMessage(config, target, message, {
+      log,
+      accountId: accountId ?? undefined,
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error || "send message failed");
+    }
+
+    const data = result.data as any;
+    return pluginSdk.jsonResult({
+      ok: true,
+      to: target,
+      messageId: data?.processQueryKey || data?.messageId || null,
+      result: data ?? null,
+    });
+  },
+};
+
 // DingTalk Channel Definition (assembly layer).
 // Heavy logic is delegated to service modules for maintainability.
 export const dingtalkPlugin: DingTalkChannelPlugin = {
@@ -84,7 +246,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     blurb: "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
     aliases: ["dd", "ding"],
   },
-  configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
+  configSchema: pluginSdk.buildChannelConfigSchema(DingTalkConfigSchema),
   onboarding: dingtalkOnboardingAdapter,
   capabilities: {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
@@ -155,6 +317,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       hint: "<conversationId>",
     },
   },
+  actions: dingtalkMessageActions,
   outbound: {
     deliveryMode: "direct" as const,
     resolveTarget: ({ to }: any) => {
@@ -207,6 +370,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       filePath,
       mediaUrl,
       mediaType: providedMediaType,
+      asVoice,
       accountId,
       log,
     }: any) => {
@@ -255,7 +419,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`,
         );
 
-        const mediaType = providedMediaType || detectMediaTypeFromExtension(actualMediaPath);
+        const mediaType = resolveSendMediaType({
+          mediaType: typeof providedMediaType === "string" ? providedMediaType : undefined,
+          mediaPath: actualMediaPath,
+          asVoice: asVoice === true,
+        });
         let result;
         try {
           result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, {
@@ -270,7 +438,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             cause: err,
           });
         }
-
         getLogger()?.debug?.(
           `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`,
         );

@@ -127,6 +127,30 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         );
     });
 
+    it('forces voice template when asVoice=true', async () => {
+        sendProactiveMediaMock.mockResolvedValueOnce({
+            ok: true,
+            data: { messageId: 'voice_1' },
+            messageId: 'voice_1',
+        });
+
+        await dingtalkPlugin.outbound.sendMedia({
+            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            to: 'user_123',
+            mediaPath: '/tmp/audio.mp4',
+            asVoice: true,
+            accountId: 'default',
+        });
+
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'user_123',
+            '/tmp/audio.mp4',
+            'voice',
+            expect.any(Object)
+        );
+    });
+
     it('throws when DingTalk send returns known error code', async () => {
         detectMediaTypeFromExtensionMock.mockReturnValueOnce('file');
         sendProactiveMediaMock.mockResolvedValueOnce({ ok: false, error: 'DingTalk API error 300001' });
