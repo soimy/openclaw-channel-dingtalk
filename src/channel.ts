@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -137,6 +139,42 @@ function extractCardActionId(data: any): string | undefined {
   }
 
   return undefined;
+}
+
+function buildFeedbackReflectionText(actionId: "feedback_up" | "feedback_down"): string {
+  if (actionId === "feedback_up") {
+    return [
+      "🧠 反思记录（赞）",
+      "- 为什么好：这次回复对焦明确、步骤可执行。",
+      "- 下次保持：继续给最短可执行路径 + 关键检查点。",
+      "- 持续优化：遇到同类问题优先给一键方案。",
+    ].join("\n");
+  }
+  return [
+    "🧠 反思记录（踩）",
+    "- 可能问题：信息不够贴场景，或步骤不够直达。",
+    "- 下次改进：先给结论再给步骤；同时给失败兜底路径。",
+    "- 我想确认：你这次更在意『准确性 / 简洁度 / 可执行性』哪一项？",
+  ].join("\n");
+}
+
+async function appendFeedbackLearningLog(record: {
+  feedback: "up" | "down";
+  accountId: string;
+  spaceId?: string;
+  outTrackId?: string;
+}): Promise<void> {
+  const filePath = "/Users/ming/.openclaw/workspace/reports/system/feedback-learning-log.jsonl";
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    channel: "dingtalk",
+    feedback: record.feedback,
+    accountId: record.accountId,
+    spaceId: record.spaceId || "",
+    outTrackId: record.outTrackId || "",
+  });
+  await fs.appendFile(filePath, `${line}\n`, "utf8");
 }
 
 // DingTalk Channel Definition (assembly layer).
@@ -508,24 +546,36 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               await renderCardFeedbackState(outTrackId, actionId, ctx.log);
             }
 
-            const text =
+            await appendFeedbackLearningLog({
+              feedback: actionId === "feedback_up" ? "up" : "down",
+              accountId: account.accountId,
+              spaceId,
+              outTrackId,
+            });
+
+            const statusText =
               actionId === "feedback_up"
                 ? "✅ 已收到你的点赞（反馈已记录）"
                 : "⚠️ 已收到你的点踩（反馈已记录，我会改进）";
+            const reflectionText = buildFeedbackReflectionText(actionId);
 
             const sessionWebhook = spaceId ? sessionWebhookBySpaceId.get(spaceId) : undefined;
             if (sessionWebhook) {
               try {
-                await sendBySession(config, sessionWebhook, text, {
+                await sendBySession(config, sessionWebhook, statusText, {
+                  accountId: account.accountId,
+                  log: ctx.log,
+                });
+                await sendBySession(config, sessionWebhook, reflectionText, {
                   accountId: account.accountId,
                   log: ctx.log,
                 });
                 ctx.log?.info?.(
-                  `[${account.accountId}] [DingTalk][CardCallback] feedback ack sent via session webhook`,
+                  `[${account.accountId}] [DingTalk][CardCallback] feedback status+reflection sent via session webhook`,
                 );
               } catch (sendErr: any) {
                 ctx.log?.warn?.(
-                  `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack via session webhook: ${sendErr?.message || String(sendErr)}`,
+                  `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback status/reflection via session webhook: ${sendErr?.message || String(sendErr)}`,
                 );
               }
             } else {
