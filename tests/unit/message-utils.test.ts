@@ -49,4 +49,48 @@ describe('message-utils', () => {
         expect(content.text).toContain('被引用内容');
         expect(content.text).toContain('当前消息');
     });
+
+    it('marks quote as unavailable when repliedMsg has unknownMsgType and no body', () => {
+        const message = {
+            msgtype: 'text',
+            originalMsgId: 'msg_xxx',
+            text: {
+                content: '聊天记录里面说了啥',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'unknownMsgType',
+                    msgId: 'msg_xxx',
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.text).toContain('引用消息不可见');
+        expect(content.text).toContain('unknownMsgType');
+        expect(content.text).toContain('msg_xxx');
+        expect(content.text).toContain('聊天记录里面说了啥');
+    });
+
+    it('parses chatRecord payload into readable lines', () => {
+        const message = {
+            msgtype: 'chatRecord',
+            content: {
+                summary: '["晴月:音乐现在是不是最少","溯煜:对"]',
+                chatRecord: JSON.stringify([
+                    { senderName: '晴月', content: '音乐现在是不是最少，我看才4个，可以招个10个左右吧' },
+                    { senderName: '晴月', content: '音乐都是啊水在看是吧' },
+                    { senderName: '溯煜', content: '对' },
+                ]),
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.messageType).toBe('chatRecord');
+        expect(content.text).toContain('聊天记录摘要');
+        expect(content.text).toContain('聊天记录内容');
+        expect(content.text).toContain('晴月: 音乐现在是不是最少');
+        expect(content.text).toContain('溯煜: 对');
+    });
 });
