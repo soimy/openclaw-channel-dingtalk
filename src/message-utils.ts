@@ -32,7 +32,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     const textField = data.text as any;
 
     if (textField?.isReplyMsg && textField?.repliedMsg) {
-      const repliedMsg = textField.repliedMsg;
+      const repliedMsg = textField.repliedMsg as any;
       const content = repliedMsg?.content;
 
       if (content?.text) {
@@ -61,6 +61,13 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         if (quoteText) {
           return `[引用消息: "${quoteText}"]\n\n`;
         }
+      }
+
+      const repliedMsgType = String(repliedMsg?.msgType || "").trim();
+      const repliedMsgId = String(repliedMsg?.msgId || data.originalMsgId || "").trim();
+      if (repliedMsgType === "unknownMsgType" || repliedMsgType) {
+        const idPart = repliedMsgId ? `，原消息ID: ${repliedMsgId}` : "";
+        return `[引用消息不可见: msgType=${repliedMsgType || "unknown"}${idPart}]\n\n`;
       }
     }
 
@@ -149,6 +156,40 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaType: "file",
       messageType: "file",
     };
+  }
+
+  if (msgtype === "chatRecord") {
+    const summary = String((data.content as any)?.summary || "").trim();
+    const rawRecord = (data.content as any)?.chatRecord;
+    let parsedLines: string[] = [];
+
+    if (typeof rawRecord === "string" && rawRecord.trim()) {
+      try {
+        const arr = JSON.parse(rawRecord);
+        if (Array.isArray(arr)) {
+          parsedLines = arr
+            .map((it: any) => {
+              const sender = String(it?.senderName || it?.senderNick || it?.senderId || "某人").trim();
+              const content = String(it?.content || it?.text || "").trim();
+              return content ? `${sender}: ${content}` : "";
+            })
+            .filter(Boolean)
+            .slice(0, 20);
+        }
+      } catch {
+        // ignore parse errors and fallback to summary only
+      }
+    }
+
+    const parts: string[] = [];
+    if (summary) {
+      parts.push(`[聊天记录摘要] ${summary}`);
+    }
+    if (parsedLines.length > 0) {
+      parts.push(`[聊天记录内容]\n${parsedLines.join("\n")}`);
+    }
+    const text = parts.join("\n\n") || "[chatRecord消息: 无可读内容]";
+    return { text, messageType: "chatRecord" };
   }
 
   // Fallback: preserve unknown msgtype as readable marker.

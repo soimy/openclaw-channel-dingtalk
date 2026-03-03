@@ -22,6 +22,7 @@ import {
 } from "./proactive-risk-registry";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage } from "./send-service";
+import { appendQuoteJournalEntry, findQuoteJournalEntryByMsgId } from "./quote-journal";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
@@ -197,7 +198,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  const content = extractMessageContent(data);
+  let content = extractMessageContent(data);
   if (!content.text) {
     return;
   }
@@ -329,6 +330,56 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     agentId: route.agentId,
   });
 
+  const replyMeta = (data.text as any)?.repliedMsg as any;
+  const replyMsgType = String(replyMeta?.msgType || "").trim();
+  const replyMsgId = String(replyMeta?.msgId || data.originalMsgId || "").trim();
+  const replyHasReadableBody =
+    Boolean(replyMeta?.content?.text) ||
+    (Array.isArray(replyMeta?.content?.richText) && replyMeta.content.richText.length > 0);
+
+  const isOriginalMsgReply =
+    Boolean((data.text as any)?.isReplyMsg) &&
+    Boolean(replyMsgId) &&
+    (!Boolean((data.text as any)?.repliedMsg) || !replyHasReadableBody || replyMsgType === "unknownMsgType");
+  if (isOriginalMsgReply && replyMsgId) {
+    try {
+      const quoted = await findQuoteJournalEntryByMsgId({
+        storePath,
+        accountId,
+        conversationId: groupId,
+        msgId: replyMsgId,
+      });
+      if (quoted) {
+        const prefixRegex = /^(\[这是一条引用消息，原消息ID:[^\]]+\]|\[引用消息不可见:[^\]]+\])\s*/;
+        const bodyText = content.text.replace(prefixRegex, "").trim();
+
+        let resolvedQuoted = quoted;
+        const nestedMatch = (quoted.text || "").match(/\[这是一条引用消息，原消息ID:\s*([^\]]+)\]/);
+        if (nestedMatch?.[1]) {
+          const nested = await findQuoteJournalEntryByMsgId({
+            storePath,
+            accountId,
+            conversationId: groupId,
+            msgId: nestedMatch[1].trim(),
+          });
+          if (nested) {
+            resolvedQuoted = nested;
+          }
+        }
+
+        const quotedText = resolvedQuoted.text?.trim() || `[${resolvedQuoted.messageType || "消息"}]`;
+        content = {
+          ...content,
+          text: `[引用消息: "${quotedText}"]\n\n${bodyText}`,
+          mediaPath: content.mediaPath || resolvedQuoted.mediaPath,
+          mediaType: content.mediaType || resolvedQuoted.mediaType,
+        };
+      }
+    } catch (err) {
+      log?.debug?.(`[DingTalk] Quote journal resolve failed: ${String(err)}`);
+    }
+  }
+
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
@@ -338,6 +389,43 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       mediaType = media.mimeType;
     }
   }
+
+  const quoteWithoutImage =
+    content.text.includes("[引用消息:") &&
+    /图|图片|看下|感想/.test(content.text) &&
+    !content.mediaPath &&
+    !mediaPath;
+  if (quoteWithoutImage) {
+    content = {
+      ...content,
+      text: `${content.text}\n\n[系统提示] 当前仅拿到引用文本，未拿到图片文件本体。禁止臆测图片内容，请先请用户补发原图后再分析。`,
+    };
+  }
+
+  const quoteUnavailable = content.text.includes("[引用消息不可见:");
+  if (quoteUnavailable) {
+    content = {
+      ...content,
+      text: `${content.text}\n\n[系统提示] 当前没有拿到被引用消息的正文/附件，只拿到引用占位信息。禁止根据历史聊天臆测“引用内容”。请先明确告知用户：未收到引用原文，请粘贴原文或转发该消息后再总结。`,
+    };
+  }
+
+  try {
+    await appendQuoteJournalEntry({
+      storePath,
+      accountId,
+      conversationId: groupId,
+      msgId: data.msgId,
+      messageType: content.messageType,
+      text: content.text,
+      mediaPath: content.mediaPath,
+      mediaType: content.mediaType,
+      createdAt: data.createAt,
+    });
+  } catch (err) {
+    log?.debug?.(`[DingTalk] Quote journal append failed: ${String(err)}`);
+  }
+
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
     storePath,

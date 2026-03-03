@@ -180,6 +180,8 @@ export interface DingTalkInboundMessage {
       downloadCode?: string; // For picture type in richText
     }>;
     quoteContent?: string; // 替代引用格式
+    summary?: string; // chatRecord 摘要
+    chatRecord?: string; // chatRecord 明细(JSON字符串)
   };
   // Legacy 引用格式
   quoteMessage?: {
