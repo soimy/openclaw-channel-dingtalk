@@ -2,6 +2,19 @@
 
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
+> [!IMPORTANT]
+> **重要声明（上游消息丢失排查中）**
+>
+> 当前我们观察到：部分消息在钉钉 App 端发送后，未稳定到达本地 `dingtalk-stream` SDK 回调入口（已通过最小复现与链路统计验证）。
+> 相关问题已向钉钉开发者后台提交了工单，在相关问题得到解决前，暂停本项目的Feature开发，仅进入维护模式。
+>
+> 相关信息：
+> - issue 讨论：[#104](https://github.com/soimy/openclaw-channel-dingtalk/issues/104)
+> - 最小可复现说明（SDK 侧）：<https://github.com/soimy/dingtalk-stream-sdk-nodejs/blob/main/docs/inbound-msg-missing-repro.zh-CN.md>
+> - 插件侧测试分支：[`test/inbound-msg-missing`](https://github.com/soimy/openclaw-channel-dingtalk/tree/test/inbound-msg-missing)
+>
+> 在上游链路问题完全收敛前，建议关键业务场景先做好重试与可观测性（trace 前缀、计数日志、缺失 ID 对账）。
+
 ## 功能特性
 
 - ✅ **Stream 模式** — WebSocket 长连接，无需公网 IP 或 Webhook
@@ -159,6 +172,8 @@ openclaw configure --section channels
 
 - ✅ **Card.Instance.Write** — 创建和投放卡片实例
 - ✅ **Card.Streaming.Write** — 对卡片进行流式更新
+- ✅ **机器人消息发送相关权限** — 允许机器人向单聊/群聊发送消息
+- ✅ **媒体文件上传相关权限** — 允许调用媒体上传接口发送图片、语音、视频、文件
 
 **步骤：**
 
@@ -257,6 +272,7 @@ openclaw gateway restart
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -310,12 +326,68 @@ openclaw gateway restart
 
 ### 发送
 
-| 类型     | 支持 | 说明                             |
-| -------- | ---- | -------------------------------- |
-| 文本     | ✅   | 完整支持                         |
-| Markdown | ✅   | 自动检测或手动指定               |
-| 互动卡片 | ✅   | 支持流式更新，适用于 AI 实时输出 |
-| 图片     | ⏳   | 需要通过媒体上传 API             |
+| 类型         | 支持 | 说明                                                     |
+| ------------ | ---- | -------------------------------------------------------- |
+| 文本         | ✅   | 完整支持                                                 |
+| Markdown     | ✅   | 自动检测或手动指定                                       |
+| 互动卡片     | ✅   | 支持流式更新，适用于 AI 实时输出                         |
+| 图片         | ✅   | 先上传媒体再发送，支持本地路径和 HTTP(S) URL             |
+| 语音         | ✅   | 先上传媒体再发送                                         |
+| 视频         | ✅   | 先上传媒体再发送                                         |
+| 文件         | ✅   | 先上传媒体再发送                                         |
+| 原生语音消息 | ✅   | `message send` / `outbound.sendMedia` 可用 `asVoice=true` |
+
+> **重要限制：**
+> 当前**不支持图片的图文混排**。也就是说，Markdown 消息和 AI 互动卡片目前都只能发送文本内容，不能在同一条消息中同时内嵌图片。
+> 如果需要发送图片，请单独调用 `outbound.sendMedia(...)` 或 `sendProactiveMedia(...)`。
+> 无论是**本地图片路径**还是**远程 HTTP(S) 图片 URL**，都支持单独发送；远程图片会先下载到临时文件，再上传到钉钉后发送。
+> 远程 URL 下载默认限制为：**10 秒超时**、**20MB 上限**，并拒绝 `localhost` / 内网地址（如 `127.0.0.1`、`10.x.x.x`、`192.168.x.x`、`172.16-31.x.x`）以降低 SSRF 风险。
+> 如需从受控内网媒体服务下载，请配置 `mediaUrlAllowlist`（例如 `192.168.1.23`、`files.internal.example`、`10.0.0.0/8`）；配置后仅白名单主机可下载。
+> 远程域名会先做 DNS 解析并校验解析结果；若解析到内网/本地地址且未被白名单明确允许，将在下载前拒绝。
+> `asVoice=true` 需要同时提供 `media/path/filePath/mediaUrl` 指向音频文件；纯文本不会自动转语音。
+
+#### mediaUrlAllowlist 配置示例
+
+`mediaUrlAllowlist` 支持以下写法：
+
+- 主机名：`cdn.example.com`
+- 泛域名：`*.example.com`
+- 主机+端口：`files.internal.example:8443`
+- 单个 IP：`192.168.1.23`、`fd00::1`
+- CIDR 网段：`10.0.0.0/8`、`fc00::/7`
+
+示例：
+
+```json
+{
+  "channels": {
+    "dingtalk": {
+      "clientId": "your-app-key",
+      "clientSecret": "your-app-secret",
+      "mediaUrlAllowlist": [
+        "cdn.example.com",
+        "*.assets.example.com",
+        "files.internal.example:8443",
+        "192.168.1.23",
+        "10.0.0.0/8",
+        "fc00::/7"
+      ]
+    }
+  }
+}
+```
+
+> 行为说明：配置 `mediaUrlAllowlist` 后，下载阶段进入严格白名单模式，非白名单目标一律拒绝。
+
+#### sendMedia 常见错误码
+
+`outbound.sendMedia(...)` 在下载准备失败时会透出错误码前缀（例如 `remote media preparation failed: [ERR_MEDIA_PRIVATE_HOST] ...`）：
+
+- `ERR_MEDIA_ALLOWLIST_MISS`：目标 host 不在 `mediaUrlAllowlist`
+- `ERR_MEDIA_PRIVATE_HOST`：URL 本身是本地/内网 host 且未被允许
+- `ERR_MEDIA_DNS_UNRESOLVED`：域名无法解析
+- `ERR_MEDIA_DNS_PRIVATE`：域名解析结果命中本地/内网地址且未被允许
+- `ERR_MEDIA_REDIRECT_HOST`：下载阶段出现非预期重定向 host
 
 ## API 消耗说明
 
@@ -376,6 +448,7 @@ openclaw gateway restart
 - 通过 `cardTemplateKey` 指定内容字段
 - **适用于 AI 对话场景**
 - 支持在卡片中实时显示 AI 思考过程（推理流）和工具执行结果
+- 当前卡片模式仅支持**文本内容流式更新**，不支持图片图文混排
 
 **AI Card API 特性：**
 当配置 `messageType: 'card'` 时：
@@ -421,6 +494,59 @@ openclaw gateway restart
 
 1. **私聊机器人** — 找到机器人，发送消息
 2. **群聊 @机器人** — 在群里 @机器人名称 + 消息
+
+如果你是通过 OpenClaw 的 outbound 能力主动发消息，也可以直接调用：
+
+```typescript
+import { dingtalkPlugin } from './src/channel';
+
+const cfg = {
+  channels: {
+    dingtalk: {
+      clientId: 'dingxxxxxx',
+      clientSecret: 'your-app-secret',
+      robotCode: 'dingxxxxxx',
+    },
+  },
+};
+
+// 发送本地图片
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'cidxxxxxxxx',
+  mediaPath: '/absolute/path/to/photo.png',
+  accountId: 'default',
+});
+
+// 发送远程图片 URL（插件会先下载到临时文件，再上传到钉钉）
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'cidxxxxxxxx',
+  mediaUrl: 'https://example.com/banner.jpg',
+  accountId: 'default',
+});
+
+// 发送文件或其他媒体，也可以显式指定 mediaType
+await dingtalkPlugin.outbound.sendMedia({
+  cfg,
+  to: 'user_123456',
+  mediaPath: '/absolute/path/to/manual.pdf',
+  mediaType: 'file',
+  accountId: 'default',
+});
+```
+
+`to` 支持两类目标：
+
+- 群会话：`cid...`
+- 单聊用户：`userId`，或显式写成 `user:<userId>`
+
+如果你传入的是远程图片 URL，插件当前会按下面的方式处理：
+
+1. 下载远程图片到本地临时文件
+2. 调用钉钉媒体上传接口获取 `media_id`
+3. 以独立图片消息发送
+4. 发送完成后清理临时文件
 
 ## 故障排除
 
@@ -556,6 +682,10 @@ finishAICard(card, content, log); // 完成并关闭卡片
 // 自动模式选择
 sendMessage(config, conversationId, text, options); // 根据配置自动选择（含卡片/文本回退）
 
+// 主动媒体发送
+uploadMedia(config, mediaPath, mediaType, log); // 上传媒体并返回 media_id
+sendProactiveMedia(config, target, mediaPath, mediaType, options); // 发送图片/语音/视频/文件
+
 // 认证
 getAccessToken(config, log); // 获取访问令牌
 ```
@@ -563,7 +693,12 @@ getAccessToken(config, log); // 获取访问令牌
 **使用示例：**
 
 ```typescript
-import { createAICard, streamAICard, finishAICard } from './src/channel';
+import {
+  createAICard,
+  finishAICard,
+  sendProactiveMedia,
+  streamAICard,
+} from './src/channel';
 
 // 创建 AI 卡片
 const card = await createAICard(config, conversationId, messageData, log);
@@ -575,6 +710,12 @@ for (const chunk of aiResponseChunks) {
 
 // 完成并关闭卡片
 await finishAICard(card, finalText, log);
+
+// 主动发送图片
+await sendProactiveMedia(config, 'cidxxxxxxxx', '/absolute/path/to/photo.png', 'image', {
+  accountId: 'default',
+  log,
+});
 ```
 
 ### 架构

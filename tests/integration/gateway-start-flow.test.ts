@@ -179,12 +179,16 @@ describe('gateway.startAccount lifecycle', () => {
     });
 
     it('uses DWClient native heartbeat and reconnect when useConnectionManager is false', async () => {
-        const { ctx, setStatusCalls } = createStartContext();
+        const controller = new AbortController();
+        const { ctx, setStatusCalls } = createStartContext(controller.signal);
         ctx.account.config = {
             clientId: 'ding_id',
             clientSecret: 'ding_secret',
             useConnectionManager: false,
         } as any;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
 
         const stopResult = await startGatewayAccount(ctx as any);
 
@@ -195,7 +199,7 @@ describe('gateway.startAccount lifecycle', () => {
             keepAlive: true,
             autoReconnect: true,
         });
-        expect(setStatusCalls.some((s) => s.running === true && s.lastStartAt !== null)).toBe(true);
+        expect(setStatusCalls.some((s) => s.running === false && s.lastStopAt !== null)).toBe(true);
 
         stopResult.stop();
         expect(shared.clientDisconnectMock).toHaveBeenCalledTimes(1);

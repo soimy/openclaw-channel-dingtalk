@@ -26,8 +26,9 @@ describe('dingtalkOnboardingAdapter', () => {
             .mockResolvedValueOnce('ding_corp')
             .mockResolvedValueOnce('12345')
             .mockResolvedValueOnce('tmpl.schema')
-            .mockResolvedValueOnce('msgContent')
+            .mockResolvedValueOnce('')
             .mockResolvedValueOnce('user_a, user_b')
+            .mockResolvedValueOnce('')
             .mockResolvedValueOnce('7')
             .mockResolvedValueOnce('20');
 
@@ -62,8 +63,9 @@ describe('dingtalkOnboardingAdapter', () => {
         expect(dingtalkConfig.robotCode).toBe('ding_robot');
         expect(dingtalkConfig.messageType).toBe('card');
         expect(dingtalkConfig.cardTemplateId).toBe('tmpl.schema');
-        expect(dingtalkConfig.cardTemplateKey).toBe('msgContent');
+        expect(dingtalkConfig.cardTemplateKey).toBe('content');
         expect(dingtalkConfig.allowFrom).toEqual(['user_a', 'user_b']);
+        expect(dingtalkConfig.mediaUrlAllowlist).toBeUndefined();
         expect(dingtalkConfig.maxReconnectCycles).toBe(7);
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
         expect(note).toHaveBeenCalled();

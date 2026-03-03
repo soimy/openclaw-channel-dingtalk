@@ -275,10 +275,10 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         String(
           await prompter.text({
             message: "Card Template Key (content field name)",
-            placeholder: "msgContent",
-            initialValue: resolved.cardTemplateKey ?? "msgContent",
+            placeholder: "content",
+            initialValue: resolved.cardTemplateKey ?? "content",
           }),
-        ).trim() || "msgContent";
+        ).trim() || "content";
 
       messageType = "card";
     }
@@ -301,6 +301,14 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       const parsed = parseList(String(entry ?? ""));
       allowFrom = parsed.length > 0 ? parsed : undefined;
     }
+
+    const mediaUrlAllowlistEntry = await prompter.text({
+      message: "Media URL allowlist (comma-separated host/IP/CIDR, optional)",
+      placeholder: "cdn.example.com, 192.168.1.23, 10.0.0.0/8",
+      initialValue: (resolved.mediaUrlAllowlist || []).join(", ") || undefined,
+    });
+    const mediaUrlAllowlistParsed = parseList(String(mediaUrlAllowlistEntry ?? ""));
+    const mediaUrlAllowlist = mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
 
     const groupPolicyValue = await prompter.select({
       message: "Group message policy",
@@ -382,6 +390,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         dmPolicy: dmPolicyValue as "open" | "allowlist",
         groupPolicy: groupPolicyValue as "open" | "allowlist",
         allowFrom,
+        mediaUrlAllowlist,
         messageType,
         cardTemplateId,
         cardTemplateKey,
