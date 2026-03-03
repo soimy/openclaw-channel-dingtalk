@@ -193,7 +193,7 @@ const DEFAULT_VOICE_DURATION_MS = 1000;
 
 export async function getVoiceDurationMs(
   filePath: string,
-  mediaType: DingTalkMediaType | DingTalkOutboundMediaType,
+  mediaType: DingTalkMediaType,
   log?: Logger,
 ): Promise<number> {
   if (mediaType !== "voice") {
