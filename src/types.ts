@@ -64,6 +64,8 @@ export interface DingTalkConfig extends OpenClawConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
+  aicardDegradeMs?: number;
 }
 
 /**
@@ -103,6 +105,8 @@ export interface DingTalkChannelConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
+  aicardDegradeMs?: number;
 }
 
 /**
@@ -454,6 +458,7 @@ export type AICardState = (typeof AICardStatus)[keyof typeof AICardStatus];
 export interface AICardInstance {
   cardInstanceId: string;
   outboundMessageId?: string;
+  accountId: string;
   accessToken: string;
   conversationId: string;
   createdAt: number;
@@ -585,6 +590,7 @@ export function resolveDingTalkAccount(
       mediaMaxMb: dingtalk?.mediaMaxMb,
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      aicardDegradeMs: dingtalk?.aicardDegradeMs,
     };
     return {
       ...config,

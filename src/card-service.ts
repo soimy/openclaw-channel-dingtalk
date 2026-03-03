@@ -18,6 +18,76 @@ const DINGTALK_API = "https://api.dingtalk.com";
 const CARD_CACHE_TTL = 60 * 60 * 1000;
 // Thinking/tool stream snippets are truncated to keep card updates compact.
 const THINKING_TRUNCATE_LENGTH = 500;
+const AICARD_DEGRADE_DEFAULT_MS = 30 * 60 * 1000;
+
+// accountId -> degrade state
+const aicardDegradeByAccount = new Map<string, { untilMs: number; reason: string }>();
+
+function getAICardDegradeMs(config?: DingTalkConfig): number {
+  const raw = Number((config as any)?.aicardDegradeMs);
+  if (Number.isFinite(raw) && raw >= 60_000) {
+    return raw;
+  }
+  return AICARD_DEGRADE_DEFAULT_MS;
+}
+
+function shouldTriggerAICardDegrade(err: any): boolean {
+  const status = err?.response?.status;
+  const msg = String(err?.response?.data?.message || err?.message || "").toLowerCase();
+  if (status === 403 || status === 429) return true;
+  if (typeof status === "number" && status >= 500 && status < 600) return true;
+  return [
+    "ipnotinwhitelist",
+    "forbidden.accessdenied",
+    "timeout",
+    "etimedout",
+    "econnreset",
+    "eai_again",
+    "socket hang up",
+    "bad gateway",
+  ].some((k) => msg.includes(k));
+}
+
+export function isAICardDegraded(accountId: string): boolean {
+  const state = aicardDegradeByAccount.get(accountId);
+  if (!state) return false;
+  if (Date.now() >= state.untilMs) {
+    aicardDegradeByAccount.delete(accountId);
+    return false;
+  }
+  return true;
+}
+
+export function getAICardDegradeState(accountId: string): { remainingMs: number; reason: string } | null {
+  const state = aicardDegradeByAccount.get(accountId);
+  if (!state) return null;
+  const remainingMs = state.untilMs - Date.now();
+  if (remainingMs <= 0) {
+    aicardDegradeByAccount.delete(accountId);
+    return null;
+  }
+  return { remainingMs, reason: state.reason };
+}
+
+export function activateAICardDegrade(accountId: string, reason: string, config?: DingTalkConfig, log?: Logger): void {
+  const durationMs = getAICardDegradeMs(config);
+  const untilMs = Date.now() + durationMs;
+  const existed = isAICardDegraded(accountId);
+  aicardDegradeByAccount.set(accountId, { untilMs, reason });
+  const minutes = Math.round(durationMs / 60000);
+  if (existed) {
+    log?.warn?.(`[DingTalk][AICard][Degrade] Extended for account=${accountId}, minutes=${minutes}, reason=${reason}`);
+  } else {
+    log?.warn?.(`[DingTalk][AICard][Degrade] Activated for account=${accountId}, minutes=${minutes}, reason=${reason}`);
+  }
+}
+
+export function clearAICardDegrade(accountId: string, log?: Logger): void {
+  if (!aicardDegradeByAccount.has(accountId)) return;
+  const reason = aicardDegradeByAccount.get(accountId)?.reason || "";
+  aicardDegradeByAccount.delete(accountId);
+  log?.info?.(`[DingTalk][AICard][Degrade] Cleared for account=${accountId}, lastReason=${reason}`);
+}
 
 function getProxyBypassOption(config: DingTalkConfig): { proxy: false } | Record<string, never> {
   return config.bypassProxyForSend ? { proxy: false } : {};
@@ -150,6 +220,14 @@ export async function createAICard(
   accountId: string,
   log?: Logger,
 ): Promise<AICardInstance | null> {
+  if (isAICardDegraded(accountId)) {
+    const state = getAICardDegradeState(accountId);
+    log?.warn?.(
+      `[DingTalk][AICard][Degrade] Skip create for account=${accountId}, remainingMs=${state?.remainingMs || 0}, reason=${state?.reason || "unknown"}`,
+    );
+    return null;
+  }
+
   try {
     const token = await getAccessToken(config, log);
     // Use randomUUID to avoid collisions across workers/restarts.
@@ -212,6 +290,7 @@ export async function createAICard(
     const aiCardInstance: AICardInstance = {
       cardInstanceId,
       outboundMessageId: extractCardOutboundMessageId(resp.data),
+      accountId,
       accessToken: token,
       conversationId,
       createdAt: Date.now(),
@@ -227,6 +306,7 @@ export async function createAICard(
       `[DingTalk][AICard] Registered active card mapping: ${targetKey} -> ${cardInstanceId}`,
     );
 
+    clearAICardDegrade(accountId, log);
     return aiCardInstance;
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Create failed: ${err.message}`);
@@ -238,6 +318,9 @@ export async function createAICard(
       log?.error?.(
         formatDingTalkErrorPayloadLog("card.create", err.response.data, "[DingTalk][AICard]"),
       );
+    }
+    if (shouldTriggerAICardDegrade(err)) {
+      activateAICardDegrade(accountId, `card.create:${err?.response?.status || "unknown"}`, config, log);
     }
     return null;
   }
@@ -367,6 +450,14 @@ export async function streamAICard(
 
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
+    if (shouldTriggerAICardDegrade(err)) {
+      activateAICardDegrade(
+        card.accountId,
+        `card.stream:${err?.response?.status || "unknown"}`,
+        card.config,
+        log,
+      );
+    }
     log?.error?.(
       `[DingTalk][AICard] Streaming update failed: ${err.message}`,
     );
