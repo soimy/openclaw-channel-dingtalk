@@ -31,6 +31,8 @@ const DingTalkAccountConfigSchema = z.object({
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
+  mediaUrlAllowlist: z.array(z.string()).optional(),
+
   /** Show thinking indicator while processing */
   showThinking: z.boolean().optional().default(true),
 
@@ -47,7 +49,7 @@ const DingTalkAccountConfigSchema = z.object({
   cardTemplateId: z.string().optional(),
 
   /** Card template key for streaming updates
-   * Default: 'msgContent' - maps to the content field in the card template
+   * Default: 'content' - maps to the content field in the card template
    * This key is used in the streaming API to update specific fields in the card.
    */
   cardTemplateKey: z.string().optional().default("content"),
@@ -78,6 +80,12 @@ const DingTalkAccountConfigSchema = z.object({
 
   /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
   maxReconnectCycles: z.number().int().min(1).optional().default(10),
+
+  /** Whether to use ConnectionManager (default: true). When false, rely on DWClient native keepAlive+autoReconnect. */
+  useConnectionManager: z.boolean().optional().default(true),
+
+  /** Maximum inbound media file size in MB (overrides runtime default when set) */
+  mediaMaxMb: z.number().int().min(1).optional(),
 
   proactivePermissionHint: z
     .object({

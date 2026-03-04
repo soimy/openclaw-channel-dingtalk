@@ -18,6 +18,7 @@ npm-debug.log*
 # Credentials (IMPORTANT: DO NOT PUBLISH YOUR APP KEYS)
 credentials.json
 .env
+.env.dingtalk-monitor.local
 
 # Opencode directories
 .opencode/

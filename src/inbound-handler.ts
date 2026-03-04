@@ -145,8 +145,11 @@ export async function downloadMedia(
     const contentType = mediaResponse.headers["content-type"] || "application/octet-stream";
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
-    // Keep inbound media handling consistent with other channels.
-    const saved = await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound");
+    const maxBytes =
+      config.mediaMaxMb && config.mediaMaxMb > 0 ? config.mediaMaxMb * 1024 * 1024 : undefined;
+    const saved = maxBytes
+      ? await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound", maxBytes)
+      : await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound");
     log?.debug?.(`[DingTalk] Media saved: ${saved.path}`);
     return { path: saved.path, mimeType: saved.contentType ?? contentType };
   } catch (err: any) {

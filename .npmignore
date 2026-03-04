@@ -16,6 +16,7 @@ package-lock.json
 npm-debug.log*
 credentials.json
 .env
+.env.dingtalk-monitor.local
 
 # Documentation and planning files
 docs/

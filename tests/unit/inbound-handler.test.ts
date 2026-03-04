@@ -131,6 +131,49 @@ describe('inbound-handler', () => {
         expect(result?.path).toContain('/.openclaw/media/inbound/');
     });
 
+    it('downloadMedia passes mediaMaxMb as maxBytes to saveMediaBuffer', async () => {
+        const runtime = buildRuntime();
+        shared.getRuntimeMock.mockReturnValue(runtime);
+
+        mockedAxiosPost.mockResolvedValueOnce({ data: { downloadUrl: 'https://download.url/file' } } as any);
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: Buffer.from('abc'),
+            headers: { 'content-type': 'application/pdf' },
+        } as any);
+
+        await downloadMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_1', mediaMaxMb: 50 } as any,
+            'download_code_1',
+        );
+
+        expect(runtime.channel.media.saveMediaBuffer).toHaveBeenCalledWith(
+            expect.any(Buffer),
+            'application/pdf',
+            'inbound',
+            50 * 1024 * 1024,
+        );
+    });
+
+    it('downloadMedia uses runtime default when mediaMaxMb is not set', async () => {
+        const runtime = buildRuntime();
+        shared.getRuntimeMock.mockReturnValue(runtime);
+
+        mockedAxiosPost.mockResolvedValueOnce({ data: { downloadUrl: 'https://download.url/file' } } as any);
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: Buffer.from('abc'),
+            headers: { 'content-type': 'image/png' },
+        } as any);
+
+        await downloadMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_1' } as any,
+            'download_code_1',
+        );
+
+        const call = runtime.channel.media.saveMediaBuffer.mock.calls[0];
+        expect(call).toHaveLength(3);
+        expect(call[2]).toBe('inbound');
+    });
+
     it('downloadMedia returns null when robotCode missing', async () => {
         const result = await downloadMedia({ clientId: 'id', clientSecret: 'sec' } as any, 'download_code_1');
 

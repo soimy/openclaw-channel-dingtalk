@@ -8,6 +8,7 @@ vi.mock('../../src/auth', () => ({
 vi.mock('../../src/media-utils', () => ({
     uploadMedia: vi.fn(),
     detectMediaTypeFromExtension: vi.fn(),
+    getVoiceDurationMs: vi.fn(),
 }));
 
 vi.mock('axios', () => {
@@ -19,15 +20,18 @@ vi.mock('axios', () => {
 });
 
 import { sendBySession, sendProactiveMedia } from '../../src/send-service';
-import { uploadMedia as uploadMediaUtil } from '../../src/media-utils';
+import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from '../../src/media-utils';
 
 const mockedAxios = vi.mocked(axios);
 const mockedUploadMedia = vi.mocked(uploadMediaUtil);
+const mockedGetVoiceDurationMs = vi.mocked(getVoiceDurationMs);
 
 describe('send-service media branches', () => {
     beforeEach(() => {
         mockedAxios.mockReset();
         mockedUploadMedia.mockReset();
+        mockedGetVoiceDurationMs.mockReset();
+        mockedGetVoiceDurationMs.mockResolvedValue(1000);
     });
 
     it('sendBySession uses native image body when upload succeeds', async () => {
@@ -74,8 +78,26 @@ describe('send-service media branches', () => {
         expect(mockedAxios).not.toHaveBeenCalled();
     });
 
+    it('sendProactiveMedia maps image payload to sampleImageMsg template', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_img_2');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
+
+        const result = await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            '/tmp/a.png',
+            'image'
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.data.msgKey).toBe('sampleImageMsg');
+        expect(JSON.parse(req.data.msgParam)).toEqual({ photoURL: 'media_img_2' });
+        expect(result.ok).toBe(true);
+    });
+
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
         mockedUploadMedia.mockResolvedValueOnce('media_voice_1');
+        mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
         const result = await sendProactiveMedia(
@@ -87,7 +109,7 @@ describe('send-service media branches', () => {
 
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data.msgKey).toBe('sampleAudio');
-        expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '0' });
+        expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
         expect(result.ok).toBe(true);
     });
 });
