@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectMediaTypeFromExtension, prepareMediaInput, uploadMedia } from '../../src/media-utils';
+import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, uploadMedia } from '../../src/media-utils';
 
 vi.mock('axios', () => {
     const mockAxios = {
@@ -32,6 +32,13 @@ function createTempFile(content: Buffer): string {
     return file;
 }
 
+function createTempFileWithExt(content: Buffer, ext: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-media-'));
+    const file = path.join(dir, `f_${Date.now()}${ext}`);
+    fs.writeFileSync(file, content);
+    return file;
+}
+
 afterEach(() => {
     mockedAxiosGet.mockReset();
     mockedAxiosPost.mockReset();
@@ -48,6 +55,24 @@ describe('media-utils', () => {
         expect(detectMediaTypeFromExtension('/tmp/a.mp3')).toBe('voice');
         expect(detectMediaTypeFromExtension('/tmp/a.mp4')).toBe('video');
         expect(detectMediaTypeFromExtension('/tmp/a.pdf')).toBe('file');
+    });
+
+    it('returns safe fallback duration for unparseable mp3', async () => {
+        const mediaPath = createTempFileWithExt(Buffer.from('not-an-mp3'), '.mp3');
+
+        const durationMs = await getVoiceDurationMs(mediaPath, 'voice');
+
+        expect(durationMs).toBe(1000);
+        fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+    });
+
+    it('returns safe fallback duration for amr/wav voice files', async () => {
+        const amrPath = createTempFileWithExt(Buffer.from('not-amr'), '.amr');
+
+        const durationMs = await getVoiceDurationMs(amrPath, 'voice');
+
+        expect(durationMs).toBe(1000);
+        fs.rmSync(path.dirname(amrPath), { recursive: true, force: true });
     });
 
     it('uploads media and returns media_id on success', async () => {

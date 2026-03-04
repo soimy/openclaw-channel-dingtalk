@@ -10,7 +10,7 @@ import {
 } from "./card-service";
 import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
-import { uploadMedia as uploadMediaUtil } from "./media-utils";
+import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
 import { detectMarkdownAndExtractTitle } from "./message-utils";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
@@ -207,7 +207,8 @@ export async function sendProactiveMedia(
       msgParam = JSON.stringify({ photoURL: mediaId });
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
-      msgParam = JSON.stringify({ mediaId, duration: "0" });
+      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log);
+      msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
       const filename = path.basename(mediaPath);
@@ -293,7 +294,8 @@ export async function sendBySession(
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
-        body = { msgtype: "voice", voice: { media_id: mediaId } };
+        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log);
+        body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
       } else if (options.mediaType === "video") {
         body = { msgtype: "video", video: { media_id: mediaId } };
       } else if (options.mediaType === "file") {
