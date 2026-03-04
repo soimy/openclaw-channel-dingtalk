@@ -454,6 +454,7 @@ export interface AICardInstance {
   cardInstanceId: string;
   accessToken: string;
   conversationId: string;
+  accountId?: string;
   createdAt: number;
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED

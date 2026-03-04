@@ -6,7 +6,13 @@ import type {
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
-import { createAICard, streamAICard, finishAICard } from "./card-service";
+import {
+  createAICard,
+  streamAICard,
+  finishAICard,
+  finalizeActiveCardsForAccount,
+  recoverPendingCardsForAccount,
+} from "./card-service";
 import { getConfig, isConfigured, resolveRelativePath, stripTargetPrefix } from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
@@ -443,6 +449,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       ctx.log?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
 
       cleanupOrphanedTempFiles(ctx.log);
+      try {
+        const recovered = await recoverPendingCardsForAccount(config, account.accountId, ctx.log);
+        if (recovered > 0) {
+          ctx.log?.info?.(
+            `[${account.accountId}] Recovered and finalized ${recovered} unfinished card(s) from previous runtime`,
+          );
+        }
+      } catch (err: any) {
+        ctx.log?.warn?.(
+          `[${account.accountId}] Failed to recover unfinished cards: ${err.message}`,
+        );
+      }
 
       const useConnectionManager = config.useConnectionManager ?? true;
 
@@ -566,6 +584,16 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         }
         stopped = true;
         ctx.log?.info?.(`[${account.accountId}] Stopping DingTalk Stream client...`);
+        void finalizeActiveCardsForAccount(
+          config,
+          account.accountId,
+          "⚠️ 服务正在重启，当前回复已中断。请重新发送你的问题。",
+          ctx.log,
+        ).catch((err: any) => {
+          ctx.log?.debug?.(
+            `[${account.accountId}] Failed to finalize active cards during stop: ${err.message}`,
+          );
+        });
         if (useConnectionManager) {
           connectionManager?.stop();
         } else {
