@@ -97,6 +97,7 @@ describe('inbound-handler', () => {
         mockedAxiosGet.mockReset();
         shared.sendBySessionMock.mockReset();
         shared.sendMessageMock.mockReset();
+        shared.sendMessageMock.mockResolvedValue({ ok: true });
         shared.extractMessageContentMock.mockReset();
         shared.createAICardMock.mockReset();
         shared.finishAICardMock.mockReset();
@@ -285,6 +286,42 @@ describe('inbound-handler', () => {
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         expect(shared.finishAICardMock).toHaveBeenCalledWith(card, '✅ Done', undefined);
+    });
+
+    it('handleDingTalkMessage finalizes card using tool stream content when no final text exists', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver({ text: 'tool output' }, { kind: 'tool' });
+                return { queuedFinal: '' };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const card = { cardInstanceId: 'card_tool_only', state: '1', lastUpdated: Date.now() } as any;
+        shared.createAICardMock.mockResolvedValueOnce(card);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card' } as any,
+            data: {
+                msgId: 'm6_tool',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+        expect(shared.finishAICardMock).toHaveBeenCalledWith(card, 'tool output', undefined);
     });
 
     it('handleDingTalkMessage skips finishAICard when current card is already terminal', async () => {
@@ -755,6 +792,31 @@ describe('inbound-handler', () => {
         } as any)).rejects.toThrow('dispatch crash');
 
         expect(releaseFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('attempts to finalize active card when dispatchReply throws', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockRejectedValueOnce(new Error('dispatch crash'));
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const card = { cardInstanceId: 'card_on_error', state: '1', lastUpdated: Date.now() } as any;
+        shared.createAICardMock.mockResolvedValueOnce(card);
+
+        await expect(handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            data: {
+                msgId: 'lock_crash_card', msgtype: 'text', text: { content: 'hello' },
+                conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
+                chatbotUserId: 'bot_1', sessionWebhook: 'https://session.webhook', createAt: Date.now(),
+            },
+        } as any)).rejects.toThrow('dispatch crash');
+
+        expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+        expect(shared.finishAICardMock).toHaveBeenCalledWith(card, '❌ 处理失败', expect.anything());
     });
 
     it('does not leak unhandled stop reason text to outbound chat messages', async () => {
