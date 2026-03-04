@@ -214,6 +214,8 @@ export interface SendMessageOptions {
   mediaUrl?: string;
   mediaType?: "image" | "voice" | "video" | "file";
   accountId?: string;
+  cardUpdateMode?: "replace" | "append" | "finalize";
+  cardFinalize?: boolean;
 }
 
 /**

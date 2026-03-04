@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const cardMocks = vi.hoisted(() => ({
     isCardInTerminalStateMock: vi.fn(),
     streamAICardMock: vi.fn(),
+    sendProactiveCardTextMock: vi.fn(),
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -18,6 +19,7 @@ vi.mock('axios', () => ({
 vi.mock('../../src/card-service', () => ({
     isCardInTerminalState: cardMocks.isCardInTerminalStateMock,
     streamAICard: cardMocks.streamAICardMock,
+    sendProactiveCardText: cardMocks.sendProactiveCardTextMock,
 }));
 
 import { sendMessage } from '../../src/send-service';
@@ -30,6 +32,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockReset();
         cardMocks.isCardInTerminalStateMock.mockReset();
         cardMocks.streamAICardMock.mockReset();
+        cardMocks.sendProactiveCardTextMock.mockReset();
     });
 
     it('streams into provided card when card is alive', async () => {
@@ -49,6 +52,27 @@ describe('sendMessage card mode', () => {
         expect(result).toEqual({ ok: true });
     });
 
+    it('composes append updates locally and streams full content', async () => {
+        const card = {
+            cardInstanceId: 'card_append',
+            state: AICardStatus.INPUTING,
+            lastUpdated: Date.now(),
+            lastStreamedContent: 'hello',
+        } as any;
+        cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
+        cardMocks.streamAICardMock.mockResolvedValue(undefined);
+
+        const result = await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            ' world',
+            { card, cardUpdateMode: 'append' } as any,
+        );
+
+        expect(cardMocks.streamAICardMock).toHaveBeenCalledWith(card, 'hello world', false, undefined);
+        expect(result).toEqual({ ok: true });
+    });
+
     it('skips card streaming when provided card is in terminal state', async () => {
         const card = { cardInstanceId: 'card_done', state: AICardStatus.FINISHED, lastUpdated: Date.now() } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(true);
@@ -63,6 +87,34 @@ describe('sendMessage card mode', () => {
 
         expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
         expect(result.ok).toBe(true);
+    });
+
+    it('creates and finalizes a new proactive card when provided card is terminal', async () => {
+        const card = { cardInstanceId: 'card_done', state: AICardStatus.FINISHED, lastUpdated: Date.now() } as any;
+        cardMocks.isCardInTerminalStateMock.mockReturnValue(true);
+        cardMocks.sendProactiveCardTextMock.mockResolvedValue({ ok: true });
+
+        const result = await sendMessage(
+            {
+                clientId: 'id',
+                clientSecret: 'sec',
+                messageType: 'card',
+                robotCode: 'id',
+                cardTemplateId: 'tmpl.schema',
+            } as any,
+            'cidA1B2C3',
+            'new terminal content',
+            { card }
+        );
+
+        expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
+        expect(cardMocks.sendProactiveCardTextMock).toHaveBeenCalledWith(
+            expect.objectContaining({ cardTemplateId: 'tmpl.schema' }),
+            'cidA1B2C3',
+            'new terminal content',
+            undefined,
+        );
+        expect(result).toEqual({ ok: true });
     });
 
     it('skips card branch entirely when no card is provided', async () => {

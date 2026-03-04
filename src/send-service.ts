@@ -30,6 +30,26 @@ import { AICardStatus } from "./types";
 
 export { detectMediaTypeFromExtension } from "./media-utils";
 
+function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
+  const prev = previous ?? "";
+  if (!prev) {
+    return incoming;
+  }
+  if (!incoming) {
+    return prev;
+  }
+  if (incoming.startsWith(prev)) {
+    return incoming;
+  }
+  if (prev.endsWith(incoming)) {
+    return prev;
+  }
+  if (prev.endsWith("\n") || incoming.startsWith("\n")) {
+    return `${prev}${incoming}`;
+  }
+  return `${prev}${incoming}`;
+}
+
 function extractErrorCodeFromResponseData(data: unknown): string | null {
   if (!data || typeof data !== "object") {
     return null;
@@ -365,17 +385,33 @@ export async function sendMessage(
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
 
-    // Card mode: stream into the provided card if exists and active.
     if (messageType === "card" && options.card) {
       const card = options.card;
-      if (!isCardInTerminalState(card.state)) {
+      if (isCardInTerminalState(card.state)) {
+        if (options.sessionWebhook) {
+          await sendBySession(config, options.sessionWebhook, text, options);
+          return { ok: true };
+        }
+
+        if (config.cardTemplateId) {
+          const proactiveResult = await sendProactiveCardText(config, conversationId, text, log);
+          if (!proactiveResult.ok) {
+            return { ok: false, error: proactiveResult.error || "Card send failed" };
+          }
+          return { ok: true };
+        }
+      } else {
         try {
-          await streamAICard(card, text, false, log);
+          const mode = options.cardUpdateMode || "replace";
+          const shouldFinalize = mode === "finalize" || options.cardFinalize === true;
+          const nextContent =
+            mode === "append"
+              ? composeCardContentForAppend(card.lastStreamedContent, text)
+              : text;
+          await streamAICard(card, nextContent, shouldFinalize, log);
           return { ok: true };
         } catch (err: any) {
-          log?.warn?.(
-            `[DingTalk] AI Card streaming failed: ${err.message}`,
-          );
+          log?.warn?.(`[DingTalk] AI Card streaming failed: ${err.message}`);
           card.state = AICardStatus.FAILED;
           card.lastUpdated = Date.now();
           return { ok: false, error: err.message };
