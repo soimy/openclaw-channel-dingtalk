@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendProactiveTextOrMarkdownMock } = vi.hoisted(() => ({
-    sendProactiveTextOrMarkdownMock: vi.fn(),
+const { sendMessageMock } = vi.hoisted(() => ({
+    sendMessageMock: vi.fn(),
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -15,8 +15,8 @@ vi.mock('dingtalk-stream', () => ({
 
 vi.mock('../../src/send-service', async () => ({
     detectMediaTypeFromExtension: vi.fn().mockReturnValue('file'),
-    sendMessage: vi.fn(),
-    sendProactiveTextOrMarkdown: sendProactiveTextOrMarkdownMock,
+    sendMessage: sendMessageMock,
+    sendProactiveTextOrMarkdown: vi.fn(),
     sendProactiveMedia: vi.fn(),
     sendBySession: vi.fn(),
     uploadMedia: vi.fn(),
@@ -26,15 +26,15 @@ import { dingtalkPlugin } from '../../src/channel';
 
 describe('plugin outbound lifecycle', () => {
     beforeEach(() => {
-        sendProactiveTextOrMarkdownMock.mockReset();
+        sendMessageMock.mockReset();
     });
 
-    it('should trigger proactive text send when outbound.sendText is called', async () => {
+    it('should route outbound.sendText through sendMessage hub', async () => {
         const sendText = dingtalkPlugin.outbound?.sendText;
         if (!sendText) {
             throw new Error('dingtalkPlugin.outbound.sendText is not defined');
         }
-        sendProactiveTextOrMarkdownMock.mockResolvedValue({ messageId: 'm_123' });
+        sendMessageMock.mockResolvedValue({ ok: true, data: { messageId: 'm_123' } });
 
         const cfg = {
             channels: {
@@ -52,7 +52,7 @@ describe('plugin outbound lifecycle', () => {
             accountId: 'default',
         });
 
-        expect(sendProactiveTextOrMarkdownMock).toHaveBeenCalledWith(
+        expect(sendMessageMock).toHaveBeenCalledWith(
             expect.objectContaining({ clientId: 'ding-client-id' }),
             'user_123',
             'hello',
@@ -67,7 +67,7 @@ describe('plugin outbound lifecycle', () => {
         if (!sendText) {
             throw new Error('dingtalkPlugin.outbound.sendText is not defined');
         }
-        sendProactiveTextOrMarkdownMock.mockRejectedValue(new Error('DingTalk API error 300001: invalid robot code'));
+        sendMessageMock.mockResolvedValue({ ok: false, error: 'DingTalk API error 300001: invalid robot code' });
 
         const cfg = {
             channels: {
