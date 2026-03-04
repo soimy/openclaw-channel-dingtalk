@@ -230,9 +230,10 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
-        expect(shared.streamAICardMock).toHaveBeenCalled();
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-        expect(shared.sendMessageMock).not.toHaveBeenCalled();
+        expect(shared.sendMessageMock).toHaveBeenCalled();
+        const cardSends = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
+        expect(cardSends.length).toBeGreaterThan(0);
     });
 
     it('handleDingTalkMessage runs non-card flow and sends thinking + final outputs', async () => {
@@ -322,6 +323,12 @@ describe('inbound-handler', () => {
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         expect(shared.finishAICardMock).toHaveBeenCalledWith(card, 'tool output', undefined);
+        expect(shared.sendMessageMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'user_1',
+            'tool output',
+            expect.objectContaining({ card, cardUpdateMode: 'append' }),
+        );
     });
 
     it('handleDingTalkMessage skips finishAICard when current card is already terminal', async () => {
@@ -718,13 +725,15 @@ describe('inbound-handler', () => {
         resolveA();
         await promiseA;
 
-        const streamCalls = shared.streamAICardMock.mock.calls;
-        const streamedToolA = streamCalls.find((call: any[]) => call[1] === 'tool A');
-        const streamedToolB = streamCalls.find((call: any[]) => call[1] === 'tool B');
-        expect(streamedToolA).toBeTruthy();
-        expect(streamedToolB).toBeTruthy();
-        expect(streamedToolA![0].cardInstanceId).toBe('card_A');
-        expect(streamedToolB![0].cardInstanceId).toBe('card_B');
+        const sendCalls = shared.sendMessageMock.mock.calls;
+        const toolCallA = sendCalls.find((call: any[]) => call[2] === 'tool A');
+        const toolCallB = sendCalls.find((call: any[]) => call[2] === 'tool B');
+        expect(toolCallA).toBeTruthy();
+        expect(toolCallB).toBeTruthy();
+        expect(toolCallA![3]?.card?.cardInstanceId).toBe('card_A');
+        expect(toolCallB![3]?.card?.cardInstanceId).toBe('card_B');
+        expect(toolCallA![3]?.cardUpdateMode).toBe('append');
+        expect(toolCallB![3]?.cardUpdateMode).toBe('append');
     });
 
     it('message A card in terminal state still finalizes without affecting message B', async () => {
@@ -749,7 +758,8 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
-        expect(shared.streamAICardMock).not.toHaveBeenCalled();
+        const cardSendCalls = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
+        expect(cardSendCalls).toHaveLength(0);
     });
 
     it('acquires session lock with the resolved sessionKey', async () => {

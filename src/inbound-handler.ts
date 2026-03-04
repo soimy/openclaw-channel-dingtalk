@@ -6,7 +6,6 @@ import {
   finishAICard,
   formatContentForCard,
   isCardInTerminalState,
-  streamAICard,
 } from "./card-service";
 import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
@@ -498,8 +497,17 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 );
                 const toolText = formatContentForCard(textToSend, "tool");
                 if (toolText) {
-                  await streamAICard(currentAICard, toolText, false, log);
-                  lastCardContent = toolText;
+                  const sendResult = await sendMessage(dingtalkConfig, to, toolText, {
+                    sessionWebhook,
+                    atUserId: !isDirect ? senderId : null,
+                    log,
+                    card: currentAICard,
+                    cardUpdateMode: "append",
+                  });
+                  if (!sendResult.ok) {
+                    throw new Error(sendResult.error || "Tool stream send failed");
+                  }
+                  lastCardContent = currentAICard.lastStreamedContent || toolText;
                   return;
                 }
               }
@@ -539,7 +547,16 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               return;
             }
             try {
-              await streamAICard(currentAICard, thinkingText, false, log);
+              const sendResult = await sendMessage(dingtalkConfig, to, thinkingText, {
+                sessionWebhook,
+                atUserId: !isDirect ? senderId : null,
+                log,
+                card: currentAICard,
+                cardUpdateMode: "append",
+              });
+              if (!sendResult.ok) {
+                throw new Error(sendResult.error || "Thinking stream send failed");
+              }
             } catch (err: any) {
               log?.debug?.(`[DingTalk] Thinking stream update failed: ${err.message}`);
               if (err?.response?.data !== undefined) {
