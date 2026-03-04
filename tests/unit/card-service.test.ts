@@ -47,6 +47,22 @@ describe('card-service', () => {
         expect(card).toBeTruthy();
         expect(card?.state).toBe(AICardStatus.PROCESSING);
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+        const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.cardData?.cardParamMap).toEqual({ content: '' });
+        expect(body.imGroupOpenDeliverModel).toEqual({ robotCode: 'id' });
+    });
+
+    it('createAICard uses robot deliver payload for direct chat cards', async () => {
+        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'robot_1' } as any,
+            'manager123'
+        );
+
+        const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.openSpaceId).toBe('dtv1.card//IM_ROBOT.manager123');
+        expect(body.imRobotOpenDeliverModel).toEqual({ spaceType: 'IM_ROBOT', robotCode: 'robot_1' });
     });
 
     it('createAICard returns null when templateId is missing', async () => {

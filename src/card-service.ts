@@ -128,11 +128,12 @@ export async function createAICard(
     }
 
     // DingTalk createAndDeliver API payload.
+    const cardTemplateKey = config.cardTemplateKey || "content";
     const createAndDeliverBody = {
       cardTemplateId: config.cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
-        cardParamMap: {},
+        cardParamMap: { [cardTemplateKey]: "" },
       },
       callbackType: "STREAM",
       imGroupOpenSpaceModel: { supportForward: true },
@@ -144,7 +145,9 @@ export async function createAICard(
       imGroupOpenDeliverModel: isGroup
         ? { robotCode: config.robotCode || config.clientId }
         : undefined,
-      imRobotOpenDeliverModel: !isGroup ? { spaceType: "IM_ROBOT" } : undefined,
+      imRobotOpenDeliverModel: !isGroup
+        ? { spaceType: "IM_ROBOT", robotCode: config.robotCode || config.clientId }
+        : undefined,
     };
 
     if (isGroup && !config.robotCode) {
@@ -249,6 +252,7 @@ export async function streamAICard(
     );
 
     card.lastUpdated = Date.now();
+    card.lastStreamedContent = content;
     if (finished) {
       card.state = AICardStatus.FINISHED;
     } else if (card.state === AICardStatus.PROCESSING) {
@@ -294,6 +298,7 @@ export async function streamAICard(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
         );
         card.lastUpdated = Date.now();
+        card.lastStreamedContent = content;
         if (finished) {
           card.state = AICardStatus.FINISHED;
         } else if (card.state === AICardStatus.PROCESSING) {
