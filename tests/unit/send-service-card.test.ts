@@ -81,11 +81,10 @@ describe('sendMessage card mode', () => {
         expect(result.ok).toBe(true);
     });
 
-    it('falls back to proactive markdown when stream fails', async () => {
+    it('returns failure when card stream fails to avoid duplicate fallback sends', async () => {
         const card = { cardInstanceId: 'card_1', state: AICardStatus.PROCESSING, lastUpdated: Date.now() } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
         cardMocks.streamAICardMock.mockRejectedValue(new Error('stream failed'));
-        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_123' } } as any);
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
@@ -95,7 +94,7 @@ describe('sendMessage card mode', () => {
         );
 
         expect(card.state).toBe(AICardStatus.FAILED);
-        expect(mockedAxios).toHaveBeenCalledTimes(1);
-        expect(result.ok).toBe(true);
+        expect(mockedAxios).not.toHaveBeenCalled();
+        expect(result).toEqual({ ok: false, error: 'stream failed' });
     });
 });

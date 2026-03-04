@@ -13,9 +13,16 @@ vi.mock('axios', () => {
     };
 });
 
+const cardServiceMocks = vi.hoisted(() => ({
+    isCardInTerminalStateMock: vi.fn(),
+    streamAICardMock: vi.fn(),
+    sendProactiveCardTextMock: vi.fn(),
+}));
+
 vi.mock('../../src/card-service', () => ({
-    isCardInTerminalState: vi.fn(),
-    streamAICard: vi.fn(),
+    isCardInTerminalState: cardServiceMocks.isCardInTerminalStateMock,
+    streamAICard: cardServiceMocks.streamAICardMock,
+    sendProactiveCardText: cardServiceMocks.sendProactiveCardTextMock,
 }));
 
 import { sendMessage } from '../../src/send-service';
@@ -30,7 +37,27 @@ const mockedAxios = vi.mocked(axios);
 describe('send-service advanced branches', () => {
     beforeEach(() => {
         mockedAxios.mockReset();
+        cardServiceMocks.sendProactiveCardTextMock.mockReset();
         clearProactiveRiskObservationsForTest();
+    });
+
+    it('falls back to proactive template API when proactive card send fails', async () => {
+        cardServiceMocks.sendProactiveCardTextMock.mockResolvedValueOnce({
+            ok: false,
+            error: 'card send failed',
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_123' } } as any);
+
+        const result = await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            'manager123',
+            'text',
+            { accountId: 'main' } as any,
+        );
+
+        expect(cardServiceMocks.sendProactiveCardTextMock).toHaveBeenCalledTimes(1);
+        expect(mockedAxios).toHaveBeenCalledTimes(1);
+        expect(result.ok).toBe(true);
     });
 
     it('returns {ok:false} when proactive send throws', async () => {

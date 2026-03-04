@@ -103,8 +103,9 @@ export async function sendProactiveTextOrMarkdown(
     if (result.ok) {
       return {} as AxiosResponse; // Return empty response for compatibility
     }
-    // If card send failed, throw error to trigger fallback handling
-    throw new Error(result.error || "Card send failed");
+    log?.warn?.(
+      `[DingTalk] Proactive card send failed, fallback to proactive template API: ${result.error || "unknown"}`,
+    );
   }
 
   const token = await getAccessToken(config, log);
@@ -372,12 +373,12 @@ export async function sendMessage(
           await streamAICard(card, text, false, log);
           return { ok: true };
         } catch (err: any) {
-          // Mark failed and continue to markdown fallback to avoid message loss.
           log?.warn?.(
-            `[DingTalk] AI Card streaming failed, fallback to markdown: ${err.message}`,
+            `[DingTalk] AI Card streaming failed: ${err.message}`,
           );
           card.state = AICardStatus.FAILED;
           card.lastUpdated = Date.now();
+          return { ok: false, error: err.message };
         }
       }
     }
