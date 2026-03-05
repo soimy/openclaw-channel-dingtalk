@@ -38,10 +38,12 @@ describe('types helpers', () => {
         expect(account.configured).toBe(true);
     });
 
-    it('resolves named account and falls back to empty when account missing', () => {
+    it('resolves named account with channel-level defaults and falls back to empty when account missing', () => {
         const cfg = {
             channels: {
                 dingtalk: {
+                    dmPolicy: 'allowlist',
+                    messageType: 'card',
                     accounts: {
                         main: { clientId: 'cli_main', clientSecret: 'sec_main', enabled: true },
                     },
@@ -54,6 +56,9 @@ describe('types helpers', () => {
 
         expect(main.accountId).toBe('main');
         expect(main.configured).toBe(true);
+        expect(main.dmPolicy).toBe('allowlist');
+        expect(main.messageType).toBe('card');
+        expect((main as any).accounts).toBeUndefined();
         expect(missing).toEqual({
             clientId: '',
             clientSecret: '',

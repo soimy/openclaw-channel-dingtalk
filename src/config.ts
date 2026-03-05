@@ -4,7 +4,29 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { DingTalkConfig } from "./types";
 
 /**
+ * Merge channel-level defaults into an account-specific config.
+ * Account-level values take precedence; `accounts` key is excluded to avoid recursion.
+ */
+export function mergeAccountWithDefaults(
+  channelCfg: DingTalkConfig,
+  accountCfg: DingTalkConfig,
+): DingTalkConfig {
+  const { accounts: _accounts, ...defaults } = channelCfg;
+  const overrides: Partial<DingTalkConfig> = {};
+  for (const [key, value] of Object.entries(accountCfg)) {
+    if (value !== undefined) {
+      Object.assign(overrides, { [key]: value });
+    }
+  }
+  return {
+    ...defaults,
+    ...overrides,
+  };
+}
+
+/**
  * Resolve DingTalk config for an account.
+ * Named accounts inherit channel-level defaults with account-level overrides.
  * Falls back to top-level config for single-account setups.
  */
 export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
@@ -14,7 +36,7 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   }
 
   if (accountId && dingtalkCfg.accounts?.[accountId]) {
-    return dingtalkCfg.accounts[accountId];
+    return mergeAccountWithDefaults(dingtalkCfg, dingtalkCfg.accounts[accountId]);
   }
 
   return dingtalkCfg;

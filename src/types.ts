@@ -17,6 +17,7 @@ import type {
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelPlugin as SDKChannelPlugin,
 } from "openclaw/plugin-sdk";
+import { mergeAccountWithDefaults } from "./config";
 
 export interface DingtalkPluginModule {
   id: string;
@@ -593,13 +594,17 @@ export function resolveDingTalkAccount(
     };
   }
 
-  // If named account, get from accounts object
+  // If named account, merge channel-level defaults with account-level overrides
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
+    const merged = mergeAccountWithDefaults(
+      dingtalk as DingTalkConfig,
+      accountConfig,
+    );
     return {
-      ...accountConfig,
+      ...merged,
       accountId: id,
-      configured: Boolean(accountConfig.clientId && accountConfig.clientSecret),
+      configured: Boolean(merged.clientId && merged.clientSecret),
     };
   }
 

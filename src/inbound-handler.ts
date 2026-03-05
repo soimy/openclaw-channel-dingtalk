@@ -183,7 +183,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Save logger globally so shared services can log consistently without threading log everywhere.
   setCurrentLogger(log);
 
-  log?.debug?.("[DingTalk] Full Inbound Data:", JSON.stringify(maskSensitiveData(data)));
+  log?.debug?.("[DingTalk] Full Inbound Data: " + JSON.stringify(maskSensitiveData(data)));
 
   // 1) Ignore self messages from bot.
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {

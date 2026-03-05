@@ -13,7 +13,13 @@ import {
   finalizeActiveCardsForAccount,
   recoverPendingCardsForAccount,
 } from "./card-service";
-import { getConfig, isConfigured, resolveRelativePath, stripTargetPrefix } from "./config";
+import {
+  getConfig,
+  isConfigured,
+  mergeAccountWithDefaults,
+  resolveRelativePath,
+  stripTargetPrefix,
+} from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "./dedup";
@@ -238,7 +244,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const config = getConfig(cfg);
       const id = accountId || "default";
       const account = config.accounts?.[id];
-      const resolvedConfig = account || config;
+      const resolvedConfig = account
+        ? mergeAccountWithDefaults(config, account)
+        : config;
       const configured = Boolean(resolvedConfig.clientId && resolvedConfig.clientSecret);
       return {
         accountId: id,
