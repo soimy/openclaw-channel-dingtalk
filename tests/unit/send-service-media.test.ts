@@ -61,7 +61,10 @@ describe('send-service media branches', () => {
         );
 
         const req = mockedAxios.mock.calls[0]?.[0] as any;
-        expect(req.data).toEqual({ msgtype: 'text', text: { content: 'fallback text' } });
+        expect(req.data).toEqual({
+            msgtype: 'text',
+            text: { content: 'fallback text\n\n📎 媒体发送失败，兜底链接/路径：/tmp/a.png' },
+        });
     });
 
     it('sendProactiveMedia returns upload failure when media upload fails', async () => {
