@@ -38,6 +38,11 @@ export interface ResolveQuotedMessageByIdParams {
     nowMs?: number;
 }
 
+export interface ResolveQuotedMessageWithBacktrackParams extends ResolveQuotedMessageByIdParams {
+    windowSize?: number;
+    maxRounds?: number;
+}
+
 export interface CleanupExpiredQuoteJournalEntriesParams {
     storePath: string;
     accountId: string;
@@ -122,6 +127,41 @@ function safeParseLine(line: string): QuoteJournalEntry | null {
     } catch {
         return null;
     }
+}
+
+function extractReferencedMsgId(text: string): string | null {
+    const match = text.match(/\[这是一条引用消息，原消息ID:\s*([^\]]+)\]/);
+    if (!match?.[1]) {
+        return null;
+    }
+    const id = normalizeMsgId(match[1]);
+    return id || null;
+}
+
+async function readActiveEntries(
+    params: ResolveQuotedMessageByIdParams,
+): Promise<{ entries: QuoteJournalEntry[]; nowMs: number; ttlDays: number }> {
+    const filePath = resolveQuoteJournalFile(params);
+    const nowMs = params.nowMs ?? Date.now();
+    const ttlDays =
+        typeof params.ttlDays === "number" && params.ttlDays > 0
+            ? Math.floor(params.ttlDays)
+            : DEFAULT_QUOTE_JOURNAL_TTL_DAYS;
+
+    let content: string;
+    try {
+        content = await fs.readFile(filePath, "utf8");
+    } catch {
+        return { entries: [], nowMs, ttlDays };
+    }
+
+    const entries = content
+        .split("\n")
+        .map((line) => safeParseLine(line))
+        .filter((entry): entry is QuoteJournalEntry => Boolean(entry))
+        .filter((entry) => isEntryWithinTtl(entry.ts, nowMs, ttlDays));
+
+    return { entries, nowMs, ttlDays };
 }
 
 export async function appendQuoteJournalEntry(params: AppendQuoteJournalEntryParams): Promise<void> {
@@ -236,33 +276,86 @@ export async function resolveQuotedMessageById(
         return null;
     }
 
-    const filePath = resolveQuoteJournalFile(params);
-    const nowMs = params.nowMs ?? Date.now();
-    const ttlDays =
-        typeof params.ttlDays === "number" && params.ttlDays > 0
-            ? Math.floor(params.ttlDays)
-            : DEFAULT_QUOTE_JOURNAL_TTL_DAYS;
-
-    let content: string;
-    try {
-        content = await fs.readFile(filePath, "utf8");
-    } catch {
-        return null;
-    }
-
-    const lines = content.split("\n");
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-        const entry = safeParseLine(lines[i] || "");
-        if (!entry) {
-            continue;
-        }
-        if (!isEntryWithinTtl(entry.ts, nowMs, ttlDays)) {
-            continue;
-        }
+    const { entries } = await readActiveEntries(params);
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const entry = entries[i]!;
         if (normalizeMsgId(entry.msgId) === targetMsgId) {
             return entry;
         }
     }
 
     return null;
+}
+
+export async function resolveQuotedMessageWithBacktrack(
+    params: ResolveQuotedMessageWithBacktrackParams,
+): Promise<QuoteJournalEntry | null> {
+    if (!params.originalMsgId) {
+        return null;
+    }
+    const targetMsgId = normalizeMsgId(params.originalMsgId);
+    if (!targetMsgId) {
+        return null;
+    }
+
+    const { entries } = await readActiveEntries(params);
+    if (entries.length === 0) {
+        return null;
+    }
+
+    const windowSize = Math.max(1, params.windowSize ?? 10);
+    const maxRounds = Math.max(1, params.maxRounds ?? 5);
+
+    const lastIndexByMsgId = new Map<string, number>();
+    for (let i = 0; i < entries.length; i += 1) {
+        const id = normalizeMsgId(entries[i]!.msgId);
+        if (id) {
+            lastIndexByMsgId.set(id, i);
+        }
+    }
+
+    const hasReadableMedia = (entry: QuoteJournalEntry): boolean =>
+        Boolean(entry.mediaPath) || /\[(图片|image)\]/i.test(entry.text);
+
+    const exactIndex = lastIndexByMsgId.get(targetMsgId);
+    if (typeof exactIndex === "number") {
+        const exact = entries[exactIndex]!;
+        if (hasReadableMedia(exact)) {
+            return exact;
+        }
+    }
+
+    let cursor = typeof exactIndex === "number" ? exactIndex + 1 : entries.length;
+    const visitedRefs = new Set<string>([targetMsgId]);
+
+    for (let round = 0; round < maxRounds && cursor > 0; round += 1) {
+        const start = Math.max(0, cursor - windowSize);
+        let jumped = false;
+
+        for (let i = cursor - 1; i >= start; i -= 1) {
+            const entry = entries[i]!;
+            if (hasReadableMedia(entry)) {
+                return entry;
+            }
+
+            const refId = extractReferencedMsgId(entry.text);
+            if (!refId || visitedRefs.has(refId)) {
+                continue;
+            }
+            visitedRefs.add(refId);
+
+            const refIndex = lastIndexByMsgId.get(refId);
+            if (typeof refIndex === "number") {
+                cursor = refIndex + 1;
+                jumped = true;
+                break;
+            }
+        }
+
+        if (!jumped) {
+            cursor = start;
+        }
+    }
+
+    return typeof exactIndex === "number" ? entries[exactIndex]! : null;
 }

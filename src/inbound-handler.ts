@@ -20,6 +20,7 @@ import {
   appendOutboundToQuoteJournal,
   appendQuoteJournalEntry,
   resolveQuotedMessageById,
+  resolveQuotedMessageWithBacktrack,
 } from "./quote-journal";
 import {
   clearProactiveRiskObservationsForTest,
@@ -347,13 +348,27 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         conversationId: groupId,
         originalMsgId: data.originalMsgId,
       });
-      if (quoted) {
-        const quotedText = quoted.text?.trim() || `[${quoted.messageType || "消息"}]`;
+      const needsBacktrack =
+        !quoted ||
+        (!quoted.mediaPath && /版本过低不支持展示|\[图片\]|引用消息/.test(quoted.text || ""));
+      const resolved = needsBacktrack
+        ? await resolveQuotedMessageWithBacktrack({
+            storePath,
+            accountId,
+            conversationId: groupId,
+            originalMsgId: data.originalMsgId,
+            windowSize: 10,
+            maxRounds: 5,
+          })
+        : quoted;
+
+      if (resolved) {
+        const quotedText = resolved.text?.trim() || `[${resolved.messageType || "消息"}]`;
         content = {
           ...content,
           text: `[引用消息: "${quotedText}"]\n\n${content.text}`,
-          mediaPath: content.mediaPath || quoted.mediaPath,
-          mediaType: content.mediaType || quoted.mediaType,
+          mediaPath: content.mediaPath || resolved.mediaPath,
+          mediaType: content.mediaType || resolved.mediaType,
         };
       } else {
         // Silent degrade: keep handling user message without proactive warning spam.

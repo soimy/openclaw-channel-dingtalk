@@ -6,6 +6,7 @@ import {
     appendQuoteJournalEntry,
     cleanupExpiredQuoteJournalEntries,
     resolveQuotedMessageById,
+    resolveQuotedMessageWithBacktrack,
 } from '../../src/quote-journal';
 
 describe('quote-journal', () => {
@@ -160,5 +161,87 @@ describe('quote-journal', () => {
 
         expect(oldHit).toBeNull();
         expect(newHit?.text).toBe('new entry');
+    });
+
+    it('backtracks by 10-message windows and finds earlier media when quoted message is placeholder', async () => {
+        const nowMs = Date.now();
+        await appendQuoteJournalEntry({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            msgId: 'img_1',
+            messageType: 'richText',
+            text: '图片消息',
+            mediaPath: 'download_code_1',
+            mediaType: 'image',
+            createdAt: nowMs - 10000,
+        });
+
+        for (let i = 0; i < 12; i += 1) {
+            await appendQuoteJournalEntry({
+                storePath: storePathInTemp(),
+                accountId: 'main',
+                conversationId: 'cid_1',
+                msgId: `msg_${i}`,
+                messageType: 'text',
+                text: `noise ${i}`,
+                createdAt: nowMs - 9000 + i,
+            });
+        }
+
+        await appendQuoteJournalEntry({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            msgId: 'quoted_placeholder',
+            messageType: 'text',
+            text: '[这是一条引用消息，原消息ID: img_1]\n\n[版本过低不支持展示，请升级客户端]',
+            createdAt: nowMs,
+        });
+
+        const hit = await resolveQuotedMessageWithBacktrack({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            originalMsgId: 'quoted_placeholder',
+            windowSize: 10,
+            maxRounds: 5,
+        });
+
+        expect(hit?.msgId).toBe('img_1');
+        expect(hit?.mediaPath).toBe('download_code_1');
+    });
+
+    it('backtrack handles circular quote references safely', async () => {
+        const nowMs = Date.now();
+        await appendQuoteJournalEntry({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            msgId: 'a',
+            messageType: 'text',
+            text: '[这是一条引用消息，原消息ID: b]',
+            createdAt: nowMs - 1000,
+        });
+        await appendQuoteJournalEntry({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            msgId: 'b',
+            messageType: 'text',
+            text: '[这是一条引用消息，原消息ID: a]',
+            createdAt: nowMs - 900,
+        });
+
+        const hit = await resolveQuotedMessageWithBacktrack({
+            storePath: storePathInTemp(),
+            accountId: 'main',
+            conversationId: 'cid_1',
+            originalMsgId: 'a',
+            windowSize: 10,
+            maxRounds: 5,
+        });
+
+        expect(hit?.msgId).toBe('a');
     });
 });
