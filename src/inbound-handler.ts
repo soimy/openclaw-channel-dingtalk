@@ -398,11 +398,28 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
+  const mediaPaths: string[] = [];
+  const mediaCodes = [
+    ...(Array.isArray(content.mediaPaths) ? content.mediaPaths : []),
+    ...(content.mediaPath ? [content.mediaPath] : []),
+  ].filter(Boolean) as string[];
+
+  if (mediaCodes.length > 0 && dingtalkConfig.robotCode) {
+    for (const code of [...new Set(mediaCodes)]) {
+      const media = await downloadMedia(dingtalkConfig, code, log);
+      if (media) {
+        mediaPaths.push(media.path);
+        if (!mediaPath) {
+          mediaPath = media.path;
+          mediaType = media.mimeType;
+        }
+      }
+    }
+    if (mediaPaths.length > 1) {
+      content = {
+        ...content,
+        text: `${content.text}\n\n[系统提示] 本条消息共解析到 ${mediaPaths.length} 个媒体附件，请逐个查看后回答。`,
+      };
     }
   }
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
@@ -455,6 +472,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     MessageSid: data.msgId,
     Timestamp: data.createAt,
     MediaPath: mediaPath,
+    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
     MediaType: mediaType,
     MediaUrl: mediaPath,
     GroupMembers: groupMembers,

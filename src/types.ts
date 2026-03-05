@@ -216,6 +216,8 @@ export interface MessageContent {
   text: string;
   mediaPath?: string;
   mediaType?: string;
+  mediaPaths?: string[];
+  mediaTypes?: string[];
   messageType: string;
 }
 

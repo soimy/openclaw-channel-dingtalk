@@ -28,6 +28,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
   const msgtype = data.msgtype || "text";
 
   // Normalize quote/reply metadata into a readable text prefix so the agent can understand message context.
+  const quoteImageCodes: string[] = [];
   const formatQuotedContent = (): string => {
     const textField = data.text as any;
 
@@ -51,6 +52,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
             textParts.push(part.content || "[表情]");
           } else if (part.msgType === "picture" || part.type === "picture") {
             textParts.push("[图片]");
+            if (part.code) quoteImageCodes.push(part.code);
           } else if (part.msgType === "at" || part.type === "at") {
             textParts.push(`@${part.content || part.atName || "某人"}`);
           } else if (part.text) {
@@ -59,7 +61,8 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         }
         const quoteText = textParts.join("").trim();
         if (quoteText) {
-          return `[引用消息: "${quoteText}"]\n\n`;
+          const imageHint = quoteImageCodes.length > 0 ? ` [含${quoteImageCodes.length}张引用图片]` : "";
+          return `[引用消息: "${quoteText}"]${imageHint}\n\n`;
         }
       }
     }
@@ -87,14 +90,21 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
   // Unified extraction by DingTalk msgtype for downstream routing/agent processing.
   if (msgtype === "text") {
-    return { text: quotedPrefix + (data.text?.content?.trim() || ""), messageType: "text" };
+    const allImageCodes = [...new Set(quoteImageCodes)];
+    return {
+      text: quotedPrefix + (data.text?.content?.trim() || ""),
+      mediaPath: allImageCodes[0],
+      mediaType: allImageCodes.length > 0 ? "image" : undefined,
+      mediaPaths: allImageCodes.length > 0 ? allImageCodes : undefined,
+      mediaTypes: allImageCodes.length > 0 ? allImageCodes.map(() => "image") : undefined,
+      messageType: "text",
+    };
   }
 
   if (msgtype === "richText") {
     const richTextParts = data.content?.richText || [];
     let text = "";
-    let pictureDownloadCode: string | undefined;
-    // Keep first image downloadCode while preserving readable text and @mention parts.
+    const pictureDownloadCodes: string[] = [];
     for (const part of richTextParts) {
       if (part.text && (part.type === "text" || part.type === undefined)) {
         text += part.text;
@@ -102,15 +112,19 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       if (part.type === "at" && part.atName) {
         text += `@${part.atName} `;
       }
-      if (part.type === "picture" && part.downloadCode && !pictureDownloadCode) {
-        pictureDownloadCode = part.downloadCode;
+      if (part.type === "picture" && part.downloadCode) {
+        pictureDownloadCodes.push(part.downloadCode);
       }
     }
+    const allImageCodes = [...new Set([...pictureDownloadCodes, ...quoteImageCodes])];
     return {
       text:
-        quotedPrefix + (text.trim() || (pictureDownloadCode ? "<media:image>" : "[富文本消息]")),
-      mediaPath: pictureDownloadCode,
-      mediaType: pictureDownloadCode ? "image" : undefined,
+        quotedPrefix +
+        (text.trim() || (allImageCodes.length > 0 ? `<media:image x${allImageCodes.length}>` : "[富文本消息]")),
+      mediaPath: allImageCodes[0],
+      mediaType: allImageCodes.length > 0 ? "image" : undefined,
+      mediaPaths: allImageCodes,
+      mediaTypes: allImageCodes.map(() => "image"),
       messageType: "richText",
     };
   }
