@@ -12,13 +12,16 @@ export function mergeAccountWithDefaults(
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
   const { accounts: _accounts, ...defaults } = channelCfg;
-  const merged: Record<string, unknown> = { ...defaults };
+  const overrides: Partial<DingTalkConfig> = {};
   for (const [key, value] of Object.entries(accountCfg)) {
     if (value !== undefined) {
-      merged[key] = value;
+      Object.assign(overrides, { [key]: value });
     }
   }
-  return merged as DingTalkConfig;
+  return {
+    ...defaults,
+    ...overrides,
+  };
 }
 
 /**
