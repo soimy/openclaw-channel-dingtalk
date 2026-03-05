@@ -165,6 +165,25 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     };
   }
 
+  if (msgtype === "chatRecord") {
+    const summary = String((data.content as any)?.summary || "").trim();
+    const rawRecord = (data.content as any)?.chatRecord;
+    if (
+      summary === "[]" ||
+      (typeof rawRecord === "string" && rawRecord.trim() === "[]") ||
+      (Array.isArray(rawRecord) && rawRecord.length === 0)
+    ) {
+      return {
+        text: "[系统提示] 没有读到引用记录（chatRecord 为空）。请改用逐条转发、复制原文，或重新转发非空聊天记录。",
+        messageType: "chatRecord",
+      };
+    }
+    if (summary) {
+      return { text: `[聊天记录摘要] ${summary}`, messageType: "chatRecord" };
+    }
+    return { text: "[chatRecord消息: 无可读内容]", messageType: "chatRecord" };
+  }
+
   // Fallback: preserve unknown msgtype as readable marker.
   return { text: data.text?.content?.trim() || `[${msgtype}消息]`, messageType: msgtype };
 }
