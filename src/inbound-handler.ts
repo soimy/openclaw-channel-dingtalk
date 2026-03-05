@@ -2,10 +2,14 @@ import axios from "axios";
 import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from "./access-control";
 import { getAccessToken } from "./auth";
 import {
+  cleanupCardCache,
   createAICard,
   finishAICard,
   formatContentForCard,
+  getActiveCardIdByTarget,
+  getCardById,
   isCardInTerminalState,
+  streamAICard,
 } from "./card-service";
 import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
@@ -13,15 +17,19 @@ import { setCurrentLogger } from "./logger-context";
 import { extractMessageContent } from "./message-utils";
 import { registerPeerId } from "./peer-id-registry";
 import {
+  appendOutboundToQuoteJournal,
+  appendQuoteJournalEntry,
+  resolveQuotedMessageById,
+  resolveQuotedMessageWithBacktrack,
+} from "./quote-journal";
+import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage } from "./send-service";
-import { appendQuoteJournalEntry, findQuoteJournalEntryByMsgId } from "./quote-journal";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { AICardStatus } from "./types";
-import { acquireSessionLock } from "./session-lock";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
@@ -184,7 +192,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Save logger globally so shared services can log consistently without threading log everywhere.
   setCurrentLogger(log);
 
-  log?.debug?.("[DingTalk] Full Inbound Data: " + JSON.stringify(maskSensitiveData(data)));
+  log?.debug?.("[DingTalk] Full Inbound Data:", JSON.stringify(maskSensitiveData(data)));
+
+  // Clean up old terminal cards opportunistically on inbound traffic.
+  cleanupCardCache();
 
   // 1) Ignore self messages from bot.
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
@@ -192,10 +203,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  let content = extractMessageContent(data);
-  if (!content.text) {
+  const extractedContent = extractMessageContent(data);
+  if (!extractedContent.text) {
     return;
   }
+  let content = extractedContent;
 
   const isDirect = data.conversationType === "1";
   const senderId = data.senderStaffId || data.senderId;
@@ -324,85 +336,79 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     agentId: route.agentId,
   });
 
-  const replyMeta = (data.text as any)?.repliedMsg as any;
-  const replyMsgType = String(replyMeta?.msgType || "").trim();
-  const replyMsgId = String(replyMeta?.msgId || data.originalMsgId || "").trim();
-  const replyHasReadableBody =
-    Boolean(replyMeta?.content?.text) ||
-    (Array.isArray(replyMeta?.content?.richText) && replyMeta.content.richText.length > 0);
-
-  const isOriginalMsgReply =
-    Boolean((data.text as any)?.isReplyMsg) &&
-    Boolean(replyMsgId) &&
-    (!Boolean((data.text as any)?.repliedMsg) ||
-      !replyHasReadableBody ||
-      replyMsgType === "unknownMsgType");
-  if (isOriginalMsgReply && replyMsgId) {
+  if (
+    data.text?.isReplyMsg &&
+    data.originalMsgId &&
+    !content.text.includes("[引用消息:")
+  ) {
     try {
-      const quoted = await findQuoteJournalEntryByMsgId({
+      const quoted = await resolveQuotedMessageById({
         storePath,
         accountId,
         conversationId: groupId,
-        msgId: replyMsgId,
+        originalMsgId: data.originalMsgId,
       });
-      if (quoted) {
-        const prefixRegex = /^(\[这是一条引用消息，原消息ID:[^\]]+\]|\[引用消息不可见:[^\]]+\])\s*/;
-        const bodyText = content.text.replace(prefixRegex, "").trim();
-
-        let resolvedQuoted = quoted;
-        const nestedMatch = (quoted.text || "").match(/\[这是一条引用消息，原消息ID:\s*([^\]]+)\]/);
-        if (nestedMatch?.[1]) {
-          const nested = await findQuoteJournalEntryByMsgId({
+      const needsBacktrack =
+        !quoted ||
+        (!quoted.mediaPath && /版本过低不支持展示|\[图片\]|引用消息/.test(quoted.text || ""));
+      const resolved = needsBacktrack
+        ? await resolveQuotedMessageWithBacktrack({
             storePath,
             accountId,
             conversationId: groupId,
-            msgId: nestedMatch[1].trim(),
-          });
-          if (nested) {
-            resolvedQuoted = nested;
-          }
-        }
+            originalMsgId: data.originalMsgId,
+            windowSize: 10,
+            maxRounds: 5,
+          })
+        : quoted;
 
-        const quotedText = resolvedQuoted.text?.trim() || `[${resolvedQuoted.messageType || "消息"}]`;
+      if (resolved) {
+        const quotedText = resolved.text?.trim() || `[${resolved.messageType || "消息"}]`;
         content = {
           ...content,
-          text: `[引用消息: "${quotedText}"]\n\n${bodyText}`,
-          mediaPath: content.mediaPath || resolvedQuoted.mediaPath,
-          mediaType: content.mediaType || resolvedQuoted.mediaType,
+          text: `[引用消息: "${quotedText}"]\n\n${content.text}`,
+          mediaPath: content.mediaPath || resolved.mediaPath,
+          mediaType: content.mediaType || resolved.mediaType,
         };
+      } else {
+        // Silent degrade: keep handling user message without proactive warning spam.
+        log?.warn?.(
+          `[DingTalk] Quote unresolved, fallback to plain inbound: originalMsgId=${data.originalMsgId} conversationId=${groupId}`,
+        );
       }
     } catch (err) {
-      log?.debug?.(`[DingTalk] Quote journal resolve failed: ${String(err)}`);
+      log?.debug?.(`[DingTalk] Quote journal lookup failed: ${String(err)}`);
     }
   }
 
-  const to = isDirect ? senderId : groupId;
+  const looksLikeQuotedImageOnly =
+    !content.mediaPath &&
+    content.text.includes("[引用消息:") &&
+    (content.text.includes("[图片]") || /引用消息[:：]\s*"?.*图片/.test(content.text));
 
-  // 3) Select response mode (card vs markdown).
-  // Card creation runs BEFORE media download so the user sees immediate visual
-  // feedback while large files are still being downloaded.
-  const useCardMode = dingtalkConfig.messageType === "card";
-  let currentAICard = undefined;
-  let lastCardContent = "";
+  if (looksLikeQuotedImageOnly) {
+    const quoteImageHint =
+      "\n\n[系统提示] 当前消息仅包含“引用图片”的文本线索，未携带图片文件本体；你无法看到图像内容。请先明确告知用户需要补发原图，再进行分析。";
+    content = {
+      ...content,
+      text: `${content.text}${quoteImageHint}`,
+    };
+  }
 
-  if (useCardMode) {
-    try {
-      log?.debug?.(
-        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
-      );
-      const aiCard = await createAICard(dingtalkConfig, to, log);
-      if (aiCard) {
-        currentAICard = aiCard;
-      } else {
-        log?.warn?.(
-          "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
-        );
-      }
-    } catch (err: any) {
-      log?.warn?.(
-        `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
-      );
-    }
+  try {
+    await appendQuoteJournalEntry({
+      storePath,
+      accountId,
+      conversationId: groupId,
+      msgId: data.msgId,
+      messageType: extractedContent.messageType,
+      text: extractedContent.text,
+      mediaPath: extractedContent.mediaPath,
+      mediaType: extractedContent.mediaType,
+      createdAt: data.createAt,
+    });
+  } catch (err) {
+    log?.debug?.(`[DingTalk] Quote journal append failed: ${String(err)}`);
   }
 
   let mediaPath: string | undefined;
@@ -431,43 +437,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       };
     }
   }
-
-  const quoteWithoutImage =
-    content.text.includes("[引用消息:") &&
-    /图|图片|看下|感想/.test(content.text) &&
-    !content.mediaPath &&
-    !mediaPath;
-  if (quoteWithoutImage) {
-    content = {
-      ...content,
-      text: `${content.text}\n\n[系统提示] 当前仅拿到引用文本，未拿到图片文件本体。禁止臆测图片内容，请先请用户补发原图后再分析。`,
-    };
-  }
-
-  const quoteUnavailable = content.text.includes("[引用消息不可见:");
-  if (quoteUnavailable) {
-    content = {
-      ...content,
-      text: `${content.text}\n\n[系统提示] 当前没有拿到被引用消息的正文/附件，只拿到引用占位信息。禁止根据历史聊天臆测“引用内容”。请先明确告知用户：未收到引用原文，请粘贴原文或转发该消息后再总结。`,
-    };
-  }
-
-  try {
-    await appendQuoteJournalEntry({
-      storePath,
-      accountId,
-      conversationId: groupId,
-      msgId: data.msgId,
-      messageType: content.messageType,
-      text: content.text,
-      mediaPath: content.mediaPath,
-      mediaType: content.mediaType,
-      createdAt: data.createAt,
-    });
-  } catch (err) {
-    log?.debug?.(`[DingTalk] Quote journal append failed: ${String(err)}`);
-  }
-
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
     storePath,
@@ -499,6 +468,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     envelope: envelopeOptions,
   });
 
+  const to = isDirect ? senderId : groupId;
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
@@ -540,218 +510,219 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
-  // Serialize dispatchReply + card finalize per session to prevent the runtime
-  // from receiving concurrent dispatch calls on the same session key, which
-  // causes empty replies for all but the first caller.
-  const releaseSessionLock = await acquireSessionLock(route.sessionKey);
-  try {
-    // 4) Optional "thinking..." feedback for non-card mode.
-    if (dingtalkConfig.showThinking !== false) {
+  // 3) Select response mode (card vs markdown).
+  const useCardMode = dingtalkConfig.messageType === "card";
+  let currentAICard = undefined;
+  let lastCardContent = "";
+
+  if (useCardMode) {
+    const targetKey = `${accountId}:${to}`;
+    const existingCardId = getActiveCardIdByTarget(targetKey);
+    const existingCard = existingCardId ? getCardById(existingCardId) : undefined;
+
+    // Reuse active non-terminal card to keep one card per conversation.
+    if (existingCard && !isCardInTerminalState(existingCard.state)) {
+      currentAICard = existingCard;
+      log?.debug?.("[DingTalk] Reusing existing active AI card for this conversation.");
+    } else {
       try {
-        const thinkingText = "🤔 思考中，请稍候...";
-        if (useCardMode && currentAICard) {
-          log?.debug?.("[DingTalk] AI Card in thinking state, skipping thinking message send.");
+        const aiCard = await createAICard(dingtalkConfig, to, data, accountId, log);
+        if (aiCard) {
+          currentAICard = aiCard;
         } else {
-          lastCardContent = thinkingText;
-          const sendResult = await sendMessage(dingtalkConfig, to, thinkingText, {
-            sessionWebhook,
-            atUserId: !isDirect ? senderId : null,
-            log,
-            card: currentAICard,
-          });
-          if (!sendResult.ok) {
-            throw new Error(sendResult.error || "Thinking message send failed");
-          }
+          log?.warn?.(
+            "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
+          );
         }
       } catch (err: any) {
-        log?.debug?.(`[DingTalk] Thinking message failed: ${err.message}`);
-        if (err?.response?.data !== undefined) {
-          log?.debug?.(formatDingTalkErrorPayloadLog("inbound.thinkingMessage", err.response.data));
-        }
+        log?.warn?.(
+          `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
+        );
       }
     }
+  }
 
-    let queuedFinal: unknown;
+  // 4) Optional "thinking..." feedback for non-card mode.
+  if (dingtalkConfig.showThinking !== false) {
     try {
-      const dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx,
-        cfg,
-        dispatcherOptions: {
-          responsePrefix: "",
-          deliver: async (payload: any, info?: { kind: string }) => {
-            try {
-              const textToSend = payload.markdown || payload.text;
-              if (!textToSend) {
-                return;
-              }
+      const thinkingText = "🤔 思考中，请稍候...";
+      if (useCardMode && currentAICard) {
+        log?.debug?.("[DingTalk] AI Card in thinking state, skipping thinking message send.");
+      } else {
+        lastCardContent = thinkingText;
+        await sendMessage(dingtalkConfig, to, thinkingText, {
+          sessionWebhook,
+          atUserId: !isDirect ? senderId : null,
+          log,
+          accountId,
+          storePath,
+        });
+      }
+    } catch (err: any) {
+      log?.debug?.(`[DingTalk] Thinking message failed: ${err.message}`);
+      if (err?.response?.data !== undefined) {
+        log?.debug?.(formatDingTalkErrorPayloadLog("inbound.thinkingMessage", err.response.data));
+      }
+    }
+  }
 
-              if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
-                log?.warn?.(`[DingTalk] Suppressed stop reason from outbound chat content: ${textToSend}`);
-                return;
-              }
+  const { queuedFinal } = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx,
+    cfg,
+    dispatcherOptions: {
+      responsePrefix: "",
+      deliver: async (payload: any, info?: { kind: string }) => {
+        try {
+          const textToSend = payload.markdown || payload.text;
+          if (!textToSend) {
+            return;
+          }
 
-              if (useCardMode && currentAICard && info?.kind === "final") {
-                lastCardContent = textToSend;
-                return;
-              }
+          if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
+            log?.warn?.(`[DingTalk] Suppressed stop reason from outbound chat content: ${textToSend}`);
+            return;
+          }
 
-              if (useCardMode && currentAICard && info?.kind === "tool") {
-                if (isCardInTerminalState(currentAICard.state)) {
-                  log?.debug?.(
-                    `[DingTalk] Skipping tool stream update because card is terminal: state=${currentAICard.state}`,
-                  );
-                  return;
-                }
+          if (useCardMode && currentAICard && info?.kind === "final") {
+            lastCardContent = textToSend;
+            return;
+          }
 
-                log?.info?.(
-                  `[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`,
-                );
-                const toolText = formatContentForCard(textToSend, "tool");
-                if (toolText) {
-                  const sendResult = await sendMessage(dingtalkConfig, to, toolText, {
-                    sessionWebhook,
-                    atUserId: !isDirect ? senderId : null,
-                    log,
-                    card: currentAICard,
-                    cardUpdateMode: "append",
-                  });
-                  if (!sendResult.ok) {
-                    throw new Error(sendResult.error || "Tool stream send failed");
-                  }
-                  lastCardContent = currentAICard.lastStreamedContent || toolText;
-                  return;
-                }
-              }
-
-              lastCardContent = textToSend;
-              const sendResult = await sendMessage(dingtalkConfig, to, textToSend, {
-                sessionWebhook,
-                atUserId: !isDirect ? senderId : null,
-                log,
-                card: currentAICard,
-              });
-              if (!sendResult.ok) {
-                throw new Error(sendResult.error || "Reply send failed");
-              }
-            } catch (err: any) {
-              log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
-              if (err?.response?.data !== undefined) {
-                log?.error?.(formatDingTalkErrorPayloadLog("inbound.replyDeliver", err.response.data));
-              }
-              throw err;
-            }
-          },
-        },
-        replyOptions: {
-          onReasoningStream: async (payload: any) => {
-            if (!useCardMode || !currentAICard) {
-              return;
-            }
+          // Tool outputs are rendered into card stream as a separate formatted block.
+          if (useCardMode && currentAICard && info?.kind === "tool") {
             if (isCardInTerminalState(currentAICard.state)) {
               log?.debug?.(
-                `[DingTalk] Skipping thinking stream update because card is terminal: state=${currentAICard.state}`,
+                `[DingTalk] Skipping tool stream update because card is terminal: state=${currentAICard.state}`,
               );
               return;
             }
-            const thinkingText = formatContentForCard(payload.text, "thinking");
-            if (!thinkingText) {
+
+            log?.info?.(
+              `[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`,
+            );
+            const toolText = formatContentForCard(textToSend, "tool");
+            if (toolText) {
+              await streamAICard(currentAICard, toolText, false, log);
               return;
             }
-            try {
-              const sendResult = await sendMessage(dingtalkConfig, to, thinkingText, {
-                sessionWebhook,
-                atUserId: !isDirect ? senderId : null,
-                log,
-                card: currentAICard,
-                cardUpdateMode: "append",
-              });
-              if (!sendResult.ok) {
-                throw new Error(sendResult.error || "Thinking stream send failed");
-              }
-            } catch (err: any) {
-              log?.debug?.(`[DingTalk] Thinking stream update failed: ${err.message}`);
-              if (err?.response?.data !== undefined) {
-                log?.debug?.(formatDingTalkErrorPayloadLog("inbound.thinkingStream", err.response.data));
-              }
-            }
-          },
-        },
-      });
-      queuedFinal = dispatchResult?.queuedFinal;
-    } catch (dispatchErr: any) {
-      if (useCardMode && currentAICard && !isCardInTerminalState(currentAICard.state)) {
-        try {
-          await finishAICard(currentAICard, "❌ 处理失败", log);
-        } catch (cardCloseErr: any) {
-          log?.debug?.(`[DingTalk] Failed to finalize card after dispatch error: ${cardCloseErr.message}`);
-          currentAICard.state = AICardStatus.FAILED;
-          currentAICard.lastUpdated = Date.now();
-        }
-      }
-      throw dispatchErr;
-    }
+          }
 
-    // 5) Finalize card stream if card mode is active.
-    if (useCardMode && currentAICard) {
-      try {
+          lastCardContent = textToSend;
+          await sendMessage(dingtalkConfig, to, textToSend, {
+            sessionWebhook,
+            atUserId: !isDirect ? senderId : null,
+            log,
+            accountId,
+            storePath,
+          });
+        } catch (err: any) {
+          log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
+          if (err?.response?.data !== undefined) {
+            log?.error?.(formatDingTalkErrorPayloadLog("inbound.replyDeliver", err.response.data));
+          }
+          throw err;
+        }
+      },
+    },
+    replyOptions: {
+      // Real-time reasoning stream support for card mode.
+      onReasoningStream: async (payload: any) => {
+        if (!useCardMode || !currentAICard) {
+          return;
+        }
         if (isCardInTerminalState(currentAICard.state)) {
           log?.debug?.(
-            `[DingTalk] Skipping AI Card finalization because card is terminal: state=${currentAICard.state}`,
+            `[DingTalk] Skipping thinking stream update because card is terminal: state=${currentAICard.state}`,
           );
           return;
         }
-
-        const isNonEmptyString = (value: any): boolean =>
-          typeof value === "string" && value.trim().length > 0;
-
-        const hasLastCardContent = isNonEmptyString(lastCardContent);
-        const hasQueuedFinalString = isNonEmptyString(queuedFinal);
-
-        if (hasLastCardContent || hasQueuedFinalString) {
-          const finalContentCandidate =
-            hasLastCardContent && typeof lastCardContent === "string"
-              ? lastCardContent
-              : typeof queuedFinal === "string"
-                ? queuedFinal
-                : "";
-          if (isUnhandledStopReasonText(finalContentCandidate)) {
-            log?.warn?.(
-              `[DingTalk] Suppressed stop reason from AI Card final content: ${finalContentCandidate}`,
-            );
-            currentAICard.state = AICardStatus.FINISHED;
-            currentAICard.lastUpdated = Date.now();
-            return;
-          }
-          const finalContent = finalContentCandidate;
-          await finishAICard(currentAICard, finalContent, log);
-        } else {
-          const lastStreamed = currentAICard.lastStreamedContent;
-          if (typeof lastStreamed === "string" && lastStreamed.trim().length > 0) {
-            await finishAICard(currentAICard, lastStreamed, log);
-          } else {
-            const defaultFinalContent = "✅ Done";
-            log?.debug?.(
-              "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
-            );
-            await finishAICard(currentAICard, defaultFinalContent, log);
-          }
-        }
-      } catch (err: any) {
-        log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
-        if (err?.response?.data !== undefined) {
-          log?.debug?.(formatDingTalkErrorPayloadLog("inbound.cardFinalize", err.response.data));
+        const thinkingText = formatContentForCard(payload.text, "thinking");
+        if (!thinkingText) {
+          return;
         }
         try {
-          if (currentAICard.state !== AICardStatus.FINISHED) {
-            currentAICard.state = AICardStatus.FAILED;
-            currentAICard.lastUpdated = Date.now();
+          await streamAICard(currentAICard, thinkingText, false, log);
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Thinking stream update failed: ${err.message}`);
+          if (err?.response?.data !== undefined) {
+            log?.debug?.(formatDingTalkErrorPayloadLog("inbound.thinkingStream", err.response.data));
           }
-        } catch (stateErr: any) {
-          log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
         }
+      },
+    },
+  });
+
+  // 5) Finalize card stream if card mode is active.
+  if (useCardMode && currentAICard) {
+    try {
+      if (isCardInTerminalState(currentAICard.state)) {
+        log?.debug?.(
+          `[DingTalk] Skipping AI Card finalization because card is terminal: state=${currentAICard.state}`,
+        );
+        return;
+      }
+
+      const isNonEmptyString = (value: any): boolean =>
+        typeof value === "string" && value.trim().length > 0;
+
+      const hasLastCardContent = isNonEmptyString(lastCardContent);
+      const hasQueuedFinalString = isNonEmptyString(queuedFinal);
+
+      if (hasLastCardContent || hasQueuedFinalString) {
+        const finalContentCandidate =
+          hasLastCardContent && typeof lastCardContent === "string"
+            ? lastCardContent
+            : typeof queuedFinal === "string"
+              ? queuedFinal
+              : "";
+        if (isUnhandledStopReasonText(finalContentCandidate)) {
+          log?.warn?.(
+            `[DingTalk] Suppressed stop reason from AI Card final content: ${finalContentCandidate}`,
+          );
+          currentAICard.state = AICardStatus.FINISHED;
+          currentAICard.lastUpdated = Date.now();
+          return;
+        }
+        const finalContent = finalContentCandidate;
+        await finishAICard(currentAICard, finalContent, log);
+        await appendOutboundToQuoteJournal({
+          storePath,
+          accountId,
+          conversationId: groupId,
+          messageId: currentAICard.outboundMessageId || currentAICard.cardInstanceId,
+          messageType: "outbound",
+          text: finalContent,
+          log,
+        });
+      } else {
+        const defaultFinalContent = "✅ Done";
+        log?.debug?.(
+          "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
+        );
+        await finishAICard(currentAICard, defaultFinalContent, log);
+        await appendOutboundToQuoteJournal({
+          storePath,
+          accountId,
+          conversationId: groupId,
+          messageId: currentAICard.outboundMessageId || currentAICard.cardInstanceId,
+          messageType: "outbound",
+          text: defaultFinalContent,
+          log,
+        });
+      }
+    } catch (err: any) {
+      log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
+      if (err?.response?.data !== undefined) {
+        log?.debug?.(formatDingTalkErrorPayloadLog("inbound.cardFinalize", err.response.data));
+      }
+      try {
+        if (currentAICard.state !== AICardStatus.FINISHED) {
+          currentAICard.state = AICardStatus.FAILED;
+          currentAICard.lastUpdated = Date.now();
+        }
+      } catch (stateErr: any) {
+        log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
       }
     }
-  } finally {
-    releaseSessionLock();
   }
 }
