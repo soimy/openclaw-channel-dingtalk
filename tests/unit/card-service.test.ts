@@ -24,6 +24,7 @@ import {
     finishAICard,
     formatContentForCard,
     recoverPendingCardsForAccount,
+    sendProactiveCardText,
     streamAICard,
 } from '../../src/card-service';
 import { getAccessToken } from '../../src/auth';
@@ -33,7 +34,9 @@ const mockedAxios = axios as any;
 const mockedGetAccessToken = vi.mocked(getAccessToken);
 
 describe('card-service', () => {
+    let storePath = '';
     let stateFilePath = '';
+    let stateDirPath = '';
 
     beforeEach(() => {
         mockedAxios.mockReset();
@@ -41,17 +44,17 @@ describe('card-service', () => {
         mockedAxios.put.mockReset();
         mockedGetAccessToken.mockReset();
         mockedGetAccessToken.mockResolvedValue('token_abc');
-        stateFilePath = path.join(
+        stateDirPath = path.join(
             os.tmpdir(),
-            `openclaw-dingtalk-card-state-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
+            `openclaw-dingtalk-card-state-${Date.now()}-${Math.random().toString(16).slice(2)}`
         );
-        process.env.OPENCLAW_DINGTALK_CARD_STATE_FILE = stateFilePath;
-        fs.rmSync(stateFilePath, { force: true });
+        storePath = path.join(stateDirPath, 'session-store.json');
+        stateFilePath = path.join(stateDirPath, 'dingtalk-active-cards.json');
+        fs.rmSync(stateDirPath, { force: true, recursive: true });
     });
 
     afterEach(() => {
-        delete process.env.OPENCLAW_DINGTALK_CARD_STATE_FILE;
-        fs.rmSync(stateFilePath, { force: true });
+        fs.rmSync(stateDirPath, { force: true, recursive: true });
     });
 
     it('createAICard returns card instance', async () => {
@@ -264,7 +267,7 @@ describe('card-service', () => {
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
             'cid_pending',
             undefined,
-            'main'
+            { accountId: 'main', storePath }
         );
 
         expect(card).toBeTruthy();
@@ -302,7 +305,8 @@ describe('card-service', () => {
 
         const recovered = await recoverPendingCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
-            'main'
+            'main',
+            storePath
         );
 
         expect(recovered).toBe(1);
@@ -336,7 +340,8 @@ describe('card-service', () => {
         const finalized = await finalizeActiveCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
             'main',
-            'stop-reason'
+            'stop-reason',
+            storePath
         );
 
         expect(finalized).toBe(1);
@@ -346,5 +351,21 @@ describe('card-service', () => {
         expect(putBody.isFinalize).toBe(true);
         const afterFinalize = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinalize.pendingCards).toHaveLength(0);
+    });
+
+    it('sendProactiveCardText does not persist pending card state', async () => {
+        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        const result = await sendProactiveCardText(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            'cid_proactive',
+            'proactive done'
+        );
+
+        expect(result).toEqual({ ok: true });
+        expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+        expect(fs.existsSync(stateFilePath)).toBe(false);
     });
 });

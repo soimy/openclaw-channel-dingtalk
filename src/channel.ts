@@ -22,6 +22,7 @@ import { getLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
 import { resolveOriginalPeerId } from "./peer-id-registry";
+import { getDingTalkRuntime } from "./runtime";
 import { sendMessage, sendProactiveMedia, sendBySession, uploadMedia } from "./send-service";
 import type {
   DingTalkInboundMessage,
@@ -445,12 +446,26 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       if (!config.clientId || !config.clientSecret) {
         throw new Error("DingTalk clientId and clientSecret are required");
       }
+      let accountStorePath: string | undefined;
+      try {
+        const rt = getDingTalkRuntime();
+        accountStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+          agentId: account.accountId,
+        });
+      } catch {
+        accountStorePath = undefined;
+      }
 
       ctx.log?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
 
       cleanupOrphanedTempFiles(ctx.log);
       try {
-        const recovered = await recoverPendingCardsForAccount(config, account.accountId, ctx.log);
+        const recovered = await recoverPendingCardsForAccount(
+          config,
+          account.accountId,
+          accountStorePath,
+          ctx.log,
+        );
         if (recovered > 0) {
           ctx.log?.info?.(
             `[${account.accountId}] Recovered and finalized ${recovered} unfinished card(s) from previous runtime`,
@@ -588,6 +603,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           config,
           account.accountId,
           "⚠️ 服务正在重启，当前回复已中断。请重新发送你的问题。",
+          accountStorePath,
           ctx.log,
         ).catch((err: any) => {
           ctx.log?.debug?.(

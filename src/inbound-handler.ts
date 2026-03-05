@@ -322,6 +322,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
+  const accountStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+    agentId: accountId,
+  });
 
   const to = isDirect ? senderId : groupId;
 
@@ -337,7 +340,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
       );
-      const aiCard = await createAICard(dingtalkConfig, to, log, accountId);
+      const aiCard = await createAICard(dingtalkConfig, to, log, {
+        accountId,
+        storePath: accountStorePath,
+      });
       if (aiCard) {
         currentAICard = aiCard;
       } else {
