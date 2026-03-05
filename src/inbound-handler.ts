@@ -364,9 +364,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
       if (resolved) {
         const quotedText = resolved.text?.trim() || `[${resolved.messageType || "消息"}]`;
+        const bodyText = String(content.text || "")
+          .replace(/^\[这是一条引用消息，原消息ID:[^\]]+\]\s*/g, "")
+          .trim();
         content = {
           ...content,
-          text: `[引用消息: "${quotedText}"]\n\n${content.text}`,
+          text: `[引用消息: "${quotedText}"]\n\n${bodyText}`,
           mediaPath: content.mediaPath || resolved.mediaPath,
           mediaType: content.mediaType || resolved.mediaType,
         };

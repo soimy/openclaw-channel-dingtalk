@@ -37,6 +37,43 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       const repliedMsg = textField.repliedMsg as any;
       const content = repliedMsg?.content;
 
+      const replyMsgType = String(repliedMsg?.msgType || "").trim();
+      const parseChatRecordText = (): string => {
+        const summary = String(content?.summary || content?.title || content?.text || "").trim();
+        const raw = content?.chatRecord || content?.records || content?.messages;
+        const lines: string[] = [];
+        const pushLine = (sender: any, text: any) => {
+          const s = String(sender || "某人").trim();
+          const t = String(text || "").trim();
+          if (t) lines.push(`${s}: ${t}`);
+        };
+
+        if (typeof raw === "string" && raw.trim()) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.slice(0, 20).forEach((it: any) => pushLine(it?.senderName || it?.senderNick || it?.senderId, it?.content || it?.text));
+            }
+          } catch {
+            // ignore
+          }
+        } else if (Array.isArray(raw)) {
+          raw.slice(0, 20).forEach((it: any) => pushLine(it?.senderName || it?.senderNick || it?.senderId, it?.content || it?.text));
+        }
+
+        if (summary && lines.length > 0) return `[聊天记录摘要] ${summary}\n[聊天记录内容]\n${lines.join("\n")}`;
+        if (lines.length > 0) return `[聊天记录内容]\n${lines.join("\n")}`;
+        if (summary) return `[聊天记录摘要] ${summary}`;
+        return "";
+      };
+
+      if (replyMsgType === "chatRecord" || content?.chatRecord || content?.records || content?.messages) {
+        const chatRecordText = parseChatRecordText();
+        if (chatRecordText) {
+          return `[引用消息: "${chatRecordText}"]\n\n`;
+        }
+      }
+
       if (content?.text) {
         const quoteText = content.text.trim();
         if (quoteText) {
