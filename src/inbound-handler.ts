@@ -191,7 +191,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  const content = extractMessageContent(data);
+  let content = extractMessageContent(data);
   if (!content.text) {
     return;
   }
