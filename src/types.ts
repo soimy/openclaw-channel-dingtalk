@@ -224,6 +224,8 @@ export interface SendMessageOptions {
   mediaUrl?: string;
   mediaType?: "image" | "voice" | "video" | "file";
   accountId?: string;
+  cardUpdateMode?: "replace" | "append" | "finalize";
+  cardFinalize?: boolean;
 }
 
 /**
@@ -456,6 +458,7 @@ export interface AICardInstance {
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
+  lastStreamedContent?: string;
 }
 
 /**

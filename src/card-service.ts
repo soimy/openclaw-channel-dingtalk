@@ -8,53 +8,17 @@ import type {
   AICardInstance,
   AICardStreamingRequest,
   DingTalkConfig,
-  DingTalkInboundMessage,
   Logger,
 } from "./types";
 import { AICardStatus } from "./types";
 
 const DINGTALK_API = "https://api.dingtalk.com";
-// Card cache TTL (1 hour) for terminal states.
-const CARD_CACHE_TTL = 60 * 60 * 1000;
 // Thinking/tool stream snippets are truncated to keep card updates compact.
 const THINKING_TRUNCATE_LENGTH = 500;
-
-// AI Card instance cache for streaming updates.
-const aiCardInstances = new Map<string, AICardInstance>();
-// accountId:conversationId -> cardInstanceId
-const activeCardsByTarget = new Map<string, string>();
 
 // Helper to identify card terminal states.
 export function isCardInTerminalState(state: string): boolean {
   return state === AICardStatus.FINISHED || state === AICardStatus.FAILED;
-}
-
-export function getCardById(cardId: string): AICardInstance | undefined {
-  return aiCardInstances.get(cardId);
-}
-
-export function getActiveCardIdByTarget(targetKey: string): string | undefined {
-  return activeCardsByTarget.get(targetKey);
-}
-
-export function deleteActiveCardByTarget(targetKey: string): void {
-  activeCardsByTarget.delete(targetKey);
-}
-
-export function cleanupCardCache(): void {
-  const now = Date.now();
-  // Clean terminal cards only; active cards stay in cache to support streaming continuity.
-  for (const [cardInstanceId, instance] of aiCardInstances.entries()) {
-    if (isCardInTerminalState(instance.state) && now - instance.lastUpdated > CARD_CACHE_TTL) {
-      aiCardInstances.delete(cardInstanceId);
-      for (const [targetKey, mappedCardId] of activeCardsByTarget.entries()) {
-        if (mappedCardId === cardInstanceId) {
-          activeCardsByTarget.delete(targetKey);
-          break;
-        }
-      }
-    }
-  }
 }
 
 export function formatContentForCard(content: string, type: "thinking" | "tool"): string {
@@ -122,11 +86,32 @@ async function sendTemplateMismatchNotification(
   }
 }
 
+/**
+ * Send a proactive text message via card API (createAndDeliver + immediate finalize).
+ * Used in card mode to replace oToMessages/batchSend for single-chat users.
+ */
+export async function sendProactiveCardText(
+  config: DingTalkConfig,
+  conversationId: string,
+  content: string,
+  log?: Logger,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const card = await createAICard(config, conversationId, log);
+    if (!card) {
+      return { ok: false, error: "Failed to create AI card" };
+    }
+    await finishAICard(card, content, log);
+    return { ok: true };
+  } catch (err: any) {
+    log?.error?.(`[DingTalk][AICard] Proactive card send failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
 export async function createAICard(
   config: DingTalkConfig,
   conversationId: string,
-  data: DingTalkInboundMessage,
-  accountId: string,
   log?: Logger,
 ): Promise<AICardInstance | null> {
   try {
@@ -135,9 +120,6 @@ export async function createAICard(
     const cardInstanceId = `card_${randomUUID()}`;
 
     log?.info?.(`[DingTalk][AICard] Creating and delivering card outTrackId=${cardInstanceId}`);
-    log?.debug?.(
-      `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${conversationId}`,
-    );
 
     const isGroup = conversationId.startsWith("cid");
 
@@ -146,11 +128,12 @@ export async function createAICard(
     }
 
     // DingTalk createAndDeliver API payload.
+    const cardTemplateKey = config.cardTemplateKey || "content";
     const createAndDeliverBody = {
       cardTemplateId: config.cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
-        cardParamMap: {},
+        cardParamMap: { [cardTemplateKey]: "" },
       },
       callbackType: "STREAM",
       imGroupOpenSpaceModel: { supportForward: true },
@@ -162,7 +145,9 @@ export async function createAICard(
       imGroupOpenDeliverModel: isGroup
         ? { robotCode: config.robotCode || config.clientId }
         : undefined,
-      imRobotOpenDeliverModel: !isGroup ? { spaceType: "IM_ROBOT" } : undefined,
+      imRobotOpenDeliverModel: !isGroup
+        ? { spaceType: "IM_ROBOT", robotCode: config.robotCode || config.clientId }
+        : undefined,
     };
 
     if (isGroup && !config.robotCode) {
@@ -186,7 +171,7 @@ export async function createAICard(
       `[DingTalk][AICard] CreateAndDeliver response: status=${resp.status} data=${JSON.stringify(resp.data)}`,
     );
 
-    // Cache the AI card instance with config reference for token refresh/recovery.
+    // Return the AI card instance with config reference for token refresh/recovery.
     const aiCardInstance: AICardInstance = {
       cardInstanceId,
       accessToken: token,
@@ -196,13 +181,6 @@ export async function createAICard(
       state: AICardStatus.PROCESSING,
       config,
     };
-    aiCardInstances.set(cardInstanceId, aiCardInstance);
-
-    const targetKey = `${accountId}:${conversationId}`;
-    activeCardsByTarget.set(targetKey, cardInstanceId);
-    log?.debug?.(
-      `[DingTalk][AICard] Registered active card mapping: ${targetKey} -> ${cardInstanceId}`,
-    );
 
     return aiCardInstance;
   } catch (err: any) {
@@ -274,6 +252,7 @@ export async function streamAICard(
     );
 
     card.lastUpdated = Date.now();
+    card.lastStreamedContent = content;
     if (finished) {
       card.state = AICardStatus.FINISHED;
     } else if (card.state === AICardStatus.PROCESSING) {
@@ -319,6 +298,7 @@ export async function streamAICard(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
         );
         card.lastUpdated = Date.now();
+        card.lastStreamedContent = content;
         if (finished) {
           card.state = AICardStatus.FINISHED;
         } else if (card.state === AICardStatus.PROCESSING) {

@@ -16,6 +16,7 @@ vi.mock('dingtalk-stream', () => ({
 vi.mock('../../src/send-service', async () => ({
     detectMediaTypeFromExtension: vi.fn().mockReturnValue('file'),
     sendMessage: sendMessageMock,
+    sendProactiveTextOrMarkdown: vi.fn(),
     sendProactiveMedia: vi.fn(),
     sendBySession: vi.fn(),
     uploadMedia: vi.fn(),
@@ -28,7 +29,7 @@ describe('plugin outbound lifecycle', () => {
         sendMessageMock.mockReset();
     });
 
-    it('should trigger sendMessage when outbound.sendText is called', async () => {
+    it('should route outbound.sendText through sendMessage hub', async () => {
         const sendText = dingtalkPlugin.outbound?.sendText;
         if (!sendText) {
             throw new Error('dingtalkPlugin.outbound.sendText is not defined');

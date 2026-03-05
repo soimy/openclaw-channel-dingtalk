@@ -1,6 +1,6 @@
 {
   "name": "@soimy/dingtalk",
-  "version": "3.1.4",
+  "version": "3.2.0",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "keywords": [
     "bot",
@@ -51,7 +51,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "oxfmt": "0.34.0",
     "oxlint": "^1.49.0",
-    "oxlint-tsgolint": "^0.14.2",
+    "oxlint-tsgolint": "^0.15.0",
     "typescript": "^5.3.0",
     "vitest": "^3.2.4"
   },

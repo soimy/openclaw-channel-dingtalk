@@ -1,14 +1,6 @@
 import axios from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const cardMocks = vi.hoisted(() => ({
-    getActiveCardIdByTargetMock: vi.fn(),
-    getCardByIdMock: vi.fn(),
-    isCardInTerminalStateMock: vi.fn(),
-    streamAICardMock: vi.fn(),
-    deleteActiveCardByTargetMock: vi.fn(),
-}));
-
 vi.mock('../../src/auth', () => ({
     getAccessToken: vi.fn().mockResolvedValue('token_abc'),
 }));
@@ -21,12 +13,16 @@ vi.mock('axios', () => {
     };
 });
 
+const cardServiceMocks = vi.hoisted(() => ({
+    isCardInTerminalStateMock: vi.fn(),
+    streamAICardMock: vi.fn(),
+    sendProactiveCardTextMock: vi.fn(),
+}));
+
 vi.mock('../../src/card-service', () => ({
-    getActiveCardIdByTarget: cardMocks.getActiveCardIdByTargetMock,
-    getCardById: cardMocks.getCardByIdMock,
-    isCardInTerminalState: cardMocks.isCardInTerminalStateMock,
-    streamAICard: cardMocks.streamAICardMock,
-    deleteActiveCardByTarget: cardMocks.deleteActiveCardByTargetMock,
+    isCardInTerminalState: cardServiceMocks.isCardInTerminalStateMock,
+    streamAICard: cardServiceMocks.streamAICardMock,
+    sendProactiveCardText: cardServiceMocks.sendProactiveCardTextMock,
 }));
 
 import { sendMessage } from '../../src/send-service';
@@ -35,35 +31,32 @@ import {
     getProactiveRiskObservation,
     recordProactiveRiskObservation,
 } from '../../src/proactive-risk-registry';
-import { AICardStatus } from '../../src/types';
 
 const mockedAxios = vi.mocked(axios);
 
 describe('send-service advanced branches', () => {
     beforeEach(() => {
         mockedAxios.mockReset();
+        cardServiceMocks.sendProactiveCardTextMock.mockReset();
         clearProactiveRiskObservationsForTest();
-        cardMocks.getActiveCardIdByTargetMock.mockReset();
-        cardMocks.getCardByIdMock.mockReset();
-        cardMocks.isCardInTerminalStateMock.mockReset();
-        cardMocks.streamAICardMock.mockReset();
-        cardMocks.deleteActiveCardByTargetMock.mockReset();
     });
 
-    it('deletes active card mapping when card is terminal', async () => {
-        cardMocks.getActiveCardIdByTargetMock.mockReturnValue('card_terminal');
-        cardMocks.getCardByIdMock.mockReturnValue({ state: AICardStatus.FINISHED });
-        cardMocks.isCardInTerminalStateMock.mockReturnValue(true);
-        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q1' } } as any);
+    it('falls back to proactive template API when proactive card send fails', async () => {
+        cardServiceMocks.sendProactiveCardTextMock.mockResolvedValueOnce({
+            ok: false,
+            error: 'card send failed',
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_123' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card' } as any,
-            'cidA1B2C3',
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            'manager123',
             'text',
-            { accountId: 'main' }
+            { accountId: 'main' } as any,
         );
 
-        expect(cardMocks.deleteActiveCardByTargetMock).toHaveBeenCalledWith('main:cidA1B2C3');
+        expect(cardServiceMocks.sendProactiveCardTextMock).toHaveBeenCalledTimes(1);
+        expect(mockedAxios).toHaveBeenCalledTimes(1);
         expect(result.ok).toBe(true);
     });
 

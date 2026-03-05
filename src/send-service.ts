@@ -2,15 +2,13 @@ import * as path from "node:path";
 import axios from "axios";
 import { getAccessToken } from "./auth";
 import {
-  deleteActiveCardByTarget,
-  getActiveCardIdByTarget,
-  getCardById,
   isCardInTerminalState,
+  sendProactiveCardText,
   streamAICard,
 } from "./card-service";
 import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
-import { uploadMedia as uploadMediaUtil } from "./media-utils";
+import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
 import { detectMarkdownAndExtractTitle } from "./message-utils";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
@@ -20,6 +18,7 @@ import {
 } from "./proactive-risk-registry";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 import type {
+  AICardInstance,
   AxiosResponse,
   DingTalkConfig,
   Logger,
@@ -30,6 +29,26 @@ import type {
 import { AICardStatus } from "./types";
 
 export { detectMediaTypeFromExtension } from "./media-utils";
+
+function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
+  const prev = previous ?? "";
+  if (!prev) {
+    return incoming;
+  }
+  if (!incoming) {
+    return prev;
+  }
+  if (incoming.startsWith(prev)) {
+    return incoming;
+  }
+  if (prev.endsWith(incoming)) {
+    return prev;
+  }
+  if (prev.endsWith("\n") || incoming.startsWith("\n")) {
+    return `${prev}${incoming}`;
+  }
+  return `${prev}${incoming}`;
+}
 
 function extractErrorCodeFromResponseData(data: unknown): string | null {
   if (!data || typeof data !== "object") {
@@ -82,7 +101,6 @@ export async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {},
 ): Promise<AxiosResponse> {
   const log = options.log || getLogger();
-  const token = await getAccessToken(config, log);
 
   // Support group:/user: prefix and restore original case-sensitive conversationId.
   const { targetId, isExplicitUser } = stripTargetPrefix(target);
@@ -95,6 +113,22 @@ export async function sendProactiveTextOrMarkdown(
     ? ` proactiveRisk=${proactiveRisk.level}:${proactiveRisk.reason}`
     : "";
 
+  // In card mode, use card API to avoid oToMessages/batchSend permission requirement.
+  const messageType = config.messageType || "markdown";
+  if (messageType === "card" && config.cardTemplateId) {
+    log?.debug?.(
+      `[DingTalk] Using card API for proactive message to user ${resolvedTarget}${proactiveRiskTag}`,
+    );
+    const result = await sendProactiveCardText(config, resolvedTarget, text, log);
+    if (result.ok) {
+      return {} as AxiosResponse; // Return empty response for compatibility
+    }
+    log?.warn?.(
+      `[DingTalk] Proactive card send failed, fallback to proactive template API: ${result.error || "unknown"}`,
+    );
+  }
+
+  const token = await getAccessToken(config, log);
   const url = isGroup
     ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
     : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
@@ -207,7 +241,8 @@ export async function sendProactiveMedia(
       msgParam = JSON.stringify({ photoURL: mediaId });
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
-      msgParam = JSON.stringify({ mediaId, duration: "0" });
+      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log);
+      msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
       const filename = path.basename(mediaPath);
@@ -293,7 +328,8 @@ export async function sendBySession(
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
-        body = { msgtype: "voice", voice: { media_id: mediaId } };
+        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log);
+        body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
       } else if (options.mediaType === "video") {
         body = { msgtype: "video", video: { media_id: mediaId } };
       } else if (options.mediaType === "file") {
@@ -345,32 +381,42 @@ export async function sendMessage(
   config: DingTalkConfig,
   conversationId: string,
   text: string,
-  options: SendMessageOptions & { sessionWebhook?: string; accountId?: string } = {},
+  options: SendMessageOptions & { sessionWebhook?: string; card?: AICardInstance } = {},
 ): Promise<{ ok: boolean; error?: string; data?: AxiosResponse }> {
   try {
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
 
-    // Card mode: stream into active card if exists; otherwise fallback to markdown/session send.
-    if (messageType === "card" && options.accountId) {
-      const targetKey = `${options.accountId}:${conversationId}`;
-      const activeCardId = getActiveCardIdByTarget(targetKey);
-      if (activeCardId) {
-        const activeCard = getCardById(activeCardId);
-        if (activeCard && !isCardInTerminalState(activeCard.state)) {
-          try {
-            await streamAICard(activeCard, text, false, log);
-            return { ok: true };
-          } catch (err: any) {
-            // Mark failed and continue to markdown fallback to avoid message loss.
-            log?.warn?.(
-              `[DingTalk] AI Card streaming failed, fallback to markdown: ${err.message}`,
-            );
-            activeCard.state = AICardStatus.FAILED;
-            activeCard.lastUpdated = Date.now();
+    if (messageType === "card" && options.card) {
+      const card = options.card;
+      if (isCardInTerminalState(card.state)) {
+        if (options.sessionWebhook) {
+          await sendBySession(config, options.sessionWebhook, text, options);
+          return { ok: true };
+        }
+
+        if (config.cardTemplateId) {
+          const proactiveResult = await sendProactiveCardText(config, conversationId, text, log);
+          if (!proactiveResult.ok) {
+            return { ok: false, error: proactiveResult.error || "Card send failed" };
           }
-        } else {
-          deleteActiveCardByTarget(targetKey);
+          return { ok: true };
+        }
+      } else {
+        try {
+          const mode = options.cardUpdateMode || "replace";
+          const shouldFinalize = mode === "finalize" || options.cardFinalize === true;
+          const nextContent =
+            mode === "append"
+              ? composeCardContentForAppend(card.lastStreamedContent, text)
+              : text;
+          await streamAICard(card, nextContent, shouldFinalize, log);
+          return { ok: true };
+        } catch (err: any) {
+          log?.warn?.(`[DingTalk] AI Card streaming failed: ${err.message}`);
+          card.state = AICardStatus.FAILED;
+          card.lastUpdated = Date.now();
+          return { ok: false, error: err.message };
         }
       }
     }

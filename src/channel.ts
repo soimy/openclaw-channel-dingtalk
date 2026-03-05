@@ -300,20 +300,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       try {
         const result = await sendMessage(config, to, text, { log, accountId });
         getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
-        if (result.ok) {
-          const data = result.data as any;
-          const messageId = String(data?.processQueryKey || data?.messageId || randomUUID());
-          return {
-            channel: "dingtalk",
-            messageId,
-            meta: result.data
-              ? { data: result.data as unknown as Record<string, unknown> }
-              : undefined,
-          };
+        if (!result.ok) {
+          throw new Error(result.error || "sendText failed");
         }
-        throw new Error(
-          typeof result.error === "string" ? result.error : JSON.stringify(result.error),
-        );
+        const data = result.data as any;
+        const messageId = String(data?.processQueryKey || data?.messageId || randomUUID());
+        return {
+          channel: "dingtalk",
+          messageId,
+          meta: result.data
+            ? { data: result.data as unknown as Record<string, unknown> }
+            : undefined,
+        };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
           log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));

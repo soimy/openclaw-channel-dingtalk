@@ -3,17 +3,17 @@
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
 > [!IMPORTANT]
-> **重要声明（上游消息丢失排查中）**
+> **重要声明（上游消息丢失问题进展更新）**
 >
-> 当前我们观察到：部分消息在钉钉 App 端发送后，未稳定到达本地 `dingtalk-stream` SDK 回调入口（已通过最小复现与链路统计验证）。
-> 相关问题已向钉钉开发者后台提交了工单，在相关问题得到解决前，暂停本项目的Feature开发，仅进入维护模式。
+> 根据 issue [#104](https://github.com/soimy/openclaw-channel-dingtalk/issues/104) 今日最新反馈，钉钉侧服务扩容后，`dingtalk-stream` 模式下的消息丢失情况已有明显改善。
+> 当前我们将继续保持观测与验证：若你在生产或测试环境使用本插件，欢迎重点关注“消息到达率、延迟、缺失 ID 对账”等指标，并在 #104 持续回报测试结果与样本日志，帮助社区共同确认改善效果是否稳定收敛。
 >
 > 相关信息：
 > - issue 讨论：[#104](https://github.com/soimy/openclaw-channel-dingtalk/issues/104)
 > - 最小可复现说明（SDK 侧）：<https://github.com/soimy/dingtalk-stream-sdk-nodejs/blob/main/docs/inbound-msg-missing-repro.zh-CN.md>
 > - 插件侧测试分支：[`test/inbound-msg-missing`](https://github.com/soimy/openclaw-channel-dingtalk/tree/test/inbound-msg-missing)
 >
-> 在上游链路问题完全收敛前，建议关键业务场景先做好重试与可观测性（trace 前缀、计数日志、缺失 ID 对账）。
+> 在问题完全确认收敛前，关键业务场景仍建议保持重试与可观测性（trace 前缀、计数日志、缺失 ID 对账）。
 
 ## 功能特性
 
@@ -56,6 +56,39 @@ openclaw plugins install -l .
 1. 将本目录下载或复制到 `~/.openclaw/extensions/dingtalk`。
 2. 确保包含 `index.ts`, `openclaw.plugin.json` 和 `package.json`。
 3. 运行 `openclaw plugins list` 确认 `dingtalk` 已显示在列表中。
+
+### 方法 D：国内网络环境安装（npm 镜像源）
+
+如果你在国内网络环境下执行 `openclaw plugins install @soimy/dingtalk` 时卡在 `Installing plugin dependencies...` 或出现 `npm install failed`，可临时为该次安装指定镜像源：
+
+```bash
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @soimy/dingtalk
+```
+
+如果插件已处于半安装状态（例如扩展目录存在但依赖未装全），可进入插件目录手动补装依赖：
+
+```bash
+cd ~/.openclaw/extensions/dingtalk
+rm -rf node_modules package-lock.json
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com npm install
+```
+
+如果希望长期生效，可设置 npm 默认镜像：
+
+```bash
+npm config set registry https://registry.npmmirror.com
+```
+
+或写入 `~/.npmrc`：
+
+```ini
+registry=https://registry.npmmirror.com
+```
+
+> 说明：
+> - 临时环境变量方式仅对当前命令生效，不会污染全局配置。
+> - 若 OpenClaw 运行在 systemd / Docker 等服务环境，请在对应服务环境变量中配置 `NPM_CONFIG_REGISTRY`。
+> - 相关背景可参考 issue [#216](https://github.com/soimy/openclaw-channel-dingtalk/issues/216)。
 
 ### 安装后必做：配置插件信任白名单（`plugins.allow`）
 
@@ -114,6 +147,20 @@ openclaw gateway restart
 
 ```bash
 openclaw plugins update dingtalk
+```
+
+国内网络环境可临时指定镜像源后再更新：
+
+```bash
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins update dingtalk
+```
+
+如果插件已处于半安装状态（例如扩展目录存在但依赖未装全），可进入插件目录手动补装依赖：
+
+```bash
+cd ~/.openclaw/extensions/dingtalk
+rm -rf node_modules package-lock.json
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com npm install
 ```
 
 如果你是本地源码/链接安装（`openclaw plugins install -l .`），请在插件目录更新代码后重启 Gateway：
@@ -675,7 +722,7 @@ MediaFile; // 下载的媒体文件
 sendBySession(config, sessionWebhook, text, options); // 通过会话发送
 
 // AI 互动卡片
-createAICard(config, conversationId, data, log); // 创建并投放 AI 卡片
+createAICard(config, conversationId, log); // 创建并投放 AI 卡片
 streamAICard(card, content, finished, log); // 流式更新卡片内容
 finishAICard(card, content, log); // 完成并关闭卡片
 
@@ -701,7 +748,7 @@ import {
 } from './src/channel';
 
 // 创建 AI 卡片
-const card = await createAICard(config, conversationId, messageData, log);
+const card = await createAICard(config, conversationId, log);
 
 // 流式更新内容
 for (const chunk of aiResponseChunks) {
