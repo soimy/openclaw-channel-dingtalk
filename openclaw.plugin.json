@@ -1,22 +1,9 @@
 {
   "id": "dingtalk",
-  "channels": [
-    "dingtalk"
-  ],
+  "channels": ["dingtalk"],
   "configSchema": {
     "type": "object",
     "additionalProperties": true,
-    "properties": {
-      "showThinking": {
-        "type": "boolean",
-        "default": true,
-        "description": "Show thinking indicator while processing (markdown mode only)."
-      },
-      "thinkingMessage": {
-        "type": "string",
-        "default": "🤔 思考中，请稍候...",
-        "description": "Custom thinking message content when showThinking is enabled (markdown mode only)."
-      }
-    }
+    "properties": {}
   }
 }
