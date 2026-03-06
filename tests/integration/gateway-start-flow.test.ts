@@ -7,6 +7,7 @@ const shared = vi.hoisted(() => ({
     isConnectedMock: vi.fn(),
     cleanupOrphanedTempFilesMock: vi.fn(),
     connectionConfig: undefined as any,
+    clientGetEndpointMock: vi.fn(),
     clientConnectMock: vi.fn(),
     clientDisconnectMock: vi.fn(),
     dwClientConfig: undefined as any,
@@ -20,6 +21,8 @@ vi.mock('dingtalk-stream', () => ({
     TOPIC_ROBOT: 'TOPIC_ROBOT',
     DWClient: class {
         config: Record<string, unknown>;
+        getEndpoint: () => Promise<void>;
+        _connect: () => Promise<void>;
         connect: () => Promise<void>;
         disconnect: () => void;
         registerCallbackListener: (topic: string, cb: (res: unknown) => Promise<void>) => void;
@@ -28,7 +31,15 @@ vi.mock('dingtalk-stream', () => ({
         constructor(config: Record<string, unknown>) {
             this.config = config;
             shared.dwClientConfig = this.config;
-            this.connect = shared.clientConnectMock;
+            this.getEndpoint = async () => {
+                this.config.endpoint = { endpoint: 'wss://wss-open-connection.dingtalk.com:443/connect' };
+                await shared.clientGetEndpointMock();
+            };
+            this._connect = shared.clientConnectMock;
+            this.connect = async () => {
+                await this.getEndpoint();
+                await this._connect();
+            };
             this.disconnect = shared.clientDisconnectMock;
             this.registerCallbackListener = vi.fn();
             this.socketCallBackResponse = vi.fn();
@@ -108,6 +119,7 @@ describe('gateway.startAccount lifecycle', () => {
         shared.isConnectedMock.mockReset();
         shared.cleanupOrphanedTempFilesMock.mockReset();
         shared.connectionConfig = undefined;
+        shared.clientGetEndpointMock.mockReset();
         shared.clientConnectMock.mockReset();
         shared.clientDisconnectMock.mockReset();
         shared.dwClientConfig = undefined;
@@ -115,6 +127,7 @@ describe('gateway.startAccount lifecycle', () => {
         shared.connectMock.mockResolvedValue(undefined);
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(true);
+        shared.clientGetEndpointMock.mockResolvedValue(undefined);
         shared.clientConnectMock.mockResolvedValue(undefined);
     });
 
@@ -204,5 +217,21 @@ describe('gateway.startAccount lifecycle', () => {
         stopResult.stop();
         expect(shared.clientDisconnectMock).toHaveBeenCalledTimes(1);
         expect(shared.stopMock).not.toHaveBeenCalled();
+    });
+
+    it('labels websocket-stage failures when native connect fails after open succeeds', async () => {
+        const { ctx } = createStartContext();
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+        } as any;
+        shared.clientConnectMock.mockRejectedValue(new Error('Unexpected server response: 400'));
+
+        await expect(startGatewayAccount(ctx as any)).rejects.toThrow('Unexpected server response: 400');
+
+        expect(shared.clientGetEndpointMock).toHaveBeenCalledTimes(1);
+        expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining('[DingTalk][ConnectionError][connect.websocket]'));
+        expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining('wss-open-connection.dingtalk.com'));
     });
 });

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     cleanupOrphanedTempFiles,
+    formatDingTalkConnectionErrorLog,
     formatDingTalkErrorPayload,
     formatDingTalkErrorPayloadLog,
     maskSensitiveData,
@@ -53,6 +54,21 @@ describe('utils', () => {
             expect(text).toContain('[DingTalk][ErrorPayload][send.message]');
             expect(text).toContain('code=invalidParameter');
             expect(text).toContain('message=userIds required');
+        });
+
+        it('formats websocket-stage connection failures with endpoint and proxy hint', () => {
+            const text = formatDingTalkConnectionErrorLog(
+                'connect.open',
+                Object.assign(new Error('Unexpected server response: 400'), {
+                    dingtalkConnectionStage: 'connect.websocket',
+                    dingtalkConnectionEndpoint: 'wss://wss-open-connection.dingtalk.com:443/connect',
+                }),
+                '[main] Failed to establish connection: Unexpected server response: 400'
+            );
+
+            expect(text).toContain('[DingTalk][ConnectionError][connect.websocket]');
+            expect(text).toContain('endpoint=wss://wss-open-connection.dingtalk.com:443/connect');
+            expect(text).toContain('proxy');
         });
     });
 

@@ -46,6 +46,73 @@ import {
   getCurrentTimestamp,
 } from "./utils";
 
+type InstrumentedDWClient = {
+  getEndpoint?: () => Promise<unknown>;
+  _connect?: () => Promise<unknown>;
+  config?: Record<string, unknown> & { endpoint?: { endpoint?: string } | string };
+  dw_url?: string;
+};
+
+function attachConnectionErrorContext(
+  err: unknown,
+  stage: "connect.open" | "connect.websocket",
+  endpoint?: string,
+): void {
+  if (!err || typeof err !== "object") {
+    return;
+  }
+  const target = err as Record<string, unknown>;
+  if (typeof target.dingtalkConnectionStage !== "string") {
+    target.dingtalkConnectionStage = stage;
+  }
+  if (endpoint && typeof target.dingtalkConnectionEndpoint !== "string") {
+    target.dingtalkConnectionEndpoint = endpoint;
+  }
+}
+
+function getInstrumentedEndpoint(client: InstrumentedDWClient): string | undefined {
+  if (typeof client.dw_url === "string" && client.dw_url.length > 0) {
+    return client.dw_url;
+  }
+
+  const endpointConfig = client.config?.endpoint;
+  if (typeof endpointConfig === "string") {
+    return endpointConfig;
+  }
+  if (endpointConfig && typeof endpointConfig === "object" && typeof endpointConfig.endpoint === "string") {
+    return endpointConfig.endpoint;
+  }
+  return undefined;
+}
+
+function instrumentConnectionStages(client: DWClient): void {
+  const instrumented = client as unknown as InstrumentedDWClient;
+  if (typeof instrumented.getEndpoint !== "function" || typeof instrumented._connect !== "function") {
+    return;
+  }
+
+  const originalGetEndpoint = instrumented.getEndpoint.bind(instrumented);
+  const originalSocketConnect = instrumented._connect.bind(instrumented);
+
+  instrumented.getEndpoint = async () => {
+    try {
+      return await originalGetEndpoint();
+    } catch (err) {
+      attachConnectionErrorContext(err, "connect.open");
+      throw err;
+    }
+  };
+
+  instrumented._connect = async () => {
+    try {
+      return await originalSocketConnect();
+    } catch (err) {
+      attachConnectionErrorContext(err, "connect.websocket", getInstrumentedEndpoint(instrumented));
+      throw err;
+    }
+  };
+}
+
 const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
 const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
 const inboundCountersByAccount = new Map<
@@ -498,6 +565,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         debug: config.debug || false,
         keepAlive: !useConnectionManager,
       });
+
+      instrumentConnectionStages(client);
 
       (client as any).config.autoReconnect = !useConnectionManager;
 
