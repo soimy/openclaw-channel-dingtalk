@@ -123,6 +123,8 @@ Likely causes:
 Check these first:
 
 - DingTalk app is an internal enterprise app
+- DingTalk Console → Version Management → Published → Version Details: Visibility Scope is set to "All employees"
+- Ensure there is a published version (not draft) for the internal app/robot
 - robot capability is enabled
 - message receive mode is Stream mode
 - current app version is published
@@ -192,6 +194,13 @@ If you see `connect.websocket` together with an endpoint like `wss://wss-open-co
 Required endpoints to reach:
 - `https://api.dingtalk.com:443` (open stage)
 - `wss://wss-open-connection.dingtalk.com:443` (websocket stage)
+
+## User-side settings checklist (DingTalk Console)
+
+- Enterprise internal app/robot has a published version (not only in draft)
+- Version Management → Published → Version Details → Visibility Scope: All employees
+- Robot capability is enabled
+- Message receive mode: Stream mode
 
 If you open an issue, include:
 

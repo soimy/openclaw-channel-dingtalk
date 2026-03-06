@@ -634,6 +634,11 @@ await dingtalkPlugin.outbound.sendMedia({
 
 如果新日志里出现 `connect.open` 或 `connect.websocket`，也可以直接按文档中的阶段说明来判断：前者优先查钉钉应用配置，后者优先查 WSS / 代理 / 企业网关。
 
+关键设置清单（钉钉后台）
+- 应用为企业内部应用/机器人，且已“发布”版本（不是草稿）
+- 版本管理 → 已发布 → 版本详情：可见范围需为“全员员工”
+- 已开启“机器人能力”，消息接收方式为“Stream 模式”
+
 ### 错误 payload 日志规范（`[ErrorPayload]`）
 
 为便于快速定位 4xx/5xx 参数问题，插件会在 API 错误分支输出统一格式日志：
