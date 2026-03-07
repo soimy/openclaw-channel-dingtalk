@@ -246,6 +246,7 @@ export class RemoteMediaError extends Error {
 
 const REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS = 10_000;
 const REMOTE_MEDIA_MAX_BYTES = 20 * 1024 * 1024;
+const REMOTE_MEDIA_MAX_REDIRECTS = 5;
 
 function normalizeAllowlistEntry(entry: string): string {
   return entry.trim().toLowerCase();
@@ -462,73 +463,98 @@ export async function prepareMediaInput(
     return { path: trimmed };
   }
 
-  const parsedUrl = new URL(trimmed);
-  const isPrivateHost = isPrivateOrLocalHost(parsedUrl.hostname);
   const allowlist = mediaUrlAllowlist?.filter((entry) => entry.trim().length > 0) || [];
   const allowlistConfigured = allowlist.length > 0;
-  const inAllowlist = allowlistConfigured ? isAllowedByMediaUrlAllowlist(parsedUrl, allowlist) : false;
 
-  if (allowlistConfigured && !inAllowlist) {
-    throw new RemoteMediaError(
-      `remote media URL host is not in mediaUrlAllowlist: ${parsedUrl.hostname}`,
-      REMOTE_MEDIA_ERROR_CODES.ALLOWLIST_MISS,
-    );
-  }
+  const assertRemoteUrlAllowed = async (url: URL): Promise<void> => {
+    const inAllowlist = allowlistConfigured ? isAllowedByMediaUrlAllowlist(url, allowlist) : false;
 
-  if (isPrivateHost && !inAllowlist) {
-    throw new RemoteMediaError(
-      `remote media URL points to private or local network host: ${parsedUrl.hostname}`,
-      REMOTE_MEDIA_ERROR_CODES.PRIVATE_HOST,
-    );
-  }
-
-  const isIpLiteralHost = isIP(parsedUrl.hostname) !== 0;
-  let pinnedResolved: { address: string; family: number } | undefined;
-  if (!isIpLiteralHost) {
-    const resolvedRecords = await resolveHostname(parsedUrl.hostname);
-    if (resolvedRecords.length === 0) {
+    if (allowlistConfigured && !inAllowlist) {
       throw new RemoteMediaError(
-        `remote media URL host cannot be resolved: ${parsedUrl.hostname}`,
-        REMOTE_MEDIA_ERROR_CODES.DNS_UNRESOLVED,
+        `remote media URL host is not in mediaUrlAllowlist: ${url.hostname}`,
+        REMOTE_MEDIA_ERROR_CODES.ALLOWLIST_MISS,
       );
     }
 
-    if (!inAllowlist && resolvedRecords.some((record) => isPrivateOrLocalHost(record.address))) {
+    if (isPrivateOrLocalHost(url.hostname) && !inAllowlist) {
       throw new RemoteMediaError(
-        `remote media URL host resolves to private or local network address: ${parsedUrl.hostname}`,
-        REMOTE_MEDIA_ERROR_CODES.DNS_PRIVATE,
+        `remote media URL points to private or local network host: ${url.hostname}`,
+        REMOTE_MEDIA_ERROR_CODES.PRIVATE_HOST,
       );
     }
 
-    pinnedResolved = resolvedRecords[0];
-  }
-
-  const lookup = pinnedResolved
-    ? async (hostname: string): Promise<{ address: string; family: number }> => {
-        if (hostname === parsedUrl.hostname) {
-          return pinnedResolved;
-        }
-
+    if (isIP(url.hostname) === 0) {
+      const resolvedRecords = await resolveHostname(url.hostname);
+      if (resolvedRecords.length === 0) {
         throw new RemoteMediaError(
-          `remote media URL redirected to unexpected host: ${hostname}`,
-          REMOTE_MEDIA_ERROR_CODES.REDIRECT_HOST,
+          `remote media URL host cannot be resolved: ${url.hostname}`,
+          REMOTE_MEDIA_ERROR_CODES.DNS_UNRESOLVED,
         );
       }
-    : undefined;
 
-  const response = await axios.get(trimmed, {
-    responseType: "arraybuffer",
-    maxBodyLength: REMOTE_MEDIA_MAX_BYTES,
-    maxContentLength: REMOTE_MEDIA_MAX_BYTES,
-    timeout: REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS,
-    maxRedirects: 0,
-    lookup,
-  });
+      if (!inAllowlist && resolvedRecords.some((record) => isPrivateOrLocalHost(record.address))) {
+        throw new RemoteMediaError(
+          `remote media URL host resolves to private or local network address: ${url.hostname}`,
+          REMOTE_MEDIA_ERROR_CODES.DNS_PRIVATE,
+        );
+      }
+    }
+  };
+
+  let currentUrl = new URL(trimmed);
+  let response: { data: unknown; headers?: Record<string, unknown>; status: number } | null = null;
+
+  for (let redirectCount = 0; redirectCount <= REMOTE_MEDIA_MAX_REDIRECTS; redirectCount += 1) {
+    await assertRemoteUrlAllowed(currentUrl);
+
+    const currentResponse = await axios.get(currentUrl.toString(), {
+      responseType: "arraybuffer",
+      maxBodyLength: REMOTE_MEDIA_MAX_BYTES,
+      maxContentLength: REMOTE_MEDIA_MAX_BYTES,
+      timeout: REMOTE_MEDIA_DOWNLOAD_TIMEOUT_MS,
+      maxRedirects: 0,
+      validateStatus: (status) => status >= 200 && status < 400,
+    });
+
+    response = currentResponse;
+    const statusCode = typeof currentResponse.status === "number" ? currentResponse.status : 200;
+    if (statusCode < 300 || statusCode >= 400) {
+      break;
+    }
+
+    const locationHeader =
+      typeof currentResponse.headers?.location === "string"
+        ? currentResponse.headers.location
+        : Array.isArray(currentResponse.headers?.location)
+          ? currentResponse.headers.location[0]
+          : undefined;
+    if (!locationHeader) {
+      throw new Error(`redirect response missing location header: ${statusCode}`);
+    }
+
+    if (redirectCount === REMOTE_MEDIA_MAX_REDIRECTS) {
+      throw new Error(`too many redirects when downloading remote media: ${currentUrl.toString()}`);
+    }
+
+    const redirectUrl = new URL(locationHeader, currentUrl);
+    if (redirectUrl.protocol !== "http:" && redirectUrl.protocol !== "https:") {
+      throw new RemoteMediaError(
+        `remote media URL redirected to unsupported scheme: ${redirectUrl.protocol}`,
+        REMOTE_MEDIA_ERROR_CODES.REDIRECT_HOST,
+      );
+    }
+    currentUrl = redirectUrl;
+  }
+
+  if (!response) {
+    throw new Error("remote media download failed: empty response");
+  }
+
   const contentType =
     typeof response.headers?.["content-type"] === "string"
       ? response.headers["content-type"]
       : undefined;
-  const urlPath = parsedUrl.pathname;
+  const urlPath = currentUrl.pathname;
   const ext = path.extname(urlPath) || detectExtensionFromContentType(contentType) || ".bin";
   const tempPath = path.join(os.tmpdir(), `dingtalk_${randomUUID()}${ext}`);
   const buffer = Buffer.isBuffer(response.data)
