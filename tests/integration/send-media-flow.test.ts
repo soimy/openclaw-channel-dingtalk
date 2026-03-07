@@ -1,10 +1,11 @@
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolveOutboundMediaTypeMock, prepareMediaInputMock, sendProactiveMediaMock } = vi.hoisted(() => ({
+const { resolveOutboundMediaTypeMock, prepareMediaInputMock, sendProactiveMediaMock, getRuntimeMock } = vi.hoisted(() => ({
     resolveOutboundMediaTypeMock: vi.fn(),
     prepareMediaInputMock: vi.fn(),
     sendProactiveMediaMock: vi.fn(),
+    getRuntimeMock: vi.fn(),
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -28,6 +29,10 @@ vi.mock('../../src/media-utils', async () => ({
     resolveOutboundMediaType: resolveOutboundMediaTypeMock,
 }));
 
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: getRuntimeMock,
+}));
+
 import { dingtalkPlugin } from '../../src/channel';
 
 function requireSendMedia() {
@@ -43,6 +48,14 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         resolveOutboundMediaTypeMock.mockReset();
         prepareMediaInputMock.mockReset();
         sendProactiveMediaMock.mockReset();
+        getRuntimeMock.mockReset();
+        getRuntimeMock.mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/default-store.json'),
+                },
+            },
+        });
         prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
     });
 
@@ -74,7 +87,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             'cidA1B2C3',
             path.resolve('./fixtures/photo.png'),
             'image',
-            expect.objectContaining({ accountId: 'default' })
+            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
         expect(result).toEqual(
             expect.objectContaining({
@@ -149,7 +162,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             'cidA1B2C3',
             '/tmp/dingtalk_123.png',
             'image',
-            expect.objectContaining({ accountId: 'default' })
+            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
     });
 

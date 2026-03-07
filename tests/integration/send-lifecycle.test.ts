@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendMessageMock } = vi.hoisted(() => ({
+const { sendMessageMock, getRuntimeMock } = vi.hoisted(() => ({
     sendMessageMock: vi.fn(),
+    getRuntimeMock: vi.fn(),
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -22,11 +23,23 @@ vi.mock('../../src/send-service', async () => ({
     uploadMedia: vi.fn(),
 }));
 
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: getRuntimeMock,
+}));
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('plugin outbound lifecycle', () => {
     beforeEach(() => {
         sendMessageMock.mockReset();
+        getRuntimeMock.mockReset();
+        getRuntimeMock.mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/default-store.json'),
+                },
+            },
+        });
     });
 
     it('should route outbound.sendText through sendMessage hub', async () => {
@@ -56,7 +69,7 @@ describe('plugin outbound lifecycle', () => {
             expect.objectContaining({ clientId: 'ding-client-id' }),
             'user_123',
             'hello',
-            expect.objectContaining({ accountId: 'default' })
+            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
         expect(result.channel).toBe('dingtalk');
         expect(result.messageId).toBe('m_123');
