@@ -41,4 +41,9 @@ describe('message dedup', () => {
 
         expect(dedup.isMessageProcessed('robot:burst_1004')).toBe(true);
     });
+
+    it('dedup namespace is explicitly process-local memory-only', async () => {
+        const dedup = await loadDedupModule();
+        expect(dedup.DEDUP_NAMESPACE_POLICY).toBe('memory-only');
+    });
 });

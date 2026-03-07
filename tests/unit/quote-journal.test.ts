@@ -1,4 +1,5 @@
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -7,17 +8,18 @@ import {
   cleanupExpiredQuoteJournalEntries,
   resolveQuotedMessageById,
 } from '../../src/quote-journal';
+import { resolveNamespacePath } from '../../src/persistence-store';
 
 describe('quote-journal', () => {
   let tmpDir: string;
   const storePathInTemp = () => path.join(tmpDir, 'sessions.json');
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dingtalk-quote-journal-'));
+    tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'dingtalk-quote-journal-'));
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('resolves quoted message content by originalMsgId in same account and conversation', async () => {
@@ -160,5 +162,35 @@ describe('quote-journal', () => {
 
     expect(oldHit).toBeNull();
     expect(newHit?.text).toBe('new entry');
+  });
+
+  it('migrates legacy JSONL data into persistence namespace on first read', async () => {
+    const storePath = storePathInTemp();
+    const legacyDir = path.join(path.dirname(storePath), 'dingtalk-quote-journal', 'main');
+    const legacyPath = path.join(legacyDir, 'cid_1.jsonl');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(
+      legacyPath,
+      `${JSON.stringify({ msgId: 'legacy_1', messageType: 'text', text: 'legacy text', createdAt: 12345 })}\n`,
+      'utf8',
+    );
+
+    const hit = await resolveQuotedMessageById({
+      storePath,
+      accountId: 'main',
+      conversationId: 'cid_1',
+      originalMsgId: 'legacy_1',
+      ttlDays: 7,
+      nowMs: 12345,
+    });
+
+    expect(hit?.text).toBe('legacy text');
+
+    const persistedFile = resolveNamespacePath('quoted.msg-journal', {
+      storePath,
+      scope: { accountId: 'main', conversationId: 'cid_1' },
+      format: 'json',
+    });
+    expect(fs.existsSync(persistedFile)).toBe(true);
   });
 });

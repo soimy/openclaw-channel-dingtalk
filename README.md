@@ -26,6 +26,16 @@
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
 
+### 进程级（memory-only）运行态说明
+
+以下命名空间/状态刻意保持为**仅进程内内存态**，不会进行磁盘持久化：
+
+- `dedup.processed-message`（消息去重窗口）
+- `session.lock`（同 session 串行锁）
+- `channel.inflight`（gateway in-flight 防重锁）
+
+这样设计是为了保证并发控制语义简单且可预期，避免跨进程/重启后引入锁状态不一致问题。
+
 ## 安装
 
 ### 方法 A：通过 npm 包安装 (推荐)
@@ -398,7 +408,7 @@ openclaw gateway restart
 > | 单聊引用文件/视频/语音 | 本地缓存 `msgId → {downloadCode, spaceId, fileId}`，按 msgId 精确匹配 | 否 |
 > | 群聊引用文件/视频/语音 | 优先查本地缓存按 msgId 精确匹配；缓存未命中时通过群文件存储 API 链路下载，按时间窗口匹配（±5 秒）兜底 | 兜底时**是** |
 > | 引用 AI 卡片（单聊+群聊） | 内存缓存 `card.createdAt → finalContent`，按 `createdAt ≈ repliedMsg.createdAt` 时间窗口匹配（±2 秒） | **是** |
-> | 仅 `originalMsgId`（无 `repliedMsg`） | 本地 Quote Journal（JSONL）按 `msgId` 回溯文本，按 `accountId + conversationId` 分桶查询 | 否 |
+> | 仅 `originalMsgId`（无 `repliedMsg`） | 本地 Quote Journal 持久化记录按 `msgId` 回溯文本，按 `accountId + conversationId` 分桶查询 | 否 |
 >
 > 其中**群聊引用文件**和**引用 AI 卡片**依赖服务器本地时间戳（`Date.now()`）与钉钉服务端时间戳匹配。如果服务器系统时间与实际时间偏差较大，会导致匹配失败。**请确保服务器已开启 NTP 时间同步。**
 >
@@ -412,8 +422,8 @@ openclaw gateway restart
 >
 > 另外，单聊引用文件和引用 AI 卡片的缓存均为内存缓存，机器人重启后缓存清空，此时会降级为占位提示文本。
 >
-> `originalMsgId` 的文本回溯依赖本地 Quote Journal。当前默认行为为：
-> - 以 JSONL 文件存储于会话存储目录旁路子目录 `dingtalk-quote-journal/` 下
+> `originalMsgId` 的文本回溯依赖本地 Quote Journal 持久化存储。当前默认行为为：
+> - 通过 persistence store 落盘到插件状态目录中
 > - 按 `accountId + conversationId` 分桶
 > - 默认保留最近 7 天内的记录用于回溯
 

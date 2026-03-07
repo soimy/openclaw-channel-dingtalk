@@ -1,5 +1,10 @@
-import * as fs from "node:fs/promises";
+import * as fs from "node:fs";
 import * as path from "node:path";
+import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+
+const QUOTE_JOURNAL_NAMESPACE = "quoted.msg-journal";
+const QUOTE_JOURNAL_VERSION = 1;
+const DEFAULT_JOURNAL_TTL_DAYS = 7;
 
 type JournalEntry = {
   msgId: string;
@@ -8,52 +13,141 @@ type JournalEntry = {
   createdAt: number;
 };
 
-function getJournalFilePath(params: { storePath: string; accountId: string; conversationId?: string | null }) {
+type QuoteJournalState = {
+  version: number;
+  updatedAt: number;
+  records: JournalEntry[];
+};
+
+function getLegacyJournalFilePath(params: {
+  storePath: string;
+  accountId: string;
+  conversationId?: string | null;
+}) {
   const baseDir = path.dirname(params.storePath);
   const acc = (params.accountId || "default").trim() || "default";
   const file = `${(params.conversationId || "unknown").trim() || "unknown"}.jsonl`;
   const dir = path.join(baseDir, "dingtalk-quote-journal", acc);
-  return { dir, filePath: path.join(dir, file) };
+  return path.join(dir, file);
 }
 
-async function ensureDir(dir: string) {
-  await fs.mkdir(dir, { recursive: true });
+function fallbackState(): QuoteJournalState {
+  return {
+    version: QUOTE_JOURNAL_VERSION,
+    updatedAt: Date.now(),
+    records: [],
+  };
 }
 
-async function readAllEntries(filePath: string): Promise<JournalEntry[]> {
+function normalizeEntry(entry: unknown): JournalEntry | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const candidate = entry as Partial<JournalEntry>;
+  if (typeof candidate.msgId !== "string" || typeof candidate.createdAt !== "number") {
+    return null;
+  }
+  return {
+    msgId: candidate.msgId,
+    messageType: typeof candidate.messageType === "string" ? candidate.messageType : "text",
+    text: typeof candidate.text === "string" ? candidate.text : undefined,
+    createdAt: candidate.createdAt,
+  };
+}
+
+function normalizeState(parsed: Partial<QuoteJournalState>): QuoteJournalState {
+  const records = Array.isArray(parsed.records)
+    ? parsed.records.map((entry) => normalizeEntry(entry)).filter((entry): entry is JournalEntry => entry !== null)
+    : [];
+  return {
+    version: typeof parsed.version === "number" ? parsed.version : QUOTE_JOURNAL_VERSION,
+    updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+    records,
+  };
+}
+
+function readLegacyEntries(filePath: string): JournalEntry[] | null {
   try {
-    const buf = await fs.readFile(filePath, "utf8");
-    const lines = buf.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    const raw = fs.readFileSync(filePath, "utf8");
+    if (!raw.trim()) {
+      return [];
+    }
+    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
     const out: JournalEntry[] = [];
     for (const line of lines) {
       try {
-        const obj = JSON.parse(line);
-        if (obj && typeof obj.msgId === "string" && typeof obj.createdAt === "number") {
-          out.push({
-            msgId: obj.msgId,
-            messageType: obj.messageType || "text",
-            text: typeof obj.text === "string" ? obj.text : undefined,
-            createdAt: obj.createdAt,
-          });
+        const entry = normalizeEntry(JSON.parse(line));
+        if (entry) {
+          out.push(entry);
         }
       } catch {
-        // skip bad line
       }
     }
     return out;
-  } catch (err: any) {
-    if (err && err.code === "ENOENT") {
-      return [];
-    }
-    throw err;
+  } catch {
+    return null;
   }
 }
 
-async function writeAllEntries(filePath: string, entries: JournalEntry[]): Promise<void> {
-  const tmp = `${filePath}.tmp`;
-  const data = entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : "");
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, filePath);
+function loadState(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+}): QuoteJournalState {
+  const persisted = readNamespaceJson<Partial<QuoteJournalState>>(QUOTE_JOURNAL_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    fallback: fallbackState(),
+  });
+  const normalized = normalizeState(persisted);
+  if (normalized.records.length > 0) {
+    return normalized;
+  }
+
+  const legacyPath = getLegacyJournalFilePath(params);
+  const legacyRecords = readLegacyEntries(legacyPath);
+  if (!legacyRecords || legacyRecords.length === 0) {
+    return normalized;
+  }
+
+  const migrated: QuoteJournalState = {
+    version: QUOTE_JOURNAL_VERSION,
+    updatedAt: Date.now(),
+    records: legacyRecords,
+  };
+  writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    data: migrated,
+  });
+  return migrated;
+}
+
+function writeState(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+  state: QuoteJournalState;
+}): void {
+  writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    data: params.state,
+  });
+}
+
+function pruneByTtl(records: JournalEntry[], ttlDays: number, nowMs: number): JournalEntry[] {
+  if (!ttlDays || ttlDays <= 0) {
+    return records;
+  }
+  const cutoff = nowMs - ttlDays * 24 * 60 * 60 * 1000;
+  return records.filter((entry) => entry.createdAt >= cutoff);
 }
 
 export async function appendQuoteJournalEntry(params: {
@@ -67,21 +161,26 @@ export async function appendQuoteJournalEntry(params: {
   ttlDays?: number;
   nowMs?: number;
 }): Promise<void> {
-  const { dir, filePath } = getJournalFilePath(params);
-  await ensureDir(dir);
-  let entries = await readAllEntries(filePath);
   const now = params.nowMs ?? Date.now();
-  if (params.ttlDays && params.ttlDays > 0) {
-    const cutoff = now - params.ttlDays * 24 * 60 * 60 * 1000;
-    entries = entries.filter((e) => e.createdAt >= cutoff);
-  }
-  entries.push({
+  const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
+  const state = loadState(params);
+  const records = pruneByTtl(state.records, ttlDays, now);
+  records.push({
     msgId: params.msgId,
     messageType: params.messageType,
     text: params.text,
     createdAt: params.createdAt,
   });
-  await writeAllEntries(filePath, entries);
+  writeState({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    conversationId: params.conversationId,
+    state: {
+      version: QUOTE_JOURNAL_VERSION,
+      updatedAt: now,
+      records,
+    },
+  });
 }
 
 export async function cleanupExpiredQuoteJournalEntries(params: {
@@ -91,15 +190,21 @@ export async function cleanupExpiredQuoteJournalEntries(params: {
   ttlDays: number;
   nowMs?: number;
 }): Promise<number> {
-  const { dir, filePath } = getJournalFilePath(params);
-  await ensureDir(dir);
-  const entries = await readAllEntries(filePath);
   const now = params.nowMs ?? Date.now();
-  const cutoff = now - params.ttlDays * 24 * 60 * 60 * 1000;
-  const kept = entries.filter((e) => e.createdAt >= cutoff);
-  const removed = entries.length - kept.length;
+  const state = loadState(params);
+  const kept = pruneByTtl(state.records, params.ttlDays, now);
+  const removed = state.records.length - kept.length;
   if (removed > 0) {
-    await writeAllEntries(filePath, kept);
+    writeState({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      state: {
+        version: QUOTE_JOURNAL_VERSION,
+        updatedAt: now,
+        records: kept,
+      },
+    });
   }
   return removed;
 }
@@ -112,23 +217,19 @@ export async function resolveQuotedMessageById(params: {
   ttlDays?: number;
   nowMs?: number;
 }): Promise<{ msgId: string; text?: string; createdAt: number } | null> {
-  const { filePath } = getJournalFilePath(params);
-  const entries = await readAllEntries(filePath);
+  const state = loadState(params);
   const now = params.nowMs ?? Date.now();
-  const cutoff = params.ttlDays && params.ttlDays > 0 ? now - params.ttlDays * 24 * 60 * 60 * 1000 : -Infinity;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e.createdAt < cutoff) {
-      continue;
-    }
-    if (e.msgId === params.originalMsgId) {
-      return { msgId: e.msgId, text: e.text, createdAt: e.createdAt };
+  const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
+  const records = pruneByTtl(state.records, ttlDays, now);
+  for (let i = records.length - 1; i >= 0; i--) {
+    const entry = records[i];
+    if (entry.msgId === params.originalMsgId) {
+      return { msgId: entry.msgId, text: entry.text, createdAt: entry.createdAt };
     }
   }
   return null;
 }
 
-// Outbound journaling helpers (not used in J1 tests, provided for future steps)
 export async function appendOutboundToQuoteJournal(params: {
   storePath: string;
   accountId: string;
@@ -136,7 +237,7 @@ export async function appendOutboundToQuoteJournal(params: {
   messageId?: string;
   text?: string;
   messageType?: string;
-  log?: any;
+  log?: unknown;
 }): Promise<void> {
   try {
     if (!params.messageId) {
@@ -152,7 +253,9 @@ export async function appendOutboundToQuoteJournal(params: {
       createdAt: Date.now(),
     });
   } catch (err) {
-    params.log?.debug?.(`[quote-journal] appendOutbound failed: ${String(err)}`);
+    (params.log as { debug?: (message: string) => void } | undefined)?.debug?.(
+      `[quote-journal] appendOutbound failed: ${String(err)}`,
+    );
   }
 }
 
@@ -163,7 +266,7 @@ export async function appendProactiveOutboundJournal(params: {
   messageId?: string;
   text?: string;
   messageType?: string;
-  log?: any;
+  log?: unknown;
 }): Promise<void> {
   return appendOutboundToQuoteJournal(params);
 }

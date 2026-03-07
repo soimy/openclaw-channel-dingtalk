@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { acquireSessionLock, _getLocksMapForTest } from '../../src/session-lock';
+import {
+    SESSION_LOCK_NAMESPACE_POLICY,
+    acquireSessionLock,
+    _getLocksMapForTest,
+} from '../../src/session-lock';
 
 describe('session-lock', () => {
     beforeEach(() => {
@@ -95,5 +99,9 @@ describe('session-lock', () => {
         const releaseB = await acquireSessionLock('s1');
         releaseB();
         expect(locks.has('s1')).toBe(false);
+    });
+
+    it('session lock namespace is memory-only', () => {
+        expect(SESSION_LOCK_NAMESPACE_POLICY).toBe('memory-only');
     });
 });

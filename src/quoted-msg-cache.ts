@@ -1,6 +1,9 @@
+import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ENTRIES_PER_CONVERSATION = 100;
 const MAX_CONVERSATIONS = 1000;
+const QUOTED_MSG_NAMESPACE = "quoted.msg-download-code";
 
 export interface DownloadCodeCacheEntry {
     downloadCode: string;
@@ -14,6 +17,29 @@ export interface DownloadCodeCacheEntry {
 interface ConversationBucket {
     entries: Map<string, DownloadCodeCacheEntry>;
     lastActiveAt: number;
+}
+
+interface PersistedConversationBucket {
+    updatedAt: number;
+    entries: Record<string, DownloadCodeCacheEntry>;
+}
+
+function isValidPersistedEntry(entry: unknown): entry is DownloadCodeCacheEntry {
+    if (!entry || typeof entry !== 'object') {
+        return false;
+    }
+
+    const candidate = entry as Partial<DownloadCodeCacheEntry>;
+    return (
+        typeof candidate.downloadCode === 'string' &&
+        candidate.downloadCode.length > 0 &&
+        typeof candidate.msgType === 'string' &&
+        candidate.msgType.length > 0 &&
+        typeof candidate.createdAt === 'number' &&
+        Number.isFinite(candidate.createdAt) &&
+        typeof candidate.expiresAt === 'number' &&
+        Number.isFinite(candidate.expiresAt)
+    );
 }
 
 const store = new Map<string, ConversationBucket>();
@@ -76,6 +102,64 @@ function purgeExpiredEntries(bucket: ConversationBucket): void {
     }
 }
 
+function loadFromPersistence(
+    accountId: string,
+    conversationId: string,
+    storePath?: string,
+): ConversationBucket | null {
+    if (!storePath) {
+        return null;
+    }
+    const persisted = readNamespaceJson<PersistedConversationBucket>(QUOTED_MSG_NAMESPACE, {
+        storePath,
+        scope: { accountId, conversationId },
+        format: "json",
+        fallback: { updatedAt: 0, entries: {} },
+    });
+    const keys = Object.keys(persisted.entries || {});
+    if (keys.length === 0) {
+        return null;
+    }
+    const bucket: ConversationBucket = {
+        entries: new Map<string, DownloadCodeCacheEntry>(),
+        lastActiveAt: Date.now(),
+    };
+    for (const key of keys) {
+        const entry = persisted.entries[key];
+        if (!isValidPersistedEntry(entry)) {
+            continue;
+        }
+        bucket.entries.set(key, entry);
+    }
+    purgeExpiredEntries(bucket);
+    evictEntriesIfNeeded(bucket);
+    return bucket;
+}
+
+function persistBucket(
+    accountId: string,
+    conversationId: string,
+    bucket: ConversationBucket,
+    storePath?: string,
+): void {
+    if (!storePath) {
+        return;
+    }
+    const entries: Record<string, DownloadCodeCacheEntry> = {};
+    for (const [msgId, entry] of bucket.entries.entries()) {
+        entries[msgId] = entry;
+    }
+    writeNamespaceJsonAtomic(QUOTED_MSG_NAMESPACE, {
+        storePath,
+        scope: { accountId, conversationId },
+        format: "json",
+        data: {
+            updatedAt: Date.now(),
+            entries,
+        } satisfies PersistedConversationBucket,
+    });
+}
+
 export function cacheInboundDownloadCode(
     accountId: string,
     conversationId: string,
@@ -83,7 +167,7 @@ export function cacheInboundDownloadCode(
     downloadCode: string,
     msgType: string,
     createdAt: number,
-    extra?: { spaceId?: string; fileId?: string },
+    extra?: { spaceId?: string; fileId?: string; storePath?: string },
 ): void {
     const scopedKey = `${accountId}:${conversationId}`;
     const bucket = getOrCreateBucket(scopedKey);
@@ -97,15 +181,25 @@ export function cacheInboundDownloadCode(
         fileId: extra?.fileId,
     });
     evictEntriesIfNeeded(bucket);
+    persistBucket(accountId, conversationId, bucket, extra?.storePath);
 }
 
 export function getCachedDownloadCode(
     accountId: string,
     conversationId: string,
     msgId: string,
+    storePath?: string,
 ): DownloadCodeCacheEntry | null {
     const scopedKey = `${accountId}:${conversationId}`;
-    const bucket = getBucket(scopedKey);
+    let bucket = getBucket(scopedKey);
+    if (!bucket && storePath) {
+        const loaded = loadFromPersistence(accountId, conversationId, storePath);
+        if (loaded) {
+            store.set(scopedKey, loaded);
+            evictConversationsIfNeeded();
+            bucket = loaded;
+        }
+    }
     if (!bucket) {
         return null;
     }

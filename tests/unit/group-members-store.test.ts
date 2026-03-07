@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { formatGroupMembers, noteGroupMember } from "../../src/group-members-store";
+import { resolveNamespacePath } from "../../src/persistence-store";
 
 function makeStorePath(): { rootDir: string; storePath: string } {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-members-test-"));
@@ -46,8 +47,32 @@ describe("group-members-store", () => {
         noteGroupMember(storePath, groupId, "user_1", "Alice");
         noteGroupMember(storePath, groupId, "user_1", "Alice New");
 
-        const cacheFile = path.join(path.dirname(storePath), "dingtalk-members", "cid-_with_slash.json");
+        const cacheFile = resolveNamespacePath("members.group-roster", {
+            storePath,
+            scope: { groupId },
+            format: "json",
+        });
         expect(fs.existsSync(cacheFile)).toBe(true);
         expect(formatGroupMembers(storePath, groupId)).toContain("Alice New (user_1)");
+    });
+
+    it("reads legacy roster and migrates to namespaced file", () => {
+        const { rootDir, storePath } = makeStorePath();
+        tempDirs.push(rootDir);
+
+        const groupId = "cid_group_legacy";
+        const legacyFile = path.join(path.dirname(storePath), "dingtalk-members", `${groupId}.json`);
+        fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+        fs.writeFileSync(legacyFile, JSON.stringify({ user_legacy: "Legacy User" }, null, 2));
+
+        const members = formatGroupMembers(storePath, groupId);
+        expect(members).toContain("Legacy User (user_legacy)");
+
+        const namespacedFile = resolveNamespacePath("members.group-roster", {
+            storePath,
+            scope: { groupId },
+            format: "json",
+        });
+        expect(fs.existsSync(namespacedFile)).toBe(true);
     });
 });
