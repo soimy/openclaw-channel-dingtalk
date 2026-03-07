@@ -11,6 +11,7 @@ import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
 import { setCurrentLogger } from "./logger-context";
 import { extractMessageContent } from "./message-utils";
+import { cacheQuotedFileMetadata, getQuotedCardContent, getQuotedFileMetadata } from "./quoted-msg-index";
 import { registerPeerId } from "./peer-id-registry";
 import {
   clearProactiveRiskObservationsForTest,
@@ -21,7 +22,6 @@ import { sendBySession, sendMessage } from "./send-service";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { AICardStatus } from "./types";
 import { acquireSessionLock } from "./session-lock";
-import { findCardContent } from "./card-service";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
@@ -378,6 +378,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       accountId, data.conversationId, data.msgId, content.mediaPath, content.messageType, data.createAt,
       { spaceId: data.content?.spaceId, fileId: data.content?.fileId },
     );
+    if (content.messageType === "file" || content.messageType === "video" || content.messageType === "audio") {
+      cacheQuotedFileMetadata({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: data.conversationId,
+        msgId: data.msgId,
+        downloadCode: content.mediaPath,
+        msgType: content.messageType,
+        createdAt: data.createAt,
+        spaceId: data.content?.spaceId,
+        fileId: data.content?.fileId,
+      });
+    }
   }
 
   // Try downloading a quoted file from cached downloadCode/spaceId+fileId.
@@ -387,11 +400,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (!quotedMsgId) {
       return null;
     }
-    const cached = getCachedDownloadCode(accountId, data.conversationId, quotedMsgId);
+    const persisted = getQuotedFileMetadata({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: data.conversationId,
+      msgId: quotedMsgId,
+    });
+    const cached = persisted ?? getCachedDownloadCode(accountId, data.conversationId, quotedMsgId);
     if (!cached) {
       return null;
     }
-    let media = await downloadMedia(dingtalkConfig, cached.downloadCode, log);
+    let media: MediaFile | null = null;
+    if (cached.downloadCode) {
+      media = await downloadMedia(dingtalkConfig, cached.downloadCode, log);
+    }
     if (!media && cached.spaceId && cached.fileId && data.senderStaffId) {
       log?.debug?.("[DingTalk] downloadCode expired/failed, falling back to spaceId+fileId");
       try {
@@ -431,15 +453,25 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
     // Step 2 (group only): Cache miss → fall back to group file API time-based matching.
     if (!fileResolved && !isDirect) {
-      const file = await resolveQuotedFile(dingtalkConfig, {
+      const resolved = await resolveQuotedFile(dingtalkConfig, {
         openConversationId: data.conversationId,
         senderStaffId: data.senderStaffId,
         fileCreatedAt: content.quoted.fileCreatedAt,
       }, log);
-      if (file) {
-        mediaPath = file.path;
-        mediaType = file.mimeType;
+      if (resolved) {
+        mediaPath = resolved.media.path;
+        mediaType = resolved.media.mimeType;
         fileResolved = true;
+        cacheQuotedFileMetadata({
+          storePath: accountStorePath,
+          accountId,
+          conversationId: data.conversationId,
+          msgId: content.quoted.msgId,
+          msgType: "file",
+          createdAt: content.quoted.fileCreatedAt,
+          spaceId: resolved.spaceId,
+          fileId: resolved.fileId,
+        });
       }
     }
 
@@ -452,8 +484,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   // Quoted AI card: replace placeholder prefix with cached reply preview or explicit miss hint.
-  if (content.quoted?.isQuotedCard && content.quoted.cardCreatedAt) {
-    const cardContent = findCardContent(accountId, to, content.quoted.cardCreatedAt);
+  if (content.quoted?.isQuotedCard && content.quoted.processQueryKey) {
+    const cardContent = getQuotedCardContent({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: to,
+      processQueryKey: content.quoted.processQueryKey,
+    });
     if (cardContent) {
       const preview = cardContent.length > 50 ? cardContent.slice(0, 50) + "..." : cardContent;
       content.text = content.text.replace(content.quoted.prefix, `[引用机器人回复: "${preview}"]\n\n`);

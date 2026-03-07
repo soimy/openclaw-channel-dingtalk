@@ -119,6 +119,13 @@ interface DentryMatch {
     name: string;
 }
 
+export interface ResolvedQuotedFile {
+    media: MediaFile;
+    spaceId: string;
+    fileId: string;
+    name?: string;
+}
+
 export async function findFileByTimestamp(
     config: DingTalkConfig,
     spaceId: string,
@@ -238,7 +245,7 @@ export async function resolveQuotedFile(
     config: DingTalkConfig,
     params: ResolveQuotedFileParams,
     log?: Logger,
-): Promise<MediaFile | null> {
+): Promise<ResolvedQuotedFile | null> {
     const { openConversationId, senderStaffId, fileCreatedAt } = params;
 
     if (!senderStaffId || !fileCreatedAt) {
@@ -262,7 +269,16 @@ export async function resolveQuotedFile(
             `[DingTalk][QuotedFile] Matched file: dentryId=${match.dentryId} name=${match.name}`,
         );
 
-        return await downloadGroupFile(config, spaceId, match.dentryId, unionId, log);
+        const media = await downloadGroupFile(config, spaceId, match.dentryId, unionId, log);
+        if (!media) {
+            return null;
+        }
+        return {
+            media,
+            spaceId,
+            fileId: match.dentryId,
+            name: match.name,
+        };
     } catch (err: any) {
         if (log?.warn) {
             if (axios.isAxiosError(err) && err.response?.data !== undefined) {

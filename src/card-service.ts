@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import axios from "axios";
 import { getAccessToken } from "./auth";
+import { cacheQuotedCardContent } from "./quoted-msg-index";
 import { stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { formatDingTalkErrorPayloadLog } from "./utils";
@@ -19,6 +20,22 @@ const DINGTALK_API = "https://api.dingtalk.com";
 const THINKING_TRUNCATE_LENGTH = 500;
 const CARD_STATE_FILE_VERSION = 1;
 const RECOVERY_FINALIZE_MESSAGE = "⚠️ 上一次回复处理中断，已自动结束。请重新发送你的问题。";
+
+function extractCardProcessQueryKey(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+  const data = payload as Record<string, any>;
+  const deliverResults = data.result?.deliverResults;
+  if (Array.isArray(deliverResults)) {
+    for (const item of deliverResults) {
+      if (typeof item?.carrierId === "string" && item.carrierId.trim()) {
+        return item.carrierId.trim();
+      }
+    }
+  }
+  return undefined;
+}
 
 interface CreateAICardOptions {
   accountId?: string;
@@ -401,6 +418,7 @@ export async function createAICard(
     // Return the AI card instance with config reference for token refresh/recovery.
     const aiCardInstance: AICardInstance = {
       cardInstanceId,
+      processQueryKey: extractCardProcessQueryKey(resp.data),
       accessToken: token,
       conversationId,
       accountId: options.accountId,
@@ -576,98 +594,12 @@ export async function finishAICard(
 ): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
   await streamAICard(card, content, true, log);
-  if (card.conversationId && content.trim()) {
-    cacheCardContent(card.accountId || "", card.conversationId, content, card.createdAt);
-  }
-}
-
-// ============ Card content cache (for quoted card lookup) ============
-
-const CARD_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CARD_CACHE_MAX_PER_CONVERSATION = 20;
-const CARD_CACHE_MAX_CONVERSATIONS = 500;
-const CARD_CACHE_MATCH_WINDOW_MS = 2000;
-
-interface CardContentEntry {
-  content: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
-interface CardConversationBucket {
-  entries: CardContentEntry[];
-  lastActiveAt: number;
-}
-
-const cardContentStore = new Map<string, CardConversationBucket>();
-
-export function cacheCardContent(
-  accountId: string,
-  conversationId: string,
-  content: string,
-  createdAt: number,
-): void {
-  const scopedKey = `${accountId}:${conversationId}`;
-  let bucket = cardContentStore.get(scopedKey);
-  if (!bucket) {
-    bucket = { entries: [], lastActiveAt: Date.now() };
-    cardContentStore.set(scopedKey, bucket);
-    if (cardContentStore.size > CARD_CACHE_MAX_CONVERSATIONS) {
-      let oldestKey: string | undefined;
-      let oldestTime = Infinity;
-      for (const [key, b] of cardContentStore) {
-        if (b.lastActiveAt < oldestTime) {
-          oldestTime = b.lastActiveAt;
-          oldestKey = key;
-        }
-      }
-      if (oldestKey) {
-        cardContentStore.delete(oldestKey);
-      }
-    }
-  }
-  bucket.lastActiveAt = Date.now();
-
-  const now = Date.now();
-  bucket.entries = bucket.entries.filter((e) => now < e.expiresAt);
-
-  bucket.entries.push({ content, createdAt, expiresAt: now + CARD_CACHE_TTL_MS });
-
-  if (bucket.entries.length > CARD_CACHE_MAX_PER_CONVERSATION) {
-    bucket.entries.sort((a, b) => a.createdAt - b.createdAt);
-    bucket.entries = bucket.entries.slice(-CARD_CACHE_MAX_PER_CONVERSATION);
-  }
-}
-
-export function findCardContent(
-  accountId: string,
-  conversationId: string,
-  repliedCreatedAt: number,
-): string | null {
-  const scopedKey = `${accountId}:${conversationId}`;
-  const bucket = cardContentStore.get(scopedKey);
-  if (!bucket) {
-    return null;
-  }
-  bucket.lastActiveAt = Date.now();
-
-  let bestContent: string | null = null;
-  let bestDelta = Infinity;
-
-  for (const entry of bucket.entries) {
-    if (Date.now() >= entry.expiresAt) {
-      continue;
-    }
-    const delta = Math.abs(entry.createdAt - repliedCreatedAt);
-    if (delta <= CARD_CACHE_MATCH_WINDOW_MS && delta < bestDelta) {
-      bestDelta = delta;
-      bestContent = entry.content;
-    }
-  }
-
-  return bestContent;
-}
-
-export function clearCardContentCacheForTest(): void {
-  cardContentStore.clear();
+  cacheQuotedCardContent({
+    storePath: card.storePath,
+    accountId: card.accountId,
+    conversationId: card.conversationId,
+    processQueryKey: card.processQueryKey,
+    content,
+    createdAt: card.createdAt,
+  });
 }

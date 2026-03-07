@@ -1,5 +1,51 @@
 import type { DingTalkInboundMessage, MessageContent, QuotedInfo, SendMessageOptions } from "./types";
 
+function extractRichTextQuoteParts(
+  richText: Array<Record<string, any>> | undefined,
+): { summary: string; pictureDownloadCode?: string } | null {
+  if (!Array.isArray(richText) || richText.length === 0) {
+    return null;
+  }
+
+  const textParts: string[] = [];
+  let pictureDownloadCode: string | undefined;
+
+  for (const part of richText) {
+    const partType = part.msgType || part.type;
+    const textValue = typeof part.content === "string" ? part.content : part.text;
+
+    if ((partType === "text" || partType === undefined) && textValue) {
+      textParts.push(textValue);
+      continue;
+    }
+    if ((partType === "emoji") && textValue) {
+      textParts.push(textValue);
+      continue;
+    }
+    if (partType === "picture") {
+      textParts.push("[图片]");
+      if (!pictureDownloadCode) {
+        pictureDownloadCode = part.downloadCode;
+      }
+      continue;
+    }
+    if (partType === "at") {
+      const atName = part.atName || textValue || "某人";
+      textParts.push(`@${atName}`);
+      continue;
+    }
+    if (textValue) {
+      textParts.push(textValue);
+    }
+  }
+
+  const summary = textParts.join("").trim();
+  if (!summary && !pictureDownloadCode) {
+    return null;
+  }
+  return { summary, pictureDownloadCode };
+}
+
 /**
  * Auto-detect markdown usage and derive message title.
  * Title extraction follows DingTalk markdown card title constraints.
@@ -47,6 +93,21 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         };
       }
 
+      if (repliedMsgType === "richText") {
+        const richTextQuote = extractRichTextQuoteParts(content?.richText);
+        if (richTextQuote) {
+          const prefix =
+            richTextQuote.summary && richTextQuote.summary !== "[图片]"
+              ? `[引用消息: "${richTextQuote.summary}"]\n\n`
+              : "[引用图片]\n\n";
+          return {
+            prefix,
+            mediaDownloadCode: richTextQuote.pictureDownloadCode,
+            mediaType: richTextQuote.pictureDownloadCode ? "image" : undefined,
+          };
+        }
+      }
+
       if (repliedMsgType === "unknownMsgType") {
         return {
           prefix: "[引用文件]\n\n",
@@ -60,7 +121,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         return {
           prefix: "[引用了机器人的回复]\n\n",
           isQuotedCard: true,
-          cardCreatedAt: repliedMsg.createdAt,
+          processQueryKey: data.originalProcessQueryKey,
         };
       }
 
@@ -75,23 +136,9 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       }
 
       if (content?.richText && Array.isArray(content.richText)) {
-        const textParts: string[] = [];
-        for (const part of content.richText) {
-          if (part.msgType === "text" && part.content) {
-            textParts.push(part.content);
-          } else if (part.msgType === "emoji" || part.type === "emoji") {
-            textParts.push(part.content || "[表情]");
-          } else if (part.msgType === "picture" || part.type === "picture") {
-            textParts.push("[图片]");
-          } else if (part.msgType === "at" || part.type === "at") {
-            textParts.push(`@${part.content || part.atName || "某人"}`);
-          } else if (part.content) {
-            textParts.push(part.content);
-          }
-        }
-        const quoteText = textParts.join("").trim();
-        if (quoteText) {
-          return { prefix: `[引用消息: "${quoteText}"]\n\n` };
+        const richTextQuote = extractRichTextQuoteParts(content.richText);
+        if (richTextQuote?.summary) {
+          return { prefix: `[引用消息: "${richTextQuote.summary}"]\n\n` };
         }
       }
     }
