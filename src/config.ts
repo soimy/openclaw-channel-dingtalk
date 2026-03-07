@@ -54,6 +54,7 @@ export function resolveRelativePath(input: string): string {
   }
 
   const segments = (value: string): string[] => value.split(/[\\/]+/).filter(Boolean);
+  const isWindowsDriveAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmed);
 
   // Expand bare "~" and "~/" or "~\\" prefixes into the user home directory.
   if (trimmed === "~") {
@@ -61,6 +62,22 @@ export function resolveRelativePath(input: string): string {
   }
   if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
     return path.resolve(os.homedir(), ...segments(trimmed.slice(2)));
+  }
+
+  // Keep Windows drive-absolute input stable across platforms.
+  if (isWindowsDriveAbsolute) {
+    return path.win32.normalize(trimmed);
+  }
+
+  // OpenClaw on Windows may pass root-absolute workspace paths without the
+  // leading "\" (for example: Users\name\.openclaw\workspace\file.png).
+  if (
+    process.platform === "win32" &&
+    /^Users[\\/]/i.test(trimmed) &&
+    /[\\/]\.openclaw(?:[\\/]|$)/i.test(trimmed)
+  ) {
+    const driveRoot = path.parse(process.cwd()).root;
+    return path.win32.resolve(driveRoot, trimmed);
   }
 
   // Treat both "/" and "\\" as absolute root prefixes for cross-platform input.

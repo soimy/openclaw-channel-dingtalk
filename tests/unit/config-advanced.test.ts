@@ -107,6 +107,23 @@ describe('config advanced', () => {
         expect(resolveRelativePath('./tmp/x')).toBe(path.resolve(process.cwd(), 'tmp', 'x'));
         expect(resolveRelativePath('../tmp/x')).toBe(path.resolve(process.cwd(), '..', 'tmp', 'x'));
         expect(resolveRelativePath('..\\tmp\\x')).toBe(path.resolve(process.cwd(), '..', 'tmp', 'x'));
+        expect(resolveRelativePath('C:\\Users\\angel\\a\\b.png')).toBe(
+            path.win32.normalize('C:\\Users\\angel\\a\\b.png'),
+        );
+        expect(resolveRelativePath('C:/Users/angel/a/b.png')).toBe(
+            path.win32.normalize('C:/Users/angel/a/b.png'),
+        );
+    });
+
+    it('resolveRelativePath recovers stripped leading slash for .openclaw workspace paths on Windows', () => {
+        if (process.platform !== 'win32') {
+            expect(true).toBe(true);
+            return;
+        }
+
+        const input = 'Users\\angel\\.openclaw\\workspace\\card.png';
+        const expected = path.win32.resolve(path.parse(process.cwd()).root, input);
+        expect(resolveRelativePath(input)).toBe(expected);
     });
 
     it('resolveUserPath remains as backward-compatible alias', () => {
