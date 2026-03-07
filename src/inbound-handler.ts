@@ -376,7 +376,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (content.mediaPath && data.msgId) {
     cacheInboundDownloadCode(
       accountId, data.conversationId, data.msgId, content.mediaPath, content.messageType, data.createAt,
-      { spaceId: data.content?.spaceId, fileId: data.content?.fileId },
+      { spaceId: data.content?.spaceId, fileId: data.content?.fileId, storePath },
     );
   }
 
@@ -387,7 +387,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (!quotedMsgId) {
       return null;
     }
-    const cached = getCachedDownloadCode(accountId, data.conversationId, quotedMsgId);
+    const cached = getCachedDownloadCode(accountId, data.conversationId, quotedMsgId, storePath);
     if (!cached) {
       return null;
     }
@@ -453,7 +453,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   // Quoted AI card: replace placeholder prefix with cached reply preview or explicit miss hint.
   if (content.quoted?.isQuotedCard && content.quoted.cardCreatedAt) {
-    const cardContent = findCardContent(accountId, to, content.quoted.cardCreatedAt);
+    const cardContent = findCardContent(accountId, to, content.quoted.cardCreatedAt, storePath);
     if (cardContent) {
       const preview = cardContent.length > 50 ? cardContent.slice(0, 50) + "..." : cardContent;
       content.text = content.text.replace(content.quoted.prefix, `[引用机器人回复: "${preview}"]\n\n`);

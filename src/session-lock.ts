@@ -4,6 +4,8 @@
 
 const locks = new Map<string, Promise<void>>();
 
+export const SESSION_LOCK_NAMESPACE_POLICY = "memory-only" as const;
+
 /**
  * Acquire a per-session lock. Returns a release function that MUST be called
  * (typically in a `finally` block) to unblock the next queued caller.

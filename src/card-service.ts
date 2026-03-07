@@ -5,6 +5,7 @@ import axios from "axios";
 import { getAccessToken } from "./auth";
 import { stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
+import { readNamespaceJson, resolveNamespacePath, writeNamespaceJsonAtomic } from "./persistence-store";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 import type {
   AICardInstance,
@@ -18,6 +19,7 @@ const DINGTALK_API = "https://api.dingtalk.com";
 // Thinking/tool stream snippets are truncated to keep card updates compact.
 const THINKING_TRUNCATE_LENGTH = 500;
 const CARD_STATE_FILE_VERSION = 1;
+const CARD_PENDING_NAMESPACE = "cards.active.pending";
 const RECOVERY_FINALIZE_MESSAGE = "⚠️ 上一次回复处理中断，已自动结束。请重新发送你的问题。";
 
 interface CreateAICardOptions {
@@ -45,58 +47,82 @@ function getCardStateFilePath(storePath?: string): string | null {
   if (!storePath) {
     return null;
   }
+  return resolveNamespacePath(CARD_PENDING_NAMESPACE, {
+    storePath,
+    format: "json",
+  });
+}
+
+function getLegacyCardStateFilePath(storePath?: string): string | null {
+  if (!storePath) {
+    return null;
+  }
   return path.join(path.dirname(storePath), "dingtalk-active-cards.json");
 }
 
+function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCardStateFile {
+  const records = Array.isArray(parsed.pendingCards) ? parsed.pendingCards : [];
+  return {
+    version: typeof parsed.version === "number" ? parsed.version : CARD_STATE_FILE_VERSION,
+    updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+    pendingCards: records.filter(
+      (entry): entry is PendingCardRecord =>
+        Boolean(
+          entry &&
+            typeof entry.accountId === "string" &&
+            typeof entry.cardInstanceId === "string" &&
+            typeof entry.conversationId === "string",
+        ),
+    ),
+  };
+}
+
 function readPendingCardState(storePath?: string, log?: Logger): PendingCardStateFile {
-  const filePath = getCardStateFilePath(storePath);
-  if (!filePath) {
+  if (!storePath) {
     return { version: CARD_STATE_FILE_VERSION, updatedAt: Date.now(), pendingCards: [] };
   }
+
+  const filePath = getCardStateFilePath(storePath);
+  const legacyPath = getLegacyCardStateFilePath(storePath);
+
+  if (filePath && fs.existsSync(filePath)) {
+    const parsed = readNamespaceJson<Partial<PendingCardStateFile>>(CARD_PENDING_NAMESPACE, {
+      storePath,
+      format: "json",
+      fallback: {},
+      log,
+    });
+    return normalizePendingState(parsed);
+  }
+
   try {
-    if (!fs.existsSync(filePath)) {
+    if (!legacyPath || !fs.existsSync(legacyPath)) {
       return { version: CARD_STATE_FILE_VERSION, updatedAt: Date.now(), pendingCards: [] };
     }
-    const raw = fs.readFileSync(filePath, "utf-8");
+    const raw = fs.readFileSync(legacyPath, "utf-8");
     if (!raw.trim()) {
       return { version: CARD_STATE_FILE_VERSION, updatedAt: Date.now(), pendingCards: [] };
     }
-    const parsed = JSON.parse(raw) as Partial<PendingCardStateFile>;
-    const records = Array.isArray(parsed.pendingCards) ? parsed.pendingCards : [];
-    return {
-      version:
-        typeof parsed.version === "number" ? parsed.version : CARD_STATE_FILE_VERSION,
-      updatedAt:
-        typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
-      pendingCards: records.filter(
-        (entry): entry is PendingCardRecord =>
-          Boolean(
-            entry &&
-              typeof entry.accountId === "string" &&
-              typeof entry.cardInstanceId === "string" &&
-              typeof entry.conversationId === "string",
-          ),
-      ),
-    };
-  } catch (err: any) {
-    log?.warn?.(`[DingTalk][AICard] Failed to read pending card state: ${err.message}`);
+    const normalized = normalizePendingState(JSON.parse(raw) as Partial<PendingCardStateFile>);
+    writePendingCardState(normalized, storePath, log);
+    return normalized;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.warn?.(`[DingTalk][AICard] Failed to read pending card state: ${message}`);
     return { version: CARD_STATE_FILE_VERSION, updatedAt: Date.now(), pendingCards: [] };
   }
 }
 
 function writePendingCardState(state: PendingCardStateFile, storePath?: string, log?: Logger): void {
-  const filePath = getCardStateFilePath(storePath);
-  if (!filePath) {
+  if (!storePath) {
     return;
   }
-  try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tempPath, JSON.stringify(state, null, 2));
-    fs.renameSync(tempPath, filePath);
-  } catch (err: any) {
-    log?.warn?.(`[DingTalk][AICard] Failed to write pending card state: ${err.message}`);
-  }
+  writeNamespaceJsonAtomic(CARD_PENDING_NAMESPACE, {
+    storePath,
+    format: "json",
+    data: state,
+    log,
+  });
 }
 
 function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logger): void {
@@ -577,7 +603,7 @@ export async function finishAICard(
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
   await streamAICard(card, content, true, log);
   if (card.conversationId && content.trim()) {
-    cacheCardContent(card.accountId || "", card.conversationId, content, card.createdAt);
+    cacheCardContent(card.accountId || "", card.conversationId, content, card.createdAt, card.storePath);
   }
 }
 
@@ -587,6 +613,7 @@ const CARD_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CARD_CACHE_MAX_PER_CONVERSATION = 20;
 const CARD_CACHE_MAX_CONVERSATIONS = 500;
 const CARD_CACHE_MATCH_WINDOW_MS = 2000;
+const CARD_CONTENT_NAMESPACE = "cards.content.quote-lookup";
 
 interface CardContentEntry {
   content: string;
@@ -599,13 +626,79 @@ interface CardConversationBucket {
   lastActiveAt: number;
 }
 
+interface PersistedCardContentBucket {
+  updatedAt: number;
+  entries: CardContentEntry[];
+}
+
 const cardContentStore = new Map<string, CardConversationBucket>();
+
+function loadCardContentBucketFromPersistence(
+  accountId: string,
+  conversationId: string,
+  storePath?: string,
+): CardConversationBucket | null {
+  if (!storePath) {
+    return null;
+  }
+  const persisted = readNamespaceJson<PersistedCardContentBucket>(CARD_CONTENT_NAMESPACE, {
+    storePath,
+    scope: { accountId, conversationId },
+    format: "json",
+    fallback: { updatedAt: 0, entries: [] },
+  });
+  if (!Array.isArray(persisted.entries) || persisted.entries.length === 0) {
+    return null;
+  }
+
+  const now = Date.now();
+  const entries = persisted.entries
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry.content === "string" &&
+        typeof entry.createdAt === "number" &&
+        typeof entry.expiresAt === "number" &&
+        now < entry.expiresAt,
+    )
+    .toSorted((a, b) => a.createdAt - b.createdAt)
+    .slice(-CARD_CACHE_MAX_PER_CONVERSATION);
+
+  if (entries.length === 0) {
+    return null;
+  }
+  return {
+    entries,
+    lastActiveAt: now,
+  };
+}
+
+function persistCardContentBucket(
+  accountId: string,
+  conversationId: string,
+  bucket: CardConversationBucket,
+  storePath?: string,
+): void {
+  if (!storePath) {
+    return;
+  }
+  writeNamespaceJsonAtomic(CARD_CONTENT_NAMESPACE, {
+    storePath,
+    scope: { accountId, conversationId },
+    format: "json",
+    data: {
+      updatedAt: Date.now(),
+      entries: bucket.entries,
+    } satisfies PersistedCardContentBucket,
+  });
+}
 
 export function cacheCardContent(
   accountId: string,
   conversationId: string,
   content: string,
   createdAt: number,
+  storePath?: string,
 ): void {
   const scopedKey = `${accountId}:${conversationId}`;
   let bucket = cardContentStore.get(scopedKey);
@@ -637,15 +730,38 @@ export function cacheCardContent(
     bucket.entries.sort((a, b) => a.createdAt - b.createdAt);
     bucket.entries = bucket.entries.slice(-CARD_CACHE_MAX_PER_CONVERSATION);
   }
+
+  persistCardContentBucket(accountId, conversationId, bucket, storePath);
 }
 
 export function findCardContent(
   accountId: string,
   conversationId: string,
   repliedCreatedAt: number,
+  storePath?: string,
 ): string | null {
   const scopedKey = `${accountId}:${conversationId}`;
-  const bucket = cardContentStore.get(scopedKey);
+  let bucket = cardContentStore.get(scopedKey);
+  if (!bucket && storePath) {
+    const loaded = loadCardContentBucketFromPersistence(accountId, conversationId, storePath);
+    if (loaded) {
+      cardContentStore.set(scopedKey, loaded);
+      bucket = loaded;
+      if (cardContentStore.size > CARD_CACHE_MAX_CONVERSATIONS) {
+        let oldestKey: string | undefined;
+        let oldestTime = Infinity;
+        for (const [key, b] of cardContentStore) {
+          if (b.lastActiveAt < oldestTime) {
+            oldestTime = b.lastActiveAt;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) {
+          cardContentStore.delete(oldestKey);
+        }
+      }
+    }
+  }
   if (!bucket) {
     return null;
   }

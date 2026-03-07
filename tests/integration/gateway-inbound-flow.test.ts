@@ -60,7 +60,7 @@ vi.mock('../../src/inbound-handler', () => ({
     handleDingTalkMessage: shared.handleDingTalkMessageMock,
 }));
 
-import { dingtalkPlugin } from '../../src/channel';
+import { CHANNEL_INFLIGHT_NAMESPACE_POLICY, dingtalkPlugin } from '../../src/channel';
 
 const startGatewayAccount = (ctx: any) => dingtalkPlugin.gateway!.startAccount!(ctx);
 
@@ -371,5 +371,9 @@ describe('gateway inbound callback pipeline', () => {
         resolveFirst?.();
         await first;
         await second;
+    });
+
+    it('channel inflight namespace is memory-only', () => {
+        expect(CHANNEL_INFLIGHT_NAMESPACE_POLICY).toBe('memory-only');
     });
 });

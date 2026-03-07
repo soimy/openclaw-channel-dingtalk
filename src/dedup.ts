@@ -1,6 +1,7 @@
 // ============ Message Deduplication ============
 // Prevent duplicate processing when DingTalk retries delivery.
 // In-memory TTL map + lazy cleanup keeps overhead small.
+export const DEDUP_NAMESPACE_POLICY = "memory-only" as const;
 
 const processedMessages = new Map<string, number>();
 const MESSAGE_DEDUP_TTL = 60000;

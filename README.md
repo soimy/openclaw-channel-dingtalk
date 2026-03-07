@@ -26,6 +26,16 @@
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
 
+### 进程级（memory-only）运行态说明
+
+以下命名空间/状态刻意保持为**仅进程内内存态**，不会进行磁盘持久化：
+
+- `dedup.processed-message`（消息去重窗口）
+- `session.lock`（同 session 串行锁）
+- `channel.inflight`（gateway in-flight 防重锁）
+
+这样设计是为了保证并发控制语义简单且可预期，避免跨进程/重启后引入锁状态不一致问题。
+
 ## 安装
 
 ### 方法 A：通过 npm 包安装 (推荐)

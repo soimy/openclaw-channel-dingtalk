@@ -28,6 +28,7 @@ import {
     streamAICard,
 } from '../../src/card-service';
 import { getAccessToken } from '../../src/auth';
+import { resolveNamespacePath } from '../../src/persistence-store';
 import { AICardStatus } from '../../src/types';
 
 const mockedAxios = axios as any;
@@ -36,6 +37,7 @@ const mockedGetAccessToken = vi.mocked(getAccessToken);
 describe('card-service', () => {
     let storePath = '';
     let stateFilePath = '';
+    let legacyStateFilePath = '';
     let stateDirPath = '';
 
     beforeEach(() => {
@@ -49,7 +51,11 @@ describe('card-service', () => {
             `openclaw-dingtalk-card-state-${Date.now()}-${Math.random().toString(16).slice(2)}`
         );
         storePath = path.join(stateDirPath, 'session-store.json');
-        stateFilePath = path.join(stateDirPath, 'dingtalk-active-cards.json');
+        stateFilePath = resolveNamespacePath('cards.active.pending', {
+            storePath,
+            format: 'json',
+        });
+        legacyStateFilePath = path.join(stateDirPath, 'dingtalk-active-cards.json');
         fs.rmSync(stateDirPath, { force: true, recursive: true });
     });
 
@@ -367,5 +373,37 @@ describe('card-service', () => {
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         expect(fs.existsSync(stateFilePath)).toBe(false);
+        expect(fs.existsSync(legacyStateFilePath)).toBe(false);
+    });
+
+    it('recovers from legacy pending state file and migrates to namespaced file', async () => {
+        const pending = {
+            version: 1,
+            updatedAt: Date.now(),
+            pendingCards: [
+                {
+                    accountId: 'main',
+                    cardInstanceId: 'card_legacy_1',
+                    conversationId: 'cid_legacy_1',
+                    createdAt: Date.now() - 1000,
+                    lastUpdated: Date.now() - 1000,
+                    state: '1',
+                },
+            ],
+        };
+        fs.mkdirSync(path.dirname(legacyStateFilePath), { recursive: true });
+        fs.writeFileSync(legacyStateFilePath, JSON.stringify(pending, null, 2));
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            'main',
+            storePath
+        );
+
+        expect(recovered).toBe(1);
+        expect(fs.existsSync(stateFilePath)).toBe(true);
+        const namespaced = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
+        expect(namespaced.pendingCards).toHaveLength(0);
     });
 });

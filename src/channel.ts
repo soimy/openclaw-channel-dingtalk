@@ -115,6 +115,7 @@ function instrumentConnectionStages(client: DWClient): void {
 
 const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
 const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
+export const CHANNEL_INFLIGHT_NAMESPACE_POLICY = "memory-only" as const;
 const inboundCountersByAccount = new Map<
   string,
   {
