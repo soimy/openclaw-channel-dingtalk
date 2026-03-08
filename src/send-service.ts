@@ -16,7 +16,7 @@ import {
   getProactiveRiskObservation,
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
   AxiosResponse,
@@ -48,19 +48,6 @@ function composeCardContentForAppend(previous: string | undefined, incoming: str
     return `${prev}${incoming}`;
   }
   return `${prev}${incoming}`;
-}
-
-function getProxyBypassOption(config: DingTalkConfig): { proxy: false } | Record<string, never> {
-  return config.bypassProxyForSend ? { proxy: false } : {};
-}
-
-function extractOutboundMessageId(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== "object") {
-    return undefined;
-  }
-  const data = payload as Record<string, unknown>;
-  const value = data.processQueryKey ?? data.messageId ?? data.msgid;
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function extractErrorCodeFromResponseData(data: unknown): string | null {

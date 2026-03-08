@@ -6,7 +6,7 @@ import { getAccessToken } from "./auth";
 import { stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { readNamespaceJson, resolveNamespacePath, writeNamespaceJsonAtomic } from "./persistence-store";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
   AICardStreamingRequest,
@@ -58,10 +58,6 @@ interface PendingCardStateFile {
   version: number;
   updatedAt: number;
   pendingCards: PendingCardRecord[];
-}
-
-function getProxyBypassOption(config: DingTalkConfig): { proxy: false } | Record<string, never> {
-  return config.bypassProxyForSend ? { proxy: false } : {};
 }
 
 function getCardStateFilePath(storePath?: string): string | null {

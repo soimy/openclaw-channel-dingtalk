@@ -366,6 +366,7 @@ openclaw gateway restart
 | `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
+| `bypassProxyForSend`    | boolean  | `false`      | 仅对 send/card/upload 出站请求绕过系统 HTTP(S) 代理 |
 
 ### 连接鲁棒性配置
 
@@ -375,6 +376,7 @@ openclaw gateway restart
 - **initialReconnectDelay**: 第一次重连的初始延迟（毫秒），后续重连会按指数增长。
 - **maxReconnectDelay**: 重连延迟的上限（毫秒），防止等待时间过长。
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
+- **bypassProxyForSend**: 仅作用于发送链路（session send / proactive send / AI card / media upload），不影响如 `getAccessToken` 之类的其他出站请求。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
 

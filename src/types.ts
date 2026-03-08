@@ -61,9 +61,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
-  /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
-  keepAlive?: boolean;
-  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send APIs */
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
@@ -104,9 +102,7 @@ export interface DingTalkChannelConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
-  /** Whether to enable underlying stream keepAlive heartbeat (default: false for stability) */
-  keepAlive?: boolean;
-  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send APIs */
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
@@ -631,6 +627,7 @@ export function resolveDingTalkAccount(
       maxReconnectCycles: dingtalk?.maxReconnectCycles,
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
+      bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
     };
     return {

@@ -74,11 +74,29 @@ describe('types helpers', () => {
                     clientId: 'cli',
                     clientSecret: 'sec',
                     mediaMaxMb: 50,
+                    bypassProxyForSend: true,
                 },
             },
         } as any;
 
         const account = resolveDingTalkAccount(cfg, 'default');
         expect(account.mediaMaxMb).toBe(50);
+        expect(account.bypassProxyForSend).toBe(true);
+    });
+
+    it('resolves named account with inherited bypassProxyForSend default', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    bypassProxyForSend: true,
+                    accounts: {
+                        main: { clientId: 'cli_main', clientSecret: 'sec_main' },
+                    },
+                },
+            },
+        } as any;
+
+        const account = resolveDingTalkAccount(cfg, 'main');
+        expect(account.bypassProxyForSend).toBe(true);
     });
 });
