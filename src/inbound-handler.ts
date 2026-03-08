@@ -12,6 +12,7 @@ import {
 import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
 import { setCurrentLogger } from "./logger-context";
+import { formatWhoAmIReply, isWhoAmICommand } from "./learning-command-service";
 import { extractMessageContent } from "./message-utils";
 import { registerPeerId } from "./peer-id-registry";
 import {
@@ -355,6 +356,24 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
+  if (isDirect && isWhoAmICommand(content.text)) {
+    await sendBySession(
+      dingtalkConfig,
+      sessionWebhook,
+      formatWhoAmIReply({
+        accountId,
+        senderId,
+        rawSenderId: data.senderId,
+        senderStaffId: data.senderStaffId,
+        conversationId: data.conversationId,
+        conversationType: data.conversationType,
+        agentId: route.agentId,
+        sessionKey: route.sessionKey,
+      }),
+      { log },
+    );
+    return;
+  }
   const feedbackLearningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
   const feedbackLearningAutoApply = isFeedbackLearningAutoApplyEnabled(dingtalkConfig);
 
