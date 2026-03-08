@@ -61,6 +61,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
+  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
+  keepAlive?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -100,6 +102,8 @@ export interface DingTalkChannelConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
+  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
+  keepAlive?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -623,6 +627,7 @@ export function resolveDingTalkAccount(
       maxReconnectCycles: dingtalk?.maxReconnectCycles,
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
+      keepAlive: dingtalk?.keepAlive,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
     };
     return {

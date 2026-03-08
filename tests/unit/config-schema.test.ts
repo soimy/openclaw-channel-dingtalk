@@ -45,4 +45,26 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.mediaUrlAllowlist).toEqual(['cdn.example.com']);
         expect(parsed.accounts.main?.mediaUrlAllowlist).toEqual(['192.168.1.23', 'files.internal.example']);
     });
+
+    it('keeps keepAlive undefined when omitted', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { keepAlive?: boolean };
+
+        expect(parsed.keepAlive).toBeUndefined();
+    });
+
+    it('keeps account-level keepAlive undefined when omitted', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                },
+            },
+        }) as { accounts: Record<string, { keepAlive?: boolean }> };
+
+        expect(parsed.accounts.main?.keepAlive).toBeUndefined();
+    });
 });
