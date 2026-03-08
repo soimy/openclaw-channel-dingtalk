@@ -5,6 +5,10 @@ const { sendMessageMock, sendProactiveMediaMock } = vi.hoisted(() => ({
     sendProactiveMediaMock: vi.fn(),
 }));
 
+const { prepareMediaInputMock } = vi.hoisted(() => ({
+    prepareMediaInputMock: vi.fn(),
+}));
+
 vi.mock('openclaw/plugin-sdk', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
     extractToolSend: vi.fn((args: Record<string, unknown>) => {
@@ -52,6 +56,14 @@ vi.mock('../../src/send-service', async () => ({
     uploadMedia: vi.fn(),
 }));
 
+vi.mock('../../src/media-utils', async () => {
+    const actual = await vi.importActual<typeof import('../../src/media-utils')>('../../src/media-utils');
+    return {
+        ...actual,
+        prepareMediaInput: prepareMediaInputMock,
+    };
+});
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('dingtalkPlugin.actions.send', () => {
@@ -60,6 +72,8 @@ describe('dingtalkPlugin.actions.send', () => {
     beforeEach(() => {
         sendMessageMock.mockReset();
         sendProactiveMediaMock.mockReset();
+        prepareMediaInputMock.mockReset();
+        prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
     });
 
     it('forces voice mediaType when asVoice=true with media input', async () => {
@@ -150,5 +164,42 @@ describe('dingtalkPlugin.actions.send', () => {
 
         expect(sendMessageMock).not.toHaveBeenCalled();
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('uses downloaded temp path for mediaUrl instead of resolving as local relative path', async () => {
+        prepareMediaInputMock.mockResolvedValueOnce({
+            path: '/tmp/dingtalk_remote.png',
+            cleanup: vi.fn(),
+        });
+        sendProactiveMediaMock.mockResolvedValueOnce({
+            ok: true,
+            messageId: 'media_1',
+            data: { messageId: 'media_1' },
+        });
+
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                mediaUrl: 'https://example.com/photo.png',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+            'https://example.com/photo.png',
+            undefined,
+            undefined
+        );
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            '/tmp/dingtalk_remote.png',
+            'image',
+            expect.objectContaining({ accountId: 'default' })
+        );
     });
 });

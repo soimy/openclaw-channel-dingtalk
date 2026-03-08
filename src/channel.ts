@@ -228,28 +228,36 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const config = getConfig(cfg, accountId ?? undefined);
 
     if (hasMedia && mediaInput) {
-      const mediaPath = resolveRelativePath(mediaInput);
-      const mediaType = resolveOutboundMediaType({
-        mediaType: requestedMediaType ?? undefined,
-        mediaPath,
-        asVoice,
-      });
-      const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
-        log,
-        accountId: accountId ?? undefined,
-      });
+      let preparedMedia;
+      try {
+        preparedMedia = await prepareMediaInput(mediaInput, log, config.mediaUrlAllowlist);
+        const mediaPath = preparedMedia.cleanup
+          ? preparedMedia.path
+          : resolveRelativePath(preparedMedia.path);
+        const mediaType = resolveOutboundMediaType({
+          mediaType: requestedMediaType ?? undefined,
+          mediaPath,
+          asVoice,
+        });
+        const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
+          log,
+          accountId: accountId ?? undefined,
+        });
 
-      if (!result.ok) {
-        throw new Error(result.error || "send media failed");
+        if (!result.ok) {
+          throw new Error(result.error || "send media failed");
+        }
+
+        return pluginSdk.jsonResult({
+          ok: true,
+          to: target,
+          mediaType,
+          messageId: result.messageId ?? null,
+          result: result.data ?? null,
+        });
+      } finally {
+        await preparedMedia?.cleanup?.();
       }
-
-      return pluginSdk.jsonResult({
-        ok: true,
-        to: target,
-        mediaType,
-        messageId: result.messageId ?? null,
-        result: result.data ?? null,
-      });
     }
 
     if (asVoice) {
