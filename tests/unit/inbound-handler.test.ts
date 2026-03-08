@@ -256,6 +256,35 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('访问受限');
     });
 
+    it('handleDingTalkMessage returns whoami info for direct fixed command', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '我是谁', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
+            data: {
+                msgId: 'm2_whoami',
+                msgtype: 'text',
+                text: { content: '我是谁' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'user_raw_1',
+                senderStaffId: 'staff_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('senderId: `staff_1`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('conversationId: `cid_dm_owner`');
+        expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    });
+
     it('handleDingTalkMessage sends group deny message when groupPolicy allowlist blocks group', async () => {
         await handleDingTalkMessage({
             cfg: {},
