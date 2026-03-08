@@ -294,6 +294,7 @@ describe('message-utils', () => {
         const content = extractMessageContent(message);
 
         expect(content.quoted?.prefix).toContain('orig_msg_001');
+        expect(content.quoted?.msgId).toBe('orig_msg_001');
     });
 
     it('无 msgType 但有 content.text（向后兼容）— prefix contains old format text', () => {

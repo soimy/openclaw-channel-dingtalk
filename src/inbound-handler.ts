@@ -24,6 +24,7 @@ import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./t
 import { AICardStatus } from "./types";
 import { acquireSessionLock } from "./session-lock";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
+import { appendQuoteJournalEntry, findQuoteJournalEntryByMsgId } from "./quote-journal";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 
@@ -88,6 +89,14 @@ function isUnhandledStopReasonText(value: string): boolean {
     return false;
   }
   return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
+}
+
+function summarizeQuotedJournalText(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
+    return "[历史消息]";
+  }
+  return collapsed.length > 120 ? `${collapsed.slice(0, 120)}…` : collapsed;
 }
 
 /**
@@ -365,6 +374,25 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
+
+  if (
+    content.quoted?.msgId &&
+    content.quoted.prefix.startsWith("[这是一条引用消息，原消息ID:") &&
+    storePath
+  ) {
+    const journalEntry = findQuoteJournalEntryByMsgId({
+      storePath,
+      accountId,
+      conversationId: data.conversationId,
+      msgId: content.quoted.msgId,
+    });
+    if (journalEntry) {
+      const replyBody = content.text.replace(content.quoted.prefix, "").trim();
+      const journalPrefix = `[引用消息: "${summarizeQuotedJournalText(journalEntry.text)}"]\n\n`;
+      content.text = replyBody ? `${journalPrefix}${replyBody}` : journalPrefix.trimEnd();
+    }
+  }
+
   if (content.mediaPath && dingtalkConfig.robotCode) {
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
@@ -418,6 +446,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       }
     }
   }
+
+  appendQuoteJournalEntry({
+    storePath,
+    accountId,
+    conversationId: data.conversationId,
+    msgId: data.msgId,
+    text: content.text,
+    messageType: content.messageType,
+    createdAt: data.createAt,
+    mediaPath,
+    mediaType,
+  });
 
   // Try downloading a quoted file from cached downloadCode/spaceId+fileId.
   const tryDownloadFromCache = async (

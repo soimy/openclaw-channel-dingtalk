@@ -190,7 +190,10 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     }
 
     if (textField?.isReplyMsg && !textField?.repliedMsg && data.originalMsgId) {
-      return { prefix: `[这是一条引用消息，原消息ID: ${data.originalMsgId}]\n\n` };
+      return {
+        prefix: `[这是一条引用消息，原消息ID: ${data.originalMsgId}]\n\n`,
+        msgId: data.originalMsgId,
+      };
     }
 
     if (data.quoteMessage) {

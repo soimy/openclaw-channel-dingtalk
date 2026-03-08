@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { DWClient, TOPIC_ROBOT } from "dingtalk-stream";
+import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import type {
   ChannelMessageActionAdapter,
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
+import { analyzeCardCallback } from "./card-callback-service";
 import {
   createAICard,
   streamAICard,
@@ -29,7 +30,13 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
-import { sendMessage, sendProactiveMedia, sendBySession, uploadMedia } from "./send-service";
+import {
+  sendMessage,
+  sendProactiveMedia,
+  sendProactiveTextOrMarkdown,
+  sendBySession,
+  uploadMedia,
+} from "./send-service";
 import type {
   DingTalkInboundMessage,
   GatewayStartContext,
@@ -667,6 +674,57 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           stats.failed += 1;
           logInboundCounters(ctx.log, account.accountId, "failed");
           ctx.log?.error?.(`[${account.accountId}] Error processing message: ${error.message}`);
+        }
+      });
+
+      client.registerCallbackListener(TOPIC_CARD, async (res: any) => {
+        const messageId = res.headers?.messageId;
+        const acknowledge = () => {
+          if (!messageId) {
+            return;
+          }
+          try {
+            client.socketCallBackResponse(messageId, { success: true });
+          } catch (ackError: any) {
+            ctx.log?.warn?.(
+              `[${account.accountId}] Failed to acknowledge card callback ${messageId}: ${ackError.message}`,
+            );
+          }
+        };
+
+        try {
+          const payload = JSON.parse(res.data);
+          const analysis = analyzeCardCallback(payload);
+          ctx.log?.info?.(
+            `[${account.accountId}] [DingTalk][CardCallback] action=${analysis.summary} raw=${JSON.stringify(payload)}`,
+          );
+
+          if (analysis.feedbackTarget && analysis.feedbackAckText) {
+            try {
+              await sendProactiveTextOrMarkdown(
+                config,
+                analysis.feedbackTarget,
+                analysis.feedbackAckText,
+                {
+                  accountId: account.accountId,
+                  log: ctx.log,
+                },
+              );
+              ctx.log?.info?.(
+                `[${account.accountId}] [DingTalk][CardCallback] feedback ack sent to ${analysis.feedbackTarget}`,
+              );
+            } catch (sendErr: any) {
+              ctx.log?.warn?.(
+                `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack: ${sendErr?.message || String(sendErr)}`,
+              );
+            }
+          }
+        } catch (error: any) {
+          ctx.log?.error?.(
+            `[${account.accountId}] [DingTalk][CardCallback] Failed to parse callback: ${error.message}`,
+          );
+        } finally {
+          acknowledge();
         }
       });
 

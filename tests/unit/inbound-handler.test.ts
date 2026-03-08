@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import axios from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1357,5 +1360,79 @@ describe('inbound-handler', () => {
             expect.stringContaining('Unhandled stop reason:'),
             expect.anything(),
         );
+    });
+
+    it('restores originalMsgId reply text from quote journal', async () => {
+        const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-quote-reply-'));
+        const storePath = path.join(rootDir, 'session', 'store.json');
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi.fn().mockReturnValue(storePath);
+        runtime.channel.reply.finalizeInboundContext = vi.fn().mockImplementation((ctx) => ctx);
+        shared.getRuntimeMock.mockReturnValue(runtime);
+
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({ text: '原始消息内容', messageType: 'text' })
+            .mockReturnValueOnce({
+                text: '[这是一条引用消息，原消息ID: quoted_msg_1]\n\n帮我总结一下',
+                messageType: 'text',
+                quoted: {
+                    prefix: '[这是一条引用消息，原消息ID: quoted_msg_1]\n\n',
+                    msgId: 'quoted_msg_1',
+                },
+            });
+
+        try {
+            await handleDingTalkMessage({
+                cfg: {},
+                accountId: 'main',
+                sessionWebhook: 'https://session.webhook',
+                log: undefined,
+                dingtalkConfig: { dmPolicy: 'open' } as any,
+                data: {
+                    msgId: 'quoted_msg_1',
+                    msgtype: 'text',
+                    text: { content: '原始消息内容' },
+                    conversationType: '1',
+                    conversationId: 'cidA1B2C3',
+                    senderId: 'user_1',
+                    chatbotUserId: 'bot_1',
+                    sessionWebhook: 'https://session.webhook',
+                    createAt: Date.now(),
+                },
+            } as any);
+
+            await handleDingTalkMessage({
+                cfg: {},
+                accountId: 'main',
+                sessionWebhook: 'https://session.webhook',
+                log: undefined,
+                dingtalkConfig: { dmPolicy: 'open' } as any,
+                data: {
+                    msgId: 'reply_msg_1',
+                    msgtype: 'text',
+                    text: { content: '帮我总结一下', isReplyMsg: true },
+                    originalMsgId: 'quoted_msg_1',
+                    conversationType: '1',
+                    conversationId: 'cidA1B2C3',
+                    senderId: 'user_1',
+                    chatbotUserId: 'bot_1',
+                    sessionWebhook: 'https://session.webhook',
+                    createAt: Date.now(),
+                },
+            } as any);
+
+            expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    RawBody: expect.stringContaining('[引用消息: "原始消息内容"]'),
+                }),
+            );
+            expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    RawBody: expect.stringContaining('帮我总结一下'),
+                }),
+            );
+        } finally {
+            fs.rmSync(rootDir, { recursive: true, force: true });
+        }
     });
 });

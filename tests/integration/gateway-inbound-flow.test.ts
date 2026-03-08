@@ -5,11 +5,12 @@ const shared = vi.hoisted(() => ({
     waitForStopMock: vi.fn(),
     stopMock: vi.fn(),
     isConnectedMock: vi.fn(),
-    listener: undefined as undefined | ((res: any) => Promise<void>),
+    listeners: {} as Record<string, (res: any) => Promise<void>>,
     socketCallBackResponseMock: vi.fn(),
     isMessageProcessedMock: vi.fn(),
     markMessageProcessedMock: vi.fn(),
     handleDingTalkMessageMock: vi.fn(),
+    sendProactiveTextMock: vi.fn(),
     connectionConfig: undefined as any,
 }));
 
@@ -18,6 +19,7 @@ vi.mock('openclaw/plugin-sdk', () => ({
 }));
 
 vi.mock('dingtalk-stream', () => ({
+    TOPIC_CARD: 'TOPIC_CARD',
     TOPIC_ROBOT: 'TOPIC_ROBOT',
     DWClient: class {
         config: Record<string, unknown>;
@@ -27,7 +29,7 @@ vi.mock('dingtalk-stream', () => ({
         constructor() {
             this.config = {};
             this.registerCallbackListener = vi.fn((_topic: string, cb: (res: any) => Promise<void>) => {
-                shared.listener = cb;
+                shared.listeners[_topic] = cb;
             });
             this.socketCallBackResponse = shared.socketCallBackResponseMock;
         }
@@ -58,6 +60,14 @@ vi.mock('../../src/dedup', () => ({
 
 vi.mock('../../src/inbound-handler', () => ({
     handleDingTalkMessage: shared.handleDingTalkMessageMock,
+}));
+
+vi.mock('../../src/send-service', () => ({
+    sendMessage: vi.fn(),
+    sendProactiveMedia: vi.fn(),
+    sendProactiveTextOrMarkdown: shared.sendProactiveTextMock,
+    sendBySession: vi.fn(),
+    uploadMedia: vi.fn(),
 }));
 
 import { CHANNEL_INFLIGHT_NAMESPACE_POLICY, dingtalkPlugin } from '../../src/channel';
@@ -102,12 +112,14 @@ describe('gateway inbound callback pipeline', () => {
         shared.isMessageProcessedMock.mockReset();
         shared.markMessageProcessedMock.mockReset();
         shared.handleDingTalkMessageMock.mockReset();
+        shared.sendProactiveTextMock.mockReset();
         shared.connectionConfig = undefined;
 
-        shared.listener = undefined;
+        shared.listeners = {};
         shared.connectMock.mockResolvedValue(undefined);
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(false);
+        shared.sendProactiveTextMock.mockResolvedValue({});
     });
 
     it('acknowledges callback after successful dispatch for non-duplicate message', async () => {
@@ -116,9 +128,9 @@ describe('gateway inbound callback pipeline', () => {
 
         await startGatewayAccount(ctx as any);
 
-        expect(shared.listener).toBeTypeOf('function');
+        expect(shared.listeners.TOPIC_ROBOT).toBeTypeOf('function');
 
-        await shared.listener?.({
+        await shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_1' },
             data: JSON.stringify({
                 msgId: 'msg_1',
@@ -150,7 +162,7 @@ describe('gateway inbound callback pipeline', () => {
 
         await startGatewayAccount(ctx as any);
 
-        await shared.listener?.({
+        await shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_2' },
             data: JSON.stringify({
                 msgId: 'msg_2',
@@ -194,12 +206,12 @@ describe('gateway inbound callback pipeline', () => {
             }),
         };
 
-        await shared.listener?.(payload);
+        await shared.listeners.TOPIC_ROBOT?.(payload);
         expect(shared.markMessageProcessedMock).not.toHaveBeenCalled();
         expect(shared.socketCallBackResponseMock).not.toHaveBeenCalled();
         expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('Inbound counters (failed)'));
 
-        await shared.listener?.(payload);
+        await shared.listeners.TOPIC_ROBOT?.(payload);
         expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
         expect(shared.markMessageProcessedMock).toHaveBeenCalledTimes(1);
         expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('robot_1:msg_retry');
@@ -213,7 +225,7 @@ describe('gateway inbound callback pipeline', () => {
 
         await startGatewayAccount(ctx as any);
 
-        await shared.listener?.({
+        await shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_bad' },
             data: '{"msgId":',
         });
@@ -247,11 +259,11 @@ describe('gateway inbound callback pipeline', () => {
             sessionWebhook: 'https://webhook',
         });
 
-        const first = shared.listener?.({
+        const first = shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_inflight_1' },
             data: payloadData,
         });
-        const second = shared.listener?.({
+        const second = shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_inflight_2' },
             data: payloadData,
         });
@@ -300,7 +312,7 @@ describe('gateway inbound callback pipeline', () => {
                 sessionWebhook: 'https://webhook',
             });
 
-            const first = shared.listener?.({
+            const first = shared.listeners.TOPIC_ROBOT?.({
                 headers: { messageId: 'stream_msg_stale_1' },
                 data: payloadData,
             });
@@ -308,7 +320,7 @@ describe('gateway inbound callback pipeline', () => {
 
             await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
 
-            const second = shared.listener?.({
+            const second = shared.listeners.TOPIC_ROBOT?.({
                 headers: { messageId: 'stream_msg_stale_2' },
                 data: payloadData,
             });
@@ -323,6 +335,31 @@ describe('gateway inbound callback pipeline', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('acknowledges card callbacks and sends feedback ack for feedback buttons', async () => {
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        expect(shared.listeners.TOPIC_CARD).toBeTypeOf('function');
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_1' },
+            data: JSON.stringify({
+                value: JSON.stringify({ cardPrivateData: { actionIds: ['feedback_up'] } }),
+                spaceType: 'IM',
+                userId: 'user_feedback_1',
+            }),
+        });
+
+        expect(shared.sendProactiveTextMock).toHaveBeenCalledWith(
+            expect.objectContaining({ clientId: 'ding_id' }),
+            'user_feedback_1',
+            '✅ 已收到你的点赞（反馈已记录）',
+            expect.objectContaining({ accountId: 'main' }),
+        );
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_1', { success: true });
     });
 
     it('clears account in-flight locks on disconnect state change', async () => {
@@ -351,7 +388,7 @@ describe('gateway inbound callback pipeline', () => {
             sessionWebhook: 'https://webhook',
         });
 
-        const first = shared.listener?.({
+        const first = shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_disconnect_1' },
             data: payloadData,
         });
@@ -359,7 +396,7 @@ describe('gateway inbound callback pipeline', () => {
 
         shared.connectionConfig?.onStateChange?.('DISCONNECTED', 'lost');
 
-        const second = shared.listener?.({
+        const second = shared.listeners.TOPIC_ROBOT?.({
             headers: { messageId: 'stream_msg_disconnect_2' },
             data: payloadData,
         });

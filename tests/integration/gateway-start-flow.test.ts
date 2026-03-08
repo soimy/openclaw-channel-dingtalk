@@ -18,6 +18,7 @@ vi.mock('openclaw/plugin-sdk', () => ({
 }));
 
 vi.mock('dingtalk-stream', () => ({
+    TOPIC_CARD: 'TOPIC_CARD',
     TOPIC_ROBOT: 'TOPIC_ROBOT',
     DWClient: class {
         config: Record<string, unknown>;
