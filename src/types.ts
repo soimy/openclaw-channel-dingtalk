@@ -67,6 +67,8 @@ export interface DingTalkConfig extends OpenClawConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
+  aicardDegradeMs?: number;
 }
 
 /**
@@ -108,6 +110,8 @@ export interface DingTalkChannelConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
+  aicardDegradeMs?: number;
 }
 
 /**
@@ -628,6 +632,7 @@ export function resolveDingTalkAccount(
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      aicardDegradeMs: dingtalk?.aicardDegradeMs,
     };
     return {
       ...config,

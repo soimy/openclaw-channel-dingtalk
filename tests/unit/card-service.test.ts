@@ -19,11 +19,15 @@ vi.mock('axios', () => {
 });
 
 import {
+    activateAICardDegrade,
+    clearAICardDegrade,
     createAICard,
     finalizeActiveCardsForAccount,
     finishAICard,
     formatContentForCard,
     getCardContentByProcessQueryKey,
+    getAICardDegradeState,
+    isAICardDegraded,
     recoverPendingCardsForAccount,
     sendProactiveCardText,
     streamAICard,
@@ -47,6 +51,9 @@ describe('card-service', () => {
         mockedAxios.put.mockReset();
         mockedGetAccessToken.mockReset();
         mockedGetAccessToken.mockResolvedValue('token_abc');
+        clearAICardDegrade('default');
+        clearAICardDegrade('main');
+        clearAICardDegrade('backup');
         stateDirPath = path.join(
             os.tmpdir(),
             `openclaw-dingtalk-card-state-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -61,6 +68,9 @@ describe('card-service', () => {
     });
 
     afterEach(() => {
+        clearAICardDegrade('default');
+        clearAICardDegrade('main');
+        clearAICardDegrade('backup');
         fs.rmSync(stateDirPath, { force: true, recursive: true });
     });
 
@@ -105,6 +115,57 @@ describe('card-service', () => {
 
         expect(card).toBeNull();
         expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+
+    it('createAICard skips create during degrade window', async () => {
+        activateAICardDegrade('main', 'card.create:429', { aicardDegradeMs: 120000 } as any);
+
+        const card = await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'cidA1B2C3',
+            undefined,
+            { accountId: 'main' }
+        );
+
+        expect(card).toBeNull();
+        expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+
+    it('createAICard activates degrade on transient create failure', async () => {
+        mockedAxios.post.mockRejectedValueOnce({
+            response: { status: 429, data: { message: 'too many requests' } },
+            message: 'too many requests',
+        });
+
+        const card = await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
+            'cidA1B2C3',
+            undefined,
+            { accountId: 'main' }
+        );
+
+        expect(card).toBeNull();
+        expect(isAICardDegraded('main')).toBe(true);
+        expect(getAICardDegradeState('main')?.reason).toContain('card.create:429');
+    });
+
+    it('createAICard clears degrade after a later success', async () => {
+        activateAICardDegrade('main', 'card.create:429', { aicardDegradeMs: 120000 } as any);
+        clearAICardDegrade('main');
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { result: { deliverResults: [{ carrierId: 'carrier_2' }] } },
+        });
+
+        const card = await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
+            'cidA1B2C3',
+            undefined,
+            { accountId: 'main' }
+        );
+
+        expect(card).toBeTruthy();
+        expect(isAICardDegraded('main')).toBe(false);
     });
 
     it('streamAICard updates state to INPUTING on success', async () => {
@@ -229,6 +290,29 @@ describe('card-service', () => {
         await expect(streamAICard(card, 'stream text', false)).rejects.toBeDefined();
         expect(card.state).toBe(AICardStatus.FAILED);
         expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+    });
+
+    it('streamAICard activates degrade on transient stream failure', async () => {
+        mockedAxios.put.mockRejectedValueOnce({
+            response: { status: 429, data: { message: 'too many requests' } },
+            message: 'too many requests',
+        });
+
+        const card = {
+            cardInstanceId: 'card_degrade',
+            accessToken: 'token_abc',
+            conversationId: 'cidA1B2C3',
+            accountId: 'main',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.PROCESSING,
+            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content', aicardDegradeMs: 120000 },
+        } as any;
+
+        await expect(streamAICard(card, 'stream text', false)).rejects.toBeDefined();
+
+        expect(isAICardDegraded('main')).toBe(true);
+        expect(getAICardDegradeState('main')?.reason).toContain('card.stream:429');
     });
 
     it('streamAICard ignores updates when card already FINISHED', async () => {

@@ -66,5 +66,24 @@ describe('DingTalkConfigSchema', () => {
         }) as { accounts: Record<string, { keepAlive?: boolean }> };
 
         expect(parsed.accounts.main?.keepAlive).toBeUndefined();
+                },
+            },
+        }) as { accounts: Record<string, { keepAlive?: boolean }> };
+
+        expect(parsed.accounts.main?.keepAlive).toBeUndefined();
+    });
+
+    it('accepts custom aicardDegradeMs for account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    aicardDegradeMs: 120000,
+                },
+            },
+        }) as { accounts: Record<string, { aicardDegradeMs?: number }> };
+
+        expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 });
