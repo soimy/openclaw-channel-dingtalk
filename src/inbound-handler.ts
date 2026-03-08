@@ -47,6 +47,7 @@ import {
   isFeedbackLearningAutoApplyEnabled,
   isFeedbackLearningEnabled,
   recordOutboundReplyForLearning,
+  resolveManualForcedReply,
 } from "./feedback-learning-service";
 import { listLearnedRules } from "./feedback-learning-store";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
@@ -464,6 +465,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
   const feedbackLearningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
   const feedbackLearningAutoApply = isFeedbackLearningAutoApplyEnabled(dingtalkConfig);
+  const manualForcedReply = resolveManualForcedReply({
+    storePath: accountStorePath,
+    accountId,
+    content,
+  });
+  if (manualForcedReply) {
+    await sendBySession(dingtalkConfig, sessionWebhook, manualForcedReply, { log });
+    return;
+  }
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
