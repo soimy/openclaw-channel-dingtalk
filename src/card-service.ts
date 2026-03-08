@@ -6,7 +6,7 @@ import { getAccessToken } from "./auth";
 import { stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { readNamespaceJson, resolveNamespacePath, writeNamespaceJsonAtomic } from "./persistence-store";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
   AICardStreamingRequest,

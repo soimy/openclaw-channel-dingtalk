@@ -16,7 +16,7 @@ import {
   getProactiveRiskObservation,
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
   AxiosResponse,

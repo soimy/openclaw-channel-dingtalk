@@ -63,6 +63,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   mediaMaxMb?: number;
   /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
   keepAlive?: boolean;
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
+  bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -106,6 +108,8 @@ export interface DingTalkChannelConfig {
   mediaMaxMb?: number;
   /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
   keepAlive?: boolean;
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
+  bypassProxyForSend?: boolean;
   proactivePermissionHint?: {
     enabled?: boolean;
     cooldownHours?: number;
@@ -631,6 +635,7 @@ export function resolveDingTalkAccount(
       maxReconnectCycles: dingtalk?.maxReconnectCycles,
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
+      bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
     };

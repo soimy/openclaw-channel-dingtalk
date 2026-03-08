@@ -64,6 +64,21 @@ describe('send-service media branches', () => {
         expect(req.data).toEqual({ msgtype: 'text', text: { content: 'fallback text' } });
     });
 
+    it('sendBySession bypasses proxy when configured', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_img_proxy');
+        mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            'https://session.webhook',
+            'ignored text',
+            { mediaPath: '/tmp/a.png', mediaType: 'image' }
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.proxy).toBe(false);
+    });
+
     it('sendProactiveMedia returns upload failure when media upload fails', async () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
 
@@ -111,5 +126,20 @@ describe('send-service media branches', () => {
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
         expect(result.ok).toBe(true);
+    });
+
+    it('sendProactiveMedia bypasses proxy when configured', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_voice_proxy');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_proxy' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            'user_123',
+            '/tmp/a.amr',
+            'voice'
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.proxy).toBe(false);
     });
 });
