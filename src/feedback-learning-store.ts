@@ -76,6 +76,8 @@ export interface LearnedRuleRecord {
   updatedAt: number;
   enabled: boolean;
   manual?: boolean;
+  triggerText?: string;
+  forcedReply?: string;
 }
 
 interface ListBucket<T> {

@@ -397,6 +397,7 @@ export function applyManualGlobalLearningRule(params: {
     return null;
   }
   const ruleId = `manual_${Date.now()}`;
+  const exactReplyMatch = params.instruction.trim().match(/^当用户问[“\"](.+?)[”\"]时，必须回答[“\"](.+?)[”\"][。.!！]?$/);
   upsertLearnedRule({
     storePath: params.storePath,
     accountId: params.accountId,
@@ -409,9 +410,29 @@ export function applyManualGlobalLearningRule(params: {
       updatedAt: Date.now(),
       enabled: true,
       manual: true,
+      triggerText: exactReplyMatch?.[1]?.trim(),
+      forcedReply: exactReplyMatch?.[2]?.trim(),
     },
   });
   return { ruleId };
+}
+
+export function resolveManualForcedReply(params: {
+  storePath?: string;
+  accountId: string;
+  content: MessageContent;
+}): string | null {
+  if (!params.storePath) {
+    return null;
+  }
+  const text = params.content.text.trim();
+  if (!text) {
+    return null;
+  }
+  const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
+    .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
+    .find((rule) => rule.triggerText === text);
+  return matched?.forcedReply || null;
 }
 
 export function applyManualSessionLearningNote(params: {

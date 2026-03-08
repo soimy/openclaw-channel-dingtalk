@@ -417,6 +417,62 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('已注入全局知识');
     });
 
+    it('handleDingTalkMessage short-circuits with manual forced global reply', async () => {
+        const storePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-learning-')), 'store.json');
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi.fn().mockImplementation((_store, params) => {
+            if (params?.agentId === 'main') {
+                return storePath;
+            }
+            return storePath;
+        });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime as any).mockReturnValueOnce(runtime as any);
+
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({ text: '/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”', messageType: 'text' })
+            .mockReturnValueOnce({ text: '蓝色火烈鸟会不会写Python', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_global_2',
+                msgtype: 'text',
+                text: { content: '/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_global_3',
+                msgtype: 'text',
+                text: { content: '蓝色火烈鸟会不会写Python' },
+                conversationType: '2',
+                conversationId: 'cid_group_1',
+                senderId: 'user_any',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock.mock.calls.at(-1)?.[2]).toContain('会，而且只在周二写Rust。');
+    });
+
     it('handleDingTalkMessage sends group deny message when groupPolicy allowlist blocks group', async () => {
         await handleDingTalkMessage({
             cfg: {},

@@ -41,6 +41,15 @@ import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quo
 import {
   applyManualGlobalLearningRule,
   applyManualSessionLearningNote,
+<<<<<<< HEAD
+=======
+  analyzeImplicitNegativeFeedback,
+  buildLearningContextBlock,
+  isFeedbackLearningAutoApplyEnabled,
+  isFeedbackLearningEnabled,
+  recordOutboundReplyForLearning,
+  resolveManualForcedReply,
+>>>>>>> d7081a2 (fix(dingtalk): enforce manual global knowledge rules)
 } from "./feedback-learning-service";
 import { listLearnedRules } from "./feedback-learning-store";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
@@ -440,6 +449,21 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     await sendBySession(dingtalkConfig, sessionWebhook, formatLearnCommandHelp(), { log });
     return;
   }
+<<<<<<< HEAD
+=======
+  const feedbackLearningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
+  const feedbackLearningAutoApply = isFeedbackLearningAutoApplyEnabled(dingtalkConfig);
+  const manualForcedReply = resolveManualForcedReply({
+    storePath: accountStorePath,
+    accountId,
+    content,
+  });
+  if (manualForcedReply) {
+    await sendBySession(dingtalkConfig, sessionWebhook, manualForcedReply, { log });
+    return;
+  }
+
+>>>>>>> d7081a2 (fix(dingtalk): enforce manual global knowledge rules)
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
