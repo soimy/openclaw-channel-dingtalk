@@ -15,7 +15,7 @@ import { BlockList, isIP } from "node:net";
 import axios from "axios";
 import FormData from "form-data";
 import type { DingTalkConfig, Logger } from "./types";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 
 /**
  * Calculate MP3 duration in seconds by parsing MPEG frame headers
@@ -618,6 +618,7 @@ export async function uploadMedia(
       headers: form.getHeaders(),
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
+      ...getProxyBypassOption(config),
     });
 
     if (response.data?.errcode === 0 && response.data?.media_id) {

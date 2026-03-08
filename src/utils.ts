@@ -87,6 +87,10 @@ export function formatDingTalkErrorPayloadLog(
   return `${prefix}[ErrorPayload][${scope}] ${formatDingTalkErrorPayload(payload)}`;
 }
 
+export function getProxyBypassOption(config?: { bypassProxyForSend?: boolean }): { proxy: false } | Record<string, never> {
+  return config?.bypassProxyForSend ? { proxy: false } : {};
+}
+
 function getHeaderCaseInsensitive(headers: unknown, key: string): string | undefined {
   if (!headers || typeof headers !== "object" || Array.isArray(headers)) {
     return undefined;

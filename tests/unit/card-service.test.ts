@@ -97,6 +97,24 @@ describe('card-service', () => {
         expect(body.imRobotOpenDeliverModel).toEqual({ spaceType: 'IM_ROBOT', robotCode: 'robot_1' });
     });
 
+    it('createAICard bypasses proxy when configured', async () => {
+        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        await createAICard(
+            {
+                clientId: 'id',
+                clientSecret: 'sec',
+                cardTemplateId: 'tmpl.schema',
+                robotCode: 'robot_1',
+                bypassProxyForSend: true,
+            } as any,
+            'manager123'
+        );
+
+        const requestConfig = mockedAxios.post.mock.calls[0]?.[2];
+        expect(requestConfig?.proxy).toBe(false);
+    });
+
     it('createAICard returns null when templateId is missing', async () => {
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec' } as any,

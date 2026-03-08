@@ -16,7 +16,7 @@ import {
   getProactiveRiskObservation,
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
   AxiosResponse,
@@ -163,6 +163,7 @@ export async function sendProactiveTextOrMarkdown(
       method: "POST",
       data: payload,
       headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+      ...getProxyBypassOption(config),
     });
     if (options.accountId) {
       deleteProactiveRiskObservation(options.accountId, resolvedTarget);
@@ -273,6 +274,7 @@ export async function sendProactiveMedia(
       method: "POST",
       data: payload,
       headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+      ...getProxyBypassOption(config),
     });
     if (options.accountId) {
       deleteProactiveRiskObservation(options.accountId, resolvedTarget);
@@ -342,6 +344,7 @@ export async function sendBySession(
           method: "POST",
           data: body,
           headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+          ...getProxyBypassOption(config),
         });
         return result.data;
       }
@@ -373,6 +376,7 @@ export async function sendBySession(
     method: "POST",
     data: body,
     headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+    ...getProxyBypassOption(config),
   });
   return result.data;
 }

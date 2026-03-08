@@ -90,6 +90,9 @@ const DingTalkAccountConfigSchema = z.object({
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb: z.number().int().min(1).optional(),
 
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
+  bypassProxyForSend: z.boolean().optional().default(false),
+
   proactivePermissionHint: z
     .object({
       enabled: z.boolean().optional().default(true),
