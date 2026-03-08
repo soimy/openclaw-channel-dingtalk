@@ -176,7 +176,8 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
       // Has msgType but not one we handle — generic fallback.
       if (repliedMsgType) {
-        return { prefix: "[引用了一条消息]\n\n" };
+        const idPart = repliedMsg.msgId ? `，原消息ID: ${repliedMsg.msgId}` : "";
+        return { prefix: `[引用消息不可见: msgType=${repliedMsgType}${idPart}]\n\n` };
       }
 
       // No msgType — backward compat: extract text or richText from content.

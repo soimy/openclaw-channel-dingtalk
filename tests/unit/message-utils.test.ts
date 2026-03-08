@@ -290,7 +290,8 @@ describe('message-utils', () => {
 
         const content = extractMessageContent(message);
 
-        expect(content.quoted?.prefix).toContain('引用了一条消息');
+        expect(content.quoted?.prefix).toContain('引用消息不可见');
+        expect(content.quoted?.prefix).toContain('location');
     });
 
     it('引用富文本（richText，无 msgType 向后兼容）— prefix contains text/emoji/at', () => {

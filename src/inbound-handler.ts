@@ -92,7 +92,14 @@ function isUnhandledStopReasonText(value: string): boolean {
 }
 
 function summarizeQuotedJournalText(text: string): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
+  const leadingQuotedMatch = text.match(/^\[引用消息:\s*"([^"]+)"\]/);
+  if (leadingQuotedMatch?.[1]) {
+    return leadingQuotedMatch[1].trim();
+  }
+  const collapsed = text
+    .replace(/^\[引用消息(?:不可见)?:[^\]]+\]\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!collapsed) {
     return "[历史消息]";
   }
@@ -389,8 +396,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     });
     if (journalEntry) {
       const replyBody = content.text.replace(content.quoted.prefix, "").trim();
-      const journalPrefix = `[引用消息: "${summarizeQuotedJournalText(journalEntry.text)}"]\n\n`;
+      const nestedMatch = journalEntry.text.match(/\[这是一条引用消息，原消息ID:\s*([^\]]+)\]/);
+      const nestedEntry = nestedMatch?.[1]
+        ? findQuoteJournalEntryByMsgId({
+            storePath,
+            accountId,
+            conversationId: data.conversationId,
+            msgId: nestedMatch[1].trim(),
+          })
+        : null;
+      const resolvedEntry = nestedEntry || journalEntry;
+      const journalPrefix = `[引用消息: "${summarizeQuotedJournalText(resolvedEntry.text)}"]\n\n`;
       content.text = replyBody ? `${journalPrefix}${replyBody}` : journalPrefix.trimEnd();
+      content.mediaPath = content.mediaPath || resolvedEntry.mediaPath;
+      content.mediaType = content.mediaType || resolvedEntry.mediaType;
     }
   }
 
@@ -499,6 +518,16 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  const quoteWithoutImage =
+    content.text.includes("[引用消息:") &&
+    /图|图片|看下|感想/.test(content.text) &&
+    !content.mediaPath &&
+    !mediaPath &&
+    mediaPaths.length === 0;
+  if (quoteWithoutImage) {
+    content.text = `${content.text}\n\n[系统提示] 当前仅拿到引用文本，未拿到图片文件本体。禁止臆测图片内容，请先请用户补发原图后再分析。`;
+  }
+
   // Quoted file/video/audio (unknownMsgType): cache-first, then group file API fallback.
   if (!mediaPath && content.quoted?.isQuotedFile) {
     let fileResolved = false;
@@ -601,6 +630,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         : "[引用了钉钉文档，但无法获取内容]\n\n";
       content.text = content.text.replace(content.quoted.prefix, hint);
     }
+  }
+
+  if (content.text.includes("[引用消息不可见:")) {
+    content.text = `${content.text}\n\n[系统提示] 当前没有拿到被引用消息的正文或附件，只拿到引用占位信息。禁止根据上下文臆测引用内容，请让用户补发原文或原文件。`;
   }
 
   // Quoted AI card: prefer deterministic processQueryKey lookup, and only
