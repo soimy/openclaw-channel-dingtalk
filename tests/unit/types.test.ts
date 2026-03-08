@@ -74,11 +74,13 @@ describe('types helpers', () => {
                     clientId: 'cli',
                     clientSecret: 'sec',
                     mediaMaxMb: 50,
+                    aicardDegradeMs: 120000,
                 },
             },
         } as any;
 
         const account = resolveDingTalkAccount(cfg, 'default');
         expect(account.mediaMaxMb).toBe(50);
+        expect(account.aicardDegradeMs).toBe(120000);
     });
 });

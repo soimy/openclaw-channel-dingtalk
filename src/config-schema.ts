@@ -97,6 +97,9 @@ const DingTalkAccountConfigSchema = z.object({
     })
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
+
+  /** AICard degrade duration in milliseconds after trigger errors (default: 30 minutes) */
+  aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
 });
 
 /**

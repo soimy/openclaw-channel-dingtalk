@@ -45,4 +45,18 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.mediaUrlAllowlist).toEqual(['cdn.example.com']);
         expect(parsed.accounts.main?.mediaUrlAllowlist).toEqual(['192.168.1.23', 'files.internal.example']);
     });
+
+    it('accepts custom aicardDegradeMs for account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    aicardDegradeMs: 120000,
+                },
+            },
+        }) as { accounts: Record<string, { aicardDegradeMs?: number }> };
+
+        expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
+    });
 });
