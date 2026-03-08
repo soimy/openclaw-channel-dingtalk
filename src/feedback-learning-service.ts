@@ -134,11 +134,11 @@ function updateLearnedRule(
 }
 
 export function isFeedbackLearningEnabled(config: DingTalkConfig | undefined): boolean {
-  return config?.feedbackLearningEnabled === true;
+  return Boolean((config as DingTalkConfig & { feedbackLearningEnabled?: boolean } | undefined)?.feedbackLearningEnabled);
 }
 
 export function isFeedbackLearningAutoApplyEnabled(config: DingTalkConfig | undefined): boolean {
-  return config?.feedbackLearningAutoApply === true;
+  return Boolean((config as DingTalkConfig & { feedbackLearningAutoApply?: boolean } | undefined)?.feedbackLearningAutoApply);
 }
 
 export function recordOutboundReplyForLearning(params: {
@@ -339,7 +339,7 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
   }
   switch (rule.category) {
     case "missing_image_context":
-      return /图|图片|截图|看图|看下/.test(content.text) && !content.mediaPath && !(content.mediaPaths?.length);
+      return /图|图片|截图|看图|看下/.test(content.text) && !content.mediaPath;
     case "quoted_context_missing":
       return content.text.includes("[引用消息") || Boolean(content.quoted);
     case "misunderstood_intent":
