@@ -12,6 +12,15 @@ import {
 import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
 import { setCurrentLogger } from "./logger-context";
+import {
+  formatOwnerOnlyDeniedReply,
+  formatOwnerStatusReply,
+  formatWhoAmIReply,
+  isLearnCommand,
+  isLearningOwner,
+  isOwnerStatusCommand,
+  isWhoAmICommand,
+} from "./learning-command-service";
 import { extractMessageContent } from "./message-utils";
 import { registerPeerId } from "./peer-id-registry";
 import {
@@ -332,6 +341,47 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
+  const isOwner = isLearningOwner(dingtalkConfig, {
+    senderId,
+    rawSenderId: data.senderId,
+  });
+  if (isDirect && isWhoAmICommand(content.text)) {
+    await sendBySession(
+      dingtalkConfig,
+      sessionWebhook,
+      formatWhoAmIReply({
+        accountId,
+        senderId,
+        rawSenderId: data.senderId,
+        senderStaffId: data.senderStaffId,
+        conversationId: data.conversationId,
+        conversationType: data.conversationType,
+        agentId: route.agentId,
+        sessionKey: route.sessionKey,
+        isOwner,
+      }),
+      { log },
+    );
+    return;
+  }
+  if (isDirect && isOwnerStatusCommand(content.text)) {
+    await sendBySession(
+      dingtalkConfig,
+      sessionWebhook,
+      formatOwnerStatusReply({
+        senderId,
+        rawSenderId: data.senderId,
+        isOwner,
+        ownerAllowFrom: dingtalkConfig.ownerAllowFrom,
+      }),
+      { log },
+    );
+    return;
+  }
+  if (isDirect && isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text) && !isOwner) {
+    await sendBySession(dingtalkConfig, sessionWebhook, formatOwnerOnlyDeniedReply(), { log });
+    return;
+  }
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual

@@ -65,6 +65,8 @@ export interface DingTalkConfig extends OpenClawConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** DingTalk sender IDs allowed to execute owner-only learning/control commands */
+  ownerAllowFrom?: string[];
 }
 
 /**
@@ -104,6 +106,8 @@ export interface DingTalkChannelConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** DingTalk sender IDs allowed to execute owner-only learning/control commands */
+  ownerAllowFrom?: string[];
 }
 
 /**
@@ -624,6 +628,7 @@ export function resolveDingTalkAccount(
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      ownerAllowFrom: dingtalk?.ownerAllowFrom,
     };
     return {
       ...config,
