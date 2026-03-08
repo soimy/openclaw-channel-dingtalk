@@ -4,29 +4,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { DingTalkConfig } from "./types";
 
 /**
- * Merge channel-level defaults into an account-specific config.
- * Account-level values take precedence; `accounts` key is excluded to avoid recursion.
- */
-export function mergeAccountWithDefaults(
-  channelCfg: DingTalkConfig,
-  accountCfg: DingTalkConfig,
-): DingTalkConfig {
-  const { accounts: _accounts, ...defaults } = channelCfg;
-  const overrides: Partial<DingTalkConfig> = {};
-  for (const [key, value] of Object.entries(accountCfg)) {
-    if (value !== undefined) {
-      Object.assign(overrides, { [key]: value });
-    }
-  }
-  return {
-    ...defaults,
-    ...overrides,
-  };
-}
-
-/**
  * Resolve DingTalk config for an account.
- * Named accounts inherit channel-level defaults with account-level overrides.
  * Falls back to top-level config for single-account setups.
  */
 export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
@@ -36,7 +14,7 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   }
 
   if (accountId && dingtalkCfg.accounts?.[accountId]) {
-    return mergeAccountWithDefaults(dingtalkCfg, dingtalkCfg.accounts[accountId]);
+    return dingtalkCfg.accounts[accountId];
   }
 
   return dingtalkCfg;
@@ -47,6 +25,19 @@ export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && config.clientSecret);
 }
 
+/**
+ * Resolve relative paths against a base directory, with intelligent platform-specific handling.
+ *
+ * Supports:
+ * - ~ and ~/ expansion to home directory
+ * - Absolute paths (Unix: /path, Windows: \path or C:\path)
+ * - Relative paths resolved against cwd
+ * - Windows absolute paths without drive letters (e.g., Users\name\.openclaw\file.txt)
+ * - Mixed path separators (/ and \)
+ *
+ * @param input - The path string to resolve
+ * @returns The resolved absolute path
+ */
 export function resolveRelativePath(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -63,13 +54,52 @@ export function resolveRelativePath(input: string): string {
     return path.resolve(os.homedir(), ...segments(trimmed.slice(2)));
   }
 
+  // Check for Windows absolute paths with drive letters (e.g., "C:\path" or "C:/path")
+  if (/^[a-zA-Z]:[\\/]/.test(trimmed)) {
+    return path.resolve(trimmed);
+  }
+
+  // Get path segments for further analysis
+  const pathSegments = segments(trimmed);
+  const firstSegment = pathSegments[0];
+
+  /**
+   * Windows platform compatibility fix:
+   * Detect Windows absolute paths that are missing the leading backslash
+   * and/or drive letter. OpenClaw sometimes strips leading backslashes from
+   * Windows paths, causing patterns like "Users\username\.openclaw\workspace\file.xlsx"
+   * to be treated as relative paths.
+   *
+   * Pattern detection:
+   * - First segment starts with a letter (directory name like "Users")
+   * - Path has multiple segments (> 2)
+   * - Second segment contains a dot (like ".openclaw", ".config")
+   *
+   * This pattern reliably indicates an absolute Windows path from root.
+   */
+  if (firstSegment && /^[a-zA-Z]/.test(firstSegment) && pathSegments.length > 2) {
+    const secondSegment = pathSegments[1];
+    if (secondSegment && secondSegment.includes('.')) {
+      // Reconstruct as absolute path from root
+      return path.resolve(path.sep, ...pathSegments);
+    }
+  }
+
+  /**
+   * Handle edge case: Windows paths with drive letter but no separator
+   * e.g., "C:Users\..." (missing backslash after drive letter)
+   */
+  if (firstSegment && /^[a-zA-Z]:$/.test(firstSegment)) {
+    return path.resolve(firstSegment + path.sep, ...pathSegments.slice(1));
+  }
+
   // Treat both "/" and "\\" as absolute root prefixes for cross-platform input.
   if (/^[\\/]/.test(trimmed)) {
-    return path.resolve(path.sep, ...segments(trimmed));
+    return path.resolve(path.sep, ...pathSegments);
   }
 
   // Resolve relative path against cwd; supports mixed separators and "..\\..".
-  return path.resolve(process.cwd(), ...segments(trimmed));
+  return path.resolve(process.cwd(), ...pathSegments);
 }
 
 export const resolveUserPath = resolveRelativePath;
