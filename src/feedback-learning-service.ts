@@ -137,6 +137,10 @@ export function isFeedbackLearningEnabled(config: DingTalkConfig | undefined): b
   return config?.feedbackLearningEnabled === true;
 }
 
+export function isFeedbackLearningAutoApplyEnabled(config: DingTalkConfig | undefined): boolean {
+  return config?.feedbackLearningAutoApply === true;
+}
+
 export function recordOutboundReplyForLearning(params: {
   enabled: boolean;
   storePath?: string;
@@ -170,6 +174,7 @@ export function recordOutboundReplyForLearning(params: {
 
 export function recordExplicitFeedbackLearning(params: {
   enabled: boolean;
+  autoApply?: boolean;
   storePath?: string;
   accountId: string;
   targetId: string;
@@ -225,7 +230,7 @@ export function recordExplicitFeedbackLearning(params: {
     reflection,
   });
 
-  if (kind !== "explicit_positive") {
+  if (params.autoApply && kind !== "explicit_positive") {
     appendSessionLearningNote({
       storePath: params.storePath,
       accountId: params.accountId,
@@ -241,11 +246,14 @@ export function recordExplicitFeedbackLearning(params: {
       },
     });
   }
-  updateLearnedRule(params.storePath, params.accountId, category, kind);
+  if (params.autoApply) {
+    updateLearnedRule(params.storePath, params.accountId, category, kind);
+  }
 }
 
 export function analyzeImplicitNegativeFeedback(params: {
   enabled: boolean;
+  autoApply?: boolean;
   storePath?: string;
   accountId: string;
   targetId: string;
@@ -306,21 +314,23 @@ export function analyzeImplicitNegativeFeedback(params: {
     targetId: params.targetId,
     reflection,
   });
-  appendSessionLearningNote({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    targetId: params.targetId,
-    ttlMs: params.noteTtlMs,
-    note: {
-      id: randomUUID(),
+  if (params.autoApply) {
+    appendSessionLearningNote({
+      storePath: params.storePath,
+      accountId: params.accountId,
       targetId: params.targetId,
-      instruction: reflection.suggestedInstruction,
-      source: "implicit_negative",
-      category,
-      createdAt: Date.now(),
-    },
-  });
-  updateLearnedRule(params.storePath, params.accountId, category, "implicit_negative");
+      ttlMs: params.noteTtlMs,
+      note: {
+        id: randomUUID(),
+        targetId: params.targetId,
+        instruction: reflection.suggestedInstruction,
+        source: "implicit_negative",
+        category,
+        createdAt: Date.now(),
+      },
+    });
+    updateLearnedRule(params.storePath, params.accountId, category, "implicit_negative");
+  }
 }
 
 function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): boolean {

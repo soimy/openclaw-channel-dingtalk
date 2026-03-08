@@ -82,14 +82,15 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 
-    it('accepts feedback learning config and default note ttl', () => {
+    it('accepts feedback learning config and default auto-apply/note ttl', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
             feedbackLearningEnabled: true,
-        }) as { feedbackLearningEnabled?: boolean; feedbackLearningNoteTtlMs?: number };
+        }) as { feedbackLearningEnabled?: boolean; feedbackLearningAutoApply?: boolean; feedbackLearningNoteTtlMs?: number };
 
         expect(parsed.feedbackLearningEnabled).toBe(true);
+        expect(parsed.feedbackLearningAutoApply).toBe(false);
         expect(parsed.feedbackLearningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
     });
 });

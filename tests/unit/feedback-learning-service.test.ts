@@ -44,7 +44,7 @@ describe("feedback-learning-service", () => {
         };
     }
 
-    it("records outbound snapshots and explicit negative feedback", () => {
+    it("records outbound snapshots and explicit negative feedback without auto-applying by default", () => {
         const storePath = createStorePath();
         recordOutboundReplyForLearning({
             enabled: true,
@@ -79,15 +79,11 @@ describe("feedback-learning-service", () => {
         expect(events).toHaveLength(1);
         expect(events[0]?.kind).toBe("explicit_negative");
         expect(reflections[0]?.category).toBe("missing_image_context");
-        expect(notes[0]?.instruction).toContain("禁止臆测内容");
-        expect(rules[0]).toMatchObject({
-            ruleId: "rule_missing_image_context",
-            enabled: false,
-            negativeCount: 1,
-        });
+        expect(notes).toHaveLength(0);
+        expect(rules).toHaveLength(0);
     });
 
-    it("promotes repeated negative signals into account-scoped global rules", () => {
+    it("promotes repeated negative signals into account-scoped global rules when auto-apply is enabled", () => {
         const storePath = createStorePath();
         for (const targetId of ["chat-a", "chat-b"]) {
             recordOutboundReplyForLearning({
@@ -102,6 +98,7 @@ describe("feedback-learning-service", () => {
             });
             recordExplicitFeedbackLearning({
                 enabled: true,
+                autoApply: true,
                 storePath,
                 accountId: "main",
                 targetId,
@@ -126,7 +123,7 @@ describe("feedback-learning-service", () => {
         expect(block).toContain("禁止臆测内容");
     });
 
-    it("turns implicit dissatisfaction into session notes", () => {
+    it("turns implicit dissatisfaction into session notes only when auto-apply is enabled", () => {
         const storePath = createStorePath();
         recordOutboundReplyForLearning({
             enabled: true,
@@ -141,6 +138,7 @@ describe("feedback-learning-service", () => {
 
         analyzeImplicitNegativeFeedback({
             enabled: true,
+            autoApply: true,
             storePath,
             accountId: "main",
             targetId: "chat-a",

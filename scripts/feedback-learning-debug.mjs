@@ -250,7 +250,7 @@ function renderHtml(args) {
       </div>
       <div class="card" style="margin-top:16px;">
         <h3>Manual Reflection</h3>
-        <div class="muted">你可以直接修正“系统没理解对”的地方，并选择是否提升为全局规则。</div>
+        <div class="muted">你可以直接修正“系统没理解对”的地方，并选择只注入当前会话、提升为全局规则，或仅保存为候选反思。</div>
         <div class="row" style="margin-top:12px;">
           <div><label>Category</label><select id="manualCategory">
             <option value="misunderstood_intent">misunderstood_intent</option>
@@ -258,11 +258,26 @@ function renderHtml(args) {
             <option value="missing_image_context">missing_image_context</option>
             <option value="generic_negative">generic_negative</option>
           </select></div>
-          <div><label>Promote To Global</label><select id="manualPromote"><option value="true">true</option><option value="false">false</option></select></div>
+          <div><label>Promote To Global</label><select id="manualPromote"><option value="false">false</option><option value="true">true</option></select></div>
         </div>
         <div style="margin-top:12px;"><label>Diagnosis</label><textarea id="manualDiagnosis" rows="3"></textarea></div>
         <div style="margin-top:12px;"><label>Instruction</label><textarea id="manualInstruction" rows="3"></textarea></div>
-        <div style="margin-top:12px;"><button id="manualSave">保存人工反思</button></div>
+        <div style="margin-top:12px;"><button id="manualSave">保存人工反思 / 注入</button></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <h3>Global Knowledge Injection</h3>
+        <div class="muted">这里用于你手动发布一条跨所有钉钉会话共享的知识，不依赖点赞点踩。</div>
+        <div class="row" style="margin-top:12px;">
+          <div><label>Rule Id</label><input id="globalRuleId" placeholder="manual_rule_xxx" /></div>
+          <div><label>Category</label><select id="globalRuleCategory">
+            <option value="misunderstood_intent">misunderstood_intent</option>
+            <option value="quoted_context_missing">quoted_context_missing</option>
+            <option value="missing_image_context">missing_image_context</option>
+            <option value="generic_negative">generic_negative</option>
+          </select></div>
+        </div>
+        <div style="margin-top:12px;"><label>Instruction</label><textarea id="globalRuleInstruction" rows="3" placeholder="输入你要全局共享的知识"></textarea></div>
+        <div style="margin-top:12px;"><button id="globalRuleSave">发布到全局</button></div>
       </div>
     </section>
   </main>
@@ -334,6 +349,22 @@ function renderHtml(args) {
       });
       document.getElementById("manualDiagnosis").value = "";
       document.getElementById("manualInstruction").value = "";
+      await loadOverview();
+    });
+    document.getElementById("globalRuleSave").addEventListener("click", async () => {
+      await api("/api/rules", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accountId: document.getElementById("accountId").textContent,
+          ruleId: document.getElementById("globalRuleId").value,
+          category: document.getElementById("globalRuleCategory").value,
+          instruction: document.getElementById("globalRuleInstruction").value,
+          enabled: true,
+        }),
+      });
+      document.getElementById("globalRuleId").value = "";
+      document.getElementById("globalRuleInstruction").value = "";
       await loadOverview();
     });
     loadTargets().then(loadOverview);

@@ -368,6 +368,7 @@ openclaw gateway restart
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
 | `bypassProxyForSend`    | boolean  | `false`      | 仅对 send/card/upload 出站请求绕过系统 HTTP(S) 代理 |
 | `feedbackLearningEnabled` | boolean | `false`    | 启用本地反馈学习闭环（事件、反思、会话笔记、全局规则） |
+| `feedbackLearningAutoApply` | boolean | `false` | 是否将反馈反思自动注入会话/全局规则；默认只采集不生效 |
 | `feedbackLearningNoteTtlMs` | number | `21600000` | 会话级学习笔记有效期（毫秒，默认 6 小时） |
 
 ### 连接鲁棒性配置
@@ -380,6 +381,7 @@ openclaw gateway restart
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
 - **bypassProxyForSend**: 仅作用于发送链路（session send / proactive send / AI card / media upload），不影响如 `getAccessToken` 之类的其他出站请求。
 - **feedbackLearningEnabled**: 开启后，插件会记录发送快照、显式点赞/点踩、隐式不满信号、反思记录，并在下一条消息进入时把学习提示注入当前上下文。
+- **feedbackLearningAutoApply**: 默认关闭。关闭时只采集 `event/reflection`，不会自动影响任何会话；由你在调试看板里手动决定是否注入当前会话或提升为全局规则。
 - **feedbackLearningNoteTtlMs**: 控制 target 级学习笔记有效期；全局规则仍按 account 级持久化，供同一钉钉账号下的所有会话共享。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
@@ -399,6 +401,7 @@ openclaw gateway restart
 - **隐式不满**：例如“不是这个意思”“别猜引用原文”“你没看图”等后续纠错消息。
 - **会话笔记**：只作用于当前 target，会在下一条消息组装上下文时生效。
 - **全局规则**：按 account 维度共享；一处沉淀后，同一钉钉账号下的其他会话会在下一次收到消息时自动加载。
+- **默认策略**：只采集，不自动注入。你可以在看板中手动批准注入。
 
 ### 持久化位置
 
@@ -420,7 +423,11 @@ openclaw gateway restart
 - 当前会话笔记
 - 跨所有钉钉会话共享的全局规则
 
-并支持你手工修正诊断与指令，再一键提升为全局规则。
+并支持你手工修正诊断与指令，再选择：
+
+- 仅注入当前会话
+- 提升为全局规则
+- 或只保留为候选反思、不注入
 
 启动方式：
 
@@ -437,6 +444,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   "channels": {
     "dingtalk": {
       "feedbackLearningEnabled": true,
+      "feedbackLearningAutoApply": false,
       "feedbackLearningNoteTtlMs": 21600000
     }
   }

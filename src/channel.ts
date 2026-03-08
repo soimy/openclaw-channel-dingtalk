@@ -30,7 +30,11 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
-import { isFeedbackLearningEnabled, recordExplicitFeedbackLearning } from "./feedback-learning-service";
+import {
+  isFeedbackLearningAutoApplyEnabled,
+  isFeedbackLearningEnabled,
+  recordExplicitFeedbackLearning,
+} from "./feedback-learning-service";
 import {
   sendMessage,
   sendProactiveMedia,
@@ -703,6 +707,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           if (analysis.feedbackTarget && analysis.feedbackAckText) {
             recordExplicitFeedbackLearning({
               enabled: isFeedbackLearningEnabled(config),
+              autoApply: isFeedbackLearningAutoApplyEnabled(config),
               storePath: accountStorePath,
               accountId: account.accountId,
               targetId: analysis.feedbackTarget,

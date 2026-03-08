@@ -29,6 +29,7 @@ import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quo
 import {
   analyzeImplicitNegativeFeedback,
   buildLearningContextBlock,
+  isFeedbackLearningAutoApplyEnabled,
   isFeedbackLearningEnabled,
   recordOutboundReplyForLearning,
 } from "./feedback-learning-service";
@@ -355,6 +356,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   const to = isDirect ? senderId : groupId;
   const feedbackLearningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
+  const feedbackLearningAutoApply = isFeedbackLearningAutoApplyEnabled(dingtalkConfig);
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
@@ -684,6 +686,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   analyzeImplicitNegativeFeedback({
     enabled: feedbackLearningEnabled,
+    autoApply: feedbackLearningAutoApply,
     storePath: accountStorePath,
     accountId,
     targetId: to,

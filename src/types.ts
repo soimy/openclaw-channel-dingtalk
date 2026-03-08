@@ -73,6 +73,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   aicardDegradeMs?: number;
   /** Enable local feedback-learning loop (events/reflections/session notes/global rules) */
   feedbackLearningEnabled?: boolean;
+  /** Auto-apply generated reflections into session notes/global rules (default false) */
+  feedbackLearningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   feedbackLearningNoteTtlMs?: number;
 }
@@ -122,6 +124,8 @@ export interface DingTalkChannelConfig {
   aicardDegradeMs?: number;
   /** Enable local feedback-learning loop (events/reflections/session notes/global rules) */
   feedbackLearningEnabled?: boolean;
+  /** Auto-apply generated reflections into session notes/global rules (default false) */
+  feedbackLearningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   feedbackLearningNoteTtlMs?: number;
 }
@@ -649,6 +653,7 @@ export function resolveDingTalkAccount(
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       feedbackLearningEnabled: dingtalk?.feedbackLearningEnabled,
+      feedbackLearningAutoApply: dingtalk?.feedbackLearningAutoApply,
       feedbackLearningNoteTtlMs: dingtalk?.feedbackLearningNoteTtlMs,
     };
     return {
