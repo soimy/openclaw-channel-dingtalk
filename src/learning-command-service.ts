@@ -14,7 +14,12 @@ export function isOwnerStatusCommand(text: string | undefined): boolean {
   if (!normalized) {
     return false;
   }
-  return normalized === "/learn owner status" || normalized === "owner状态" || normalized === "我是不是owner";
+  return normalized === "/learn owner status"
+    || normalized === "owner状态"
+    || normalized === "我是不是owner"
+    || normalized === "我是owner吗"
+    || normalized === "我是owner了么"
+    || normalized === "我是owner了吗";
 }
 
 export function isLearnCommand(text: string | undefined): boolean {

@@ -382,7 +382,7 @@ openclaw gateway restart
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
 - **bypassProxyForSend**: 仅作用于发送链路（session send / proactive send / AI card / media upload），不影响如 `getAccessToken` 之类的其他出站请求。
 - **feedbackLearningEnabled**: 开启后，插件会记录发送快照、显式点赞/点踩、隐式不满信号、反思记录，并在下一条消息进入时把学习提示注入当前上下文。
-- **ownerAllowFrom**: 只有这些 senderId 才能执行 owner-only 的 `/learn ...` 管理命令。可先在钉钉私聊发送“我是谁”或 `/learn whoami` 查看自己的 senderId。
+- **ownerAllowFrom**: 只有这些 senderId 才能执行 owner-only 的学习/控制命令。推荐先在钉钉私聊发送“我是谁”“我的信息”或 `/learn whoami` 查询自己的 senderId，再把该值写入本机运行配置，而不是写进仓库代码。
 - **feedbackLearningAutoApply**: 默认关闭。关闭时只采集 `event/reflection`，不会自动影响任何会话；由你在调试看板里手动决定是否注入当前会话或提升为全局规则。
 - **feedbackLearningNoteTtlMs**: 控制 target 级学习笔记有效期；全局规则仍按 account 级持久化，供同一钉钉账号下的所有会话共享。
 
@@ -452,6 +452,29 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   }
 }
 ```
+
+### owner 鉴权流程
+
+这套 owner 控制只存在于**本机运行配置**，不应把真实 senderId 提交到仓库。
+
+1. 在钉钉私聊机器人发送：`我是谁`、`我的信息` 或 `/learn whoami`
+2. 机器人会返回当前消息的 `senderId / rawSenderId / conversationId / sessionKey`
+3. 把返回里的 `senderId` 写入本机 `openclaw.json`：
+
+```json
+{
+  "channels": {
+    "dingtalk": {
+      "ownerAllowFrom": ["your-sender-id"]
+    }
+  }
+}
+```
+
+4. 热重载或重启网关后，在钉钉私聊发送：`我是不是owner`、`我是owner吗`、`我是owner了么`、`我是owner了吗`、`owner状态` 或 `/learn owner status`
+5. 若返回 `isOwner: true`，说明当前账号已经获得 owner 权限
+
+owner 权限只控制学习/共享知识命令，不改变现有 `dmPolicy / groupPolicy / allowFrom / pairing` 的普通消息使用路径。
 
 ## 安全策略
 
