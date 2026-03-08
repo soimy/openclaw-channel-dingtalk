@@ -334,6 +334,9 @@ export function analyzeImplicitNegativeFeedback(params: {
 }
 
 function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): boolean {
+  if (rule.manual) {
+    return true;
+  }
   switch (rule.category) {
     case "missing_image_context":
       return /图|图片|截图|看图|看下/.test(content.text) && !content.mediaPath && !(content.mediaPaths?.length);
@@ -383,4 +386,57 @@ export function buildLearningContextBlock(params: {
     "[系统学习提示：仅供助手内部参考，不要原样复述给用户]",
     ...uniqueInstructions.map((instruction) => `- ${instruction}`),
   ].join("\n");
+}
+
+export function applyManualGlobalLearningRule(params: {
+  storePath?: string;
+  accountId: string;
+  instruction: string;
+}): { ruleId: string } | null {
+  if (!params.storePath || !params.instruction.trim()) {
+    return null;
+  }
+  const ruleId = `manual_${Date.now()}`;
+  upsertLearnedRule({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    rule: {
+      ruleId,
+      category: "generic_negative",
+      instruction: params.instruction.trim(),
+      negativeCount: 1,
+      positiveCount: 0,
+      updatedAt: Date.now(),
+      enabled: true,
+      manual: true,
+    },
+  });
+  return { ruleId };
+}
+
+export function applyManualSessionLearningNote(params: {
+  storePath?: string;
+  accountId: string;
+  targetId: string;
+  instruction: string;
+  noteTtlMs?: number;
+}): boolean {
+  if (!params.storePath || !params.instruction.trim()) {
+    return false;
+  }
+  appendSessionLearningNote({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId,
+    ttlMs: params.noteTtlMs,
+    note: {
+      id: randomUUID(),
+      targetId: params.targetId,
+      instruction: params.instruction.trim(),
+      source: "implicit_negative",
+      category: "generic_negative",
+      createdAt: Date.now(),
+    },
+  });
+  return true;
 }

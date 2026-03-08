@@ -75,6 +75,7 @@ export interface LearnedRuleRecord {
   positiveCount: number;
   updatedAt: number;
   enabled: boolean;
+  manual?: boolean;
 }
 
 interface ListBucket<T> {
