@@ -282,6 +282,61 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('senderId: `staff_1`');
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('conversationId: `cid_dm_owner`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('isOwner: `false`');
+        expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('handleDingTalkMessage returns owner status for direct command', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '我是不是owner', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', ownerAllowFrom: ['057825'] } as any,
+            data: {
+                msgId: 'm2_owner_status',
+                msgtype: 'text',
+                text: { content: '我是不是owner' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: '057825',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('isOwner: `true`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('ownerAllowFrom: `057825`');
+    });
+
+    it('handleDingTalkMessage blocks learn control command for non-owner', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn global test', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', ownerAllowFrom: ['057825'] } as any,
+            data: {
+                msgId: 'm2_owner_deny',
+                msgtype: 'text',
+                text: { content: '/learn global test' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'user_not_owner',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('仅允许 owner 使用');
         expect(shared.sendMessageMock).not.toHaveBeenCalled();
     });
 

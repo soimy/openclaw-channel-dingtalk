@@ -108,6 +108,9 @@ const DingTalkAccountConfigSchema = z.object({
   /** Enable local feedback-learning loop (default: false) */
   feedbackLearningEnabled: z.boolean().optional().default(false),
 
+  /** DingTalk sender IDs allowed to execute owner-only learning/control commands */
+  ownerAllowFrom: z.array(z.string()).optional(),
+
   /** Auto-apply generated reflections into session notes/global rules (default: false) */
   feedbackLearningAutoApply: z.boolean().optional().default(false),
 
