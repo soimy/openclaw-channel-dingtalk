@@ -363,6 +363,34 @@ describe('inbound-handler', () => {
         expect(shared.sendMessageMock).not.toHaveBeenCalled();
     });
 
+    it('handleDingTalkMessage applies global learning rule for owner', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn global 当别人问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_global',
+                msgtype: 'text',
+                text: { content: '/learn global 当别人问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('已注入全局知识');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('manual_');
+        expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    });
+
     it('handleDingTalkMessage sends group deny message when groupPolicy allowlist blocks group', async () => {
         await handleDingTalkMessage({
             cfg: {},
