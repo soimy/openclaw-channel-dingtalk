@@ -474,7 +474,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
   // GroupSystemPrompt is injected every turn (not only first-turn intro).
   const groupSystemPrompt = !isDirect
-    ? [`DingTalk group context: conversationId=${groupId}`, groupConfig?.systemPrompt?.trim()]
+    ? [
+        `DingTalk group context: conversationId=${groupId}, senderDingtalkId=${senderId}, senderName=${senderName}`,
+        groupConfig?.systemPrompt?.trim(),
+      ]
         .filter(Boolean)
         .join("\n")
     : undefined;
