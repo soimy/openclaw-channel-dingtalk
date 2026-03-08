@@ -53,3 +53,21 @@ export function isSenderGroupAllowed(params: {
   }
   return false;
 }
+
+export function isSenderOwner(params: {
+  allow: NormalizedAllowFrom;
+  senderId?: string;
+  rawSenderId?: string;
+}): boolean {
+  const { allow, senderId, rawSenderId } = params;
+  if (!allow.hasEntries) {
+    return false;
+  }
+  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) {
+    return true;
+  }
+  if (rawSenderId && allow.entriesLower.includes(rawSenderId.toLowerCase())) {
+    return true;
+  }
+  return false;
+}

@@ -94,6 +94,7 @@ describe('types helpers', () => {
                 dingtalk: {
                     bypassProxyForSend: true,
                     feedbackLearningEnabled: true,
+                    ownerAllowFrom: ['057825'],
                     feedbackLearningAutoApply: true,
                     feedbackLearningNoteTtlMs: 120000,
                     accounts: {
@@ -106,6 +107,7 @@ describe('types helpers', () => {
         const account = resolveDingTalkAccount(cfg, 'main');
         expect(account.bypassProxyForSend).toBe(true);
         expect(account.feedbackLearningEnabled).toBe(true);
+        expect(account.ownerAllowFrom).toEqual(['057825']);
         expect(account.feedbackLearningAutoApply).toBe(true);
         expect(account.feedbackLearningNoteTtlMs).toBe(120000);
     });

@@ -368,6 +368,7 @@ openclaw gateway restart
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
 | `bypassProxyForSend`    | boolean  | `false`      | 仅对 send/card/upload 出站请求绕过系统 HTTP(S) 代理 |
 | `feedbackLearningEnabled` | boolean | `false`    | 启用本地反馈学习闭环（事件、反思、会话笔记、全局规则） |
+| `ownerAllowFrom` | string[] | `[]` | 允许执行 owner-only 学习/控制命令的 DingTalk senderId 列表 |
 | `feedbackLearningAutoApply` | boolean | `false` | 是否将反馈反思自动注入会话/全局规则；默认只采集不生效 |
 | `feedbackLearningNoteTtlMs` | number | `21600000` | 会话级学习笔记有效期（毫秒，默认 6 小时） |
 
@@ -381,6 +382,7 @@ openclaw gateway restart
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
 - **bypassProxyForSend**: 仅作用于发送链路（session send / proactive send / AI card / media upload），不影响如 `getAccessToken` 之类的其他出站请求。
 - **feedbackLearningEnabled**: 开启后，插件会记录发送快照、显式点赞/点踩、隐式不满信号、反思记录，并在下一条消息进入时把学习提示注入当前上下文。
+- **ownerAllowFrom**: 只有这些 senderId 才能执行 owner-only 的 `/learn ...` 管理命令。可先在钉钉私聊发送“我是谁”或 `/learn whoami` 查看自己的 senderId。
 - **feedbackLearningAutoApply**: 默认关闭。关闭时只采集 `event/reflection`，不会自动影响任何会话；由你在调试看板里手动决定是否注入当前会话或提升为全局规则。
 - **feedbackLearningNoteTtlMs**: 控制 target 级学习笔记有效期；全局规则仍按 account 级持久化，供同一钉钉账号下的所有会话共享。
 
