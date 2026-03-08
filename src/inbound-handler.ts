@@ -82,14 +82,6 @@ function shouldSendProactivePermissionHint(params: {
   return true;
 }
 
-function isUnhandledStopReasonText(value: string): boolean {
-  const normalized = value.trim();
-  if (!normalized) {
-    return false;
-  }
-  return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
-}
-
 /**
  * Download DingTalk media file via runtime media service (sandbox-compatible).
  * Files are stored in the global media inbound directory.
@@ -700,11 +692,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 return;
               }
 
-              if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
-                log?.warn?.(`[DingTalk] Suppressed stop reason from outbound chat content: ${textToSend}`);
-                return;
-              }
-
               if (useCardMode && currentAICard && info?.kind === "final") {
                 lastCardContent = textToSend;
                 return;
@@ -829,14 +816,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               : typeof queuedFinal === "string"
                 ? queuedFinal
                 : "";
-          if (isUnhandledStopReasonText(finalContentCandidate)) {
-            log?.warn?.(
-              `[DingTalk] Suppressed stop reason from AI Card final content: ${finalContentCandidate}`,
-            );
-            currentAICard.state = AICardStatus.FINISHED;
-            currentAICard.lastUpdated = Date.now();
-            return;
-          }
           const finalContent = finalContentCandidate;
           await finishAICard(currentAICard, finalContent, log);
         } else {
