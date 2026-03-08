@@ -12,6 +12,8 @@ const shared = vi.hoisted(() => ({
     formatContentForCardMock: vi.fn((s: string) => s),
     isCardInTerminalStateMock: vi.fn(),
     acquireSessionLockMock: vi.fn(),
+    appendQuoteJournalEntryMock: vi.fn(),
+    resolveQuotedMessageByIdMock: vi.fn(),
 }));
 
 vi.mock('axios', () => ({
@@ -49,6 +51,11 @@ vi.mock('../../src/card-service', () => ({
 
 vi.mock('../../src/session-lock', () => ({
     acquireSessionLock: shared.acquireSessionLockMock,
+}));
+
+vi.mock('../../src/quote-journal', () => ({
+    appendQuoteJournalEntry: shared.appendQuoteJournalEntryMock,
+    resolveQuotedMessageById: shared.resolveQuotedMessageByIdMock,
 }));
 
 import {
@@ -106,6 +113,10 @@ describe('inbound-handler', () => {
 
         shared.acquireSessionLockMock.mockReset();
         shared.acquireSessionLockMock.mockResolvedValue(vi.fn());
+        shared.appendQuoteJournalEntryMock.mockReset();
+        shared.appendQuoteJournalEntryMock.mockResolvedValue(undefined);
+        shared.resolveQuotedMessageByIdMock.mockReset();
+        shared.resolveQuotedMessageByIdMock.mockResolvedValue(null);
 
         shared.getRuntimeMock.mockReturnValue(buildRuntime());
         shared.extractMessageContentMock.mockReturnValue({ text: 'hello', messageType: 'text' });
@@ -277,6 +288,217 @@ describe('inbound-handler', () => {
         expect(shared.sendMessageMock).toHaveBeenCalled();
         const cardSends = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
         expect(cardSends.length).toBeGreaterThan(0);
+        expect(shared.appendQuoteJournalEntryMock).toHaveBeenCalled();
+    });
+
+    it('appends inbound quote journal entry with store/account/session context', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/agent-store.json')
+            .mockReturnValueOnce('/tmp/account-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'm_journal_1',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: 1700000000000,
+            },
+        } as any);
+
+        expect(shared.appendQuoteJournalEntryMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                storePath: '/tmp/agent-store.json',
+                accountId: 'main',
+                conversationId: 'cid_ok',
+                msgId: 'm_journal_1',
+                messageType: 'text',
+                text: 'hello',
+                createdAt: 1700000000000,
+            }),
+        );
+    });
+
+    it('resolves originalMsgId via quote journal and prepends recovered quoted text', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/dm-agent-store.json')
+            .mockReturnValueOnce('/tmp/dm-account-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: '[这是一条引用消息，原消息ID: orig_msg_001]\n\nhello',
+            messageType: 'text',
+        });
+        shared.resolveQuotedMessageByIdMock.mockResolvedValueOnce({
+            msgId: 'orig_msg_001',
+            text: '历史原文',
+            createdAt: Date.now() - 1000,
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'm_quote_1',
+                msgtype: 'text',
+                text: { content: 'hello', isReplyMsg: true },
+                originalMsgId: 'orig_msg_001',
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.resolveQuotedMessageByIdMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                accountId: 'main',
+                conversationId: 'cid_ok',
+                originalMsgId: 'orig_msg_001',
+            }),
+        );
+
+        const envelopeArg = (runtime.channel.reply.formatInboundEnvelope as any).mock.calls[0]?.[0];
+        expect(envelopeArg.body).toContain('[引用消息: "历史原文"]');
+    });
+
+    it('writes normalized inbound journal text without quoted prefix noise', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/dm-agent-store.json')
+            .mockReturnValueOnce('/tmp/dm-account-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: '[引用消息: "历史原文"]\n\n真正正文',
+            messageType: 'text',
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'm_prefixed_1',
+                msgtype: 'text',
+                text: { content: '真正正文', isReplyMsg: true },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: 1700000000000,
+            },
+        } as any);
+
+        expect(shared.appendQuoteJournalEntryMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                text: '真正正文',
+            }),
+        );
+    });
+
+    it('uses DingTalk DM conversationId for journal writes instead of senderId', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/dm-agent-store.json')
+            .mockReturnValueOnce('/tmp/dm-account-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'm_dm_1',
+                msgtype: 'text',
+                text: { content: 'hello dm' },
+                conversationType: '1',
+                conversationId: 'cid_dm_stable',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: 1700000000000,
+            },
+        } as any);
+
+        expect(shared.appendQuoteJournalEntryMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: 'cid_dm_stable',
+            }),
+        );
+        expect(shared.appendQuoteJournalEntryMock).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: 'user_1',
+            }),
+        );
+    });
+
+    it('still resolves originalMsgId when body text happens to contain quote marker text', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/dm-agent-store.json')
+            .mockReturnValueOnce('/tmp/dm-account-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: '我在讨论字符串 [引用消息:] 本身',
+            messageType: 'text',
+        });
+        shared.resolveQuotedMessageByIdMock.mockResolvedValueOnce({
+            msgId: 'orig_msg_literal',
+            text: '被引用原文',
+            createdAt: Date.now() - 1000,
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'm_literal_1',
+                msgtype: 'text',
+                text: { content: '我在讨论字符串 [引用消息:] 本身', isReplyMsg: true },
+                originalMsgId: 'orig_msg_literal',
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        const envelopeArg = (runtime.channel.reply.formatInboundEnvelope as any).mock.calls[0]?.[0];
+        expect(envelopeArg.body).toContain('[引用消息: "被引用原文"]');
+        expect(shared.resolveQuotedMessageByIdMock).toHaveBeenCalledWith(
+            expect.objectContaining({ originalMsgId: 'orig_msg_literal' }),
+        );
     });
 
     it('handleDingTalkMessage runs non-card flow and sends thinking + final outputs', async () => {

@@ -11,6 +11,7 @@ import type {
   AICardInstance,
   AICardStreamingRequest,
   DingTalkConfig,
+  DingTalkTrackingMetadata,
   Logger,
 } from "./types";
 import { AICardStatus } from "./types";
@@ -31,6 +32,7 @@ interface CreateAICardOptions {
 interface PendingCardRecord {
   accountId: string;
   cardInstanceId: string;
+  outTrackId?: string;
   conversationId: string;
   createdAt: number;
   lastUpdated: number;
@@ -71,6 +73,7 @@ function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCa
           entry &&
             typeof entry.accountId === "string" &&
             typeof entry.cardInstanceId === "string" &&
+            (entry.outTrackId === undefined || typeof entry.outTrackId === "string") &&
             typeof entry.conversationId === "string",
         ),
     ),
@@ -133,6 +136,7 @@ function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logge
   const next: PendingCardRecord = {
     accountId: card.accountId,
     cardInstanceId: card.cardInstanceId,
+    outTrackId: card.outTrackId,
     conversationId: card.conversationId,
     createdAt: card.createdAt,
     lastUpdated: card.lastUpdated,
@@ -264,14 +268,19 @@ export async function sendProactiveCardText(
   conversationId: string,
   content: string,
   log?: Logger,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string } & DingTalkTrackingMetadata> {
   try {
     const card = await createAICard(config, conversationId, log, { persistPending: false });
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
     await finishAICard(card, content, log);
-    return { ok: true };
+    return {
+      ok: true,
+      processQueryKey: card.processQueryKey,
+      outTrackId: card.outTrackId,
+      cardInstanceId: card.cardInstanceId,
+    };
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Proactive card send failed: ${err.message}`);
     return { ok: false, error: err.message };
@@ -343,6 +352,7 @@ async function finalizePendingCardsByAccount(
       conversationId: entry.conversationId,
       accountId: entry.accountId,
       storePath,
+      outTrackId: entry.outTrackId,
       createdAt: entry.createdAt || Date.now(),
       lastUpdated: entry.lastUpdated || Date.now(),
       state: normalizeRecoveredState(entry.state),
@@ -423,10 +433,37 @@ export async function createAICard(
     log?.debug?.(
       `[DingTalk][AICard] CreateAndDeliver response: status=${resp.status} data=${JSON.stringify(resp.data)}`,
     );
+    const responseData = resp.data as
+      | {
+          result?: DingTalkTrackingMetadata;
+          processQueryKey?: unknown;
+          outTrackId?: unknown;
+          cardInstanceId?: unknown;
+        }
+      | undefined;
+    const responseTracking = responseData?.result;
+    const processQueryKey =
+      typeof responseTracking?.processQueryKey === "string" && responseTracking.processQueryKey.trim()
+        ? responseTracking.processQueryKey.trim()
+        : typeof responseData?.processQueryKey === "string" && responseData.processQueryKey.trim()
+          ? responseData.processQueryKey.trim()
+          : undefined;
+    const outTrackId =
+      typeof responseTracking?.outTrackId === "string" && responseTracking.outTrackId.trim()
+        ? responseTracking.outTrackId.trim()
+        : typeof responseData?.outTrackId === "string" && responseData.outTrackId.trim()
+          ? responseData.outTrackId.trim()
+          : cardInstanceId;
+    const resolvedCardInstanceId =
+      typeof responseTracking?.cardInstanceId === "string" && responseTracking.cardInstanceId.trim()
+        ? responseTracking.cardInstanceId.trim()
+        : typeof responseData?.cardInstanceId === "string" && responseData.cardInstanceId.trim()
+          ? responseData.cardInstanceId.trim()
+          : cardInstanceId;
 
     // Return the AI card instance with config reference for token refresh/recovery.
     const aiCardInstance: AICardInstance = {
-      cardInstanceId,
+      cardInstanceId: resolvedCardInstanceId,
       accessToken: token,
       conversationId,
       accountId: options.accountId,
@@ -435,6 +472,8 @@ export async function createAICard(
       lastUpdated: Date.now(),
       state: AICardStatus.PROCESSING,
       config,
+      processQueryKey,
+      outTrackId,
     };
     if (shouldPersistPending) {
       upsertPendingCard(aiCardInstance, options.storePath, log);
@@ -485,7 +524,7 @@ export async function streamAICard(
 
   // Always use full replacement to make client rendering deterministic.
   const streamBody: AICardStreamingRequest = {
-    outTrackId: card.cardInstanceId,
+    outTrackId: card.outTrackId || card.cardInstanceId,
     guid: randomUUID(),
     key: card.config?.cardTemplateKey || "content",
     content: content,

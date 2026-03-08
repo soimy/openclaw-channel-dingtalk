@@ -5,6 +5,15 @@ vi.mock('../../src/auth', () => ({
     getAccessToken: vi.fn().mockResolvedValue('token_abc'),
 }));
 
+const quoteJournalMocks = vi.hoisted(() => ({
+    appendProactiveOutboundJournalMock: vi.fn(),
+}));
+
+vi.mock('../../src/quote-journal', () => ({
+    appendOutboundToQuoteJournal: vi.fn(),
+    appendProactiveOutboundJournal: quoteJournalMocks.appendProactiveOutboundJournalMock,
+}));
+
 vi.mock('../../src/media-utils', () => ({
     uploadMedia: vi.fn(),
     detectMediaTypeFromExtension: vi.fn(),
@@ -32,6 +41,7 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockReset();
         mockedGetVoiceDurationMs.mockReset();
         mockedGetVoiceDurationMs.mockResolvedValue(1000);
+        quoteJournalMocks.appendProactiveOutboundJournalMock.mockReset();
     });
 
     it('sendBySession uses native image body when upload succeeds', async () => {
@@ -111,5 +121,28 @@ describe('send-service media branches', () => {
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
         expect(result.ok).toBe(true);
+    });
+
+    it('delegates proactive media journaling when storePath is provided', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_voice_2');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_2' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'user_123',
+            '/tmp/a.amr',
+            'voice',
+            { accountId: 'main', storePath: '/tmp/sessions.json' } as any,
+        );
+
+        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                storePath: '/tmp/sessions.json',
+                accountId: 'main',
+                conversationId: 'user_123',
+                messageId: 'q_voice_2',
+                messageType: 'outbound-proactive-media',
+            }),
+        );
     });
 });

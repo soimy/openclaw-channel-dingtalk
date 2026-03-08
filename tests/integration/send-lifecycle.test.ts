@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendMessageMock } = vi.hoisted(() => ({
+const { sendMessageMock, getRuntimeMock } = vi.hoisted(() => ({
     sendMessageMock: vi.fn(),
+    getRuntimeMock: vi.fn(),
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -22,11 +23,23 @@ vi.mock('../../src/send-service', async () => ({
     uploadMedia: vi.fn(),
 }));
 
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: getRuntimeMock,
+}));
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('plugin outbound lifecycle', () => {
     beforeEach(() => {
         sendMessageMock.mockReset();
+        getRuntimeMock.mockReset();
+        getRuntimeMock.mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/default-store.json'),
+                },
+            },
+        });
     });
 
     it('should route outbound.sendText through sendMessage hub', async () => {
@@ -56,10 +69,52 @@ describe('plugin outbound lifecycle', () => {
             expect.objectContaining({ clientId: 'ding-client-id' }),
             'user_123',
             'hello',
-            expect.objectContaining({ accountId: 'default' })
+            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
         expect(result.channel).toBe('dingtalk');
         expect(result.messageId).toBe('m_123');
+    });
+
+    it('should expose proactive card tracking metadata from outbound.sendText', async () => {
+        const sendText = dingtalkPlugin.outbound?.sendText;
+        if (!sendText) {
+            throw new Error('dingtalkPlugin.outbound.sendText is not defined');
+        }
+        sendMessageMock.mockResolvedValue({
+            ok: true,
+            tracking: {
+                outTrackId: 'track_card_1',
+                processQueryKey: 'card_process_1',
+                cardInstanceId: 'card_instance_1',
+            },
+        });
+
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'ding-client-id',
+                    clientSecret: 'secret',
+                },
+            },
+        };
+
+        const result = await sendText({
+            cfg,
+            to: 'user_123',
+            text: 'hello card',
+            accountId: 'default',
+        });
+
+        expect(result.channel).toBe('dingtalk');
+        expect(result.meta).toEqual(
+            expect.objectContaining({
+                tracking: {
+                    outTrackId: 'track_card_1',
+                    processQueryKey: 'card_process_1',
+                    cardInstanceId: 'card_instance_1',
+                },
+            })
+        );
     });
 
     it('should capture DingTalk API error code and throw from sendText', async () => {

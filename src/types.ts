@@ -245,13 +245,21 @@ export interface SendMessageOptions {
   useMarkdown?: boolean;
   atUserId?: string | null;
   log?: any;
+  conversationId?: string;
   mediaPath?: string;
   filePath?: string;
   mediaUrl?: string;
   mediaType?: "image" | "voice" | "video" | "file";
   accountId?: string;
+  storePath?: string;
   cardUpdateMode?: "replace" | "append" | "finalize";
   cardFinalize?: boolean;
+}
+
+export interface DingTalkTrackingMetadata {
+  processQueryKey?: string;
+  outTrackId?: string;
+  cardInstanceId?: string;
 }
 
 /**
@@ -487,6 +495,8 @@ export interface AICardInstance {
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
   lastStreamedContent?: string;
+  processQueryKey?: string;
+  outTrackId?: string;
 }
 
 /**

@@ -25,6 +25,7 @@ import { findCardContent } from "./card-service";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
+import { appendQuoteJournalEntry, resolveQuotedMessageById } from "./quote-journal";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const DEFAULT_THINKING_MESSAGE = "🤔 思考中，请稍候...";
@@ -87,6 +88,13 @@ function isUnhandledStopReasonText(value: string): boolean {
     return false;
   }
   return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
+}
+
+function stripQuotedPrefixForJournal(value: string): string {
+  return value
+    .replace(/^\[引用消息: .*?\]\n\n/s, "")
+    .replace(/^\[这是一条引用消息，原消息ID: .*?\]\n\n/s, "")
+    .trim();
 }
 
 /**
@@ -195,7 +203,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  const content = extractMessageContent(data);
+  let content = extractMessageContent(data);
   if (!content.text) {
     return;
   }
@@ -362,6 +370,43 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  const hasConcreteQuotedPayload =
+    !!content.quoted?.mediaDownloadCode ||
+    !!content.quoted?.isQuotedFile ||
+    !!content.quoted?.isQuotedCard ||
+    content.quoted?.prefix.startsWith('[引用消息: "') === true;
+
+  // Journal-based quoted text resolution when only originalMsgId is present
+  if (data.text?.isReplyMsg && data.originalMsgId && !hasConcreteQuotedPayload) {
+    try {
+      const quoted = await resolveQuotedMessageById({
+        storePath,
+        accountId,
+        conversationId: groupId,
+        originalMsgId: data.originalMsgId,
+      });
+      if (quoted?.text?.trim()) {
+        content = { ...content, text: `[引用消息: "${quoted.text.trim()}"]\n\n${content.text}` };
+      }
+    } catch (err) {
+      log?.debug?.(`[DingTalk] Quote journal lookup failed: ${String(err)}`);
+    }
+  }
+
+  try {
+    await appendQuoteJournalEntry({
+      storePath,
+      accountId,
+      conversationId: groupId,
+      msgId: data.msgId,
+      messageType: content.messageType,
+      text: stripQuotedPrefixForJournal(content.text),
+      createdAt: data.createAt,
+    });
+  } catch (err) {
+    log?.debug?.(`[DingTalk] Quote journal append failed: ${String(err)}`);
+  }
+
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
@@ -375,7 +420,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
   if (content.mediaPath && data.msgId) {
     cacheInboundDownloadCode(
-      accountId, data.conversationId, data.msgId, content.mediaPath, content.messageType, data.createAt,
+      accountId,
+      data.conversationId,
+      data.msgId,
+      content.mediaPath,
+      content.messageType,
+      data.createAt,
       { spaceId: data.content?.spaceId, fileId: data.content?.fileId, storePath },
     );
   }
@@ -556,6 +606,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             atUserId: !isDirect ? senderId : null,
             log,
             card: currentAICard,
+            accountId,
+            storePath,
+            conversationId: groupId,
           });
           if (!sendResult.ok) {
             throw new Error(sendResult.error || "Thinking message send failed");
@@ -611,6 +664,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                     atUserId: !isDirect ? senderId : null,
                     log,
                     card: currentAICard,
+                    accountId,
+                    storePath,
+                    conversationId: groupId,
                     cardUpdateMode: "append",
                   });
                   if (!sendResult.ok) {
@@ -627,6 +683,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 atUserId: !isDirect ? senderId : null,
                 log,
                 card: currentAICard,
+                accountId,
+                storePath,
+                conversationId: groupId,
               });
               if (!sendResult.ok) {
                 throw new Error(sendResult.error || "Reply send failed");
@@ -661,6 +720,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 atUserId: !isDirect ? senderId : null,
                 log,
                 card: currentAICard,
+                accountId,
+                storePath,
+                conversationId: groupId,
                 cardUpdateMode: "append",
               });
               if (!sendResult.ok) {
