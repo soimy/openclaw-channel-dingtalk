@@ -13,6 +13,8 @@ const REFLECTIONS_NAMESPACE = "feedback.reflections";
 const SESSION_NOTES_NAMESPACE = "feedback.session-notes";
 const LEARNED_RULES_NAMESPACE = "feedback.learned-rules";
 const TARGET_RULES_NAMESPACE = "feedback.target-rules";
+const TARGET_RULE_INDEX_NAMESPACE = "feedback.target-rules-index";
+const TARGET_SETS_NAMESPACE = "feedback.target-sets";
 
 export type FeedbackKind = "explicit_positive" | "explicit_negative" | "implicit_negative";
 export type ReflectionCategory =
@@ -76,9 +78,6 @@ export interface LearnedRuleRecord {
   positiveCount: number;
   updatedAt: number;
   enabled: boolean;
-  scope?: "account" | "target";
-  targetId?: string;
-  conversationType?: "dm" | "group" | "unknown";
   manual?: boolean;
   triggerText?: string;
   forcedReply?: string;
@@ -92,6 +91,27 @@ interface ListBucket<T> {
 interface LearnedRuleBucket {
   updatedAt: number;
   rules: Record<string, LearnedRuleRecord>;
+}
+
+interface TargetRuleIndexBucket {
+  updatedAt: number;
+  targetIds: string[];
+}
+
+export interface TargetSetRecord {
+  name: string;
+  targetIds: string[];
+  updatedAt: number;
+}
+
+interface TargetSetBucket {
+  updatedAt: number;
+  sets: Record<string, TargetSetRecord>;
+}
+
+export interface ScopedLearnedRuleRecord extends LearnedRuleRecord {
+  scope: "global" | "target";
+  targetId?: string;
 }
 
 function trimNewest<T extends { createdAt: number }>(entries: T[], limit: number): T[] {
@@ -217,10 +237,7 @@ export function upsertLearnedRule(
     format: "json",
     fallback: { updatedAt: 0, rules: {} },
   });
-  bucket.rules[params.rule.ruleId] = {
-    ...params.rule,
-    scope: "account",
-  };
+  bucket.rules[params.rule.ruleId] = params.rule;
   const trimmedRules = Object.values(bucket.rules)
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, MAX_RULES);
@@ -251,30 +268,128 @@ export function listLearnedRules(
   return Object.values(bucket.rules).sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
-export function upsertTargetLearnedRule(
-  params: {
-    storePath?: string;
-    accountId: string;
-    targetId: string;
-    conversationType?: "dm" | "group" | "unknown";
-    rule: LearnedRuleRecord;
-  },
+export function disableLearnedRule(
+  params: { storePath?: string; accountId: string; ruleId: string },
+): boolean {
+  if (!params.storePath) {
+    return false;
+  }
+  const bucket = readNamespaceJson<LearnedRuleBucket>(LEARNED_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, rules: {} },
+  });
+  const existing = bucket.rules[params.ruleId];
+  if (!existing) {
+    return false;
+  }
+  bucket.rules[params.ruleId] = {
+    ...existing,
+    enabled: false,
+    updatedAt: Date.now(),
+  };
+  writeNamespaceJsonAtomic(LEARNED_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    data: { updatedAt: Date.now(), rules: bucket.rules } satisfies LearnedRuleBucket,
+  });
+  return true;
+}
+
+export function deleteLearnedRule(
+  params: { storePath?: string; accountId: string; ruleId: string },
+): boolean {
+  if (!params.storePath) {
+    return false;
+  }
+  const bucket = readNamespaceJson<LearnedRuleBucket>(LEARNED_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, rules: {} },
+  });
+  if (!bucket.rules[params.ruleId]) {
+    return false;
+  }
+  delete bucket.rules[params.ruleId];
+  writeNamespaceJsonAtomic(LEARNED_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    data: { updatedAt: Date.now(), rules: bucket.rules } satisfies LearnedRuleBucket,
+  });
+  return true;
+}
+
+function readTargetRuleIndex(
+  params: { storePath?: string; accountId: string },
+): TargetRuleIndexBucket {
+  if (!params.storePath) {
+    return { updatedAt: 0, targetIds: [] };
+  }
+  return readNamespaceJson<TargetRuleIndexBucket>(TARGET_RULE_INDEX_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, targetIds: [] },
+  });
+}
+
+function writeTargetRuleIndex(
+  params: { storePath?: string; accountId: string; targetIds: string[] },
 ): void {
   if (!params.storePath) {
     return;
   }
-  const bucket = readNamespaceJson<LearnedRuleBucket>(TARGET_RULES_NAMESPACE, {
+  writeNamespaceJsonAtomic(TARGET_RULE_INDEX_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    data: {
+      updatedAt: Date.now(),
+      targetIds: [...new Set(params.targetIds.filter((targetId) => targetId.trim()))],
+    } satisfies TargetRuleIndexBucket,
+  });
+}
+
+function readTargetRuleBucket(
+  params: { storePath?: string; accountId: string; targetId: string },
+): LearnedRuleBucket {
+  if (!params.storePath) {
+    return { updatedAt: 0, rules: {} };
+  }
+  return readNamespaceJson<LearnedRuleBucket>(TARGET_RULES_NAMESPACE, {
     storePath: params.storePath,
     scope: { accountId: params.accountId, targetId: params.targetId },
     format: "json",
     fallback: { updatedAt: 0, rules: {} },
   });
-  bucket.rules[params.rule.ruleId] = {
-    ...params.rule,
-    scope: "target",
-    targetId: params.targetId,
-    conversationType: params.conversationType || "unknown",
-  };
+}
+
+function writeTargetRuleBucket(
+  params: { storePath?: string; accountId: string; targetId: string; bucket: LearnedRuleBucket },
+): void {
+  if (!params.storePath) {
+    return;
+  }
+  writeNamespaceJsonAtomic(TARGET_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, targetId: params.targetId },
+    format: "json",
+    data: params.bucket,
+  });
+}
+
+export function upsertTargetRule(
+  params: { storePath?: string; accountId: string; targetId: string; rule: LearnedRuleRecord },
+): void {
+  if (!params.storePath) {
+    return;
+  }
+  const bucket = readTargetRuleBucket(params);
+  bucket.rules[params.rule.ruleId] = params.rule;
   const trimmedRules = Object.values(bucket.rules)
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, MAX_RULES);
@@ -282,25 +397,147 @@ export function upsertTargetLearnedRule(
   for (const rule of trimmedRules) {
     rules[rule.ruleId] = rule;
   }
-  writeNamespaceJsonAtomic(TARGET_RULES_NAMESPACE, {
+  writeTargetRuleBucket({
     storePath: params.storePath,
-    scope: { accountId: params.accountId, targetId: params.targetId },
-    format: "json",
-    data: { updatedAt: Date.now(), rules } satisfies LearnedRuleBucket,
+    accountId: params.accountId,
+    targetId: params.targetId,
+    bucket: { updatedAt: Date.now(), rules },
+  });
+  const index = readTargetRuleIndex({ storePath: params.storePath, accountId: params.accountId });
+  writeTargetRuleIndex({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetIds: [...index.targetIds, params.targetId],
   });
 }
 
-export function listTargetLearnedRules(
+export function listTargetRules(
   params: { storePath?: string; accountId: string; targetId: string },
 ): LearnedRuleRecord[] {
+  return Object.values(readTargetRuleBucket(params).rules).sort(
+    (left, right) => right.updatedAt - left.updatedAt,
+  );
+}
+
+export function listAllScopedRules(
+  params: { storePath?: string; accountId: string },
+): ScopedLearnedRuleRecord[] {
+  const globalRules = listLearnedRules(params).map((rule) => ({ ...rule, scope: "global" as const }));
+  const targetIds = readTargetRuleIndex(params).targetIds;
+  const targetRules = targetIds.flatMap((targetId) =>
+    listTargetRules({ ...params, targetId }).map((rule) => ({
+      ...rule,
+      scope: "target" as const,
+      targetId,
+    })),
+  );
+  return [...targetRules, ...globalRules].sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export function disableScopedRule(
+  params: { storePath?: string; accountId: string; ruleId: string },
+): { existed: boolean; scope?: "global" | "target"; targetId?: string } {
+  if (disableLearnedRule(params)) {
+    return { existed: true, scope: "global" };
+  }
+  const targetIds = readTargetRuleIndex(params).targetIds;
+  for (const targetId of targetIds) {
+    const bucket = readTargetRuleBucket({ ...params, targetId });
+    const existing = bucket.rules[params.ruleId];
+    if (!existing) {
+      continue;
+    }
+    bucket.rules[params.ruleId] = {
+      ...existing,
+      enabled: false,
+      updatedAt: Date.now(),
+    };
+    writeTargetRuleBucket({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      targetId,
+      bucket: { updatedAt: Date.now(), rules: bucket.rules },
+    });
+    return { existed: true, scope: "target", targetId };
+  }
+  return { existed: false };
+}
+
+export function deleteScopedRule(
+  params: { storePath?: string; accountId: string; ruleId: string },
+): { existed: boolean; scope?: "global" | "target"; targetId?: string } {
+  if (deleteLearnedRule(params)) {
+    return { existed: true, scope: "global" };
+  }
+  const targetIds = readTargetRuleIndex(params).targetIds;
+  for (const targetId of targetIds) {
+    const bucket = readTargetRuleBucket({ ...params, targetId });
+    if (!bucket.rules[params.ruleId]) {
+      continue;
+    }
+    delete bucket.rules[params.ruleId];
+    writeTargetRuleBucket({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      targetId,
+      bucket: { updatedAt: Date.now(), rules: bucket.rules },
+    });
+    return { existed: true, scope: "target", targetId };
+  }
+  return { existed: false };
+}
+
+export function upsertTargetSet(
+  params: { storePath?: string; accountId: string; name: string; targetIds: string[] },
+): void {
+  if (!params.storePath) {
+    return;
+  }
+  const bucket = readNamespaceJson<TargetSetBucket>(TARGET_SETS_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, sets: {} },
+  });
+  bucket.sets[params.name] = {
+    name: params.name,
+    targetIds: [...new Set(params.targetIds.filter((targetId) => targetId.trim()))],
+    updatedAt: Date.now(),
+  };
+  writeNamespaceJsonAtomic(TARGET_SETS_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    data: { updatedAt: Date.now(), sets: bucket.sets } satisfies TargetSetBucket,
+  });
+}
+
+export function getTargetSet(
+  params: { storePath?: string; accountId: string; name: string },
+): TargetSetRecord | null {
+  if (!params.storePath) {
+    return null;
+  }
+  const bucket = readNamespaceJson<TargetSetBucket>(TARGET_SETS_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, sets: {} },
+  });
+  return bucket.sets[params.name] || null;
+}
+
+export function listTargetSets(
+  params: { storePath?: string; accountId: string },
+): TargetSetRecord[] {
   if (!params.storePath) {
     return [];
   }
-  const bucket = readNamespaceJson<LearnedRuleBucket>(TARGET_RULES_NAMESPACE, {
+  const bucket = readNamespaceJson<TargetSetBucket>(TARGET_SETS_NAMESPACE, {
     storePath: params.storePath,
-    scope: { accountId: params.accountId, targetId: params.targetId },
+    scope: { accountId: params.accountId },
     format: "json",
-    fallback: { updatedAt: 0, rules: {} },
+    fallback: { updatedAt: 0, sets: {} },
   });
-  return Object.values(bucket.rules).sort((left, right) => right.updatedAt - left.updatedAt);
+  return Object.values(bucket.sets).sort((left, right) => right.updatedAt - left.updatedAt);
 }

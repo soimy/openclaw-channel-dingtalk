@@ -455,32 +455,61 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 ### 学习命令与作用域
 
-先区分 4 个常用动作：
+先说两个容易输错的点：
+
+- 文档里的 `<conversationId>`、`<rule>`、`<name>` 这类写法只是**占位符**，实际输入时**不要**把尖括号一起发出去
+- `/learn target`、`/learn targets`、`/learn target-set` 这几类命令里，`#@#` 是**真的要输入**的分隔符；它前面是目标，后面整段都算规则正文
+
+#### 第一次使用流程
+
+1. 私聊机器人发送 `我是谁` 或 `/whoami`
+2. 把返回的 `senderId` 写进本机 `openclaw.json` 的 `commands.ownerAllowFrom`
+3. 重启或热重载 gateway
+4. 私聊发送 `/learn owner status`，确认 `isOwner: true`
+5. 再选择下面一种注入方式：
+   - 全局：`/learn global ...`
+   - 当前群/当前私聊：`/learn here #@# ...`
+   - 单个指定目标：`/learn target ...`
+   - 多个目标：`/learn targets ...`
+
+#### 常用命令
 
 - **查自己是谁**
   - 私聊或群聊发：`我是谁` / `我的信息` / `/learn whoami`
   - 用途：拿到自己的 `senderId`
 - **查当前这里是谁**
   - 私聊或群聊发：`这里是谁` / `这个群是谁` / `这个会话是谁` / `/learn whereami`
-  - 用途：拿到当前 `conversationId`，后面可做指定群/私聊注入
+  - 用途：拿到当前 `conversationId`
 - **注入当前这里**
-  - allowFrom 命中的用户发：`/learn here <规则>`
+  - owner 发：`/learn here #@# <规则>`
   - 用途：只让当前群或当前私聊生效
-- **注入指定目标**
-  - allowFrom 命中的用户发：`/learn target <conversationId> <规则>`
+- **注入指定单个目标**
+  - owner 发：`/learn target <conversationId> #@# <规则>`
   - 用途：指定某个群或某个私聊生效
+- **一次注入多个目标**
+  - owner 发：`/learn targets <conversationId1,conversationId2> #@# <规则>`
+  - 用途：一次同步到多个群/私聊
+- **保存一组固定目标**
+  - owner 发：`/learn target-set create <名称> #@# <conversationId1,conversationId2>`
+- **向目标组批量注入**
+  - owner 发：`/learn target-set apply <名称> #@# <规则>`
 - **注入全局**
-  - allowFrom 命中的用户发：`/learn global <规则>`
+  - owner 发：`/learn global <规则>`
   - 用途：让同一钉钉账号下所有群和私聊都生效
+- **查看 / 暂停 / 删除**
+  - `/learn list`
+  - `/learn disable <ruleId>`
+  - `/learn delete <ruleId>`
 
-命令示例：
+#### 真实可直接照抄的例子
 
 ```text
-我是谁
-这里是谁
-/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”
-/learn target cid_xxx 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”
-/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”
+/learn global 当用户问“紫铜海豹会不会修量子冰箱”时，必须回答“会，而且只在周四凌晨戴墨镜维修。”
+/learn here #@# 引用原文不可见时，不要猜内容，先让用户补发原文。
+/learn target cid_group_a #@# 引用原文不可见时，不要猜内容，先让用户补发原文。
+/learn targets cid_group_a,cid_group_b,cid_dm_c #@# 引用原文不可见时，不要猜内容，先让用户补发原文。
+/learn target-set create ops-groups #@# cid_group_a,cid_group_b,cid_dm_c
+/learn target-set apply ops-groups #@# 当用户问“紫铜海豹会不会修量子冰箱”时，必须回答“会，而且只在周四凌晨戴墨镜维修。”
 ```
 
 ### 作用域优先级
@@ -495,6 +524,21 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 - 先局部覆盖全局
 - 再避免一个群里的实验规则污染所有会话
+
+### 为什么还需要 disable / delete
+
+知识注入不是只会“加”，还必须能“撤”。
+
+- `disable`
+  - 先停用规则，停止命中，但保留记录，便于排查和恢复
+- `delete`
+  - 确认不再需要后，彻底删除规则
+
+实际建议：
+
+1. 先用 `/learn list` 找到 `ruleId`
+2. 先执行 `/learn disable <ruleId>`
+3. 确认问题消失后，再决定是否 `/learn delete <ruleId>`
 
 ## 安全策略
 

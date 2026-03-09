@@ -15,16 +15,15 @@ import { setCurrentLogger } from "./logger-context";
 import {
   formatLearnAppliedReply,
   formatLearnCommandHelp,
+  formatLearnDeletedReply,
+  formatLearnDisabledReply,
   formatLearnListReply,
   formatOwnerOnlyDeniedReply,
   formatOwnerStatusReply,
+  formatTargetSetSavedReply,
   formatWhereAmIReply,
   formatWhoAmIReply,
-  isLearnCommand,
   isLearningOwner,
-  isOwnerStatusCommand,
-  isWhereAmICommand,
-  isWhoAmICommand,
   parseLearnCommand,
 } from "./learning-command-service";
 import { extractMessageContent } from "./message-utils";
@@ -39,18 +38,18 @@ import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./t
 import { AICardStatus } from "./types";
 import { acquireSessionLock } from "./session-lock";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
-import { appendQuoteJournalEntry, findQuoteJournalEntryByMsgId } from "./quote-journal";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import {
   applyManualTargetLearningRule,
+  applyManualTargetsLearningRule,
   applyManualGlobalLearningRule,
   applyManualSessionLearningNote,
-  analyzeImplicitNegativeFeedback,
-  buildLearningContextBlock,
-  isFeedbackLearningAutoApplyEnabled,
-  isFeedbackLearningEnabled,
-  listScopedLearnedRules,
-  recordOutboundReplyForLearning,
+  applyTargetSetLearningRule,
+  createOrUpdateTargetSet,
+  deleteManualRule,
+  disableManualRule,
+  listLearningTargetSets,
+  listScopedLearningRules,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
@@ -116,21 +115,6 @@ function isUnhandledStopReasonText(value: string): boolean {
     return false;
   }
   return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
-}
-
-function summarizeQuotedJournalText(text: string): string {
-  const leadingQuotedMatch = text.match(/^\[引用消息:\s*"([^"]+)"\]/);
-  if (leadingQuotedMatch?.[1]) {
-    return leadingQuotedMatch[1].trim();
-  }
-  const collapsed = text
-    .replace(/^\[引用消息(?:不可见)?:[^\]]+\]\s*/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!collapsed) {
-    return "[历史消息]";
-  }
-  return collapsed.length > 120 ? `${collapsed.slice(0, 120)}…` : collapsed;
 }
 
 /**
@@ -375,49 +359,40 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
-  const conversationTargetId = data.conversationId;
+  const parsedLearnCommand = parseLearnCommand(content.text);
   const isOwner = isLearningOwner({
     cfg,
     config: dingtalkConfig,
     senderId,
     rawSenderId: data.senderId,
   });
-  if (isWhoAmICommand(content.text)) {
+  if (isDirect && parsedLearnCommand.scope === "whoami") {
     await sendBySession(
       dingtalkConfig,
       sessionWebhook,
       formatWhoAmIReply({
-        accountId,
         senderId,
         rawSenderId: data.senderId,
         senderStaffId: data.senderStaffId,
-        conversationId: data.conversationId,
-        conversationType: data.conversationType,
-        agentId: route.agentId,
-        sessionKey: route.sessionKey,
         isOwner,
       }),
       { log },
     );
     return;
   }
-  if (isWhereAmICommand(content.text)) {
+  if (parsedLearnCommand.scope === "whereami") {
     await sendBySession(
       dingtalkConfig,
       sessionWebhook,
       formatWhereAmIReply({
-        accountId,
         conversationId: data.conversationId,
         conversationType: isDirect ? "dm" : "group",
-        sessionKey: route.sessionKey,
-        senderId,
-        agentId: route.agentId,
       }),
       { log },
     );
     return;
   }
-  if (isOwnerStatusCommand(content.text)) {
+  if (isDirect && parsedLearnCommand.scope === "owner-status") {
     await sendBySession(
       dingtalkConfig,
       sessionWebhook,
@@ -430,125 +405,232 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     );
     return;
   }
-  if (isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text) && !isOwner) {
+  if (
+    (parsedLearnCommand.scope === "global"
+      || parsedLearnCommand.scope === "session"
+      || parsedLearnCommand.scope === "here"
+      || parsedLearnCommand.scope === "target"
+      || parsedLearnCommand.scope === "targets"
+      || parsedLearnCommand.scope === "list"
+      || parsedLearnCommand.scope === "disable"
+      || parsedLearnCommand.scope === "delete"
+      || parsedLearnCommand.scope === "target-set-create"
+      || parsedLearnCommand.scope === "target-set-apply")
+    && !isOwner
+  ) {
     await sendBySession(dingtalkConfig, sessionWebhook, formatOwnerOnlyDeniedReply(), { log });
     return;
   }
-  if (isOwner && isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text)) {
-    const learnCommand = parseLearnCommand(content.text);
-    if (learnCommand.scope === "global" && learnCommand.instruction) {
+  if (isOwner) {
+    if (parsedLearnCommand.scope === "global" && parsedLearnCommand.instruction) {
       const applied = applyManualGlobalLearningRule({
         storePath: accountStorePath,
         accountId,
-        instruction: learnCommand.instruction,
+        instruction: parsedLearnCommand.instruction,
       });
       await sendBySession(
         dingtalkConfig,
         sessionWebhook,
         formatLearnAppliedReply({
           scope: "global",
-          instruction: learnCommand.instruction,
+          instruction: parsedLearnCommand.instruction,
           ruleId: applied?.ruleId,
         }),
         { log },
       );
       return;
     }
-    if (learnCommand.scope === "target" && learnCommand.instruction && learnCommand.targetId) {
-      const applied = applyManualTargetLearningRule({
-        storePath: accountStorePath,
-        accountId,
-        targetId: learnCommand.targetId,
-        instruction: learnCommand.instruction,
-      });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
-        formatLearnAppliedReply({
-          scope: "target",
-          targetId: learnCommand.targetId,
-          instruction: learnCommand.instruction,
-          ruleId: applied?.ruleId,
-        }),
-        { log },
-      );
-      return;
-    }
-    if (learnCommand.scope === "here" && learnCommand.instruction) {
-      const applied = applyManualTargetLearningRule({
-        storePath: accountStorePath,
-        accountId,
-        targetId: conversationTargetId,
-        conversationType: isDirect ? "dm" : "group",
-        instruction: learnCommand.instruction,
-      });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
-        formatLearnAppliedReply({
-          scope: "target",
-          targetId: conversationTargetId,
-          instruction: learnCommand.instruction,
-          ruleId: applied?.ruleId,
-        }),
-        { log },
-      );
-      return;
-    }
-    if (learnCommand.scope === "session" && learnCommand.instruction) {
+    if (parsedLearnCommand.scope === "session" && parsedLearnCommand.instruction) {
       applyManualSessionLearningNote({
         storePath,
         accountId,
-        targetId: conversationTargetId,
-        instruction: learnCommand.instruction,
-        noteTtlMs: dingtalkConfig.feedbackLearningNoteTtlMs,
+        targetId: data.conversationId,
+        instruction: parsedLearnCommand.instruction,
       });
       await sendBySession(
         dingtalkConfig,
         sessionWebhook,
         formatLearnAppliedReply({
           scope: "session",
-          instruction: learnCommand.instruction,
+          instruction: parsedLearnCommand.instruction,
         }),
         { log },
       );
       return;
     }
-    if (learnCommand.scope === "list") {
-      const scopedRules = listScopedLearnedRules({
+    if (parsedLearnCommand.scope === "here" && parsedLearnCommand.instruction) {
+      const applied = applyManualTargetLearningRule({
         storePath: accountStorePath,
         accountId,
-        targetId: conversationTargetId,
+        targetId: data.conversationId,
+        instruction: parsedLearnCommand.instruction,
       });
-      const rules = [
-        ...scopedRules.targetRules
-          .filter((rule) => rule.enabled)
-          .slice(0, 5)
-          .map((rule) => `- [当前目标] ${rule.ruleId}: ${rule.instruction}`),
-        ...scopedRules.globalRules
-          .filter((rule) => rule.enabled)
-          .slice(0, 5)
-          .map((rule) => `- [全局] ${rule.ruleId}: ${rule.instruction}`),
-      ];
-      await sendBySession(dingtalkConfig, sessionWebhook, formatLearnListReply(rules), { log });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnAppliedReply({
+          scope: "target",
+          targetId: data.conversationId,
+          instruction: parsedLearnCommand.instruction,
+          ruleId: applied?.ruleId,
+        }),
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "target" && parsedLearnCommand.targetId && parsedLearnCommand.instruction) {
+      const applied = applyManualTargetLearningRule({
+        storePath: accountStorePath,
+        accountId,
+        targetId: parsedLearnCommand.targetId,
+        instruction: parsedLearnCommand.instruction,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnAppliedReply({
+          scope: "target",
+          targetId: parsedLearnCommand.targetId,
+          instruction: parsedLearnCommand.instruction,
+          ruleId: applied?.ruleId,
+        }),
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "targets" && parsedLearnCommand.targetIds?.length && parsedLearnCommand.instruction) {
+      const applied = applyManualTargetsLearningRule({
+        storePath: accountStorePath,
+        accountId,
+        targetIds: parsedLearnCommand.targetIds,
+        instruction: parsedLearnCommand.instruction,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnAppliedReply({
+          scope: "targets",
+          targetIds: parsedLearnCommand.targetIds,
+          instruction: parsedLearnCommand.instruction,
+          ruleId: applied[0]?.ruleId,
+        }),
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "target-set-create" && parsedLearnCommand.setName && parsedLearnCommand.targetIds?.length) {
+      const saved = createOrUpdateTargetSet({
+        storePath: accountStorePath,
+        accountId,
+        name: parsedLearnCommand.setName,
+        targetIds: parsedLearnCommand.targetIds,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        saved
+          ? formatTargetSetSavedReply({
+            setName: parsedLearnCommand.setName,
+            targetIds: parsedLearnCommand.targetIds,
+          })
+          : "目标组保存失败，请检查名称和目标列表。",
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "target-set-apply" && parsedLearnCommand.setName && parsedLearnCommand.instruction) {
+      const applied = applyTargetSetLearningRule({
+        storePath: accountStorePath,
+        accountId,
+        name: parsedLearnCommand.setName,
+        instruction: parsedLearnCommand.instruction,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        applied.length > 0
+          ? formatLearnAppliedReply({
+            scope: "target-set",
+            setName: parsedLearnCommand.setName,
+            targetIds: applied.map((item) => item.targetId),
+            instruction: parsedLearnCommand.instruction,
+            ruleId: applied[0]?.ruleId,
+          })
+          : `未找到目标组 \`${parsedLearnCommand.setName}\`，或该目标组为空。`,
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "list") {
+      const rules = listScopedLearningRules({ storePath: accountStorePath, accountId })
+        .slice(0, 20)
+        .map((rule) => {
+          const scope = rule.scope === "target" ? `target(${rule.targetId})` : "global";
+          const status = rule.enabled ? "enabled" : "disabled";
+          return `- [${scope}] ${rule.ruleId} (${status}) => ${rule.instruction}`;
+        });
+      const targetSets = listLearningTargetSets({ storePath: accountStorePath, accountId })
+        .slice(0, 10)
+        .map((targetSet) => `- [target-set] ${targetSet.name} => ${targetSet.targetIds.join(", ")}`);
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnListReply([...rules, ...targetSets]),
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "disable" && parsedLearnCommand.ruleId) {
+      const result = disableManualRule({
+        storePath: accountStorePath,
+        accountId,
+        ruleId: parsedLearnCommand.ruleId,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnDisabledReply({
+          ruleId: parsedLearnCommand.ruleId,
+          existed: result.existed,
+          scope: result.scope,
+          targetId: result.targetId,
+        }),
+        { log },
+      );
+      return;
+    }
+    if (parsedLearnCommand.scope === "delete" && parsedLearnCommand.ruleId) {
+      const result = deleteManualRule({
+        storePath: accountStorePath,
+        accountId,
+        ruleId: parsedLearnCommand.ruleId,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnDeletedReply({
+          ruleId: parsedLearnCommand.ruleId,
+          existed: result.existed,
+          scope: result.scope,
+          targetId: result.targetId,
+        }),
+        { log },
+      );
       return;
     }
     await sendBySession(dingtalkConfig, sessionWebhook, formatLearnCommandHelp(), { log });
     return;
   }
-  const feedbackLearningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
-  const feedbackLearningAutoApply = isFeedbackLearningAutoApplyEnabled(dingtalkConfig);
   const manualForcedReply = resolveManualForcedReply({
     storePath: accountStorePath,
     accountId,
-    targetId: conversationTargetId,
+    targetId: data.conversationId,
     content,
   });
   if (manualForcedReply) {
     await sendBySession(dingtalkConfig, sessionWebhook, manualForcedReply, { log });
     return;
   }
-
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
@@ -581,54 +663,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
-  const mediaPaths: string[] = [];
-
-  if (
-    content.quoted?.msgId &&
-    content.quoted.prefix.startsWith("[这是一条引用消息，原消息ID:") &&
-    storePath
-  ) {
-    const journalEntry = findQuoteJournalEntryByMsgId({
-      storePath,
-      accountId,
-      conversationId: data.conversationId,
-      msgId: content.quoted.msgId,
-    });
-    if (journalEntry) {
-      const replyBody = content.text.replace(content.quoted.prefix, "").trim();
-      const nestedMatch = journalEntry.text.match(/\[这是一条引用消息，原消息ID:\s*([^\]]+)\]/);
-      const nestedEntry = nestedMatch?.[1]
-        ? findQuoteJournalEntryByMsgId({
-            storePath,
-            accountId,
-            conversationId: data.conversationId,
-            msgId: nestedMatch[1].trim(),
-          })
-        : null;
-      const resolvedEntry = nestedEntry || journalEntry;
-      const journalPrefix = `[引用消息: "${summarizeQuotedJournalText(resolvedEntry.text)}"]\n\n`;
-      content.text = replyBody ? `${journalPrefix}${replyBody}` : journalPrefix.trimEnd();
-      content.mediaPath = content.mediaPath || resolvedEntry.mediaPath;
-      content.mediaType = content.mediaType || resolvedEntry.mediaType;
-    }
-  }
-
-  const inboundMediaCodes = [
-    ...(Array.isArray(content.mediaPaths) ? content.mediaPaths : []),
-    ...(content.mediaPath ? [content.mediaPath] : []),
-  ].filter((code): code is string => Boolean(code && code.trim()));
-  const uniqueInboundMediaCodes = [...new Set(inboundMediaCodes)];
-  if (uniqueInboundMediaCodes.length > 0 && dingtalkConfig.robotCode) {
-    for (const code of uniqueInboundMediaCodes) {
-      const media = await downloadMedia(dingtalkConfig, code, log);
-      if (!media) {
-        continue;
-      }
-      mediaPaths.push(media.path);
-      if (!mediaPath) {
-        mediaPath = media.path;
-        mediaType = media.mimeType;
-      }
+  if (content.mediaPath && dingtalkConfig.robotCode) {
+    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
+    if (media) {
+      mediaPath = media.path;
+      mediaType = media.mimeType;
     }
   }
 
@@ -710,22 +749,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
-      mediaPaths.push(media.path);
     } else {
       content.text = content.text.replace(
         content.quoted.prefix, "[引用了一张图片，但下载失败]\n\n",
       );
     }
-  }
-
-  const quoteWithoutImage =
-    content.text.includes("[引用消息:") &&
-    /图|图片|看下|感想/.test(content.text) &&
-    !content.mediaPath &&
-    !mediaPath &&
-    mediaPaths.length === 0;
-  if (quoteWithoutImage) {
-    content.text = `${content.text}\n\n[系统提示] 当前仅拿到引用文本，未拿到图片文件本体。禁止臆测图片内容，请先请用户补发原图后再分析。`;
   }
 
   // Quoted file/video/audio (unknownMsgType): cache-first, then group file API fallback.
@@ -737,7 +765,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cachedMedia) {
       mediaPath = cachedMedia.path;
       mediaType = cachedMedia.mimeType;
-      mediaPaths.push(cachedMedia.path);
       fileResolved = true;
     }
 
@@ -751,7 +778,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
-        mediaPaths.push(resolved.media.path);
         fileResolved = true;
         if (content.quoted.msgId) {
           cacheInboundDownloadCode(
@@ -790,7 +816,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cachedDocMedia) {
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
-      mediaPaths.push(cachedDocMedia.path);
       docResolved = true;
       content.text = content.text.replace(content.quoted.prefix, "[引用了钉钉文档]\n\n");
     }
@@ -804,7 +829,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
-        mediaPaths.push(resolved.media.path);
         docResolved = true;
         content.text = content.text.replace(content.quoted.prefix, "[引用了钉钉文档]\n\n");
         if (content.quoted.msgId) {
@@ -832,10 +856,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  if (content.text.includes("[引用消息不可见:")) {
-    content.text = `${content.text}\n\n[系统提示] 当前没有拿到被引用消息的正文或附件，只拿到引用占位信息。禁止根据上下文臆测引用内容，请让用户补发原文或原文件。`;
-  }
-
   // Quoted AI card: prefer deterministic processQueryKey lookup, and only
   // fall back to the legacy createdAt matcher when the callback omits that key.
   if (content.quoted?.isQuotedCard) {
@@ -856,43 +876,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // Card cache miss: prefix already contains "[引用了机器人的回复]", keep as-is.
   }
 
-  if (mediaPaths.length > 1) {
-    content.text = `${content.text}\n\n[系统提示] 本条消息共解析到 ${mediaPaths.length} 个媒体附件，请逐个查看后回答。`;
-  }
   const inboundText =
     mediaPath && /<media:[^>]+>/.test(content.text)
       ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
       : content.text;
-  appendQuoteJournalEntry({
-    storePath,
-    accountId,
-    conversationId: data.conversationId,
-    msgId: data.msgId,
-    text: inboundText,
-    messageType: content.messageType,
-    createdAt: data.createAt,
-    mediaPath,
-    mediaType,
-  });
-
-  analyzeImplicitNegativeFeedback({
-    enabled: feedbackLearningEnabled,
-    autoApply: feedbackLearningAutoApply,
-    storePath: accountStorePath,
-    accountId,
-    targetId: conversationTargetId,
-    signalText: content.text,
-    content,
-    noteTtlMs: dingtalkConfig.feedbackLearningNoteTtlMs,
-  });
-
-  const learningContextBlock = buildLearningContextBlock({
-    enabled: feedbackLearningEnabled,
-    storePath: accountStorePath,
-    accountId,
-    targetId: conversationTargetId,
-    content,
-  });
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
     storePath,
@@ -913,13 +900,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
 
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
-  const modelInputText = learningContextBlock ? `${learningContextBlock}\n\n${inboundText}` : inboundText;
-
   const body = rt.channel.reply.formatInboundEnvelope({
     channel: "DingTalk",
     from: fromLabel,
     timestamp: data.createAt,
-    body: modelInputText,
+    body: inboundText,
     chatType: isDirect ? "direct" : "group",
     sender: { name: senderName, id: senderId },
     previousTimestamp,
@@ -928,8 +913,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
-    RawBody: modelInputText,
-    CommandBody: modelInputText,
+    RawBody: inboundText,
+    CommandBody: inboundText,
     From: to,
     To: to,
     SessionKey: route.sessionKey,
@@ -944,7 +929,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     MessageSid: data.msgId,
     Timestamp: data.createAt,
     MediaPath: mediaPath,
-    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
     MediaType: mediaType,
     MediaUrl: mediaPath,
     GroupMembers: groupMembers,
@@ -1179,26 +1163,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           log?.debug?.(`[DingTalk] Failed to update card state to FAILED: ${stateErr.message}`);
         }
       }
-    }
-
-    const finalAnswerCandidate =
-      typeof lastCardContent === "string" && lastCardContent.trim()
-        ? lastCardContent
-        : typeof queuedFinal === "string" && queuedFinal.trim()
-          ? queuedFinal
-          : "";
-    if (finalAnswerCandidate && !isUnhandledStopReasonText(finalAnswerCandidate)) {
-      recordOutboundReplyForLearning({
-        enabled: feedbackLearningEnabled,
-        storePath: accountStorePath,
-        accountId,
-        targetId: conversationTargetId,
-        sessionKey: route.sessionKey,
-        question: inboundText,
-        answer: finalAnswerCandidate,
-        processQueryKey: currentAICard?.processQueryKey,
-        mode: useCardMode ? "card" : "markdown",
-      });
     }
   } finally {
     releaseSessionLock();

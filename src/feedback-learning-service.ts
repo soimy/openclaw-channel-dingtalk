@@ -4,16 +4,24 @@ import {
   appendOutboundReplySnapshot,
   appendReflectionRecord,
   appendSessionLearningNote,
+  deleteScopedRule,
   FeedbackKind,
   FeedbackEventRecord,
+  getTargetSet,
+  listAllScopedRules,
   listActiveSessionLearningNotes,
   listLearnedRules,
   listOutboundReplySnapshots,
-  listTargetLearnedRules,
+  listTargetSets,
   LearnedRuleRecord,
   OutboundReplySnapshot,
   ReflectionCategory,
-  upsertTargetLearnedRule,
+  ScopedLearnedRuleRecord,
+  disableScopedRule,
+  listTargetRules,
+  TargetSetRecord,
+  upsertTargetRule,
+  upsertTargetSet,
   upsertLearnedRule,
 } from "./feedback-learning-store";
 import type { DingTalkConfig, MessageContent } from "./types";
@@ -136,11 +144,11 @@ function updateLearnedRule(
 }
 
 export function isFeedbackLearningEnabled(config: DingTalkConfig | undefined): boolean {
-  return config?.feedbackLearningEnabled === true;
+  return Boolean((config as DingTalkConfig & { feedbackLearningEnabled?: boolean } | undefined)?.feedbackLearningEnabled);
 }
 
 export function isFeedbackLearningAutoApplyEnabled(config: DingTalkConfig | undefined): boolean {
-  return config?.feedbackLearningAutoApply === true;
+  return Boolean((config as DingTalkConfig & { feedbackLearningAutoApply?: boolean } | undefined)?.feedbackLearningAutoApply);
 }
 
 export function recordOutboundReplyForLearning(params: {
@@ -341,7 +349,7 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
   }
   switch (rule.category) {
     case "missing_image_context":
-      return /图|图片|截图|看图|看下/.test(content.text) && !content.mediaPath && !(content.mediaPaths?.length);
+      return /图|图片|截图|看图|看下/.test(content.text) && !content.mediaPath;
     case "quoted_context_missing":
       return content.text.includes("[引用消息") || Boolean(content.quoted);
     case "misunderstood_intent":
@@ -351,27 +359,6 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
     default:
       return false;
   }
-}
-
-function listMatchingRules(params: {
-  storePath?: string;
-  accountId: string;
-  targetId: string;
-  content: MessageContent;
-}): LearnedRuleRecord[] {
-  if (!params.storePath) {
-    return [];
-  }
-  const targetRules = listTargetLearnedRules({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    targetId: params.targetId,
-  }).filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content));
-  const globalRules = listLearnedRules({
-    storePath: params.storePath,
-    accountId: params.accountId,
-  }).filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content));
-  return [...targetRules, ...globalRules];
 }
 
 export function buildLearningContextBlock(params: {
@@ -389,10 +376,23 @@ export function buildLearningContextBlock(params: {
     accountId: params.accountId,
     targetId: params.targetId,
   }).slice(0, 3);
-  const rules = listMatchingRules(params).slice(0, 3);
+  const rules = listLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  })
+    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .slice(0, 3);
+  const targetRules = listTargetRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId,
+  })
+    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .slice(0, 3);
 
   const instructions = [
     ...notes.map((note) => note.instruction),
+    ...targetRules.map((rule) => rule.instruction),
     ...rules.map((rule) => rule.instruction),
   ].filter(Boolean);
   if (instructions.length === 0) {
@@ -435,61 +435,10 @@ export function applyManualGlobalLearningRule(params: {
   return { ruleId };
 }
 
-function inferConversationType(targetId: string): "dm" | "group" | "unknown" {
-  if (!targetId.trim()) {
-    return "unknown";
-  }
-  return targetId.startsWith("cid") ? "group" : "dm";
-}
-
-function normalizeManualTriggerText(value: string): string {
-  return value
-    .trim()
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200d\ufeff]/g, "")
-    .toLowerCase()
-    .replace(/[。！？!?.,，、；;：:]+$/g, "")
-    .replace(/\s+/g, " ");
-}
-
-export function applyManualTargetLearningRule(params: {
-  storePath?: string;
-  accountId: string;
-  targetId: string;
-  instruction: string;
-  conversationType?: "dm" | "group" | "unknown";
-}): { ruleId: string } | null {
-  if (!params.storePath || !params.targetId.trim() || !params.instruction.trim()) {
-    return null;
-  }
-  const ruleId = `manual_target_${Date.now()}`;
-  const exactReplyMatch = params.instruction
-    .trim()
-    .match(/^当用户问[“\"](.+?)[”\"]时，必须回答[“\"](.+?)[”\"][。.!！]?$/);
-  upsertTargetLearnedRule({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    targetId: params.targetId.trim(),
-    conversationType: params.conversationType || inferConversationType(params.targetId),
-    rule: {
-      ruleId,
-      category: "generic_negative",
-      instruction: params.instruction.trim(),
-      negativeCount: 1,
-      positiveCount: 0,
-      updatedAt: Date.now(),
-      enabled: true,
-      manual: true,
-      triggerText: exactReplyMatch?.[1]?.trim(),
-      forcedReply: exactReplyMatch?.[2]?.trim(),
-    },
-  });
-  return { ruleId };
-}
-
 export function resolveManualForcedReply(params: {
   storePath?: string;
   accountId: string;
-  targetId: string;
+  targetId?: string;
   content: MessageContent;
 }): string | null {
   if (!params.storePath) {
@@ -499,35 +448,18 @@ export function resolveManualForcedReply(params: {
   if (!text) {
     return null;
   }
+  const targetMatched = params.targetId
+    ? listTargetRules({ storePath: params.storePath, accountId: params.accountId, targetId: params.targetId })
+      .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
+      .find((rule) => normalizeManualTriggerText(rule.triggerText) === text)
+    : null;
+  if (targetMatched?.forcedReply) {
+    return targetMatched.forcedReply;
+  }
   const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
     .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => normalizeManualTriggerText(rule.triggerText || "") === text);
-  const targetMatched = listTargetLearnedRules({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    targetId: params.targetId,
-  })
-    .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => normalizeManualTriggerText(rule.triggerText || "") === text);
-  return targetMatched?.forcedReply || matched?.forcedReply || null;
-}
-
-export function listScopedLearnedRules(params: {
-  storePath?: string;
-  accountId: string;
-  targetId: string;
-}): { targetRules: LearnedRuleRecord[]; globalRules: LearnedRuleRecord[] } {
-  return {
-    targetRules: listTargetLearnedRules({
-      storePath: params.storePath,
-      accountId: params.accountId,
-      targetId: params.targetId,
-    }),
-    globalRules: listLearnedRules({
-      storePath: params.storePath,
-      accountId: params.accountId,
-    }),
-  };
+    .find((rule) => normalizeManualTriggerText(rule.triggerText) === text);
+  return matched?.forcedReply || null;
 }
 
 export function applyManualSessionLearningNote(params: {
@@ -555,4 +487,132 @@ export function applyManualSessionLearningNote(params: {
     },
   });
   return true;
+}
+
+export function applyManualTargetLearningRule(params: {
+  storePath?: string;
+  accountId: string;
+  targetId: string;
+  instruction: string;
+}): { ruleId: string } | null {
+  if (!params.storePath || !params.targetId.trim() || !params.instruction.trim()) {
+    return null;
+  }
+  const ruleId = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const exactReplyMatch = params.instruction.trim().match(/^当用户问[“\"](.+?)[”\"]时，必须回答[“\"](.+?)[”\"][。.!！]?$/);
+  upsertTargetRule({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId,
+    rule: {
+      ruleId,
+      category: "generic_negative",
+      instruction: params.instruction.trim(),
+      negativeCount: 1,
+      positiveCount: 0,
+      updatedAt: Date.now(),
+      enabled: true,
+      manual: true,
+      triggerText: exactReplyMatch?.[1]?.trim(),
+      forcedReply: exactReplyMatch?.[2]?.trim(),
+    },
+  });
+  return { ruleId };
+}
+
+export function applyManualTargetsLearningRule(params: {
+  storePath?: string;
+  accountId: string;
+  targetIds: string[];
+  instruction: string;
+}): Array<{ targetId: string; ruleId: string }> {
+  if (!params.storePath) {
+    return [];
+  }
+  return params.targetIds
+    .map((targetId) => applyManualTargetLearningRule({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      targetId,
+      instruction: params.instruction,
+    }))
+    .map((result, index) => result ? { targetId: params.targetIds[index]!, ruleId: result.ruleId } : null)
+    .filter(Boolean) as Array<{ targetId: string; ruleId: string }>;
+}
+
+export function disableManualRule(params: {
+  storePath?: string;
+  accountId: string;
+  ruleId: string;
+}): { existed: boolean; scope?: "global" | "target"; targetId?: string } {
+  return disableScopedRule(params);
+}
+
+export function deleteManualRule(params: {
+  storePath?: string;
+  accountId: string;
+  ruleId: string;
+}): { existed: boolean; scope?: "global" | "target"; targetId?: string } {
+  return deleteScopedRule(params);
+}
+
+export function createOrUpdateTargetSet(params: {
+  storePath?: string;
+  accountId: string;
+  name: string;
+  targetIds: string[];
+}): boolean {
+  if (!params.storePath || !params.name.trim() || params.targetIds.length === 0) {
+    return false;
+  }
+  upsertTargetSet(params);
+  return true;
+}
+
+export function listLearningTargetSets(params: {
+  storePath?: string;
+  accountId: string;
+}): TargetSetRecord[] {
+  return listTargetSets(params);
+}
+
+export function applyTargetSetLearningRule(params: {
+  storePath?: string;
+  accountId: string;
+  name: string;
+  instruction: string;
+}): Array<{ targetId: string; ruleId: string }> {
+  if (!params.storePath) {
+    return [];
+  }
+  const targetSet = getTargetSet({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    name: params.name,
+  });
+  if (!targetSet) {
+    return [];
+  }
+  return applyManualTargetsLearningRule({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetIds: targetSet.targetIds,
+    instruction: params.instruction,
+  });
+}
+
+export function listScopedLearningRules(params: {
+  storePath?: string;
+  accountId: string;
+}): ScopedLearnedRuleRecord[] {
+  return listAllScopedRules(params);
+}
+
+export function normalizeManualTriggerText(input: string | undefined): string {
+  return String(input || "")
+    .replace(/^[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2060\ufeff]+/g, "")
+    .trim()
+    .replace(/[。.!！?？]+$/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
