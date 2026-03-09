@@ -445,6 +445,7 @@ function inferConversationType(targetId: string): "dm" | "group" | "unknown" {
 function normalizeManualTriggerText(value: string): string {
   return value
     .trim()
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200d\ufeff]/g, "")
     .toLowerCase()
     .replace(/[。！？!?.,，、；;：:]+$/g, "")
     .replace(/\s+/g, " ");

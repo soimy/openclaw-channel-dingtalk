@@ -280,9 +280,8 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('senderId: `staff_1`');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('conversationId: `cid_dm_owner`');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('isOwner: `false`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('你的 ID：`staff_1`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('是否 owner：`false`');
         expect(shared.sendMessageMock).not.toHaveBeenCalled();
     });
 
@@ -337,7 +336,7 @@ describe('inbound-handler', () => {
 
         expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('类型：群聊');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('conversationId: `cid_group_scope_1`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('群 ID：`cid_group_scope_1`');
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('/learn target cid_group_scope_1 <规则>');
     });
 
@@ -526,6 +525,60 @@ describe('inbound-handler', () => {
                 text: { content: '蓝色火烈鸟会不会写python？' },
                 conversationType: '1',
                 conversationId: 'cid_dm_other',
+                senderId: 'user_any',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock.mock.calls.at(-1)?.[2]).toContain('会，而且只在周二写Rust。');
+    });
+
+    it('handleDingTalkMessage matches manual forced global reply after stripping leading control characters', async () => {
+        const storePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-learning-control-char-')), 'store.json');
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi.fn().mockReturnValue(storePath);
+        shared.getRuntimeMock.mockReturnValue(runtime as any);
+
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({
+                text: '/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”',
+                messageType: 'text',
+            })
+            .mockReturnValueOnce({ text: '\u0007\u0007蓝色火烈鸟会不会写Python', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_global_control_char_1',
+                msgtype: 'text',
+                text: { content: '/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_global_control_char_2',
+                msgtype: 'text',
+                text: { content: '\u0007\u0007蓝色火烈鸟会不会写Python' },
+                conversationType: '2',
+                conversationId: 'cid_group_other',
                 senderId: 'user_any',
                 chatbotUserId: 'bot_1',
                 sessionWebhook: 'https://session.webhook',

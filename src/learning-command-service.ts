@@ -114,22 +114,14 @@ export function formatWhoAmIReply(params: {
   sessionKey?: string;
   isOwner?: boolean;
 }): string {
-  const lines = [
+  return [
     "这是你当前这条钉钉消息的身份信息：",
     "",
-    `- senderId: \`${params.senderId || ""}\``,
-    `- rawSenderId: \`${params.rawSenderId || ""}\``,
-    `- senderStaffId: \`${params.senderStaffId || ""}\``,
-    `- conversationId: \`${params.conversationId || ""}\``,
-    `- conversationType: \`${params.conversationType || ""}\``,
-    `- accountId: \`${params.accountId || ""}\``,
-    `- agentId: \`${params.agentId || ""}\``,
-    `- sessionKey: \`${params.sessionKey || ""}\``,
-    `- isOwner: \`${params.isOwner ? "true" : "false"}\``,
+    `- 你的 ID：\`${params.senderId || ""}\``,
+    `- 是否 owner：\`${params.isOwner ? "true" : "false"}\``,
     "",
-    "后续如果要配置 owner 或控制命令权限，就以这里返回的 senderId 为准。",
-  ];
-  return lines.join("\n");
+    "后续如果要配置 owner 或控制命令权限，就以这里返回的 ID 为准。",
+  ].join("\n");
 }
 
 export function formatOwnerStatusReply(params: {
@@ -165,11 +157,7 @@ export function formatWhereAmIReply(params: {
     "这是当前对话位置的信息：",
     "",
     `- 类型：${typeLabel}`,
-    `- conversationId: \`${params.conversationId || ""}\``,
-    `- accountId: \`${params.accountId || ""}\``,
-    `- agentId: \`${params.agentId || ""}\``,
-    `- sessionKey: \`${params.sessionKey || ""}\``,
-    `- senderId: \`${params.senderId || ""}\``,
+    `- ${typeLabel === "群聊" ? "群 ID" : "会话 ID"}：\`${params.conversationId || ""}\``,
     "",
     `可直接用：\`/learn target ${params.conversationId || "<conversationId>"} <规则>\``,
     "或者在这里直接用：`/learn here <规则>`",
