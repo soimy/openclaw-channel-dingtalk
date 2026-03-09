@@ -13,6 +13,9 @@ import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
 import { setCurrentLogger } from "./logger-context";
 import {
+  formatLearnAppliedReply,
+  formatLearnCommandHelp,
+  formatLearnListReply,
   formatOwnerOnlyDeniedReply,
   formatOwnerStatusReply,
   formatWhoAmIReply,
