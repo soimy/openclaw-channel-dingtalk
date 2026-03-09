@@ -442,6 +442,14 @@ function inferConversationType(targetId: string): "dm" | "group" | "unknown" {
   return targetId.startsWith("cid") ? "group" : "dm";
 }
 
+function normalizeManualTriggerText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[。！？!?.,，、；;：:]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
 export function applyManualTargetLearningRule(params: {
   storePath?: string;
   accountId: string;
@@ -486,20 +494,20 @@ export function resolveManualForcedReply(params: {
   if (!params.storePath) {
     return null;
   }
-  const text = params.content.text.trim();
+  const text = normalizeManualTriggerText(params.content.text);
   if (!text) {
     return null;
   }
   const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
     .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => rule.triggerText === text);
+    .find((rule) => normalizeManualTriggerText(rule.triggerText || "") === text);
   const targetMatched = listTargetLearnedRules({
     storePath: params.storePath,
     accountId: params.accountId,
     targetId: params.targetId,
   })
     .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => rule.triggerText === text);
+    .find((rule) => normalizeManualTriggerText(rule.triggerText || "") === text);
   return targetMatched?.forcedReply || matched?.forcedReply || null;
 }
 

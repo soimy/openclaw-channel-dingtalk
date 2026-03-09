@@ -87,11 +87,11 @@ describe('DingTalkConfigSchema', () => {
             clientId: 'id',
             clientSecret: 'secret',
             feedbackLearningEnabled: true,
-            ownerAllowFrom: ['owner-test-id'],
-        }) as { feedbackLearningEnabled?: boolean; ownerAllowFrom?: string[]; feedbackLearningAutoApply?: boolean; feedbackLearningNoteTtlMs?: number };
+            allowFrom: ['owner-test-id'],
+        }) as { feedbackLearningEnabled?: boolean; allowFrom?: string[]; feedbackLearningAutoApply?: boolean; feedbackLearningNoteTtlMs?: number };
 
         expect(parsed.feedbackLearningEnabled).toBe(true);
-        expect(parsed.ownerAllowFrom).toEqual(['owner-test-id']);
+        expect(parsed.allowFrom).toEqual(['owner-test-id']);
         expect(parsed.feedbackLearningAutoApply).toBe(false);
         expect(parsed.feedbackLearningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
     });

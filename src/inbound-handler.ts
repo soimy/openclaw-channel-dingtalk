@@ -423,7 +423,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         senderId,
         rawSenderId: data.senderId,
         isOwner,
-        ownerAllowFrom: dingtalkConfig.ownerAllowFrom,
+        allowFrom: dingtalkConfig.allowFrom,
       }),
       { log },
     );

@@ -95,7 +95,7 @@ export function isLearningOwner(config: DingTalkConfig | undefined, params: {
   senderId?: string;
   rawSenderId?: string;
 }): boolean {
-  const allow = normalizeAllowFrom(config?.ownerAllowFrom);
+  const allow = normalizeAllowFrom(config?.allowFrom);
   return isSenderOwner({
     allow,
     senderId: params.senderId,
@@ -136,7 +136,7 @@ export function formatOwnerStatusReply(params: {
   senderId: string;
   rawSenderId?: string;
   isOwner: boolean;
-  ownerAllowFrom?: string[];
+  allowFrom?: string[];
 }): string {
   return [
     "当前 owner 控制状态：",
@@ -144,12 +144,12 @@ export function formatOwnerStatusReply(params: {
     `- senderId: \`${params.senderId || ""}\``,
     `- rawSenderId: \`${params.rawSenderId || ""}\``,
     `- isOwner: \`${params.isOwner ? "true" : "false"}\``,
-    `- ownerAllowFrom: \`${(params.ownerAllowFrom || []).join(",")}\``,
+    `- allowFrom: \`${(params.allowFrom || []).join(",")}\``,
   ].join("\n");
 }
 
 export function formatOwnerOnlyDeniedReply(): string {
-  return "这条学习/控制命令仅允许 owner 使用。先发送“我是谁”确认你的 senderId，再由宿主配置将该 senderId 加入 ownerAllowFrom。";
+  return "这条学习/控制命令仅允许 owner 使用。先发送“我是谁”确认你的 senderId，再由宿主配置将该 senderId 加入 allowFrom。";
 }
 
 export function formatWhereAmIReply(params: {
