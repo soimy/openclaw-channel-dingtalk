@@ -367,7 +367,6 @@ openclaw gateway restart
 | `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
-| `ownerAllowFrom`        | string[] | `[]`         | 允许执行 owner-only 学习/控制命令的 DingTalk senderId 列表 |
 
 ### 连接鲁棒性配置
 
@@ -377,7 +376,7 @@ openclaw gateway restart
 - **initialReconnectDelay**: 第一次重连的初始延迟（毫秒），后续重连会按指数增长。
 - **maxReconnectDelay**: 重连延迟的上限（毫秒），防止等待时间过长。
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
-- **ownerAllowFrom**: 只有这些 senderId 才能执行 owner-only 的学习/控制命令。推荐先在钉钉私聊发送“我是谁”“我的信息”`/learn whoami` 或 `/whoami` 查询自己的 senderId，再把该值写入本机运行配置，而不是写进仓库代码。
+- **allowFrom**: 这里同时复用为 owner 判定来源。推荐先在钉钉私聊发送“我是谁”“我的信息”`/learn whoami` 或 `/whoami` 查询自己的 senderId，再把该值写入本机运行配置，而不是写进仓库代码。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
 
@@ -397,16 +396,16 @@ openclaw gateway restart
 {
   "channels": {
     "dingtalk": {
-      "ownerAllowFrom": ["your-sender-id"]
+      "allowFrom": ["your-sender-id"]
     }
   }
 }
 ```
 
-4. 热重载或重启网关后，在钉钉私聊发送：`我是不是owner`、`我是owner吗`、`我是owner了么`、`我是owner了吗`、`owner状态`、`/learn owner status`、`/owner status` 或 `/owner-status`
+4. 热重载或重启网关后，在钉钉私聊发送：`/learn owner status`、`/owner status` 或 `/owner-status`
 5. 若返回 `isOwner: true`，说明当前账号已经获得 owner 权限
 
-owner 权限只控制学习/共享知识命令，不改变现有 `dmPolicy / groupPolicy / allowFrom / pairing` 的普通消息使用路径。
+owner 权限直接复用 `allowFrom`，只控制学习/共享知识命令，不改变现有 `dmPolicy / groupPolicy / pairing` 的普通消息使用路径。
 
 ## 安全策略
 
