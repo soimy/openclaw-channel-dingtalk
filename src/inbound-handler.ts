@@ -376,7 +376,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   const to = isDirect ? senderId : groupId;
   const conversationTargetId = data.conversationId;
-  const isOwner = isLearningOwner(dingtalkConfig, {
+  const isOwner = isLearningOwner({
+    cfg,
+    config: dingtalkConfig,
     senderId,
     rawSenderId: data.senderId,
   });
@@ -423,7 +425,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         senderId,
         rawSenderId: data.senderId,
         isOwner,
-        allowFrom: dingtalkConfig.allowFrom,
       }),
       { log },
     );

@@ -289,11 +289,11 @@ describe('inbound-handler', () => {
         shared.extractMessageContentMock.mockReturnValueOnce({ text: '我是不是owner', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_status',
                 msgtype: 'text',
@@ -309,7 +309,7 @@ describe('inbound-handler', () => {
 
         expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('isOwner: `true`');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('allowFrom: `owner-test-id`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('commands.ownerAllowFrom');
     });
 
     it('handleDingTalkMessage returns whereami info for group fixed command', async () => {
@@ -344,11 +344,11 @@ describe('inbound-handler', () => {
         shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn global test', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_deny',
                 msgtype: 'text',
@@ -371,11 +371,11 @@ describe('inbound-handler', () => {
         shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn global 当别人问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global',
                 msgtype: 'text',
@@ -402,11 +402,11 @@ describe('inbound-handler', () => {
         });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { groupPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_here',
                 msgtype: 'text',
@@ -441,11 +441,11 @@ describe('inbound-handler', () => {
             .mockReturnValueOnce({ text: '蓝色火烈鸟会不会写Python', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global_2',
                 msgtype: 'text',
@@ -460,11 +460,11 @@ describe('inbound-handler', () => {
         } as any);
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global_3',
                 msgtype: 'text',
@@ -495,11 +495,11 @@ describe('inbound-handler', () => {
             .mockReturnValueOnce({ text: '蓝色火烈鸟会不会写python？', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global_normalized_1',
                 msgtype: 'text',
@@ -514,11 +514,11 @@ describe('inbound-handler', () => {
         } as any);
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global_normalized_2',
                 msgtype: 'text',
@@ -549,11 +549,11 @@ describe('inbound-handler', () => {
             .mockReturnValueOnce({ text: '\u0007\u0007蓝色火烈鸟会不会写Python', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_global_control_char_1',
                 msgtype: 'text',
@@ -604,11 +604,11 @@ describe('inbound-handler', () => {
             .mockReturnValueOnce({ text: '量子海带会不会下围棋', messageType: 'text' });
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { groupPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_here_force',
                 msgtype: 'text',
@@ -623,11 +623,11 @@ describe('inbound-handler', () => {
         } as any);
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { groupPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_here_force_hit',
                 msgtype: 'text',
@@ -642,11 +642,11 @@ describe('inbound-handler', () => {
         } as any);
 
         await handleDingTalkMessage({
-            cfg: {},
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', allowFrom: ['owner-test-id'] } as any,
+            dingtalkConfig: { groupPolicy: 'open' } as any,
             data: {
                 msgId: 'm2_owner_apply_here_force_miss',
                 msgtype: 'text',
