@@ -6,7 +6,10 @@ export function isWhoAmICommand(text: string | undefined): boolean {
   if (!normalized) {
     return false;
   }
-  return normalized === "/learn whoami" || normalized === "我是谁" || normalized === "我的信息";
+  return normalized === "/learn whoami"
+    || normalized === "/whoami"
+    || normalized === "我是谁"
+    || normalized === "我的信息";
 }
 
 export function isOwnerStatusCommand(text: string | undefined): boolean {
@@ -15,6 +18,8 @@ export function isOwnerStatusCommand(text: string | undefined): boolean {
     return false;
   }
   return normalized === "/learn owner status"
+    || normalized === "/owner status"
+    || normalized === "/owner-status"
     || normalized === "owner状态"
     || normalized === "我是不是owner"
     || normalized === "我是owner吗"
@@ -35,27 +40,17 @@ export function isLearningOwner(config: DingTalkConfig | undefined, params: {
 }
 
 export function formatWhoAmIReply(params: {
-  accountId: string;
   senderId: string;
   rawSenderId?: string;
   senderStaffId?: string;
-  conversationId?: string;
-  conversationType?: string;
-  agentId?: string;
-  sessionKey?: string;
   isOwner?: boolean;
 }): string {
   return [
-    "这是你当前这条钉钉消息的身份信息：",
+    "这是你当前消息对应的身份信息：",
     "",
     `- senderId: \`${params.senderId || ""}\``,
     `- rawSenderId: \`${params.rawSenderId || ""}\``,
     `- senderStaffId: \`${params.senderStaffId || ""}\``,
-    `- conversationId: \`${params.conversationId || ""}\``,
-    `- conversationType: \`${params.conversationType || ""}\``,
-    `- accountId: \`${params.accountId || ""}\``,
-    `- agentId: \`${params.agentId || ""}\``,
-    `- sessionKey: \`${params.sessionKey || ""}\``,
     `- isOwner: \`${params.isOwner ? "true" : "false"}\``,
     "",
     "后续如果要配置 owner 或控制命令权限，就以这里返回的 senderId 为准。",
@@ -66,7 +61,6 @@ export function formatOwnerStatusReply(params: {
   senderId: string;
   rawSenderId?: string;
   isOwner: boolean;
-  ownerAllowFrom?: string[];
 }): string {
   return [
     "当前 owner 控制状态：",
@@ -74,7 +68,8 @@ export function formatOwnerStatusReply(params: {
     `- senderId: \`${params.senderId || ""}\``,
     `- rawSenderId: \`${params.rawSenderId || ""}\``,
     `- isOwner: \`${params.isOwner ? "true" : "false"}\``,
-    `- ownerAllowFrom: \`${(params.ownerAllowFrom || []).join(",")}\``,
+    "",
+    "如果需要变更 owner，请由宿主修改本机运行配置。",
   ].join("\n");
 }
 
