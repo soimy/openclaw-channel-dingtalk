@@ -82,11 +82,11 @@ describe('types helpers', () => {
         expect(account.mediaMaxMb).toBe(50);
     });
 
-    it('resolves named account with inherited ownerAllowFrom default', () => {
+    it('resolves named account with inherited allowFrom default', () => {
         const cfg = {
             channels: {
                 dingtalk: {
-                    ownerAllowFrom: ['owner-test-id'],
+                    allowFrom: ['owner-test-id'],
                     accounts: {
                         main: { clientId: 'cli_main', clientSecret: 'sec_main' },
                     },
@@ -95,6 +95,6 @@ describe('types helpers', () => {
         } as any;
 
         const account = resolveDingTalkAccount(cfg, 'main');
-        expect(account.ownerAllowFrom).toEqual(['owner-test-id']);
+        expect(account.allowFrom).toEqual(['owner-test-id']);
     });
 });

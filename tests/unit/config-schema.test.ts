@@ -46,13 +46,13 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.mediaUrlAllowlist).toEqual(['192.168.1.23', 'files.internal.example']);
     });
 
-    it('accepts ownerAllowFrom for config', () => {
+    it('accepts allowFrom for config', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
-            ownerAllowFrom: ['owner-test-id'],
-        }) as { ownerAllowFrom?: string[] };
+            allowFrom: ['owner-test-id'],
+        }) as { allowFrom?: string[] };
 
-        expect(parsed.ownerAllowFrom).toEqual(['owner-test-id']);
+        expect(parsed.allowFrom).toEqual(['owner-test-id']);
     });
 });

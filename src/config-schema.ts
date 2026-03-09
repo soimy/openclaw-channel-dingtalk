@@ -98,8 +98,6 @@ const DingTalkAccountConfigSchema = z.object({
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
 
-  /** DingTalk sender IDs allowed to execute owner-only learning/control commands */
-  ownerAllowFrom: z.array(z.string()).optional(),
 });
 
 /**
