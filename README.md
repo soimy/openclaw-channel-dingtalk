@@ -376,7 +376,6 @@ openclaw gateway restart
 - **initialReconnectDelay**: 第一次重连的初始延迟（毫秒），后续重连会按指数增长。
 - **maxReconnectDelay**: 重连延迟的上限（毫秒），防止等待时间过长。
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
-- **allowFrom**: 这里同时复用为 owner 判定来源。若要这样使用，建议与 `dmPolicy: "allowlist"` 配套，推荐先在钉钉私聊发送“我是谁”“我的信息”`/learn whoami` 或 `/whoami` 查询自己的 senderId，再把该值写入本机运行配置，而不是写进仓库代码。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
 
@@ -394,10 +393,14 @@ openclaw gateway restart
 
 ```json
 {
+  "commands": {
+    "ownerAllowFrom": [
+      "dingtalk:your-sender-id"
+    ]
+  },
   "channels": {
     "dingtalk": {
-      "dmPolicy": "allowlist",
-      "allowFrom": ["your-sender-id"]
+      "dmPolicy": "open"
     }
   }
 }
@@ -406,7 +409,7 @@ openclaw gateway restart
 4. 热重载或重启网关后，在钉钉私聊发送：`/learn owner status`、`/owner status` 或 `/owner-status`
 5. 若返回 `isOwner: true`，说明当前账号已经获得 owner 权限
 
-owner 权限直接复用 `allowFrom`。当采用这套 owner 配置时，建议使用 `dmPolicy: "allowlist"` 保持访问语义一致；群聊是否开放仍由 `groupPolicy` 单独控制。
+owner 权限来自 OpenClaw 框架标准字段 `commands.ownerAllowFrom`，不复用 `allowFrom`。`dmPolicy / groupPolicy / allowFrom` 仍只负责普通消息访问控制。
 
 ## 安全策略
 

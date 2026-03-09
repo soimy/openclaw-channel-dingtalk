@@ -2,33 +2,8 @@ import { normalizeAllowFrom, isSenderOwner } from "./access-control";
 import type { DingTalkConfig } from "./types";
 
 export interface ParsedLearnCommand {
-  scope: "global" | "session" | "list" | "unknown";
+  scope: "global" | "session" | "list" | "whoami" | "owner-status" | "unknown";
   instruction?: string;
-}
-
-export function isWhoAmICommand(text: string | undefined): boolean {
-  const normalized = String(text || "").trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return normalized === "/learn whoami"
-    || normalized === "/whoami"
-    || normalized === "我是谁"
-    || normalized === "我的信息";
-}
-
-export function isOwnerStatusCommand(text: string | undefined): boolean {
-  const normalized = String(text || "").trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return normalized === "/learn owner status"
-    || normalized === "/owner status"
-    || normalized === "/owner-status";
-}
-
-export function isLearnCommand(text: string | undefined): boolean {
-  return String(text || "").trim().toLowerCase().startsWith("/learn ");
 }
 
 export function parseLearnCommand(text: string | undefined): ParsedLearnCommand {
@@ -37,6 +12,21 @@ export function parseLearnCommand(text: string | undefined): ParsedLearnCommand 
     return { scope: "unknown" };
   }
   const normalized = raw.toLowerCase();
+  if (
+    normalized === "/learn whoami"
+    || normalized === "/whoami"
+    || normalized === "我是谁"
+    || normalized === "我的信息"
+  ) {
+    return { scope: "whoami" };
+  }
+  if (
+    normalized === "/learn owner status"
+    || normalized === "/owner status"
+    || normalized === "/owner-status"
+  ) {
+    return { scope: "owner-status" };
+  }
   if (normalized === "/learn list") {
     return { scope: "list" };
   }
@@ -49,11 +39,13 @@ export function parseLearnCommand(text: string | undefined): ParsedLearnCommand 
   return { scope: "unknown" };
 }
 
-export function isLearningOwner(config: DingTalkConfig | undefined, params: {
+export function isLearningOwner(params: {
+  cfg?: { commands?: { ownerAllowFrom?: Array<string | number> } };
+  config?: DingTalkConfig;
   senderId?: string;
   rawSenderId?: string;
 }): boolean {
-  const allow = normalizeAllowFrom(config?.allowFrom);
+  const allow = normalizeAllowFrom(params.cfg?.commands?.ownerAllowFrom as string[] | undefined);
   return isSenderOwner({ allow, senderId: params.senderId, rawSenderId: params.rawSenderId });
 }
 
@@ -92,7 +84,7 @@ export function formatOwnerStatusReply(params: {
 }
 
 export function formatOwnerOnlyDeniedReply(): string {
-  return "这条学习/控制命令仅允许 owner 使用。先发送“我是谁”确认你的 senderId，再由宿主配置将该 senderId 加入 allowFrom。";
+  return "这条学习/控制命令仅允许 owner 使用。先发送“我是谁”确认你的 senderId，再由宿主将该 senderId 加入 commands.ownerAllowFrom。";
 }
 
 export function formatLearnCommandHelp(): string {
