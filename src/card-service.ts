@@ -399,11 +399,15 @@ export async function createAICard(
 
     // DingTalk createAndDeliver API payload.
     const cardTemplateKey = config.cardTemplateKey || "content";
+    const cardParamMap = {
+      config: JSON.stringify({ autoLayout: true, enableForward: true }),
+      [cardTemplateKey]: "",
+    };
     const createAndDeliverBody = {
       cardTemplateId: config.cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
-        cardParamMap: { [cardTemplateKey]: "" },
+        cardParamMap,
       },
       callbackType: "STREAM",
       imGroupOpenSpaceModel: { supportForward: true },

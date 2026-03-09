@@ -270,18 +270,19 @@ openclaw configure --section channels
 2. 进入「我的模板」
 3. 点击「创建模板」
 4. 卡片模板场景选择 **「AI 卡片」**
-5. 按需设计卡片排版,点击保存并发布
-6. 记下模板中定义的内容字段名称
+5. 点击「导入模板 JSON」，选择仓库中的模板文件：[`docs/cardTemplate.json`](docs/cardTemplate.json)
+6. 导入后点击保存并发布
 7. 复制模板 ID（格式如：`xxxxx-xxxxx-xxxxx.schema`）
 8. 将 templateId 配置到 `openclaw.json` 的 `cardTemplateId` 字段
 9. 或在OpenClaw控制台的Channel标签->Dingtalk配置面板-> Card Template Id填入
-10. 将记下的内容字段变量名配置到 `openclaw.json` 的 `cardTemplateKey` 字段
+10. 将模板中的内容字段变量名配置到 `openclaw.json` 的 `cardTemplateKey` 字段
 11. 或在OpenClaw控制台的Channel标签->Dingtalk配置面板-> Card Template Key填入
 
 **说明：**
 
-- 使用 DingTalk 官方 AI 卡片模板时，`cardTemplateKey` 默认为 `'content'`，无需修改
-- 如果您创建自定义卡片模板，需要确保模板中包含相应的内容字段，并将 `cardTemplateKey` 配置为该字段名称
+- 仓库内已提供可直接导入的模板文件：`docs/cardTemplate.json`
+- 当前模板的正文变量名为 `content`；如果您后续自行修改模板字段，请同步更新 `cardTemplateKey`
+- 插件在 `messageType: 'card'` 下会默认传入 `config={"autoLayout":true,"enableForward":true}`；其中 `autoLayout` 用于启用 PC 端宽屏布局，`enableForward` 用于启用卡片转发。如果您使用自定义模板，请额外定义对象变量 `config`，并在其中添加布尔子属性 `autoLayout` 和 `enableForward`
 
 ##### 4. 获取凭证
 
@@ -576,6 +577,7 @@ openclaw gateway restart
 2. 使用 `/v1.0/card/streaming` 实现真正的流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
 4. 更稳定的流式体验，无需手动节流
+5. 默认注入 `cardData.cardParamMap.config={"autoLayout":true,"enableForward":true}`，同时启用 AI 卡片在 PC 端的宽屏自适应布局和卡片转发
 
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
@@ -734,6 +736,8 @@ openclaw logs | grep "\[ErrorPayload\]"
 如果你看到 `code=invalidParameter`，通常优先检查请求 payload 的必填字段（例如 `robotCode`、`userIds`、`msgKey`、`msgParam`）是否完整且格式正确。
 
 ## 开发指南
+
+准备提交 issue 或 PR 时，请先阅读贡献指南：英文版见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，中文版见 [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md)。
 
 ### 首次设置
 

@@ -80,7 +80,10 @@ describe('card-service', () => {
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
         const body = mockedAxios.post.mock.calls[0]?.[1];
-        expect(body.cardData?.cardParamMap).toEqual({ content: '' });
+        expect(body.cardData?.cardParamMap).toEqual({
+            config: '{"autoLayout":true,"enableForward":true}',
+            content: '',
+        });
         expect(body.imGroupOpenDeliverModel).toEqual({ robotCode: 'id' });
     });
 
