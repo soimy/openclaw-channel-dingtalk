@@ -12,6 +12,7 @@ const SNAPSHOTS_NAMESPACE = "feedback.snapshots";
 const REFLECTIONS_NAMESPACE = "feedback.reflections";
 const SESSION_NOTES_NAMESPACE = "feedback.session-notes";
 const LEARNED_RULES_NAMESPACE = "feedback.learned-rules";
+const TARGET_RULES_NAMESPACE = "feedback.target-rules";
 
 export type FeedbackKind = "explicit_positive" | "explicit_negative" | "implicit_negative";
 export type ReflectionCategory =
@@ -75,6 +76,9 @@ export interface LearnedRuleRecord {
   positiveCount: number;
   updatedAt: number;
   enabled: boolean;
+  scope?: "account" | "target";
+  targetId?: string;
+  conversationType?: "dm" | "group" | "unknown";
   manual?: boolean;
   triggerText?: string;
   forcedReply?: string;
@@ -213,7 +217,10 @@ export function upsertLearnedRule(
     format: "json",
     fallback: { updatedAt: 0, rules: {} },
   });
-  bucket.rules[params.rule.ruleId] = params.rule;
+  bucket.rules[params.rule.ruleId] = {
+    ...params.rule,
+    scope: "account",
+  };
   const trimmedRules = Object.values(bucket.rules)
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, MAX_RULES);
@@ -238,6 +245,60 @@ export function listLearnedRules(
   const bucket = readNamespaceJson<LearnedRuleBucket>(LEARNED_RULES_NAMESPACE, {
     storePath: params.storePath,
     scope: { accountId: params.accountId },
+    format: "json",
+    fallback: { updatedAt: 0, rules: {} },
+  });
+  return Object.values(bucket.rules).sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export function upsertTargetLearnedRule(
+  params: {
+    storePath?: string;
+    accountId: string;
+    targetId: string;
+    conversationType?: "dm" | "group" | "unknown";
+    rule: LearnedRuleRecord;
+  },
+): void {
+  if (!params.storePath) {
+    return;
+  }
+  const bucket = readNamespaceJson<LearnedRuleBucket>(TARGET_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, targetId: params.targetId },
+    format: "json",
+    fallback: { updatedAt: 0, rules: {} },
+  });
+  bucket.rules[params.rule.ruleId] = {
+    ...params.rule,
+    scope: "target",
+    targetId: params.targetId,
+    conversationType: params.conversationType || "unknown",
+  };
+  const trimmedRules = Object.values(bucket.rules)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, MAX_RULES);
+  const rules: Record<string, LearnedRuleRecord> = {};
+  for (const rule of trimmedRules) {
+    rules[rule.ruleId] = rule;
+  }
+  writeNamespaceJsonAtomic(TARGET_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, targetId: params.targetId },
+    format: "json",
+    data: { updatedAt: Date.now(), rules } satisfies LearnedRuleBucket,
+  });
+}
+
+export function listTargetLearnedRules(
+  params: { storePath?: string; accountId: string; targetId: string },
+): LearnedRuleRecord[] {
+  if (!params.storePath) {
+    return [];
+  }
+  const bucket = readNamespaceJson<LearnedRuleBucket>(TARGET_RULES_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, targetId: params.targetId },
     format: "json",
     fallback: { updatedAt: 0, rules: {} },
   });

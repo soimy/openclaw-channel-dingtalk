@@ -313,6 +313,34 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('ownerAllowFrom: `owner-test-id`');
     });
 
+    it('handleDingTalkMessage returns whereami info for group fixed command', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '这里是谁', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open' } as any,
+            data: {
+                msgId: 'm2_whereami_group',
+                msgtype: 'text',
+                text: { content: '这里是谁' },
+                conversationType: '2',
+                conversationId: 'cid_group_scope_1',
+                senderId: 'user_group_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('类型：群聊');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('conversationId: `cid_group_scope_1`');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('/learn target cid_group_scope_1 <规则>');
+    });
+
     it('handleDingTalkMessage blocks learn control command for non-owner', async () => {
         shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn global test', messageType: 'text' });
 
@@ -366,6 +394,36 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('已注入全局知识');
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('manual_');
         expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('handleDingTalkMessage applies target learning rule for current group via /learn here', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: '/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”',
+            messageType: 'text',
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_here',
+                msgtype: 'text',
+                text: { content: '/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”' },
+                conversationType: '2',
+                conversationId: 'cid_group_scope_2',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('已注入当前目标知识');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('targetId: `cid_group_scope_2`');
     });
 
     it('handleDingTalkMessage short-circuits with manual forced global reply', async () => {
@@ -422,6 +480,85 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.sendBySessionMock.mock.calls.at(-1)?.[2]).toContain('会，而且只在周二写Rust。');
+    });
+
+    it('handleDingTalkMessage keeps target-scoped forced reply inside matching group only', async () => {
+        const storePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-target-learning-')), 'store.json');
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi.fn().mockReturnValue(storePath);
+        shared.getRuntimeMock.mockReturnValue(runtime as any);
+
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({
+                text: '/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”',
+                messageType: 'text',
+            })
+            .mockReturnValueOnce({ text: '量子海带会不会下围棋', messageType: 'text' })
+            .mockReturnValueOnce({ text: '量子海带会不会下围棋', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_here_force',
+                msgtype: 'text',
+                text: { content: '/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”' },
+                conversationType: '2',
+                conversationId: 'cid_group_scope_target',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_here_force_hit',
+                msgtype: 'text',
+                text: { content: '量子海带会不会下围棋' },
+                conversationType: '2',
+                conversationId: 'cid_group_scope_target',
+                senderId: 'user_any',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', ownerAllowFrom: ['owner-test-id'] } as any,
+            data: {
+                msgId: 'm2_owner_apply_here_force_miss',
+                msgtype: 'text',
+                text: { content: '量子海带会不会下围棋' },
+                conversationType: '2',
+                conversationId: 'cid_group_scope_other',
+                senderId: 'user_other',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        const matchingGroupReply = shared.sendBySessionMock.mock.calls.at(-1)?.[2];
+        const otherGroupReply = shared.sendMessageMock.mock.calls.at(-1)?.[2];
+
+        expect(matchingGroupReply).toContain('会，而且只在雨天用左手落子。');
+        expect(otherGroupReply).not.toContain('会，而且只在雨天用左手落子。');
+        expect(shared.sendMessageMock).toHaveBeenCalled();
     });
 
     it('handleDingTalkMessage sends group deny message when groupPolicy allowlist blocks group', async () => {

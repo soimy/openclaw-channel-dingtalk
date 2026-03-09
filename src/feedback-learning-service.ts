@@ -9,9 +9,11 @@ import {
   listActiveSessionLearningNotes,
   listLearnedRules,
   listOutboundReplySnapshots,
+  listTargetLearnedRules,
   LearnedRuleRecord,
   OutboundReplySnapshot,
   ReflectionCategory,
+  upsertTargetLearnedRule,
   upsertLearnedRule,
 } from "./feedback-learning-store";
 import type { DingTalkConfig, MessageContent } from "./types";
@@ -351,6 +353,27 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
   }
 }
 
+function listMatchingRules(params: {
+  storePath?: string;
+  accountId: string;
+  targetId: string;
+  content: MessageContent;
+}): LearnedRuleRecord[] {
+  if (!params.storePath) {
+    return [];
+  }
+  const targetRules = listTargetLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId,
+  }).filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content));
+  const globalRules = listLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  }).filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content));
+  return [...targetRules, ...globalRules];
+}
+
 export function buildLearningContextBlock(params: {
   enabled: boolean;
   storePath?: string;
@@ -366,12 +389,7 @@ export function buildLearningContextBlock(params: {
     accountId: params.accountId,
     targetId: params.targetId,
   }).slice(0, 3);
-  const rules = listLearnedRules({
-    storePath: params.storePath,
-    accountId: params.accountId,
-  })
-    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
-    .slice(0, 3);
+  const rules = listMatchingRules(params).slice(0, 3);
 
   const instructions = [
     ...notes.map((note) => note.instruction),
@@ -417,9 +435,52 @@ export function applyManualGlobalLearningRule(params: {
   return { ruleId };
 }
 
+function inferConversationType(targetId: string): "dm" | "group" | "unknown" {
+  if (!targetId.trim()) {
+    return "unknown";
+  }
+  return targetId.startsWith("cid") ? "group" : "dm";
+}
+
+export function applyManualTargetLearningRule(params: {
+  storePath?: string;
+  accountId: string;
+  targetId: string;
+  instruction: string;
+  conversationType?: "dm" | "group" | "unknown";
+}): { ruleId: string } | null {
+  if (!params.storePath || !params.targetId.trim() || !params.instruction.trim()) {
+    return null;
+  }
+  const ruleId = `manual_target_${Date.now()}`;
+  const exactReplyMatch = params.instruction
+    .trim()
+    .match(/^当用户问[“\"](.+?)[”\"]时，必须回答[“\"](.+?)[”\"][。.!！]?$/);
+  upsertTargetLearnedRule({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId.trim(),
+    conversationType: params.conversationType || inferConversationType(params.targetId),
+    rule: {
+      ruleId,
+      category: "generic_negative",
+      instruction: params.instruction.trim(),
+      negativeCount: 1,
+      positiveCount: 0,
+      updatedAt: Date.now(),
+      enabled: true,
+      manual: true,
+      triggerText: exactReplyMatch?.[1]?.trim(),
+      forcedReply: exactReplyMatch?.[2]?.trim(),
+    },
+  });
+  return { ruleId };
+}
+
 export function resolveManualForcedReply(params: {
   storePath?: string;
   accountId: string;
+  targetId: string;
   content: MessageContent;
 }): string | null {
   if (!params.storePath) {
@@ -432,7 +493,32 @@ export function resolveManualForcedReply(params: {
   const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
     .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
     .find((rule) => rule.triggerText === text);
-  return matched?.forcedReply || null;
+  const targetMatched = listTargetLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    targetId: params.targetId,
+  })
+    .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
+    .find((rule) => rule.triggerText === text);
+  return targetMatched?.forcedReply || matched?.forcedReply || null;
+}
+
+export function listScopedLearnedRules(params: {
+  storePath?: string;
+  accountId: string;
+  targetId: string;
+}): { targetRules: LearnedRuleRecord[]; globalRules: LearnedRuleRecord[] } {
+  return {
+    targetRules: listTargetLearnedRules({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      targetId: params.targetId,
+    }),
+    globalRules: listLearnedRules({
+      storePath: params.storePath,
+      accountId: params.accountId,
+    }),
+  };
 }
 
 export function applyManualSessionLearningNote(params: {

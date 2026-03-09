@@ -384,7 +384,7 @@ openclaw gateway restart
 - **feedbackLearningEnabled**: 开启后，插件会记录发送快照、显式点赞/点踩、隐式不满信号、反思记录，并在下一条消息进入时把学习提示注入当前上下文。
 - **ownerAllowFrom**: 只有这些 senderId 才能执行 owner-only 的 `/learn ...` 管理命令。可先在钉钉私聊发送“我是谁”或 `/learn whoami` 查看自己的 senderId。
 - **feedbackLearningAutoApply**: 默认关闭。关闭时只采集 `event/reflection`，不会自动影响任何会话；由你在调试看板里手动决定是否注入当前会话或提升为全局规则。
-- **feedbackLearningNoteTtlMs**: 控制 target 级学习笔记有效期；全局规则仍按 account 级持久化，供同一钉钉账号下的所有会话共享。
+- **feedbackLearningNoteTtlMs**: 控制会话级学习笔记有效期；target 级和全局规则会继续持久化，分别作用于指定群/私聊和整个账号。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
 
@@ -414,6 +414,7 @@ openclaw gateway restart
 - `feedback.reflections`
 - `feedback.session-notes`
 - `feedback.learned-rules`
+- `feedback.target-rules`
 
 ### 调试看板
 
@@ -452,6 +453,49 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   }
 }
 ```
+
+### owner 操作与作用域
+
+先区分 4 个常用动作：
+
+- **查自己是谁**
+  - 私聊或群聊发：`我是谁` / `我的信息` / `/learn whoami`
+  - 用途：拿到自己的 `senderId`
+- **查当前这里是谁**
+  - 私聊或群聊发：`这里是谁` / `这个群是谁` / `这个会话是谁` / `/learn whereami`
+  - 用途：拿到当前 `conversationId`，后面可做指定群/私聊注入
+- **注入当前这里**
+  - owner 发：`/learn here <规则>`
+  - 用途：只让当前群或当前私聊生效
+- **注入指定目标**
+  - owner 发：`/learn target <conversationId> <规则>`
+  - 用途：指定某个群或某个私聊生效
+- **注入全局**
+  - owner 发：`/learn global <规则>`
+  - 用途：让同一钉钉账号下所有群和私聊都生效
+
+命令示例：
+
+```text
+我是谁
+这里是谁
+/learn here 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”
+/learn target cid_xxx 当用户问“量子海带会不会下围棋”时，必须回答“会，而且只在雨天用左手落子。”
+/learn global 当用户问“蓝色火烈鸟会不会写Python”时，必须回答“会，而且只在周二写Rust。”
+```
+
+### 作用域优先级
+
+同一条消息进入时，规则按下面顺序生效：
+
+1. 当前会话临时笔记（`/learn session ...`）
+2. 当前群/当前私聊或指定目标规则（`/learn here ...` / `/learn target ...`）
+3. 当前账号全局规则（`/learn global ...`）
+
+也就是说：
+
+- 先局部覆盖全局
+- 再避免一个群里的实验规则污染所有会话
 
 ## 安全策略
 

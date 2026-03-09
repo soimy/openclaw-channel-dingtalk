@@ -18,10 +18,12 @@ import {
   formatLearnListReply,
   formatOwnerOnlyDeniedReply,
   formatOwnerStatusReply,
+  formatWhereAmIReply,
   formatWhoAmIReply,
   isLearnCommand,
   isLearningOwner,
   isOwnerStatusCommand,
+  isWhereAmICommand,
   isWhoAmICommand,
   parseLearnCommand,
 } from "./learning-command-service";
@@ -40,16 +42,17 @@ import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-ca
 import { appendQuoteJournalEntry, findQuoteJournalEntryByMsgId } from "./quote-journal";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import {
+  applyManualTargetLearningRule,
   applyManualGlobalLearningRule,
   applyManualSessionLearningNote,
   analyzeImplicitNegativeFeedback,
   buildLearningContextBlock,
   isFeedbackLearningAutoApplyEnabled,
   isFeedbackLearningEnabled,
+  listScopedLearnedRules,
   recordOutboundReplyForLearning,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
-import { listLearnedRules } from "./feedback-learning-store";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
@@ -372,11 +375,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
+  const conversationTargetId = data.conversationId;
   const isOwner = isLearningOwner(dingtalkConfig, {
     senderId,
     rawSenderId: data.senderId,
   });
-  if (isDirect && isWhoAmICommand(content.text)) {
+  if (isWhoAmICommand(content.text)) {
     await sendBySession(
       dingtalkConfig,
       sessionWebhook,
@@ -395,7 +399,23 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     );
     return;
   }
-  if (isDirect && isOwnerStatusCommand(content.text)) {
+  if (isWhereAmICommand(content.text)) {
+    await sendBySession(
+      dingtalkConfig,
+      sessionWebhook,
+      formatWhereAmIReply({
+        accountId,
+        conversationId: data.conversationId,
+        conversationType: isDirect ? "dm" : "group",
+        sessionKey: route.sessionKey,
+        senderId,
+        agentId: route.agentId,
+      }),
+      { log },
+    );
+    return;
+  }
+  if (isOwnerStatusCommand(content.text)) {
     await sendBySession(
       dingtalkConfig,
       sessionWebhook,
@@ -409,11 +429,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     );
     return;
   }
-  if (isDirect && isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text) && !isOwner) {
+  if (isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text) && !isOwner) {
     await sendBySession(dingtalkConfig, sessionWebhook, formatOwnerOnlyDeniedReply(), { log });
     return;
   }
-  if (isDirect && isOwner && isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text)) {
+  if (isOwner && isLearnCommand(content.text) && !isWhoAmICommand(content.text) && !isOwnerStatusCommand(content.text)) {
     const learnCommand = parseLearnCommand(content.text);
     if (learnCommand.scope === "global" && learnCommand.instruction) {
       const applied = applyManualGlobalLearningRule({
@@ -433,11 +453,52 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       return;
     }
+    if (learnCommand.scope === "target" && learnCommand.instruction && learnCommand.targetId) {
+      const applied = applyManualTargetLearningRule({
+        storePath: accountStorePath,
+        accountId,
+        targetId: learnCommand.targetId,
+        instruction: learnCommand.instruction,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnAppliedReply({
+          scope: "target",
+          targetId: learnCommand.targetId,
+          instruction: learnCommand.instruction,
+          ruleId: applied?.ruleId,
+        }),
+        { log },
+      );
+      return;
+    }
+    if (learnCommand.scope === "here" && learnCommand.instruction) {
+      const applied = applyManualTargetLearningRule({
+        storePath: accountStorePath,
+        accountId,
+        targetId: conversationTargetId,
+        conversationType: isDirect ? "dm" : "group",
+        instruction: learnCommand.instruction,
+      });
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        formatLearnAppliedReply({
+          scope: "target",
+          targetId: conversationTargetId,
+          instruction: learnCommand.instruction,
+          ruleId: applied?.ruleId,
+        }),
+        { log },
+      );
+      return;
+    }
     if (learnCommand.scope === "session" && learnCommand.instruction) {
       applyManualSessionLearningNote({
         storePath,
         accountId,
-        targetId: data.conversationId,
+        targetId: conversationTargetId,
         instruction: learnCommand.instruction,
         noteTtlMs: dingtalkConfig.feedbackLearningNoteTtlMs,
       });
@@ -453,10 +514,21 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       return;
     }
     if (learnCommand.scope === "list") {
-      const rules = listLearnedRules({ storePath: accountStorePath, accountId })
-        .filter((rule) => rule.enabled)
-        .slice(0, 10)
-        .map((rule) => `- ${rule.ruleId}: ${rule.instruction}`);
+      const scopedRules = listScopedLearnedRules({
+        storePath: accountStorePath,
+        accountId,
+        targetId: conversationTargetId,
+      });
+      const rules = [
+        ...scopedRules.targetRules
+          .filter((rule) => rule.enabled)
+          .slice(0, 5)
+          .map((rule) => `- [当前目标] ${rule.ruleId}: ${rule.instruction}`),
+        ...scopedRules.globalRules
+          .filter((rule) => rule.enabled)
+          .slice(0, 5)
+          .map((rule) => `- [全局] ${rule.ruleId}: ${rule.instruction}`),
+      ];
       await sendBySession(dingtalkConfig, sessionWebhook, formatLearnListReply(rules), { log });
       return;
     }
@@ -468,6 +540,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const manualForcedReply = resolveManualForcedReply({
     storePath: accountStorePath,
     accountId,
+    targetId: conversationTargetId,
     content,
   });
   if (manualForcedReply) {
@@ -806,7 +879,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     autoApply: feedbackLearningAutoApply,
     storePath: accountStorePath,
     accountId,
-    targetId: to,
+    targetId: conversationTargetId,
     signalText: content.text,
     content,
     noteTtlMs: dingtalkConfig.feedbackLearningNoteTtlMs,
@@ -816,7 +889,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     enabled: feedbackLearningEnabled,
     storePath: accountStorePath,
     accountId,
-    targetId: to,
+    targetId: conversationTargetId,
     content,
   });
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
@@ -1118,7 +1191,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         enabled: feedbackLearningEnabled,
         storePath: accountStorePath,
         accountId,
-        targetId: to,
+        targetId: conversationTargetId,
         sessionKey: route.sessionKey,
         question: inboundText,
         answer: finalAnswerCandidate,
