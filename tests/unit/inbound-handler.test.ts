@@ -282,8 +282,8 @@ describe('inbound-handler', () => {
         expect(shared.sendMessageMock).not.toHaveBeenCalled();
     });
 
-    it('handleDingTalkMessage returns owner status for direct command', async () => {
-        shared.extractMessageContentMock.mockReturnValueOnce({ text: '我是不是owner', messageType: 'text' });
+    it('handleDingTalkMessage returns owner status for slash command', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '/learn owner status', messageType: 'text' });
 
         await handleDingTalkMessage({
             cfg: {},
@@ -294,7 +294,7 @@ describe('inbound-handler', () => {
             data: {
                 msgId: 'm2_owner_status',
                 msgtype: 'text',
-                text: { content: '我是不是owner' },
+                text: { content: '/learn owner status' },
                 conversationType: '1',
                 conversationId: 'cid_dm_owner',
                 senderId: 'owner-test-id',
@@ -309,8 +309,8 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).not.toContain('ownerAllowFrom');
     });
 
-    it('handleDingTalkMessage accepts natural owner status alias', async () => {
-        shared.extractMessageContentMock.mockReturnValueOnce({ text: '我是owner了吗', messageType: 'text' });
+    it('handleDingTalkMessage accepts owner status slash alias', async () => {
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: '/owner status', messageType: 'text' });
 
         await handleDingTalkMessage({
             cfg: {},
@@ -321,7 +321,7 @@ describe('inbound-handler', () => {
             data: {
                 msgId: 'm2_owner_status_alias',
                 msgtype: 'text',
-                text: { content: '我是owner了吗' },
+                text: { content: '/owner status' },
                 conversationType: '1',
                 conversationId: 'cid_dm_owner',
                 senderId: 'owner-test-id',
