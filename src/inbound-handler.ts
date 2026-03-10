@@ -26,6 +26,7 @@ import { acquireSessionLock } from "./session-lock";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
+import classifySentenceWithEmoji from './classifyWithEmoji';
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const DEFAULT_THINKING_MESSAGE = "🤔 思考中，请稍候...";
@@ -660,7 +661,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   try {
     // 4) Optional "thinking..." feedback (markdown mode only).
     if (dingtalkConfig.showThinking !== false) {
-      const thinkingText = (dingtalkConfig.thinkingMessage || "").trim() || DEFAULT_THINKING_MESSAGE;
+      let thinkingText = (dingtalkConfig.thinkingMessage || "").trim() || DEFAULT_THINKING_MESSAGE;
+      // 🌟 "Randomly return an emoji; the answer is not cold."
+      if(thinkingText == "emoji")
+      {
+        //(Here is a random emoji for you: 🦄)
+        const resultEmoji = classifySentenceWithEmoji(content.text);
+        thinkingText = resultEmoji.emoji;
+      }
       if (useCardMode && currentAICard) {
         log?.debug?.(
           "[DingTalk] messageType=card: showThinking/thinkingMessage do not send standalone hints; thinking is streamed in card mode.",
