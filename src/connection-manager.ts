@@ -39,6 +39,11 @@ export class ConnectionManager {
   private static readonly HEALTH_CHECK_GRACE_MS = 3000;
   private static readonly HEALTH_CHECK_UNHEALTHY_THRESHOLD = 2;
   private static readonly DEFAULT_MAX_RECONNECT_CYCLES = 10;
+  // Absolute threshold for hibernation detection; intentionally decoupled from
+  // HEALTH_CHECK_INTERVAL_MS. A system is considered hibernated if the interval
+  // between consecutive health checks exceeds this value (timer skew after wake-up).
+  private static readonly SLEEP_DETECTION_THRESHOLD_MS = 30000; // 30 seconds
+  private lastHealthCheckAt?: number; // Track last health check time for sleep detection
   private runtimeReconnectCycles: number = 0;
   private runtimeCounters = {
     healthUnhealthyChecks: 0,
@@ -264,6 +269,9 @@ export class ConnectionManager {
     // Clean up any existing monitoring resources before setting up new ones
     this.cleanupRuntimeMonitoring();
 
+    // Initialize last health check time for sleep detection
+    this.lastHealthCheckAt = Date.now();
+
     // Access DWClient internals to monitor connection state
     const client = this.client as any;
 
@@ -279,10 +287,34 @@ export class ConnectionManager {
 
       if (this.state !== ConnectionStateEnum.CONNECTED) {
         this.consecutiveUnhealthyChecks = 0;
+        this.lastHealthCheckAt = Date.now();
         return;
       }
 
       const now = Date.now();
+
+      // **Sleep/Hibernate Detection**: If time since last health check exceeds threshold,
+      // the system likely slept. WebSocket connection is almost certainly dead even if
+      // socket.readyState still shows OPEN (stale state after wake).
+      if (this.lastHealthCheckAt !== undefined) {
+        const timeSinceLastCheck = now - this.lastHealthCheckAt;
+        if (timeSinceLastCheck > ConnectionManager.SLEEP_DETECTION_THRESHOLD_MS) {
+          this.log?.warn?.(
+            `[${this.accountId}] System sleep/hibernate detected! ` +
+              `Time since last health check: ${(timeSinceLastCheck / 1000).toFixed(1)}s ` +
+              `(threshold: ${ConnectionManager.SLEEP_DETECTION_THRESHOLD_MS / 1000}s). ` +
+              `Forcing reconnection as WebSocket is likely stale.`,
+          );
+          if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+          }
+          this.lastHealthCheckAt = undefined;
+          this.handleRuntimeDisconnection();
+          return;
+        }
+      }
+      this.lastHealthCheckAt = now;
+
       const withinGraceWindow =
         this.connectedAt !== undefined &&
         now - this.connectedAt < ConnectionManager.HEALTH_CHECK_GRACE_MS;
@@ -372,6 +404,9 @@ export class ConnectionManager {
       this.healthCheckInterval = undefined;
       this.log?.debug?.(`[${this.accountId}] Health check interval cleared`);
     }
+
+    // Reset sleep detection state
+    this.lastHealthCheckAt = undefined;
 
     // Remove socket event listeners from the stored socket instance
     if (this.monitoredSocket) {
