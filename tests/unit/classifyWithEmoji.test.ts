@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import classifySentenceWithEmoji, { type SentenceType, type ClassifyResult } from '../../src/classifyWithEmoji';
+import classifySentenceWithEmoji from '../../src/classifyWithEmoji.js';
 
 describe('classifySentenceWithEmoji', () => {
   // 验证返回结构

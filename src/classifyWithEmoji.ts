@@ -43,7 +43,7 @@ function classifySentenceWithEmoji(sentence: unknown): ClassifyResult {
 
   const isPolitePhrase = politeExclusions.some(phrase => s.includes(phrase));
   const isQuestion = /吗|呢|？|\?/.test(s);
-  const startsWithPlease = /^请/.test(s);
+  const startsWithPlease = s.startsWith('请');
   const hasExclamation = /[!！]/.test(s);
   const imperativeStart = !isPolitePhrase && /^(快|别|不要|不准|必须|马上|立刻)/.test(s);
 
