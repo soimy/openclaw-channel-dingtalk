@@ -321,7 +321,7 @@ openclaw configure --section channels
       "dmPolicy": "open",
       "groupPolicy": "open",
       "showThinking": true, // 仅 markdown 模式生效
-      "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效
+      "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效；设为 "emoji" 可启用随机颜文字彩蛋
       "debug": false,
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
@@ -357,7 +357,7 @@ openclaw gateway restart
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `showThinking`          | boolean  | `true`       | 是否发送“思考中”提示消息（仅 markdown 模式生效） |
-| `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式） |
+| `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式）；设为 `"emoji"` 可按用户语气返回随机颜文字 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -367,6 +367,26 @@ openclaw gateway restart
 | `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
+
+### `thinkingMessage` 彩蛋（`emoji`）
+
+当 `messageType` 为 `markdown` 且 `showThinking=true` 时，可将 `thinkingMessage` 设为 `"emoji"`，让机器人根据用户当前输入语气随机返回颜文字，替代默认的“🤔 思考中，请稍候...”。
+
+示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "showThinking": true,
+      "messageType": "markdown",
+      "thinkingMessage": "emoji"
+    }
+  }
+}
+```
+
+> 说明：这是一个轻量彩蛋功能，仅影响 markdown 模式下的“思考中”提示；`messageType="card"` 时不会发送该独立提示消息。
 
 ### 连接鲁棒性配置
 
