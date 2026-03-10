@@ -662,10 +662,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // 4) Optional "thinking..." feedback (markdown mode only).
     if (dingtalkConfig.showThinking !== false) {
       let thinkingText = (dingtalkConfig.thinkingMessage || "").trim() || DEFAULT_THINKING_MESSAGE;
-      // 🌟 "Randomly return an emoji; the answer is not cold."
-      if(thinkingText == "emoji")
-      {
-        //(Here is a random emoji for you: 🦄)
+      // 🌟 当配置为 "emoji" 时，根据用户输入情绪返回随机颜文字
+      if (thinkingText === "emoji") {
         const resultEmoji = classifySentenceWithEmoji(content.text);
         thinkingText = resultEmoji.emoji;
       }
