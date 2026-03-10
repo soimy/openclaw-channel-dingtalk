@@ -42,6 +42,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   mediaUrlAllowlist?: string[];
+  journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
   debug?: boolean;
@@ -82,6 +83,7 @@ export interface DingTalkChannelConfig {
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   mediaUrlAllowlist?: string[];
+  journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
   debug?: boolean;
@@ -606,6 +608,7 @@ export function resolveDingTalkAccount(
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      journalTTLDays: dingtalk?.journalTTLDays,
       showThinking: dingtalk?.showThinking,
       thinkingMessage: dingtalk?.thinkingMessage,
       debug: dingtalk?.debug,

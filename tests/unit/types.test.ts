@@ -81,4 +81,22 @@ describe('types helpers', () => {
         const account = resolveDingTalkAccount(cfg, 'default');
         expect(account.mediaMaxMb).toBe(50);
     });
+
+    it('resolves journalTTLDays from top-level and named account config', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'cli_default',
+                    clientSecret: 'sec_default',
+                    journalTTLDays: 7,
+                    accounts: {
+                        main: { clientId: 'cli_main', clientSecret: 'sec_main', journalTTLDays: 21 },
+                    },
+                },
+            },
+        } as any;
+
+        expect(resolveDingTalkAccount(cfg, 'default').journalTTLDays).toBe(7);
+        expect(resolveDingTalkAccount(cfg, 'main').journalTTLDays).toBe(21);
+    });
 });
