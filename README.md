@@ -21,7 +21,7 @@
 - ✅ **私聊支持** — 直接与机器人对话
 - ✅ **群聊支持** — 在群里 @机器人
 - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件、钉钉文档/钉盘文件卡片
-- ✅ **引用消息支持** — 支持恢复大多数引用场景（文字/图片/图文/文件/视频/语音/AI 卡片）,单聊中的钉钉文档依赖权限**Storage.DownloadInfo.Read**,群聊支持引用群图片、文件，其中文件需要 **ConvFile.Space.Read**、**Storage.File.Read** 、**Storage.File.Read**、**Storage.DownloadInfo.Read**、**Contact.User.Read** 权限(引用群文件没有可靠的获取下载文件的途径,目前是依据返回现实的创建时间与群文件列表中时间对比来找出±10最接近的情况),群文件中引用的钉钉文档暂不支持
+- ✅ **引用消息支持** — 支持恢复大多数引用场景（文字/图片/图文/文件/视频/语音/AI 卡片）；单聊中的钉钉文档依赖权限 **Storage.DownloadInfo.Read**；群聊支持引用群图片、文件/文档（优先命中已持久化索引，未命中时走群文件 API 兜底），其中群文件相关能力需 **ConvFile.Space.Read**、**Storage.File.Read**、**Storage.DownloadInfo.Read**、**Contact.User.Read**，且兜底链路受时间窗口与企业认证限制
 - ✅ **Markdown 回复** — 支持富文本格式回复
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
@@ -320,11 +320,13 @@ openclaw configure --section channels
       "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
+      "journalTTLDays": 7,
       "showThinking": true, // 仅 markdown 模式生效
       "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效；设为 "emoji" 可启用随机颜文字彩蛋
       "debug": false,
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
+      // "aicardDegradeMs": 1800000, // 可选：AI 卡片失败后降级持续时间（毫秒，默认 30 分钟）
       // 仅card需要配置
       "cardTemplateId": "你复制的模板ID",
       "cardTemplateKey": "你模板的内容变量"
@@ -356,11 +358,13 @@ openclaw gateway restart
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
+| `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
 | `showThinking`          | boolean  | `true`       | 是否发送“思考中”提示消息（仅 markdown 模式生效） |
 | `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式）；设为 `"emoji"` 可按用户语气返回随机颜文字 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
+| `aicardDegradeMs`       | number   | `1800000`    | AI 卡片连续失败后进入降级模式的持续时间（毫秒） |
 | `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
 | `mediaMaxMb`            | number   | -            | 接收文件大小上限（MB），不设则使用 runtime 默认值（5 MB） |
 | `maxConnectionAttempts` | number   | `10`         | 最大连接尝试次数                            |
@@ -433,7 +437,7 @@ openclaw gateway restart
 | 引用图片     | ✅   | 使用引用回调自带的 `downloadCode` 下载并传递给 AI                        |
 | 引用图文     | ✅   | 解析 `richText` 引用内容，提取文本摘要与图片 `downloadCode`              |
 | 引用文件/视频/语音 | ✅ | 单聊按 `msgId` 精确恢复；群聊优先查已固化元数据，首次未命中时走群文件 API 兜底(钉钉api未开放对应群文件下载接口兜底策略不是100%可靠) |
-| 引用钉钉文档/钉盘文件卡片 | ⚠️ | 单聊支持；群聊暂不支持，未支持场景会降级为提示文本 |
+| 引用钉钉文档/钉盘文件卡片 | ⚠️ | 单聊支持；群聊支持缓存命中与群文件 API 兜底恢复，但仍受钉钉回调样本与企业认证限制 |
 | 引用 AI 卡片 | ✅   | 仅指机器人自己发送的 AI 卡片；按 `carrierId ↔ originalProcessQueryKey` 精确恢复 |
 
 > **引用消息实现说明**
@@ -448,9 +452,9 @@ openclaw gateway restart
 > | 单聊引用文件/视频/语音 | 原消息入站时持久化 `msgId → {downloadCode, spaceId, fileId}`，引用时按 `originalMsgId/repliedMsg.msgId` 精确命中 | 否 |
 > | 群聊引用文件/视频/语音 | 优先查已持久化的 `msgId → 文件元数据`；若机器人从未见过原文件消息，则首次仍通过群文件存储 API 链路兜底，成功后会把结果反向固化到本地索引 | 首次兜底时**是** |
 > | 单聊引用钉钉文档/钉盘文件卡片 | 原消息入站时持久化 `msgId → {spaceId, fileId}`，引用时按 `originalMsgId/repliedMsg.msgId` 精确命中 | 否 |
-> | 群聊引用钉钉文档/钉盘文件卡片 | 当前暂不支持；即使被引用消息表现为 `interactiveCard`，也不会按机器人 AI 卡片恢复 | 否 |
+> | 群聊引用钉钉文档/钉盘文件卡片 | 优先查已持久化的 `msgId → {spaceId, fileId}`；未命中时复用群文件 API 兜底链路，成功后会把结果反向固化到本地索引 | 首次兜底时**是** |
 > | 引用 AI 卡片（单聊+群聊） | 仅当被引用消息是机器人自己发送的 `interactiveCard` 时，创建卡片时保存 `deliverResults[0].carrierId`，引用时按 `originalProcessQueryKey` 精确命中 | 否 |
-> | 仅 `originalMsgId`（无 `repliedMsg`） | 本地 Quote Journal 持久化记录按 `msgId` 回溯文本，按 `accountId + conversationId` 分桶查询 | 否 |
+> | 仅 `originalMsgId`（无 `repliedMsg`） | 仅对已持久化记录的**入站消息**，通过本地 Quote Journal 按 `msgId` 回溯文本，并按 `accountId + conversationId` 分桶查询 | 否 |
 >
 > 说明：
 >
@@ -463,9 +467,10 @@ openclaw gateway restart
 >   - 如果同一用户在 10 秒内连续发送多个文件，理论上可能匹配到错误的文件（取时间差最小的那个）；
 >   - 群文件列表按修改时间倒序返回，最多翻 3 页（150 个文件），非常老的文件可能超出扫描范围；
 >   - 匹配失败时会降级为提示文本，不会阻塞消息处理。
-> - 群聊引用钉钉文档/钉盘文件卡片当前**不支持**。原因是现有引用回调样本里通常不会补回 `biz_custom_action_url/spaceId/fileId`，而群聊场景下也无法像普通文件那样稳定走现有兜底链路，因此会明确降级为提示文本，而不是误判成机器人 AI 卡片。
+> - 群聊引用钉钉文档/钉盘文件卡片并非完全确定性支持：若机器人见过原消息，会优先命中已持久化索引；首次未命中时会复用群文件 API 兜底，因此同样受 `createTime` 时间窗口、分页范围以及企业认证限制影响，失败时会降级为提示文本。
 > - 这条群文件兜底链路在部分企业环境下可能受到企业认证限制，表现为 `quotedFile.resolve` 返回 `orgAuthLevelNotEnough`。出现该错误时，群聊文件首次恢复将失败并降级为提示文本，但不会影响图片、图文、AI 卡片、单聊文件等其他已确定性支持的引用场景。
 > - 由于本地引用索引使用 TTL 清理，并按 `accountId + conversationId` 隔离存储，数据不会永久累积。
+> - `originalMsgId` / `repliedMsg.msgId` 的精确回溯仅覆盖**已被插件持久化记录的入站消息**；机器人出站消息当前不支持仅凭 `repliedMsg.msgId` 做通用回溯。
 > - `originalMsgId` 的文本回溯依赖本地 Quote Journal 持久化存储，默认通过 persistence store 落盘、按 `accountId + conversationId` 分桶，并保留最近 7 天记录用于回溯。
 
 ### 发送
@@ -608,7 +613,7 @@ openclaw gateway restart
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
 - 仅对**会话内流式卡片（inbound）**记录 pending 状态，用于进程重启后的自动收尾
-- pending 文件路径基于 OpenClaw session `storePath` 目录推导：`path.dirname(storePath)/dingtalk-active-cards.json`
+- pending 状态通过 persistence namespace `cards.active.pending` 落盘（兼容读取并迁移 legacy 文件 `path.dirname(storePath)/dingtalk-active-cards.json`）
 - **proactive 卡片**采用 createAndDeliver 后立即 finalize 的短路径，默认**不写入** pending 状态文件
 - 插件启动时会尝试恢复并 finalize 未完成的 inbound 卡片；停止/重启时会 best-effort finalize 当前 active 卡片
 
