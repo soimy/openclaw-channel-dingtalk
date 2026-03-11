@@ -1506,10 +1506,8 @@ async function processSubAgentMessage(params: {
               return;
             }
 
-            // 添加 agent 身份前缀
-            const finalText = agentIdentityPrefix + textToSend;
-
-            await sendBySession(dingtalkConfig, sessionWebhook, finalText, {
+            // responsePrefix 已自动添加前缀，无需再手动添加
+            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
               atUserId: isGroup ? senderId : null,
               log,
             });
