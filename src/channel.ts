@@ -141,6 +141,7 @@ const inboundCountersByAccount = new Map<
   }
 >();
 const INBOUND_COUNTER_LOG_EVERY = 10;
+const DEFAULT_ASYNC_ACK_TEXT = "已收到，正在处理中，稍后回复。";
 
 function getInboundCounters(accountId: string) {
   const existing = inboundCountersByAccount.get(accountId);
@@ -165,6 +166,23 @@ function logInboundCounters(log: any, accountId: string, reason: string): void {
   log?.info?.(
     `[${accountId}] Inbound counters (${reason}): received=${stats.received}, acked=${stats.acked}, processed=${stats.processed}, dedupSkipped=${stats.dedupSkipped}, inflightSkipped=${stats.inflightSkipped}, failed=${stats.failed}, noMessageId=${stats.noMessageId}`,
   );
+}
+
+function shouldHandleAsync(data: DingTalkInboundMessage, config: DingTalkConfig): boolean {
+  if (!config.asyncMode || !data.sessionWebhook) {
+    return false;
+  }
+  if (data.msgtype !== "text") {
+    return false;
+  }
+  const text = data.text?.content?.trim();
+  if (!text) {
+    return false;
+  }
+  if (text.startsWith("/")) {
+    return false;
+  }
+  return true;
 }
 
 function readBooleanLikeParam(params: Record<string, unknown>, key: string): boolean | undefined {
@@ -658,6 +676,48 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
           processingDedupKeys.set(dedupKey, Date.now());
           try {
+            if (shouldHandleAsync(data, config)) {
+              const ackText = (config.asyncAckText || "").trim() || DEFAULT_ASYNC_ACK_TEXT;
+              try {
+                await sendBySession(config, data.sessionWebhook, ackText, { log: ctx.log });
+              } catch (ackTextError: any) {
+                ctx.log?.warn?.(
+                  `[${account.accountId}] Failed to send async ack text for ${dedupKey}: ${ackTextError.message}`,
+                );
+              }
+
+              acknowledge();
+              void handleDingTalkMessage({
+                cfg,
+                accountId: account.accountId,
+                data,
+                sessionWebhook: data.sessionWebhook,
+                log: ctx.log,
+                dingtalkConfig: {
+                  ...config,
+                  showThinking: false,
+                },
+              })
+                .then(() => {
+                  stats.processed += 1;
+                  markMessageProcessed(dedupKey);
+                  if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
+                    logInboundCounters(ctx.log, account.accountId, "periodic");
+                  }
+                })
+                .catch((error: any) => {
+                  stats.failed += 1;
+                  logInboundCounters(ctx.log, account.accountId, "failed");
+                  ctx.log?.error?.(
+                    `[${account.accountId}] Error processing async message: ${error.message}`,
+                  );
+                })
+                .finally(() => {
+                  processingDedupKeys.delete(dedupKey);
+                });
+              return;
+            }
+
             await handleDingTalkMessage({
               cfg,
               accountId: account.accountId,

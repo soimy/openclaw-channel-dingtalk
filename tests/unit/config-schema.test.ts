@@ -95,4 +95,15 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.feedbackLearningAutoApply).toBe(false);
         expect(parsed.feedbackLearningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
     });
+
+    it('accepts asyncMode config and default asyncAckText', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            asyncMode: true,
+        }) as { asyncMode?: boolean; asyncAckText?: string };
+
+        expect(parsed.asyncMode).toBe(true);
+        expect(parsed.asyncAckText).toBe('已收到，正在处理中，稍后回复。');
+    });
 });

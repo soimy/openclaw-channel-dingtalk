@@ -11,6 +11,7 @@ const shared = vi.hoisted(() => ({
     markMessageProcessedMock: vi.fn(),
     handleDingTalkMessageMock: vi.fn(),
     sendProactiveTextMock: vi.fn(),
+    sendBySessionMock: vi.fn(),
     connectionConfig: undefined as any,
 }));
 
@@ -66,7 +67,7 @@ vi.mock('../../src/send-service', () => ({
     sendMessage: vi.fn(),
     sendProactiveMedia: vi.fn(),
     sendProactiveTextOrMarkdown: shared.sendProactiveTextMock,
-    sendBySession: vi.fn(),
+    sendBySession: shared.sendBySessionMock,
     uploadMedia: vi.fn(),
 }));
 
@@ -113,6 +114,7 @@ describe('gateway inbound callback pipeline', () => {
         shared.markMessageProcessedMock.mockReset();
         shared.handleDingTalkMessageMock.mockReset();
         shared.sendProactiveTextMock.mockReset();
+        shared.sendBySessionMock.mockReset();
         shared.connectionConfig = undefined;
 
         shared.listeners = {};
@@ -120,6 +122,7 @@ describe('gateway inbound callback pipeline', () => {
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(false);
         shared.sendProactiveTextMock.mockResolvedValue({});
+        shared.sendBySessionMock.mockResolvedValue({});
     });
 
     it('acknowledges callback after successful dispatch for non-duplicate message', async () => {
@@ -154,6 +157,61 @@ describe('gateway inbound callback pipeline', () => {
                 sessionWebhook: 'https://webhook',
             })
         );
+    });
+
+    it('acknowledges early and continues async processing when asyncMode is enabled', async () => {
+        shared.isMessageProcessedMock.mockReturnValue(false);
+        let resolveAsync: (() => void) | undefined;
+        shared.handleDingTalkMessageMock.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveAsync = resolve;
+                })
+        );
+        const ctx = createStartContext();
+        ctx.account.config.asyncMode = true;
+        ctx.account.config.asyncAckText = '收到，后台处理中';
+
+        await startGatewayAccount(ctx as any);
+
+        const promise = shared.listeners.TOPIC_ROBOT?.({
+            headers: { messageId: 'stream_msg_async_1' },
+            data: JSON.stringify({
+                msgId: 'msg_async_1',
+                msgtype: 'text',
+                text: { content: '帮我异步处理一下' },
+                conversationType: '1',
+                conversationId: 'cidA1B2C3',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://webhook',
+            }),
+        });
+
+        await promise;
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+            expect.objectContaining({ asyncMode: true }),
+            'https://webhook',
+            '收到，后台处理中',
+            expect.objectContaining({ log: ctx.log }),
+        );
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_async_1', { success: true });
+        expect(shared.markMessageProcessedMock).not.toHaveBeenCalled();
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                sessionWebhook: 'https://webhook',
+                dingtalkConfig: expect.objectContaining({
+                    asyncMode: true,
+                    showThinking: false,
+                }),
+            })
+        );
+
+        resolveAsync?.();
+        await Promise.resolve();
+
+        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('robot_1:msg_async_1');
     });
 
     it('skips duplicate message dispatch when dedup indicates already processed', async () => {
