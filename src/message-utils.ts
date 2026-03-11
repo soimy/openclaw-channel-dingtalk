@@ -1,4 +1,10 @@
-import type { DingTalkInboundMessage, MessageContent, QuotedInfo, SendMessageOptions } from "./types";
+import type {
+  DingTalkInboundMessage,
+  MessageContent,
+  QuotedInfo,
+  SendMessageOptions,
+  AtMention,
+} from "./types";
 
 interface DingTalkDocMeta {
   spaceId: string;
@@ -93,7 +99,8 @@ function extractRichTextQuoteParts(
   return {
     summary,
     pictureDownloadCode,
-    pictureDownloadCodes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
+    pictureDownloadCodes:
+      uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
   };
 }
 
@@ -123,6 +130,7 @@ export function detectMarkdownAndExtractTitle(
 
 export function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   const msgtype = data.msgtype || "text";
+  const atMentions: AtMention[] = [];
 
   const formatQuotedContent = (): QuotedInfo | null => {
     const textField = data.text;
@@ -237,7 +245,13 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
   const quotedPrefix = quoted?.prefix || "";
 
   if (msgtype === "text") {
-    return { text: quotedPrefix + (data.text?.content?.trim() || ""), messageType: "text", quoted: quoted ?? undefined };
+    const textContent = quotedPrefix + (data.text?.content?.trim() || "");
+    // 从文本中解析 @ 提及（兼容纯文本格式）
+    const atMatches = textContent.matchAll(/@([^\s@]+)/g);
+    for (const match of atMatches) {
+      atMentions.push({ name: match[1].trim() });
+    }
+    return { text: textContent, messageType: "text", quoted: quoted ?? undefined, atMentions };
   }
 
   if (msgtype === "richText") {
@@ -251,6 +265,11 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       }
       if (part.type === "at" && part.atName) {
         text += `@${part.atName} `;
+        // 提取 @ 提及信息，包括 atUserId
+        atMentions.push({
+          name: part.atName.trim(),
+          userId: part.atUserId,
+        });
       }
       if (part.type === "picture" && part.downloadCode) {
         pictureDownloadCodes.push(part.downloadCode);
@@ -264,9 +283,13 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: pictureDownloadCode,
       mediaPaths: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
       mediaType: pictureDownloadCode ? "image" : undefined,
-      mediaTypes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes.map(() => "image") : undefined,
+      mediaTypes:
+        uniquePictureDownloadCodes.length > 0
+          ? uniquePictureDownloadCodes.map(() => "image")
+          : undefined,
       messageType: "richText",
       quoted: quoted ?? undefined,
+      atMentions,
     };
   }
 
@@ -276,6 +299,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: data.content?.downloadCode,
       mediaType: "image",
       messageType: "picture",
+      atMentions,
     };
   }
 
@@ -285,6 +309,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: data.content?.downloadCode,
       mediaType: "audio",
       messageType: "audio",
+      atMentions,
     };
   }
 
@@ -294,6 +319,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: data.content?.downloadCode,
       mediaType: "video",
       messageType: "video",
+      atMentions,
     };
   }
 
@@ -303,6 +329,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: data.content?.downloadCode,
       mediaType: "file",
       messageType: "file",
+      atMentions,
     };
   }
 
@@ -315,12 +342,14 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         docSpaceId: docMeta.spaceId,
         docFileId: docMeta.fileId,
         quoted: quoted ?? undefined,
+        atMentions,
       };
     }
     return {
       text: data.text?.content?.trim() || "[interactiveCard消息]",
       messageType: msgtype,
       quoted: quoted ?? undefined,
+      atMentions,
     };
   }
   if (msgtype === "chatRecord") {
@@ -336,13 +365,29 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         text: "[系统提示] 没有读到引用记录（chatRecord 为空）。请改用逐条转发、复制原文，或重新转发非空聊天记录。",
         messageType: "chatRecord",
         quoted: quoted ?? undefined,
+        atMentions,
       };
     }
     if (summary) {
-      return { text: `[聊天记录摘要] ${summary}`, messageType: "chatRecord", quoted: quoted ?? undefined };
+      return {
+        text: `[聊天记录摘要] ${summary}`,
+        messageType: "chatRecord",
+        quoted: quoted ?? undefined,
+        atMentions,
+      };
     }
-    return { text: "[chatRecord消息: 无可读内容]", messageType: "chatRecord", quoted: quoted ?? undefined };
+    return {
+      text: "[chatRecord消息: 无可读内容]",
+      messageType: "chatRecord",
+      quoted: quoted ?? undefined,
+      atMentions,
+    };
   }
 
-  return { text: data.text?.content?.trim() || `[${msgtype}消息]`, messageType: msgtype, quoted: quoted ?? undefined };
+  return {
+    text: data.text?.content?.trim() || `[${msgtype}消息]`,
+    messageType: msgtype,
+    quoted: quoted ?? undefined,
+    atMentions,
+  };
 }

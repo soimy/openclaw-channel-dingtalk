@@ -226,6 +226,7 @@ export interface DingTalkInboundMessage {
       type: string;
       text?: string;
       atName?: string;
+      atUserId?: string;
       downloadCode?: string;
     }>;
     quoteContent?: string;
@@ -272,6 +273,28 @@ export interface QuotedInfo {
 }
 
 /**
+ * @ 提及信息
+ */
+export interface AtMention {
+  /** @ 显示的名字（去除 @ 前缀） */
+  name: string;
+  /** 钉钉用户 ID（如果是 @ 真人） */
+  userId?: string;
+}
+
+/**
+ * Agent 名字匹配结果
+ */
+export interface AgentNameMatch {
+  /** 匹配到的 agent ID */
+  agentId: string;
+  /** 匹配来源：'name' | 'id' */
+  matchSource: "name" | "id";
+  /** 匹配到的名字 */
+  matchedName: string;
+}
+
+/**
  * Extracted message content for unified processing
  */
 export interface MessageContent {
@@ -284,6 +307,8 @@ export interface MessageContent {
   docSpaceId?: string;
   docFileId?: string;
   quoted?: QuotedInfo;
+  /** @ 提及列表 */
+  atMentions?: AtMention[];
 }
 
 /**
@@ -504,7 +529,9 @@ export interface DingTalkOutboundHandler {
   deliveryMode: "direct" | "queued" | "batch";
   resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
   sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
-  sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
+  sendMedia?: (
+    params: SendMediaParams,
+  ) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
 }
 
 /**
@@ -681,10 +708,7 @@ export function resolveDingTalkAccount(
   // If named account, merge channel-level defaults with account-level overrides
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
-    const merged = mergeAccountWithDefaults(
-      dingtalk as DingTalkConfig,
-      accountConfig,
-    );
+    const merged = mergeAccountWithDefaults(dingtalk as DingTalkConfig, accountConfig);
     return {
       ...merged,
       accountId: id,
