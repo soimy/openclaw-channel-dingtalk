@@ -1,13 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const shared = vi.hoisted(() => ({
+    createDocMock: vi.fn(),
+    appendToDocMock: vi.fn(),
+    searchDocsMock: vi.fn(),
+    listDocsMock: vi.fn(),
+}));
+
 vi.mock('openclaw/plugin-sdk', () => ({
     emptyPluginConfigSchema: vi.fn(() => ({})),
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 
+vi.mock('../../src/docs-service', () => ({
+    createDoc: shared.createDocMock,
+    appendToDoc: shared.appendToDocMock,
+    searchDocs: shared.searchDocsMock,
+    listDocs: shared.listDocsMock,
+}));
+
 describe('runtime + peer registry + index plugin', () => {
     beforeEach(async () => {
         vi.resetModules();
+        shared.createDocMock.mockReset();
+        shared.appendToDocMock.mockReset();
+        shared.searchDocsMock.mockReset();
+        shared.listDocsMock.mockReset();
+        shared.createDocMock.mockResolvedValue({ docId: 'doc_1', title: '测试文档', docType: 'alidoc' });
+        shared.appendToDocMock.mockResolvedValue({ success: true });
+        shared.searchDocsMock.mockResolvedValue([{ docId: 'doc_2', title: '周报', docType: 'alidoc' }]);
+        shared.listDocsMock.mockResolvedValue([{ docId: 'doc_3', title: '知识库', docType: 'folder' }]);
         const peer = await import('../../src/peer-id-registry');
         peer.clearPeerIdRegistry();
     });
@@ -42,11 +64,47 @@ describe('runtime + peer registry + index plugin', () => {
         const plugin = (await import('../../index')).default;
 
         const registerChannel = vi.fn();
+        const registerGatewayMethod = vi.fn();
         const runtime = { id: 'runtime1' } as any;
 
-        plugin.register({ runtime, registerChannel } as any);
+        plugin.register({ runtime, registerChannel, registerGatewayMethod } as any);
 
         expect(runtimeSpy).toHaveBeenCalledWith(runtime);
         expect(registerChannel).toHaveBeenCalledTimes(1);
+        expect(registerGatewayMethod).toHaveBeenCalledTimes(4);
+        expect(registerGatewayMethod).toHaveBeenCalledWith('dingtalk.docs.create', expect.any(Function));
+        expect(registerGatewayMethod).toHaveBeenCalledWith('dingtalk.docs.append', expect.any(Function));
+        expect(registerGatewayMethod).toHaveBeenCalledWith('dingtalk.docs.search', expect.any(Function));
+        expect(registerGatewayMethod).toHaveBeenCalledWith('dingtalk.docs.list', expect.any(Function));
+    });
+
+    it('registered docs gateway method validates params and responds with docs payload', async () => {
+        const plugin = (await import('../../index')).default;
+        const registerGatewayMethod = vi.fn();
+
+        plugin.register({ runtime: {}, registerChannel: vi.fn(), registerGatewayMethod } as any);
+
+        const createHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === 'dingtalk.docs.create')?.[1];
+        const searchHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === 'dingtalk.docs.search')?.[1];
+
+        const respondCreate = vi.fn();
+        await createHandler?.({
+            respond: respondCreate,
+            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            params: { spaceId: 'space_1', title: '测试文档', content: '第一段' },
+            log: undefined,
+        });
+        expect(respondCreate).toHaveBeenCalledWith(true, { docId: 'doc_1', title: '测试文档', docType: 'alidoc' });
+
+        const respondSearch = vi.fn();
+        await searchHandler?.({
+            respond: respondSearch,
+            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            params: { keyword: '周报' },
+            log: undefined,
+        });
+        expect(respondSearch).toHaveBeenCalledWith(true, {
+            docs: [{ docId: 'doc_2', title: '周报', docType: 'alidoc' }],
+        });
     });
 });

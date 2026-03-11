@@ -411,6 +411,31 @@ openclaw gateway restart
 
 更多详情请参阅 [CONNECTION_ROBUSTNESS.md](./CONNECTION_ROBUSTNESS.md)。
 
+## 钉钉文档 API
+
+插件额外注册了 4 个 gateway methods，可供 OpenClaw 侧直接调用：
+
+- `dingtalk.docs.create`
+- `dingtalk.docs.append`
+- `dingtalk.docs.search`
+- `dingtalk.docs.list`
+
+示例：
+
+```json
+{
+  "method": "dingtalk.docs.create",
+  "params": {
+    "accountId": "default",
+    "spaceId": "your-space-id",
+    "title": "测试文档",
+    "content": "第一段内容"
+  }
+}
+```
+
+> 说明：这组方法的设计参考自 `DingTalk-Real-AI/dingtalk-openclaw-connector`，许可证为 `MIT`；当前实现按本仓库插件结构重新整理，并仅保留创建、追加、搜索、列举这 4 个最小能力。
+
 ## 反馈学习与共享知识
 
 插件支持一个本地反馈学习闭环，目标是把“点踩/纠错/后续抱怨”沉淀成可审计的会话笔记和 account 级共享规则，而不是直接修改模型或把原始聊天提交到仓库。
