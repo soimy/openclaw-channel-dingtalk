@@ -301,6 +301,10 @@ export function queryConversationHistory(params: ConversationHistoryQuery): Conv
       ? new Set(params.mentionNames.map((name) => name.trim().toLowerCase()).filter(Boolean))
       : undefined;
   const recentLimit = Math.max(1, params.recentLimitPerConversation ?? 20);
+  const requirePreciseRecentFiltering =
+    Boolean(senderIdSet && senderIdSet.size > 0)
+    || Boolean(mentionNameSet && mentionNameSet.size > 0)
+    || typeof params.sinceTs === "number";
   return listConversationHistoryIndex({
     storePath: params.storePath,
     accountId: params.accountId,
@@ -308,12 +312,13 @@ export function queryConversationHistory(params: ConversationHistoryQuery): Conv
   })
     .filter((conversation) => (conversationIdSet ? conversationIdSet.has(conversation.conversationId) : true))
     .map((conversation) => {
-      const recentEntries = listRecentGroupHistory({
+      const candidateEntries = listRecentGroupHistory({
         storePath: params.storePath,
         accountId: params.accountId,
         conversationId: conversation.conversationId,
-        limit: recentLimit,
-      }).filter((entry) => {
+        limit: requirePreciseRecentFiltering ? MAX_HISTORY_ENTRIES : recentLimit,
+      });
+      const recentEntries = candidateEntries.filter((entry) => {
         const matchesTime =
           typeof params.sinceTs === "number" && Number.isFinite(params.sinceTs)
             ? (entry.timestamp ?? 0) >= params.sinceTs
@@ -325,8 +330,11 @@ export function queryConversationHistory(params: ConversationHistoryQuery): Conv
           ? Boolean(entry.mentions?.some((mention) => mentionNameSet.has(mention)))
           : true;
         return matchesTime && matchesSender && matchesMention;
-      });
-      const summarySegments = listGroupHistorySummarySegments({
+      }).slice(-recentLimit);
+      const summarySegments =
+        senderIdSet || mentionNameSet
+          ? []
+          : listGroupHistorySummarySegments({
         storePath: params.storePath,
         accountId: params.accountId,
         conversationId: conversation.conversationId,

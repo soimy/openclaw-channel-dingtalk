@@ -141,4 +141,84 @@ describe("group-history-store", () => {
       }),
     ]);
   });
+
+  it("does not include unfiltered summary segments for sender-scoped queries", () => {
+    const storePath = path.join(fs.mkdtempSync("/tmp/dt-history-sender-segments-"), "store.json");
+    upsertConversationHistoryIndex({
+      storePath,
+      accountId: "main",
+      conversationId: "group_1",
+      chatType: "group",
+      title: "Ops Group",
+    });
+    for (let i = 0; i < 205; i++) {
+      appendRecentGroupHistoryEntry({
+        storePath,
+        accountId: "main",
+        conversationId: "group_1",
+        limit: 200,
+        entry: {
+          sender: i % 2 === 0 ? "Alice (u_alice)" : "Bob (u_bob)",
+          senderId: i % 2 === 0 ? "u_alice" : "u_bob",
+          body: `message-${i}`,
+          timestamp: 1_700_000_000_000 + i * 1000,
+          messageId: `m_${i}`,
+        },
+      });
+    }
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      senderIds: ["u_bob"],
+      recentLimitPerConversation: 8,
+    });
+
+    expect(slices[0]?.recentEntries.every((entry) => entry.senderId === "u_bob")).toBe(true);
+    expect(slices[0]?.summarySegments).toEqual([]);
+  });
+
+  it("filters before applying recent per-conversation limit", () => {
+    const storePath = path.join(fs.mkdtempSync("/tmp/dt-history-recent-filter-"), "store.json");
+    upsertConversationHistoryIndex({
+      storePath,
+      accountId: "main",
+      conversationId: "group_1",
+      chatType: "group",
+      title: "Ops Group",
+    });
+    for (let i = 0; i < 20; i++) {
+      appendRecentGroupHistoryEntry({
+        storePath,
+        accountId: "main",
+        conversationId: "group_1",
+        limit: 200,
+        entry: {
+          sender: i === 10 ? "Target (u_target)" : `User ${i} (u_${i})`,
+          senderId: i === 10 ? "u_target" : `u_${i}`,
+          body: `message-${i}`,
+          timestamp: 1_700_000_000_000 + i * 1000,
+          messageId: `m_${i}`,
+        },
+      });
+    }
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      senderIds: ["u_target"],
+      recentLimitPerConversation: 8,
+    });
+
+    expect(slices).toEqual([
+      expect.objectContaining({
+        recentEntries: [
+          expect.objectContaining({
+            senderId: "u_target",
+            body: "message-10",
+          }),
+        ],
+      }),
+    ]);
+  });
 });
