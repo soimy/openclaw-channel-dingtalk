@@ -400,7 +400,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Journal-based quoted text resolution when only originalMsgId is present
   if (data.text?.isReplyMsg && data.originalMsgId && !hasConcreteQuotedPayload) {
     try {
-      const quoted = await resolveQuotedMessageById({
+      const quoted = resolveQuotedMessageById({
         storePath,
         accountId,
         conversationId: groupId,
@@ -423,7 +423,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   try {
-    await appendQuoteJournalEntry({
+    appendQuoteJournalEntry({
       storePath,
       accountId,
       conversationId: groupId,

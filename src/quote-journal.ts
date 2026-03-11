@@ -18,6 +18,20 @@ type QuoteJournalState = {
   records: JournalEntry[];
 };
 
+const stateCache = new Map<string, QuoteJournalState>();
+
+function getScopeKey(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+}): string {
+  return JSON.stringify([
+    params.storePath,
+    params.accountId,
+    params.conversationId || null,
+  ]);
+}
+
 function fallbackState(): QuoteJournalState {
   return {
     version: QUOTE_JOURNAL_VERSION,
@@ -58,6 +72,12 @@ function loadState(params: {
   accountId: string;
   conversationId: string | null;
 }): QuoteJournalState {
+  const scopeKey = getScopeKey(params);
+  const cached = stateCache.get(scopeKey);
+  if (cached) {
+    return cached;
+  }
+
   const persisted = readNamespaceJson<Partial<QuoteJournalState>>(QUOTE_JOURNAL_NAMESPACE, {
     storePath: params.storePath,
     scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
@@ -65,6 +85,7 @@ function loadState(params: {
     fallback: fallbackState(),
   });
   const normalized = normalizeState(persisted);
+  stateCache.set(scopeKey, normalized);
   return normalized;
 }
 
@@ -74,6 +95,7 @@ function writeState(params: {
   conversationId: string | null;
   state: QuoteJournalState;
 }): void {
+  stateCache.set(getScopeKey(params), params.state);
   writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
     storePath: params.storePath,
     scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
@@ -97,7 +119,7 @@ function capRecords(records: JournalEntry[]): JournalEntry[] {
   return records.slice(-MAX_RECORDS_PER_SCOPE);
 }
 
-export async function appendQuoteJournalEntry(params: {
+export function appendQuoteJournalEntry(params: {
   storePath: string;
   accountId: string;
   conversationId: string | null;
@@ -107,7 +129,7 @@ export async function appendQuoteJournalEntry(params: {
   createdAt: number;
   ttlDays?: number;
   nowMs?: number;
-}): Promise<void> {
+}): void {
   const now = params.nowMs ?? Date.now();
   const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
   const state = loadState(params);
@@ -131,13 +153,13 @@ export async function appendQuoteJournalEntry(params: {
   });
 }
 
-export async function cleanupExpiredQuoteJournalEntries(params: {
+export function cleanupExpiredQuoteJournalEntries(params: {
   storePath: string;
   accountId: string;
   conversationId: string | null;
   ttlDays: number;
   nowMs?: number;
-}): Promise<number> {
+}): number {
   const now = params.nowMs ?? Date.now();
   const state = loadState(params);
   const kept = pruneByTtl(state.records, params.ttlDays, now);
@@ -157,14 +179,14 @@ export async function cleanupExpiredQuoteJournalEntries(params: {
   return removed;
 }
 
-export async function resolveQuotedMessageById(params: {
+export function resolveQuotedMessageById(params: {
   storePath: string;
   accountId: string;
   conversationId: string | null;
   originalMsgId: string;
   ttlDays?: number;
   nowMs?: number;
-}): Promise<{ msgId: string; text?: string; createdAt: number } | null> {
+}): { msgId: string; text?: string; createdAt: number } | null {
   const state = loadState(params);
   const now = params.nowMs ?? Date.now();
   const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
@@ -191,7 +213,7 @@ export async function appendOutboundToQuoteJournal(params: {
     if (!params.messageId) {
       return;
     }
-    await appendQuoteJournalEntry({
+    appendQuoteJournalEntry({
       storePath: params.storePath,
       accountId: params.accountId,
       conversationId: params.conversationId || null,
