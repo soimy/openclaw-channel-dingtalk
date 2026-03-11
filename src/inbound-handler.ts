@@ -365,8 +365,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // ==================== @Sub-Agent 处理 ====================
   // 检测是否有 @sub-agent 需要处理
   const atMentions = content.atMentions || [];
+  log?.debug?.(
+    `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} agentsList=${cfg.agents?.list?.length || 0}`,
+  );
   if (isGroup && atMentions.length > 0 && cfg.agents?.list && cfg.agents.list.length > 0) {
     const { matchedAgents, unmatchedNames } = resolveAtAgents(atMentions, cfg);
+    log?.debug?.(
+      `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")}`,
+    );
 
     if (matchedAgents.length > 0) {
       // 有匹配的 sub-agent，并行处理
@@ -1366,8 +1372,9 @@ async function processSubAgentMessage(params: {
   } = params;
 
   const rt = getDingTalkRuntime();
-  const isDirect = data.conversationType === "0";
-  const isGroup = data.conversationType === "1";
+  // 钉钉 conversationType: "1" = 单聊, "2" = 群聊
+  const isDirect = data.conversationType === "1";
+  const isGroup = data.conversationType === "2" || !isDirect;
   const senderId = data.senderStaffId || data.senderId;
   const rawSenderId = data.senderId;
   const groupId = data.conversationId;
