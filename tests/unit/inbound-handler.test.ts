@@ -1555,6 +1555,192 @@ describe('inbound-handler', () => {
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     });
 
+    it('injects authoritative group sender context alongside group and learning prompts', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/agent-store.json')
+            .mockReturnValueOnce('/tmp/account-store.json')
+            .mockReturnValueOnce('/tmp/agent-store.json')
+            .mockReturnValueOnce('/tmp/account-store.json');
+        shared.getRuntimeMock.mockReturnValue(runtime);
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({
+                text: '/learn global 创建提醒前先以当前轮 senderDingtalkId 识别发起人。',
+                messageType: 'text',
+            })
+            .mockReturnValueOnce({
+                text: '帮我创建一个提醒',
+                messageType: 'text',
+            });
+
+        await handleDingTalkMessage({
+            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open' } as any,
+            data: {
+                msgId: 'm_group_prompt_learn_apply',
+                msgtype: 'text',
+                text: { content: '/learn global 创建提醒前先以当前轮 senderDingtalkId 识别发起人。' },
+                conversationType: '1',
+                conversationId: 'cid_dm_owner',
+                senderId: 'owner-test-id',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        runtime.channel.reply.finalizeInboundContext.mockClear();
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: {
+                groupPolicy: 'allowlist',
+                allowFrom: ['cid_group_1'],
+                messageType: 'markdown',
+                showThinking: false,
+                learningEnabled: true,
+                groups: { cid_group_1: { systemPrompt: 'group prompt' } },
+            } as any,
+            data: {
+                msgId: 'm_group_prompt_context',
+                msgtype: 'text',
+                text: { content: '帮我创建一个提醒' },
+                conversationType: '2',
+                conversationId: 'cid_group_1',
+                conversationTitle: 'group-title',
+                senderId: 'user_1',
+                senderNick: 'Alice',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('Current DingTalk group turn context:'),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('- conversationId: cid_group_1'),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('- senderDingtalkId: user_1'),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('- senderName: Alice'),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining(
+                    'Treat senderDingtalkId and senderName as the authoritative sender for this turn.',
+                ),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('group prompt'),
+            }),
+        );
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: expect.stringContaining('创建提醒前先以当前轮 senderDingtalkId 识别发起人。'),
+            }),
+        );
+    });
+
+    it('sanitizes senderName before injecting group sender context', async () => {
+        const runtime = buildRuntime();
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: 'hello',
+            messageType: 'text',
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: {
+                groupPolicy: 'allowlist',
+                allowFrom: ['cid_group_1'],
+                messageType: 'markdown',
+                showThinking: false,
+            } as any,
+            data: {
+                msgId: 'm_group_prompt_sanitize',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '2',
+                conversationId: 'cid_group_1',
+                conversationTitle: 'group-title',
+                senderId: 'user_1',
+                senderNick: 'Zhang, Wei\nOps=Lead',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        const inboundContext = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+        expect(inboundContext?.GroupSystemPrompt).toContain('- senderName: Zhang Wei Ops Lead');
+        expect(inboundContext?.GroupSystemPrompt).not.toContain('senderName: Zhang, Wei');
+        expect(inboundContext?.GroupSystemPrompt).not.toContain('Ops=Lead');
+    });
+
+    it('does not inject group sender context for direct messages', async () => {
+        const runtime = buildRuntime();
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({
+            text: 'hello',
+            messageType: 'text',
+        });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: {
+                dmPolicy: 'open',
+                messageType: 'markdown',
+                showThinking: false,
+            } as any,
+            data: {
+                msgId: 'm_dm_no_group_prompt',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_dm_1',
+                senderId: 'user_1',
+                senderNick: 'Alice',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GroupSystemPrompt: undefined,
+            }),
+        );
+    });
+
     it('sends proactive permission hint when proactive API risk was observed', async () => {
         recordProactiveRiskObservation({
             accountId: 'main',
