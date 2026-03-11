@@ -101,4 +101,16 @@ describe("attachment-text-extractor", () => {
 
     expect(result).toBeNull();
   });
+
+  it("skips oversized text files before extraction", async () => {
+    const filePath = await writeTempFile("huge.txt", Buffer.alloc(2 * 1024 * 1024 + 1, "a"));
+
+    const result = await extractAttachmentText({
+      path: filePath,
+      mimeType: "text/plain",
+      fileName: "huge.txt",
+    });
+
+    expect(result).toBeNull();
+  });
 });

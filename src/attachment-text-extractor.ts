@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const MAX_EXTRACTED_TEXT_CHARS = 6000;
+const MAX_ATTACHMENT_EXTRACT_BYTES = 2 * 1024 * 1024;
 
 export interface AttachmentTextExtractionInput {
   path: string;
@@ -13,6 +14,11 @@ export interface AttachmentTextExtractionResult {
   text: string;
   truncated: boolean;
   sourceType: "text" | "html" | "pdf" | "docx";
+}
+
+async function isFileTooLarge(filePath: string): Promise<boolean> {
+  const stat = await fs.stat(filePath);
+  return stat.size > MAX_ATTACHMENT_EXTRACT_BYTES;
 }
 
 function isTextLikeMimeType(mimeType: string | undefined): boolean {
@@ -30,7 +36,7 @@ function isTextLikeMimeType(mimeType: string | undefined): boolean {
 function normalizeWhitespace(text: string): string {
   return text
     .replace(/\r\n/g, "\n")
-    .replace(/\u0000/g, "")
+    .split("\u0000").join("")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -97,6 +103,10 @@ export async function extractAttachmentText(
   const fileName = (input.fileName || path.basename(input.path)).toLowerCase();
 
   if (mimeType?.startsWith("image/") || mimeType?.startsWith("audio/") || mimeType?.startsWith("video/")) {
+    return null;
+  }
+
+  if (await isFileTooLarge(input.path)) {
     return null;
   }
 
