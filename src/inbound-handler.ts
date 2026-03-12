@@ -36,13 +36,12 @@ import {
 } from "./proactive-risk-registry";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage } from "./send-service";
-import { getGroupHistoryContext } from "./session-history";
-import { acquireSessionLock } from "./session-lock";
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
-import { AICardStatus } from "./types";
-import type { AgentNameMatch, DingTalkInboundMessage } from "./types";
 import { clearSessionPeerOverride, getSessionPeerOverride, setSessionPeerOverride } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
+import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, MediaFile } from "./types";
+import { AICardStatus } from "./types";
+import { acquireSessionLock } from "./session-lock";
+import { getGroupHistoryContext } from "./session-history";
 import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
 import classifySentenceWithEmoji from "./classifyWithEmoji";

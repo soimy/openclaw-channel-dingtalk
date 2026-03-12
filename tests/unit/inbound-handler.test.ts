@@ -80,10 +80,7 @@ const mockedAxiosGet = vi.mocked(axios.get);
 function buildRuntime() {
     return {
         channel: {
-            routing: {
-                resolveAgentRoute: vi.fn().mockReturnValue({ agentId: 'main', sessionKey: 's1', mainSessionKey: 's1' }),
-                buildAgentSessionKey: vi.fn().mockReturnValue('agent-session-key'),
-            },
+            routing: { resolveAgentRoute: vi.fn().mockReturnValue({ agentId: 'main', sessionKey: 's1', mainSessionKey: 's1' }), buildAgentSessionKey: vi.fn().mockReturnValue('agent-session-key') },
             media: {
                 saveMediaBuffer: vi.fn().mockResolvedValue({
                     path: '/tmp/.openclaw/media/inbound/test-file.png',
