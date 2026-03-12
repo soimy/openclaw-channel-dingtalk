@@ -14,11 +14,60 @@ async function buildHeaders(config: DingTalkConfig, log?: any): Promise<Record<s
   };
 }
 
-function mapDocInfo(item: any): DocInfo {
+type CreateDocResponse = {
+  docId?: string;
+  title?: string;
+  name?: string;
+  docType?: string;
+  creatorId?: string;
+  updatedAt?: number | string;
+};
+
+type SearchDocItem = {
+  docId?: string;
+  title?: string;
+  docType?: string;
+  creatorId?: string;
+  updatedAt?: number | string;
+};
+
+type ListDentryItem = {
+  dentryUuid?: string;
+  name?: string;
+  dentryType?: string;
+  creatorId?: string;
+  updatedAt?: number | string;
+};
+
+type AppendDocResponse = {
+  success?: boolean;
+};
+
+function mapCreatedDoc(item: CreateDocResponse): DocInfo {
   return {
-    docId: item.docId || item.dentryUuid || "",
-    title: item.name || item.title || "",
-    docType: item.docType || item.dentryType || "unknown",
+    docId: item.docId ?? "",
+    title: item.title ?? item.name ?? "",
+    docType: item.docType ?? "unknown",
+    creatorId: item.creatorId,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function mapSearchDoc(item: SearchDocItem): DocInfo {
+  return {
+    docId: item.docId ?? "",
+    title: item.title ?? "",
+    docType: item.docType ?? "unknown",
+    creatorId: item.creatorId,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function mapListDentry(item: ListDentryItem): DocInfo {
+  return {
+    docId: item.dentryUuid ?? "",
+    title: item.name ?? "",
+    docType: item.dentryType ?? "unknown",
     creatorId: item.creatorId,
     updatedAt: item.updatedAt,
   };
@@ -30,13 +79,14 @@ export async function createDoc(
   title: string,
   content?: string,
   log = getLogger(),
+  parentId?: string,
 ): Promise<DocInfo> {
   const headers = await buildHeaders(config, log);
   const createResp = await axios.post(
     `${DINGTALK_API}/v1.0/doc/spaces/${spaceId}/docs`,
     {
       spaceId,
-      parentDentryId: "",
+      ...(parentId ? { parentDentryId: parentId } : { parentDentryId: "" }),
       name: title,
       docType: "alidoc",
     },
@@ -46,7 +96,7 @@ export async function createDoc(
       ...getProxyBypassOption(config),
     },
   );
-  const createdBase = mapDocInfo(createResp.data);
+  const createdBase = mapCreatedDoc((createResp.data ?? {}) as CreateDocResponse);
   const created = {
     ...createdBase,
     title: createdBase.title || title,
@@ -66,7 +116,8 @@ export async function appendToDoc(
   index = -1,
 ): Promise<{ success: true }> {
   const headers = await buildHeaders(config, log);
-  await axios.post(
+  // DingTalk document block API accepts `index = -1` to append content at the end.
+  const resp = await axios.post(
     `${DINGTALK_API}/v1.0/doc/documents/${docId}/blocks/root/children`,
     {
       blockType: "PARAGRAPH",
@@ -79,6 +130,9 @@ export async function appendToDoc(
       ...getProxyBypassOption(config),
     },
   );
+  if ((resp.data as AppendDocResponse | undefined)?.success === false) {
+    throw new Error("appendToDoc failed");
+  }
   return { success: true };
 }
 
@@ -102,7 +156,9 @@ export async function searchDocs(
       ...getProxyBypassOption(config),
     },
   );
-  return Array.isArray(resp.data?.items) ? resp.data.items.map(mapDocInfo) : [];
+  return Array.isArray(resp.data?.items)
+    ? (resp.data.items as SearchDocItem[]).map(mapSearchDoc)
+    : [];
 }
 
 export async function listDocs(
@@ -121,5 +177,7 @@ export async function listDocs(
     timeout: 10_000,
     ...getProxyBypassOption(config),
   });
-  return Array.isArray(resp.data?.items) ? resp.data.items.map(mapDocInfo) : [];
+  return Array.isArray(resp.data?.items)
+    ? (resp.data.items as ListDentryItem[]).map(mapListDentry)
+    : [];
 }

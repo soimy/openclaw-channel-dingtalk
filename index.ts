@@ -1,10 +1,16 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import * as pluginSdk from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig } from "./src/config";
 import { appendToDoc, createDoc, listDocs, searchDocs } from "./src/docs-service";
 import { setDingTalkRuntime } from "./src/runtime";
 import type { DingtalkPluginModule } from "./src/types";
+
+type GatewayMethodContext = Pick<
+  Parameters<Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1]>[0],
+  "params" | "respond"
+>;
 
 const plugin: DingtalkPluginModule = {
   id: "dingtalk",
@@ -14,45 +20,45 @@ const plugin: DingtalkPluginModule = {
   register(api: OpenClawPluginApi): void {
     setDingTalkRuntime(api.runtime);
     api.registerChannel({ plugin: dingtalkPlugin });
-    api.registerGatewayMethod("dingtalk.docs.create", async ({ respond, cfg, params, log }: any) => {
-      const spaceId = typeof params?.spaceId === "string" ? params.spaceId.trim() : "";
-      const title = typeof params?.title === "string" ? params.title.trim() : "";
-      const content = typeof params?.content === "string" ? params.content : undefined;
-      if (!spaceId || !title) {
-        return respond(false, { error: "spaceId and title are required" });
-      }
-      const config = getConfig(cfg, params?.accountId);
-      const doc = await createDoc(config, spaceId, title, content, log);
+    api.registerGatewayMethod("dingtalk.docs.create", async ({ respond, params }: GatewayMethodContext) => {
+      const accountId = pluginSdk.readStringParam(params, "accountId");
+      const spaceId = pluginSdk.readStringParam(params, "spaceId", { required: true });
+      const title = pluginSdk.readStringParam(params, "title", { required: true });
+      const content = pluginSdk.readStringParam(params, "content", { allowEmpty: true });
+      const parentId = pluginSdk.readStringParam(params, "parentId");
+      const config = getConfig(api.config, accountId ?? undefined);
+      const doc = await createDoc(
+        config,
+        spaceId,
+        title,
+        content ?? undefined,
+        api.logger,
+        parentId ?? undefined,
+      );
       return respond(true, doc);
     });
-    api.registerGatewayMethod("dingtalk.docs.append", async ({ respond, cfg, params, log }: any) => {
-      const docId = typeof params?.docId === "string" ? params.docId.trim() : "";
-      const content = typeof params?.content === "string" ? params.content : "";
-      if (!docId || !content) {
-        return respond(false, { error: "docId and content are required" });
-      }
-      const config = getConfig(cfg, params?.accountId);
-      const result = await appendToDoc(config, docId, content, log);
+    api.registerGatewayMethod("dingtalk.docs.append", async ({ respond, params }: GatewayMethodContext) => {
+      const accountId = pluginSdk.readStringParam(params, "accountId");
+      const docId = pluginSdk.readStringParam(params, "docId", { required: true });
+      const content = pluginSdk.readStringParam(params, "content", { required: true, allowEmpty: false });
+      const config = getConfig(api.config, accountId ?? undefined);
+      const result = await appendToDoc(config, docId, content, api.logger);
       return respond(true, result);
     });
-    api.registerGatewayMethod("dingtalk.docs.search", async ({ respond, cfg, params, log }: any) => {
-      const keyword = typeof params?.keyword === "string" ? params.keyword.trim() : "";
-      const spaceId = typeof params?.spaceId === "string" ? params.spaceId.trim() : undefined;
-      if (!keyword) {
-        return respond(false, { error: "keyword is required" });
-      }
-      const config = getConfig(cfg, params?.accountId);
-      const docs = await searchDocs(config, keyword, spaceId, log);
+    api.registerGatewayMethod("dingtalk.docs.search", async ({ respond, params }: GatewayMethodContext) => {
+      const accountId = pluginSdk.readStringParam(params, "accountId");
+      const keyword = pluginSdk.readStringParam(params, "keyword", { required: true });
+      const spaceId = pluginSdk.readStringParam(params, "spaceId");
+      const config = getConfig(api.config, accountId ?? undefined);
+      const docs = await searchDocs(config, keyword, spaceId, api.logger);
       return respond(true, { docs });
     });
-    api.registerGatewayMethod("dingtalk.docs.list", async ({ respond, cfg, params, log }: any) => {
-      const spaceId = typeof params?.spaceId === "string" ? params.spaceId.trim() : "";
-      const parentId = typeof params?.parentId === "string" ? params.parentId.trim() : undefined;
-      if (!spaceId) {
-        return respond(false, { error: "spaceId is required" });
-      }
-      const config = getConfig(cfg, params?.accountId);
-      const docs = await listDocs(config, spaceId, parentId, log);
+    api.registerGatewayMethod("dingtalk.docs.list", async ({ respond, params }: GatewayMethodContext) => {
+      const accountId = pluginSdk.readStringParam(params, "accountId");
+      const spaceId = pluginSdk.readStringParam(params, "spaceId", { required: true });
+      const parentId = pluginSdk.readStringParam(params, "parentId");
+      const config = getConfig(api.config, accountId ?? undefined);
+      const docs = await listDocs(config, spaceId, parentId, api.logger);
       return respond(true, { docs });
     });
   },

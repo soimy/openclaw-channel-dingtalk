@@ -50,6 +50,18 @@ describe("docs-service", () => {
     );
   });
 
+  it("passes optional parentId when creating docs", async () => {
+    mockedAxiosPost.mockResolvedValueOnce({ data: { docId: "doc_parent", docType: "alidoc" } } as any);
+
+    await createDoc(config, "space_1", "子目录文档", undefined, undefined, "parent_1");
+
+    expect(mockedAxiosPost).toHaveBeenCalledWith(
+      "https://api.dingtalk.com/v1.0/doc/spaces/space_1/docs",
+      expect.objectContaining({ parentDentryId: "parent_1" }),
+      expect.any(Object),
+    );
+  });
+
   it("searches docs by keyword", async () => {
     mockedAxiosPost.mockResolvedValueOnce({
       data: { items: [{ docId: "doc_2", title: "周报", docType: "alidoc" }] },
@@ -82,5 +94,11 @@ describe("docs-service", () => {
     const result = await appendToDoc(config, "doc_1", "追加内容");
 
     expect(result).toEqual({ success: true });
+  });
+
+  it("throws when append response explicitly reports failure", async () => {
+    mockedAxiosPost.mockResolvedValueOnce({ data: { success: false } } as any);
+
+    await expect(appendToDoc(config, "doc_1", "追加内容")).rejects.toThrow("appendToDoc failed");
   });
 });

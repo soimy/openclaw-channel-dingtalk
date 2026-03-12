@@ -10,6 +10,23 @@ const shared = vi.hoisted(() => ({
 vi.mock('openclaw/plugin-sdk', () => ({
     emptyPluginConfigSchema: vi.fn(() => ({})),
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
+    readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
+        const value = params?.[key];
+        if (typeof value !== 'string') {
+            if (opts?.required) {
+                throw new Error(`${key} is required`);
+            }
+            return undefined;
+        }
+        const normalized = opts?.trim === false ? value : value.trim();
+        if (!opts?.allowEmpty && opts?.required && normalized.length === 0) {
+            throw new Error(`${key} is required`);
+        }
+        if (!opts?.allowEmpty && normalized.length === 0) {
+            return undefined;
+        }
+        return normalized;
+    }),
 }));
 
 vi.mock('../../src/docs-service', () => ({
@@ -67,7 +84,13 @@ describe('runtime + peer registry + index plugin', () => {
         const registerGatewayMethod = vi.fn();
         const runtime = { id: 'runtime1' } as any;
 
-        plugin.register({ runtime, registerChannel, registerGatewayMethod } as any);
+        plugin.register({
+            runtime,
+            registerChannel,
+            registerGatewayMethod,
+            config: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        } as any);
 
         expect(runtimeSpy).toHaveBeenCalledWith(runtime);
         expect(registerChannel).toHaveBeenCalledTimes(1);
@@ -82,7 +105,13 @@ describe('runtime + peer registry + index plugin', () => {
         const plugin = (await import('../../index')).default;
         const registerGatewayMethod = vi.fn();
 
-        plugin.register({ runtime: {}, registerChannel: vi.fn(), registerGatewayMethod } as any);
+        plugin.register({
+            runtime: {},
+            registerChannel: vi.fn(),
+            registerGatewayMethod,
+            config: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        } as any);
 
         const createHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === 'dingtalk.docs.create')?.[1];
         const searchHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === 'dingtalk.docs.search')?.[1];
@@ -90,18 +119,14 @@ describe('runtime + peer registry + index plugin', () => {
         const respondCreate = vi.fn();
         await createHandler?.({
             respond: respondCreate,
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
             params: { spaceId: 'space_1', title: '测试文档', content: '第一段' },
-            log: undefined,
         });
         expect(respondCreate).toHaveBeenCalledWith(true, { docId: 'doc_1', title: '测试文档', docType: 'alidoc' });
 
         const respondSearch = vi.fn();
         await searchHandler?.({
             respond: respondSearch,
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
             params: { keyword: '周报' },
-            log: undefined,
         });
         expect(respondSearch).toHaveBeenCalledWith(true, {
             docs: [{ docId: 'doc_2', title: '周报', docType: 'alidoc' }],

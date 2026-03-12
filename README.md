@@ -420,6 +420,11 @@ openclaw gateway restart
 - `dingtalk.docs.search`
 - `dingtalk.docs.list`
 
+补充说明：
+
+- `dingtalk.docs.create` 支持可选的 `parentId`，未传时默认在 space 根目录创建。
+- `dingtalk.docs.append` 使用钉钉 block API 的 `index = -1` 语义，将新段落追加到文档末尾。
+
 示例：
 
 ```json
@@ -428,6 +433,7 @@ openclaw gateway restart
   "params": {
     "accountId": "default",
     "spaceId": "your-space-id",
+    "parentId": "optional-parent-dentry-id",
     "title": "测试文档",
     "content": "第一段内容"
   }
