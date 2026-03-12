@@ -773,11 +773,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       return;
     }
-    if (
-      parsedLearnCommand.scope === "target" &&
-      parsedLearnCommand.targetId &&
-      parsedLearnCommand.instruction
-    ) {
+    if (parsedLearnCommand.scope === "target" && parsedLearnCommand.targetId && parsedLearnCommand.instruction) {
       const applied = applyManualTargetLearningRule({
         storePath: accountStorePath,
         accountId,
@@ -797,11 +793,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       return;
     }
-    if (
-      parsedLearnCommand.scope === "targets" &&
-      parsedLearnCommand.targetIds?.length &&
-      parsedLearnCommand.instruction
-    ) {
+    if (parsedLearnCommand.scope === "targets" && parsedLearnCommand.targetIds?.length && parsedLearnCommand.instruction) {
       const applied = applyManualTargetsLearningRule({
         storePath: accountStorePath,
         accountId,
@@ -821,11 +813,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       return;
     }
-    if (
-      parsedLearnCommand.scope === "target-set-create" &&
-      parsedLearnCommand.setName &&
-      parsedLearnCommand.targetIds?.length
-    ) {
+    if (parsedLearnCommand.scope === "target-set-create" && parsedLearnCommand.setName && parsedLearnCommand.targetIds?.length) {
       const saved = createOrUpdateTargetSet({
         storePath: accountStorePath,
         accountId,
@@ -837,19 +825,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         sessionWebhook,
         saved
           ? formatTargetSetSavedReply({
-              setName: parsedLearnCommand.setName,
-              targetIds: parsedLearnCommand.targetIds,
-            })
+            setName: parsedLearnCommand.setName,
+            targetIds: parsedLearnCommand.targetIds,
+          })
           : "目标组保存失败，请检查名称和目标列表。",
         { log },
       );
       return;
     }
-    if (
-      parsedLearnCommand.scope === "target-set-apply" &&
-      parsedLearnCommand.setName &&
-      parsedLearnCommand.instruction
-    ) {
+    if (parsedLearnCommand.scope === "target-set-apply" && parsedLearnCommand.setName && parsedLearnCommand.instruction) {
       const applied = applyTargetSetLearningRule({
         storePath: accountStorePath,
         accountId,
@@ -861,12 +845,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         sessionWebhook,
         applied.length > 0
           ? formatLearnAppliedReply({
-              scope: "target-set",
-              setName: parsedLearnCommand.setName,
-              targetIds: applied.map((item) => item.targetId),
-              instruction: parsedLearnCommand.instruction,
-              ruleId: applied[0]?.ruleId,
-            })
+            scope: "target-set",
+            setName: parsedLearnCommand.setName,
+            targetIds: applied.map((item) => item.targetId),
+            instruction: parsedLearnCommand.instruction,
+            ruleId: applied[0]?.ruleId,
+          })
           : `未找到目标组 \`${parsedLearnCommand.setName}\`，或该目标组为空。`,
         { log },
       );
@@ -882,9 +866,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         });
       const targetSets = listLearningTargetSets({ storePath: accountStorePath, accountId })
         .slice(0, 10)
-        .map(
-          (targetSet) => `- [target-set] ${targetSet.name} => ${targetSet.targetIds.join(", ")}`,
-        );
+        .map((targetSet) => `- [target-set] ${targetSet.name} => ${targetSet.targetIds.join(", ")}`);
       await sendBySession(
         dingtalkConfig,
         sessionWebhook,
