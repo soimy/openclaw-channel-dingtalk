@@ -298,7 +298,7 @@ export function isCardInTerminalState(state: string): boolean {
   return state === AICardStatus.FINISHED || state === AICardStatus.FAILED;
 }
 
-export function formatContentForCard(content: string, type: "thinking" | "tool"): string {
+export function formatContentForCard(content: string | undefined, type: "thinking" | "tool"): string {
   if (!content) {
     return "";
   }

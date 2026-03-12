@@ -1037,9 +1037,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         cfg,
         dispatcherOptions: {
           responsePrefix: "",
-          deliver: async (payload: any, info?: { kind: string }) => {
+          deliver: async (payload, info) => {
             try {
-              const textToSend = payload.markdown || payload.text;
+              const textToSend = payload.text;
               if (!textToSend) {
                 return;
               }
@@ -1049,12 +1049,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 return;
               }
 
-              if (useCardMode && currentAICard && info?.kind === "final") {
+              if (useCardMode && currentAICard && info.kind === "final") {
                 lastCardContent = textToSend;
                 return;
               }
 
-              if (useCardMode && currentAICard && info?.kind === "tool") {
+              if (useCardMode && currentAICard && info.kind === "tool") {
                 if (isCardInTerminalState(currentAICard.state)) {
                   log?.debug?.(
                     `[DingTalk] Skipping tool stream update because card is terminal: state=${currentAICard.state}`,
@@ -1102,7 +1102,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           },
         },
         replyOptions: {
-          onReasoningStream: async (payload: any) => {
+          onReasoningStream: async (payload) => {
             if (!useCardMode || !currentAICard) {
               return;
             }
