@@ -317,36 +317,23 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     /**
      * 纯文本消息的 @ 提取策略：
      *
-     * 钉钉纯文本消息中，有两个来源的 @ 信息：
-     * 1. data.text.atUsers：通过 @picker 选中的用户，包含 atUserId 和 atNickName
-     * 2. 正则提取：用户可能手动输入 @ + 名字（无 @picker）
+     * 钉钉纯文本消息中，用户可以直接输入 @ + 名字（无 @picker），
+     * 也可以通过 @picker 选人。data.atUsers 在顶层（与 text 同级），
+     * 只包含通过 @picker 选中的真实钉钉用户和机器人。
      *
-     * 优先使用 data.text.atUsers，因为它提供准确的 atUserId，可以区分真人和 agent。
-     * 正则提取作为补充，但无法获取 userId。
+     * 由于 atUsers 只有 dingtalkId，没有显示名称，无法将 regex 提取的名字
+     * 与 dingtalkId 对应。因此：
+     * - 用 regex 提取所有 @mention 名字
+     * - 用 atUserDingtalkIds 告知下游有多少真实用户被 @（但不知道具体是谁）
+     * - agent-name-matcher 结合两者判断：匹配到 agent 的是 agent，
+     *   没匹配到的如果 atUserDingtalkIds 非空，可能是真人
+     *
+     * 对于 richText 消息，part.type === "at" 会提供 atName + atUserId，
+     * 可以准确区分真人和 agent。
      */
-    const textAtUsers = data.text?.atUsers || [];
-    if (textAtUsers.length > 0) {
-      // 使用 text.atUsers 获取准确的 @ 信息
-      for (const atUser of textAtUsers) {
-        if (atUser.atNickName) {
-          atMentions.push({
-            name: atUser.atNickName.trim(),
-            userId: atUser.atUserId,
-          });
-        } else {
-          // 没有 atNickName 时，使用 atUserId 作为标识（不常见）
-          atMentions.push({
-            name: atUser.atUserId,
-            userId: atUser.atUserId,
-          });
-        }
-      }
-    } else {
-      // 没有 text.atUsers 时，使用正则提取（无法获取 userId）
-      const atMatches = textContent.matchAll(/@([^\s@]+)/g);
-      for (const match of atMatches) {
-        atMentions.push({ name: match[1].trim() });
-      }
+    const atMatches = textContent.matchAll(/@([^\s@]+)/g);
+    for (const match of atMatches) {
+      atMentions.push({ name: match[1].trim() });
     }
 
     return {

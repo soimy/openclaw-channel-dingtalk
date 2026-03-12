@@ -75,9 +75,12 @@ function matchAtName(atName: string, agents: AgentConfig[]): AgentNameMatch | nu
  *
  * @remarks
  * Exclusion logic for unmatched @mentions:
- * - If mention.userId is set (from text.atUsers or richText), it's a real user → excluded from unmatchedNames
+ * - If mention.userId is set (from richText), it's a real user → excluded from unmatchedNames
  * - If atUserDingtalkIds is non-empty, some @mentions are real users but we don't know which
  *   → we still add to unmatchedNames but caller can use atUserDingtalkIds.length for heuristics
+ *
+ * Limitation: For text messages, we cannot map dingtalkId to display names, so we cannot
+ * definitively determine which specific @mention corresponds to a real user vs an agent name.
  */
 export function resolveAtAgents(
   atMentions: AtMention[],
