@@ -1263,6 +1263,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 }
               }
 
+              // Skip tool result summaries in non-card mode — already reported in
+              // real-time via onAgentEvent progress notifications. Only send final reply.
+              if (info.kind === "tool") {
+                log?.debug?.(
+                  `[DingTalk] deliver skipped (tool summary, non-card): textLen=${textToSend.length}`,
+                );
+                return;
+              }
+
               lastCardContent = textToSend;
               const sendResult = await sendMessage(dingtalkConfig, to, textToSend, {
                 sessionWebhook,
