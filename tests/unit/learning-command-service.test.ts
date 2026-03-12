@@ -9,4 +9,10 @@ describe("learning-command-service", () => {
       instruction: "引用规则",
     });
   });
+
+  it("does not parse session alias commands", () => {
+    expect(parseLearnCommand("/session-alias show")).toEqual({
+      scope: "unknown",
+    });
+  });
 });

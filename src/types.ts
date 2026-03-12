@@ -190,6 +190,14 @@ export interface MediaFile {
   mimeType: string;
 }
 
+export interface DocInfo {
+  docId: string;
+  title: string;
+  docType: string;
+  creatorId?: string;
+  updatedAt?: number | string;
+}
+
 /**
  * DingTalk incoming message (Stream mode)
  */

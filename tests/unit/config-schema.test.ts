@@ -132,4 +132,5 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.learningAutoApply).toBe(true);
         expect(parsed.learningNoteTtlMs).toBe(120000);
     });
+
 });

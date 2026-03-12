@@ -174,15 +174,17 @@ export function formatWhoAmIReply(params: {
 export function formatWhereAmIReply(params: {
   conversationId: string;
   conversationType: "group" | "dm";
+  peerId?: string;
 }): string {
   return [
     params.conversationType === "group" ? "这是当前群聊信息：" : "这是当前会话信息：",
     "",
     `- conversationId: \`${params.conversationId}\``,
     `- conversationType: \`${params.conversationType}\``,
+    params.peerId ? `- peerId: \`${params.peerId}\`` : undefined,
     "",
     "后续如果要定向注入到这里，就使用这个 conversationId。",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 export function formatOwnerStatusReply(params: {
@@ -223,12 +225,20 @@ export function formatLearnCommandHelp(): string {
     "- /learn disable <ruleId>：停用一条规则，停止继续命中，但保留记录",
     "- /learn delete <ruleId>：彻底删除一条规则或目标规则",
     "",
+    "可用的 owner 会话控制命令：",
+    "- /session-alias show：查看当前会话共享会话别名",
+    "- /session-alias set <alias>：将当前会话绑定到指定共享会话别名",
+    "- /session-alias clear：清除当前会话共享会话别名，恢复为默认 peerId",
+    "- /session-alias bind direct <senderId> <alias>：由 owner 远程绑定某个私聊 senderId",
+    "- /session-alias bind group <conversationId> <alias>：由 owner 远程绑定某个群 conversationId",
+    "- /session-alias unbind direct <senderId>：由 owner 远程解除某个私聊 senderId 绑定",
+    "- /session-alias unbind group <conversationId>：由 owner 远程解除某个群 conversationId 绑定",
+    "",
     "权限说明：",
     "- 只有 owner 才能真正执行 /learn 的写操作和控制操作。",
     "- 如果你现在不是 owner，也可以先用 `/learn whoami` 查看 senderId，再由宿主把它加入 commands.ownerAllowFrom。",
   ].join("\n");
 }
-
 export function formatLearnAppliedReply(params: {
   scope: "global" | "session" | "target" | "targets" | "target-set";
   instruction: string;
