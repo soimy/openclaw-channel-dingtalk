@@ -1,10 +1,4 @@
-import type {
-  DingTalkInboundMessage,
-  MessageContent,
-  QuotedInfo,
-  SendMessageOptions,
-  AtMention,
-} from "./types";
+import type { AtMention, DingTalkInboundMessage, MessageContent, QuotedInfo, SendMessageOptions } from "./types";
 
 interface DingTalkDocMeta {
   spaceId: string;
@@ -99,8 +93,7 @@ function extractRichTextQuoteParts(
   return {
     summary,
     pictureDownloadCode,
-    pictureDownloadCodes:
-      uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
+    pictureDownloadCodes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
   };
 }
 
@@ -381,10 +374,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: pictureDownloadCode,
       mediaPaths: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
       mediaType: pictureDownloadCode ? "image" : undefined,
-      mediaTypes:
-        uniquePictureDownloadCodes.length > 0
-          ? uniquePictureDownloadCodes.map(() => "image")
-          : undefined,
+      mediaTypes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes.map(() => "image") : undefined,
       messageType: "richText",
       quoted: quoted ?? undefined,
       atMentions,

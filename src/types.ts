@@ -584,9 +584,7 @@ export interface DingTalkOutboundHandler {
   deliveryMode: "direct" | "queued" | "batch";
   resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
   sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
-  sendMedia?: (
-    params: SendMediaParams,
-  ) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
+  sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
 }
 
 /**
@@ -777,7 +775,10 @@ export function resolveDingTalkAccount(
   // If named account, merge channel-level defaults with account-level overrides
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
-    const merged = mergeAccountWithDefaults(dingtalk as DingTalkConfig, accountConfig);
+    const merged = mergeAccountWithDefaults(
+      dingtalk as DingTalkConfig,
+      accountConfig,
+    );
     return {
       ...merged,
       accountId: id,
