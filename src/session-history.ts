@@ -120,14 +120,14 @@ function readSessionHistory(
  *
  * @param storePath - Path to sessions.json
  * @param sessionKey - Session key to read
- * @param limit - Maximum number of messages to include
+ * @param limit - Maximum number of messages to include in output (default 10)
  * @param log - Optional logger
  * @returns Formatted history context string
  */
 export function getGroupHistoryContext(
   storePath: string,
   sessionKey: string,
-  limit: number = 20,
+  limit: number = 10,
   log?: Logger,
 ): string {
   try {
@@ -136,6 +136,7 @@ export function getGroupHistoryContext(
       return "";
     }
 
+    // Read exactly the number of messages we need
     const messages = readSessionHistory(entry.sessionId, storePath, entry.sessionFile, limit);
 
     if (messages.length === 0) {
@@ -143,7 +144,7 @@ export function getGroupHistoryContext(
     }
 
     let context = "\n\n--- 群聊历史 ---\n";
-    for (const msg of messages.slice(-10)) {
+    for (const msg of messages) {
       // 获取文本内容
       const contentText =
         typeof msg.content === "string"
