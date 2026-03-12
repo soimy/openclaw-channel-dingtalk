@@ -1154,36 +1154,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 return;
               }
 
-              if (useCardMode && currentAICard && info.kind === "tool") {
-                if (isCardInTerminalState(currentAICard.state)) {
-                  log?.debug?.(
-                    `[DingTalk] Skipping tool stream update because card is terminal: state=${currentAICard.state}`,
-                  );
-                  return;
-                }
-
-                log?.info?.(
-                  `[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`,
-                );
-                const toolText = formatContentForCard(textToSend, "tool");
-                if (toolText) {
-                  const sendResult = await sendMessage(dingtalkConfig, to, toolText, {
-                    sessionWebhook,
-                    atUserId: !isDirect ? senderId : null,
-                    log,
-                    card: currentAICard,
-                    accountId,
-                    storePath,
-                    conversationId: groupId,
-                    cardUpdateMode: "append",
-                  });
-                  if (!sendResult.ok) {
-                    throw new Error(sendResult.error || "Tool stream send failed");
-                  }
-                  lastCardContent = currentAICard.lastStreamedContent || toolText;
-                  return;
-                }
-              }
+              // Note: tool results (kind === "tool") are handled via replyOptions.onToolResult,
+              // which streams them to the AI Card before the final reply is composed.
 
               lastCardContent = textToSend;
               const sendResult = await sendMessage(dingtalkConfig, to, textToSend, {
@@ -1210,6 +1182,49 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           },
         },
         replyOptions: {
+          onToolResult: async (payload) => {
+            if (!useCardMode || !currentAICard) {
+              return;
+            }
+            if (isCardInTerminalState(currentAICard.state)) {
+              log?.debug?.(
+                `[DingTalk] Skipping tool stream update because card is terminal: state=${currentAICard.state}`,
+              );
+              return;
+            }
+            const text = payload.markdown || payload.text;
+            if (!text) {
+              return;
+            }
+            const toolText = formatContentForCard(text, "tool");
+            if (!toolText) {
+              return;
+            }
+            log?.info?.(`[DingTalk] Tool result received, streaming to AI Card: ${text.slice(0, 100)}`);
+            try {
+              const sendResult = await sendMessage(dingtalkConfig, to, toolText, {
+                sessionWebhook,
+                atUserId: !isDirect ? senderId : null,
+                log,
+                card: currentAICard,
+                accountId,
+                storePath,
+                conversationId: groupId,
+                cardUpdateMode: "append",
+              });
+              if (!sendResult.ok) {
+                throw new Error(sendResult.error || "Tool stream send failed");
+              }
+              lastCardContent = currentAICard.lastStreamedContent || toolText;
+            } catch (err: any) {
+              log?.debug?.(`[DingTalk] Tool stream update failed: ${err.message}`);
+              if (err?.response?.data !== undefined) {
+                log?.debug?.(
+                  formatDingTalkErrorPayloadLog("inbound.toolStream", err.response.data),
+                );
+              }
+            }
+          },
           onReasoningStream: async (payload) => {
             if (!useCardMode || !currentAICard) {
               return;
