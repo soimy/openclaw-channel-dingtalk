@@ -55,7 +55,6 @@ import {
   parseSessionCommand,
   validateSessionAlias,
 } from "./session-command-service";
-import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 import {
   applyManualTargetLearningRule,
   applyManualTargetsLearningRule,
@@ -71,6 +70,7 @@ import {
   listScopedLearningRules,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
+import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const DEFAULT_THINKING_MESSAGE = "🤔 思考中，请稍候...";
