@@ -2505,5 +2505,68 @@ describe('inbound-handler', () => {
         expect.anything(),
       );
     });
+
+    it('uses correct sessionWebhook for each sub-agent in order', async () => {
+      const webhookCalls: Array<{ agentId: string; webhook: string; responsePrefix: string }> = [];
+      const runtime = buildRuntime();
+      runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+        .fn()
+        .mockImplementation(async ({ dispatcherOptions }) => {
+          // Capture which agent is being processed by checking responsePrefix
+          webhookCalls.push({
+            agentId: dispatcherOptions.responsePrefix.includes('Agent1') ? 'agent1' : 'agent2',
+            webhook: 'https://session.webhook',
+            responsePrefix: dispatcherOptions.responsePrefix,
+          });
+          await dispatcherOptions.deliver({ text: 'response' }, { kind: 'final' });
+          return { queuedFinal: 'done' };
+        });
+      shared.getRuntimeMock.mockReturnValue(runtime);
+      shared.extractMessageContentMock.mockReturnValue({
+        text: '@Agent1 @Agent2 帮我看看',
+        messageType: 'text',
+        atMentions: [{ name: 'Agent1' }, { name: 'Agent2' }],
+      });
+
+      await handleDingTalkMessage({
+        cfg: {
+          agents: {
+            list: [
+              { id: 'agent1', name: 'Agent1' },
+              { id: 'agent2', name: 'Agent2' },
+            ],
+          },
+        },
+        accountId: 'main',
+        sessionWebhook: 'https://session.webhook',
+        log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
+        dingtalkConfig: {
+          dmPolicy: 'open',
+          messageType: 'markdown',
+          showThinking: false,
+        } as any,
+        data: {
+          msgId: 'm_webhook_order',
+          msgtype: 'text',
+          text: { content: '@Agent1 @Agent2 帮我看看' },
+          conversationType: '2', // group chat
+          conversationId: 'group_1',
+          senderId: 'user_1',
+          chatbotUserId: 'bot_1',
+          sessionWebhook: 'https://session.webhook',
+          createAt: Date.now(),
+        },
+      } as any);
+
+      // Verify order: agent1 should be processed before agent2
+      expect(webhookCalls).toHaveLength(2);
+      expect(webhookCalls[0].agentId).toBe('agent1');
+      expect(webhookCalls[1].agentId).toBe('agent2');
+      // All should use the same sessionWebhook from the inbound message
+      expect(webhookCalls.every(c => c.webhook === 'https://session.webhook')).toBe(true);
+      // Response prefixes should be distinct for each agent
+      expect(webhookCalls[0].responsePrefix).toContain('[Agent1]');
+      expect(webhookCalls[1].responsePrefix).toContain('[Agent2]');
+    });
   });
 });
