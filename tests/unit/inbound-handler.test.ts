@@ -1333,6 +1333,81 @@ describe('inbound-handler', () => {
         );
     });
 
+    it('reads InboundHistory from accountStorePath even when route agent differs from accountId', async () => {
+        const agentStorePath = path.join(fs.mkdtempSync('/tmp/dt-history-agent-'), 'store.json');
+        const accountStorePath = path.join(fs.mkdtempSync('/tmp/dt-history-account-'), 'store.json');
+        const runtime = buildRuntime();
+        runtime.channel.routing.resolveAgentRoute = vi.fn().mockReturnValue({
+            agentId: 'agent-secondary',
+            sessionKey: 's1',
+            mainSessionKey: 's1',
+        });
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockImplementation((_store, params) => (params?.agentId === 'main' ? accountStorePath : agentStorePath));
+        shared.getRuntimeMock.mockReturnValue(runtime);
+        shared.extractMessageContentMock
+            .mockReturnValueOnce({ text: '第一条跨 agent 群消息', messageType: 'text' })
+            .mockReturnValueOnce({ text: '第二条跨 agent 群消息', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', historyLimit: 5, messageType: 'markdown', showThinking: false } as any,
+            data: {
+                msgId: 'm_history_cross_agent_1',
+                msgtype: 'text',
+                text: { content: '第一条跨 agent 群消息' },
+                conversationType: '2',
+                conversationId: 'cid_group_cross_agent',
+                conversationTitle: '群聊Cross',
+                senderId: 'user_1',
+                senderNick: '甲',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: 1700000010000,
+            },
+        } as any);
+
+        runtime.channel.reply.finalizeInboundContext.mockClear();
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { groupPolicy: 'open', historyLimit: 5, messageType: 'markdown', showThinking: false } as any,
+            data: {
+                msgId: 'm_history_cross_agent_2',
+                msgtype: 'text',
+                text: { content: '第二条跨 agent 群消息' },
+                conversationType: '2',
+                conversationId: 'cid_group_cross_agent',
+                conversationTitle: '群聊Cross',
+                senderId: 'user_2',
+                senderNick: '乙',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: 1700000011000,
+            },
+        } as any);
+
+        expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+            expect.objectContaining({
+                InboundHistory: expect.arrayContaining([
+                    expect.objectContaining({
+                        sender: '甲 (user_1)',
+                        body: '第一条跨 agent 群消息',
+                        messageId: 'm_history_cross_agent_1',
+                        timestamp: 1700000010000,
+                    }),
+                ]),
+            }),
+        );
+    });
+
     it('handleDingTalkMessage returns summary reply for owner', async () => {
         const nowMs = Date.now();
         const storePath = path.join(fs.mkdtempSync('/tmp/dt-summary-'), 'store.json');

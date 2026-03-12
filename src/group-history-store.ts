@@ -1,4 +1,4 @@
-import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+import { readNamespaceJson, withNamespaceFileLock, writeNamespaceJsonAtomic } from "./persistence-store";
 
 const GROUP_HISTORY_NAMESPACE = "group.recent-history";
 const CONVERSATION_HISTORY_INDEX_NAMESPACE = "conversation.history-index";
@@ -248,29 +248,36 @@ export function upsertConversationHistoryIndex(params: {
   chatType: "direct" | "group";
   title?: string;
 }): void {
-  if (!params.storePath) {
+  const storePath = params.storePath;
+  if (!storePath) {
     return;
   }
-  const bucket = readNamespaceJson<ConversationHistoryIndexBucket>(CONVERSATION_HISTORY_INDEX_NAMESPACE, {
-    storePath: params.storePath,
+  withNamespaceFileLock(CONVERSATION_HISTORY_INDEX_NAMESPACE, {
+    storePath,
     scope: { accountId: params.accountId },
     format: "json",
-    fallback: { updatedAt: 0, conversations: {} },
-  });
-  bucket.conversations[params.conversationId] = {
-    conversationId: params.conversationId,
-    chatType: params.chatType,
-    title: params.title?.trim() || undefined,
-    updatedAt: Date.now(),
-  };
-  writeNamespaceJsonAtomic(CONVERSATION_HISTORY_INDEX_NAMESPACE, {
-    storePath: params.storePath,
-    scope: { accountId: params.accountId },
-    format: "json",
-    data: {
+  }, () => {
+    const bucket = readNamespaceJson<ConversationHistoryIndexBucket>(CONVERSATION_HISTORY_INDEX_NAMESPACE, {
+      storePath,
+      scope: { accountId: params.accountId },
+      format: "json",
+      fallback: { updatedAt: 0, conversations: {} },
+    });
+    bucket.conversations[params.conversationId] = {
+      conversationId: params.conversationId,
+      chatType: params.chatType,
+      title: params.title?.trim() || undefined,
       updatedAt: Date.now(),
-      conversations: bucket.conversations,
-    } satisfies ConversationHistoryIndexBucket,
+    };
+    writeNamespaceJsonAtomic(CONVERSATION_HISTORY_INDEX_NAMESPACE, {
+      storePath,
+      scope: { accountId: params.accountId },
+      format: "json",
+      data: {
+        updatedAt: Date.now(),
+        conversations: bucket.conversations,
+      } satisfies ConversationHistoryIndexBucket,
+    });
   });
 }
 
@@ -362,23 +369,30 @@ export function appendRecentGroupHistoryEntry(params: {
   limit: number;
   entry: GroupHistoryEntry;
 }): void {
-  if (!params.storePath || params.limit <= 0) {
+  const storePath = params.storePath;
+  if (!storePath || params.limit <= 0) {
     return;
   }
   const normalized = normalizeEntry(params.entry);
   if (!normalized) {
     return;
   }
-  const persisted = loadHistory(params);
-  const retainLimit = Math.max(1, Math.min(params.limit, MAX_HISTORY_ENTRIES));
-  const maxBufferedEntries = Math.min(MAX_HISTORY_ENTRIES + ROLLUP_CHUNK_SIZE, retainLimit + ROLLUP_CHUNK_SIZE);
-  const nextEntries = [...persisted.entries, normalized].slice(-maxBufferedEntries);
-  const rolled = rollupEntriesToLimit(nextEntries, persisted.summarySegments ?? [], retainLimit);
-  writeHistory({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    conversationId: params.conversationId,
-    entries: rolled.entries,
-    summarySegments: rolled.summarySegments,
+  withNamespaceFileLock(GROUP_HISTORY_NAMESPACE, {
+    storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId },
+    format: "json",
+  }, () => {
+    const persisted = loadHistory({ ...params, storePath });
+    const retainLimit = Math.max(1, Math.min(params.limit, MAX_HISTORY_ENTRIES));
+    const maxBufferedEntries = Math.min(MAX_HISTORY_ENTRIES + ROLLUP_CHUNK_SIZE, retainLimit + ROLLUP_CHUNK_SIZE);
+    const nextEntries = [...persisted.entries, normalized].slice(-maxBufferedEntries);
+    const rolled = rollupEntriesToLimit(nextEntries, persisted.summarySegments ?? [], retainLimit);
+    writeHistory({
+      storePath,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      entries: rolled.entries,
+      summarySegments: rolled.summarySegments,
+    });
   });
 }

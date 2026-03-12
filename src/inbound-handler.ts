@@ -1304,7 +1304,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const inboundHistory =
     !isDirect && historyLimit > 0
       ? listRecentGroupHistory({
-          storePath,
+          storePath: accountStorePath,
           accountId,
           conversationId: data.conversationId,
           limit: historyLimit,
