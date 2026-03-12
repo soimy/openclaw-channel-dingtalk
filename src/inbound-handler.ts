@@ -401,13 +401,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
    */
   // 检测是否有 @sub-agent 需要处理
   const atMentions = content.atMentions || [];
+  const atUserDingtalkIds = content.atUserDingtalkIds;
   log?.info?.(
-    `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} agentsList=${cfg.agents?.list?.length || 0}`,
+    `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} atUserDingtalkIds=${atUserDingtalkIds?.length || 0} agentsList=${cfg.agents?.list?.length || 0}`,
   );
   if (isGroup && atMentions.length > 0 && cfg.agents?.list && cfg.agents.list.length > 0) {
-    const { matchedAgents, unmatchedNames } = resolveAtAgents(atMentions, cfg);
+    const { matchedAgents, unmatchedNames, realUserCount } = resolveAtAgents(
+      atMentions,
+      cfg,
+      atUserDingtalkIds,
+    );
     log?.info?.(
-      `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")}`,
+      `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")} realUsers=${realUserCount}`,
     );
 
     if (matchedAgents.length > 0) {

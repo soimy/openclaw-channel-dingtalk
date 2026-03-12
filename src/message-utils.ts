@@ -202,6 +202,10 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
   const msgtype = data.msgtype || "text";
   const atMentions: AtMention[] = [];
 
+  // 提取通过 @picker 选中的真实用户的 dingtalkId
+  // 这些是真实钉钉用户，不包含 agent 名（如 @frontend）
+  const atUserDingtalkIds = data.atUsers?.map((u) => u.dingtalkId).filter(Boolean);
+
   const formatQuotedContent = (): QuotedInfo | null => {
     const textField = data.text;
 
@@ -320,16 +324,18 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     /**
      * 纯文本消息的 @ 提取策略：
      *
-     * 钉钉纯文本消息中，用户直接输入 @ + 名字，没有 @picker 选人。
-     * data.atUsers 在顶层（与 text 同级），只包含通过 @picker 选中的真实用户，
-     * 所以纯文本消息中 atUsers 通常为空或不存在。
+     * 钉钉纯文本消息中，用户可以直接输入 @ + 名字（无 @picker），
+     * 也可以通过 @picker 选人。data.atUsers 在顶层（与 text 同级），
+     * 只包含通过 @picker 选中的真实钉钉用户和机器人。
      *
-     * 因此，我们无法区分 @张三 是真实用户还是 agent 名。
-     * 只能全部提取，让 agent-name-matcher 后续排除：
-     * - 如果 @名字 匹配到配置的 agent，触发 agent
-     * - 如果没匹配到 agent，且不是真实用户（没有 userId），显示"未找到助手"
+     * 由于 atUsers 只有 dingtalkId，没有显示名称，无法将 regex 提取的名字
+     * 与 dingtalkId 对应。因此：
+     * - 用 regex 提取所有 @mention 名字
+     * - 用 atUserDingtalkIds 告知下游有多少真实用户被 @（但不知道具体是谁）
+     * - agent-name-matcher 结合两者判断：匹配到 agent 的是 agent，
+     *   没匹配到的如果 atUserDingtalkIds 非空，可能是真人
      *
-     * 对于 richText 消息，part.type === "at" 会提供 atUserId，
+     * 对于 richText 消息，part.type === "at" 会提供 atName + atUserId，
      * 可以准确区分真人和 agent。
      */
     const atMatches = textContent.matchAll(/@([^\s@]+)/g);
@@ -337,7 +343,13 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       atMentions.push({ name: match[1].trim() });
     }
 
-    return { text: textContent, messageType: "text", quoted: quoted ?? undefined, atMentions };
+    return {
+      text: textContent,
+      messageType: "text",
+      quoted: quoted ?? undefined,
+      atMentions,
+      atUserDingtalkIds,
+    };
   }
 
   if (msgtype === "richText") {
@@ -376,6 +388,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       messageType: "richText",
       quoted: quoted ?? undefined,
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -386,6 +399,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaType: "image",
       messageType: "picture",
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -396,6 +410,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaType: "audio",
       messageType: "audio",
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -406,6 +421,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaType: "video",
       messageType: "video",
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -416,6 +432,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaType: "file",
       messageType: "file",
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -429,6 +446,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         docFileId: docMeta.fileId,
         quoted: quoted ?? undefined,
         atMentions,
+        atUserDingtalkIds,
       };
     }
     return {
@@ -436,6 +454,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       messageType: msgtype,
       quoted: quoted ?? undefined,
       atMentions,
+      atUserDingtalkIds,
     };
   }
   if (msgtype === "chatRecord") {
@@ -452,6 +471,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         messageType: "chatRecord",
         quoted: quoted ?? undefined,
         atMentions,
+        atUserDingtalkIds,
       };
     }
     if (summary) {
@@ -460,6 +480,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         messageType: "chatRecord",
         quoted: quoted ?? undefined,
         atMentions,
+        atUserDingtalkIds,
       };
     }
     return {
@@ -467,6 +488,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       messageType: "chatRecord",
       quoted: quoted ?? undefined,
       atMentions,
+      atUserDingtalkIds,
     };
   }
 
@@ -475,5 +497,6 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     messageType: msgtype,
     quoted: quoted ?? undefined,
     atMentions,
+    atUserDingtalkIds,
   };
 }

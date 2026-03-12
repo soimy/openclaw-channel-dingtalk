@@ -319,8 +319,16 @@ export interface MessageContent {
   docSpaceId?: string;
   docFileId?: string;
   quoted?: QuotedInfo;
-  /** @ 提及列表 */
+  /** @ 提及列表（从文本或 richText 提取的名字） */
   atMentions?: AtMention[];
+  /**
+   * 通过 @picker 选中的真实钉钉用户的 dingtalkId 列表
+   * - 仅包含真实钉钉用户和机器人，不包含 agent 名
+   * - 用于排除真人：如果 atMentions 中的名字匹配到 agent，说明是 agent；
+   *   如果没匹配到 agent 且有 atUserDingtalkIds，则可能是真人
+   * - 注意：无法将 dingtalkId 映射到具体名字，因为 webhook 不提供此映射
+   */
+  atUserDingtalkIds?: string[];
 }
 
 /**
