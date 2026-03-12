@@ -110,20 +110,4 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.learningNoteTtlMs).toBe(120000);
     });
 
-    it('defaults groupSessionScope to group and accepts explicit group scope', () => {
-        const parsed = DingTalkConfigSchema.parse({
-            clientId: 'id',
-            clientSecret: 'secret',
-            accounts: {
-                main: {
-                    clientId: 'id',
-                    clientSecret: 'secret',
-                    groupSessionScope: 'group',
-                },
-            },
-        }) as { groupSessionScope?: string; accounts: Record<string, { groupSessionScope?: string }> };
-
-        expect(parsed.groupSessionScope).toBe('group');
-        expect(parsed.accounts.main?.groupSessionScope).toBe('group');
-    });
 });

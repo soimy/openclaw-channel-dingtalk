@@ -27,7 +27,6 @@ describe('resolveDingTalkSessionPeer', () => {
         ).toEqual({
             kind: 'group',
             peerId: 'cid_group_1',
-            groupSessionScope: 'group',
         });
     });
 
@@ -38,12 +37,11 @@ describe('resolveDingTalkSessionPeer', () => {
                 senderId: 'user_123',
                 conversationId: 'cid_group_1',
                 peerIdOverride: 'shared-dev',
-                config: { groupSessionScope: 'group' },
+                config: {},
             }),
         ).toEqual({
             kind: 'group',
             peerId: 'shared-dev',
-            groupSessionScope: 'group',
         });
     });
 });

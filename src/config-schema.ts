@@ -28,9 +28,6 @@ const DingTalkAccountConfigShape = {
   /** Group message policy: open or allowlist */
   groupPolicy: z.enum(["open", "allowlist"]).optional().default("open"),
 
-  /** Group session scope, aligned with explicit peerId/sessionKey generation */
-  groupSessionScope: z.enum(["group"]).optional().default("group"),
-
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
