@@ -238,7 +238,7 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
+  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -255,6 +255,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const content = extractMessageContent(data);
   if (!content.text) {
     return;
+  }
+
+  // Add context hint for sub-agent mode
+  if (subAgentOptions) {
+    const contextHint = `[你被 @ 为"${subAgentOptions.matchedName}"]\n\n`;
+    content.text = contextHint + content.text;
   }
 
   const isDirect = data.conversationType === "1";
@@ -377,12 +383,25 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  const route = rt.channel.routing.resolveAgentRoute({
-    cfg,
-    channel: "dingtalk",
-    accountId,
-    peer: { kind: isDirect ? "direct" : "group", id: isDirect ? senderId : groupId },
-  });
+  // Resolve route: use sub-agent ID if specified, otherwise use framework routing
+  const route = subAgentOptions
+    ? {
+        agentId: subAgentOptions.agentId,
+        sessionKey: buildAgentSpecificSessionKey({
+          cfg,
+          accountId,
+          agentId: subAgentOptions.agentId,
+          peerKind: isDirect ? "direct" : "group",
+          peerId: isDirect ? senderId : groupId,
+        }),
+        mainSessionKey: "", // Not used in sub-agent mode
+      }
+    : rt.channel.routing.resolveAgentRoute({
+        cfg,
+        channel: "dingtalk",
+        accountId,
+        peer: { kind: isDirect ? "direct" : "group", id: isDirect ? senderId : groupId },
+      });
 
   // ==================== @Sub-Agent 处理 ====================
   /**
@@ -399,51 +418,85 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
    * TODO: Request OpenClaw to provide native @agent routing, then migrate.
    * See: https://github.com/wjueyao/openclaw/issues/XXX
    */
-  // 检测是否有 @sub-agent 需要处理
-  const atMentions = content.atMentions || [];
-  const atUserDingtalkIds = content.atUserDingtalkIds;
-  log?.info?.(
-    `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} atUserDingtalkIds=${atUserDingtalkIds?.length || 0} agentsList=${cfg.agents?.list?.length || 0}`,
-  );
-  if (isGroup && atMentions.length > 0 && cfg.agents?.list && cfg.agents.list.length > 0) {
-    const { matchedAgents, unmatchedNames, realUserCount } = resolveAtAgents(
-      atMentions,
-      cfg,
-      atUserDingtalkIds,
+  // Skip @sub-agent detection when already in sub-agent mode
+  if (subAgentOptions) {
+    log?.debug?.(
+      `[DingTalk] Sub-agent mode: agentId=${subAgentOptions.agentId} responsePrefix=${subAgentOptions.responsePrefix}`,
     );
+    // Continue to main message handling logic
+  } else {
+    // 检测是否有 @sub-agent 需要处理
+    const atMentions = content.atMentions || [];
+    const atUserDingtalkIds = content.atUserDingtalkIds;
+    // /learn 命令统一由 main agent 处理，不路由到 sub-agent
+    const parsedLearnCommand = parseLearnCommand(content.text);
+    const isLearnCommand = parsedLearnCommand.scope !== "unknown";
     log?.info?.(
-      `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")} realUsers=${realUserCount}`,
+      `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} atUserDingtalkIds=${atUserDingtalkIds?.length || 0} agentsList=${cfg.agents?.list?.length || 0} isLearnCommand=${isLearnCommand}`,
     );
-
-    if (matchedAgents.length > 0) {
-      // 有匹配的 sub-agent，顺序处理（避免 sessionWebhook 竞争和消息交错）
-      log?.debug?.(
-        `[DingTalk] Sub-agent matched: agents=${matchedAgents.map((a) => a.agentId).join(",")} groupId=${groupId}`,
+    if (
+      isGroup &&
+      atMentions.length > 0 &&
+      cfg.agents?.list &&
+      cfg.agents.list.length > 0 &&
+      !isLearnCommand
+    ) {
+      const { matchedAgents, unmatchedNames, realUserCount } = resolveAtAgents(
+        atMentions,
+        cfg,
+        atUserDingtalkIds,
+      );
+      log?.info?.(
+        `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")} realUsers=${realUserCount}`,
       );
 
-      // 顺序处理所有匹配的 agent，确保消息有序
-      for (const agentMatch of matchedAgents) {
-        try {
-          await processSubAgentMessage({
-            cfg,
-            accountId,
-            data,
-            content,
-            agentMatch,
-            baseRoute: route,
-            dingtalkConfig,
-            sessionWebhook,
-            log,
-          });
-        } catch (error) {
-          log?.error?.(
-            `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
+      if (matchedAgents.length > 0) {
+        // 有匹配的 sub-agent，顺序处理（避免 sessionWebhook 竞争和消息交错）
+        log?.debug?.(
+          `[DingTalk] Sub-agent matched: agents=${matchedAgents.map((a) => a.agentId).join(",")} groupId=${groupId}`,
+        );
+
+        // 顺序处理所有匹配的 agent，确保消息有序
+        for (const agentMatch of matchedAgents) {
+          try {
+            await processSubAgentMessage({
+              cfg,
+              accountId,
+              data,
+              content,
+              agentMatch,
+              baseRoute: route,
+              dingtalkConfig,
+              sessionWebhook,
+              log,
+            });
+          } catch (error) {
+            log?.error?.(
+              `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
+
+        // 如果有未匹配的名字，发送提示
+        if (unmatchedNames.length > 0) {
+          const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
+          try {
+            await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
+              atUserId: senderId,
+              log,
+            });
+          } catch (err: any) {
+            log?.debug?.(`[DingTalk] Failed to send sub-agent fallback notice: ${err.message}`);
+          }
+        }
+
+        return;
       }
 
-      // 如果有未匹配的名字，发送提示
-      if (unmatchedNames.length > 0) {
+      // 有 @ 但没有匹配到任何 agent，检查是否需要 fallback 提示
+      const allAreRealUsers = atMentions.every((m) => m.userId);
+      if (!allAreRealUsers && unmatchedNames.length > 0) {
+        // 有无效的 agent 名字，发送提示后继续用 main agent 处理
         const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
         try {
           await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
@@ -451,25 +504,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             log,
           });
         } catch (err: any) {
-          log?.debug?.(`[DingTalk] Failed to send sub-agent fallback notice: ${err.message}`);
+          log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);
         }
-      }
-
-      return;
-    }
-
-    // 有 @ 但没有匹配到任何 agent，检查是否需要 fallback 提示
-    const allAreRealUsers = atMentions.every((m) => m.userId);
-    if (!allAreRealUsers && unmatchedNames.length > 0) {
-      // 有无效的 agent 名字，发送提示后继续用 main agent 处理
-      const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
-      try {
-        await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
-          atUserId: senderId,
-          log,
-        });
-      } catch (err: any) {
-        log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);
       }
     }
   }
@@ -484,6 +520,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
+  // Parse /learn command for main agent processing
   const parsedLearnCommand = parseLearnCommand(content.text);
   const isOwner = isLearningOwner({
     cfg,
@@ -1179,7 +1216,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         ctx,
         cfg,
         dispatcherOptions: {
-          responsePrefix: "",
+          responsePrefix: subAgentOptions?.responsePrefix || "",
           deliver: async (payload, info) => {
             try {
               const textToSend = payload.text;
@@ -1392,21 +1429,15 @@ function buildAgentSpecificSessionKey(params: {
 }
 
 /**
- * Process a single sub-agent message
+ * Process a single sub-agent message by calling handleDingTalkMessage with agent-specific options.
  *
- * @technical-debt
- * This function duplicates parts of the main message handling logic.
- * Consider refactoring handleDingTalkMessage to accept agentId + responsePrefix
- * parameters to share the same code path.
- *
- * Missing features compared to main handler:
- * - AI Card mode support (falls back to sendBySession)
- * - /learn command filtering (learn commands go to main agent)
+ * This approach reuses the main message handling logic, ensuring feature parity:
+ * - Media download/upload
+ * - Quoted message handling
+ * - AI Card mode support
  * - Feedback learning integration
- * - Quoted message media download (only direct media is downloaded)
  *
- * TODO: Refactor to reuse main handler with agent-specific parameters.
- * See: https://github.com/wjueyao/openclaw/issues/XXX
+ * @param params - Sub-agent message parameters
  */
 async function processSubAgentMessage(params: {
   cfg: OpenClawConfig;
@@ -1423,25 +1454,16 @@ async function processSubAgentMessage(params: {
     cfg,
     accountId,
     data,
-    content,
     agentMatch,
-    baseRoute,
     dingtalkConfig,
     sessionWebhook,
     log,
   } = params;
 
-  const rt = getDingTalkRuntime();
   // 钉钉 conversationType: "1" = 单聊, "2" = 群聊
-  const isDirect = data.conversationType === "1";
-  const isGroup = data.conversationType === "2" || !isDirect;
-  const senderId = data.senderStaffId || data.senderId;
-  const rawSenderId = data.senderId;
+  const isGroup = data.conversationType !== "1";
   const groupId = data.conversationId;
-  const senderName = data.senderNick || data.senderId;
-  const to = isDirect ? senderId : groupId;
 
-  // === 0. 鉴权检查 ===
   // 群聊权限检查
   if (isGroup) {
     const groupPolicy = dingtalkConfig.groupPolicy || "open";
@@ -1460,159 +1482,44 @@ async function processSubAgentMessage(params: {
     }
   }
 
-  // === 1. Build session key for this agent ===
-  const agentSessionKey = buildAgentSpecificSessionKey({
-    cfg,
-    accountId,
-    agentId: agentMatch.agentId,
-    peerKind: isGroup ? "group" : "direct",
-    peerId: isDirect ? rawSenderId : groupId,
-  });
-
-  // === 2. Resolve store path for this agent ===
-  const agentStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
-    agentId: agentMatch.agentId,
-  });
-
-  // === 3. Get group chat history context ===
+  // Get group chat history context
   let historyContext = "";
   if (isGroup) {
+    const rt = getDingTalkRuntime();
     const mainStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
-      agentId: baseRoute.agentId,
+      agentId: params.baseRoute.agentId,
     });
-    historyContext = getGroupHistoryContext(mainStorePath, baseRoute.sessionKey, 20, log);
+    historyContext = getGroupHistoryContext(mainStorePath, params.baseRoute.sessionKey, 10, log);
   }
 
-  // === 4. Download media if present ===
-  let mediaPath: string | undefined;
-  let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
-    }
-  }
+  // Add history context to message text
+  const originalText = data.text?.content || "";
+  const enhancedText = historyContext + originalText;
 
-  // === 5. Build message context with @ hint and history ===
-  const contextHint = `[你被 @ 为"${agentMatch.matchedName}"]\n\n`;
-  const inboundText = contextHint + historyContext + content.text;
+  // Create modified data with enhanced text
+  const modifiedData = {
+    ...data,
+    text: {
+      ...data.text,
+      content: enhancedText,
+    },
+  };
 
-  // Agent 身份前缀，用于在群聊历史中标识消息来源
+  // Agent identity prefix for response
   const agentIdentityPrefix = `[${agentMatch.matchedName}] `;
 
-  // === 6. Build envelope and ctx ===
-  const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
-    storePath: agentStorePath,
-    sessionKey: agentSessionKey,
-  });
-
-  const fromLabel = isDirect
-    ? `${senderName} (${senderId})`
-    : `${data.conversationTitle || groupId} - ${senderName}`;
-
-  const body = rt.channel.reply.formatInboundEnvelope({
-    channel: "DingTalk",
-    from: fromLabel,
-    timestamp: data.createAt,
-    body: inboundText,
-    chatType: isDirect ? "direct" : "group",
-    sender: { name: senderName, id: senderId },
-    previousTimestamp,
-    envelope: envelopeOptions,
-  });
-
-  const ctx = rt.channel.reply.finalizeInboundContext({
-    Body: body,
-    RawBody: content.text,
-    CommandBody: content.text,
-    From: to,
-    To: to,
-    SessionKey: agentSessionKey,
-    AccountId: accountId,
-    ChatType: isDirect ? "direct" : "group",
-    ConversationLabel: fromLabel,
-    GroupSubject: isDirect ? undefined : data.conversationTitle || groupId,
-    SenderName: senderName,
-    SenderId: senderId,
-    Provider: "dingtalk",
-    Surface: "dingtalk",
-    MessageSid: data.msgId,
-    Timestamp: data.createAt,
-    MediaPath: mediaPath,
-    MediaType: mediaType,
-    OriginatingChannel: "dingtalk",
-    OriginatingTo: to,
-  });
-
-  // === 7. Record session ===
-  await rt.channel.session.recordInboundSession({
-    storePath: agentStorePath,
-    sessionKey: agentSessionKey,
-    ctx,
-    updateLastRoute: { sessionKey: agentSessionKey, channel: "dingtalk", to, accountId },
-    onRecordError: (err: unknown) => {
-      log?.error?.(
-        `[DingTalk] Failed to record inbound session for sub-agent ${agentMatch.agentId}: ${String(err)}`,
-      );
+  // Call main handler with sub-agent options
+  await handleDingTalkMessage({
+    cfg,
+    accountId,
+    data: modifiedData,
+    sessionWebhook,
+    log,
+    dingtalkConfig,
+    subAgentOptions: {
+      agentId: agentMatch.agentId,
+      responsePrefix: agentIdentityPrefix,
+      matchedName: agentMatch.matchedName,
     },
   });
-
-  // === 8. Dispatch reply ===
-  const releaseSessionLock = await acquireSessionLock(agentSessionKey);
-  try {
-    // Send thinking message
-    if (dingtalkConfig.showThinking !== false) {
-      let thinkingText = (dingtalkConfig.thinkingMessage || "").trim() || DEFAULT_THINKING_MESSAGE;
-      if (thinkingText === "emoji") {
-        thinkingText = classifySentenceWithEmoji(content.text).emoji;
-      }
-      try {
-        await sendBySession(dingtalkConfig, sessionWebhook, thinkingText, {
-          atUserId: isGroup ? senderId : null,
-          log,
-        });
-      } catch (err: any) {
-        log?.debug?.(`[DingTalk] Sub-agent thinking message failed: ${err.message}`);
-      }
-    }
-
-    // Dispatch reply
-    await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-      ctx,
-      cfg,
-      dispatcherOptions: {
-        responsePrefix: agentIdentityPrefix,
-        deliver: async (payload: any, info?: { kind: string }) => {
-          try {
-            const textToSend = payload.markdown || payload.text;
-            if (!textToSend) {
-              return;
-            }
-
-            if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
-              log?.warn?.(`[DingTalk] Suppressed stop reason from sub-agent: ${textToSend}`);
-              return;
-            }
-
-            // responsePrefix 已自动添加前缀，无需再手动添加
-            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
-              atUserId: isGroup ? senderId : null,
-              log,
-            });
-          } catch (err: any) {
-            log?.error?.(`[DingTalk] Sub-agent deliver failed: ${err.message}`);
-          }
-        },
-      },
-      replyOptions: {
-        onReasoningStream: async (chunk: any) => {
-          log?.debug?.(`[DingTalk] Sub-agent reasoning: ${chunk?.text?.slice(0, 50)}...`);
-        },
-      },
-    });
-  } finally {
-    releaseSessionLock();
-  }
 }

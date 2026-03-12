@@ -367,6 +367,18 @@ export interface SessionWebhookResponse {
 }
 
 /**
+ * Sub-agent routing options for parameterized message handling
+ */
+export interface SubAgentOptions {
+  /** The agent ID to route to */
+  agentId: string;
+  /** Prefix to add to response messages (e.g., "[AgentName] ") */
+  responsePrefix: string;
+  /** The matched agent name */
+  matchedName: string;
+}
+
+/**
  * Message handler parameters
  */
 export interface HandleDingTalkMessageParams {
@@ -376,6 +388,11 @@ export interface HandleDingTalkMessageParams {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  /**
+   * When set, routes message to the specified sub-agent instead of main agent.
+   * This enables reuse of the main message handling logic for sub-agents.
+   */
+  subAgentOptions?: SubAgentOptions;
 }
 
 /**
