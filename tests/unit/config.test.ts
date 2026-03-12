@@ -228,6 +228,7 @@ describe('config helpers', () => {
 
         describe('real-world OpenClaw scenarios', () => {
             it('handles OpenClaw workspace file on Windows', () => {
+                Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
                 const workspacePath = 'Users\\username\\.openclaw\\workspace\\document.xlsx';
                 const result = resolveRelativePath(workspacePath);
 
@@ -263,6 +264,7 @@ describe('config helpers', () => {
 
         describe('regression tests', () => {
             it('does not duplicate path segments (main bug fix)', () => {
+                Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
                 // This was the reported issue
                 const input = 'Users\\username\\.openclaw\\workspace\\test.xlsx';
                 const result = resolveRelativePath(input);

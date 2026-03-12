@@ -128,9 +128,9 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        // Health check interval fires at 5s, needs 2 consecutive unhealthy checks
-        await vi.advanceTimersByTimeAsync(5000);
-        await vi.advanceTimersByTimeAsync(5000);
+        // Health check interval fires at 60s (HEALTH_CHECK_INTERVAL_MS), needs 2 consecutive unhealthy checks
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
         // Immediate reconnect (delay=0) + microtask for socket open
         await vi.advanceTimersByTimeAsync(10);
 
@@ -146,7 +146,8 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        await vi.advanceTimersByTimeAsync(2500);
+        // Grace window is 30s; advance to 15s (within grace) — no reconnect expected
+        await vi.advanceTimersByTimeAsync(15000);
         expect(client.connect).toHaveBeenCalledTimes(1);
     });
 
@@ -277,10 +278,10 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        // Health check at 5s intervals, 2 consecutive unhealthy -> reconnect
-        await vi.advanceTimersByTimeAsync(10000);
-        await vi.advanceTimersByTimeAsync(5100);
-        await vi.advanceTimersByTimeAsync(5100);
+        // Health check at 60s intervals (HEALTH_CHECK_INTERVAL_MS), 2 consecutive unhealthy -> reconnect
+        await vi.advanceTimersByTimeAsync(90000);
+        await vi.advanceTimersByTimeAsync(60100);
+        await vi.advanceTimersByTimeAsync(60100);
 
         expect(manager.getState()).toBe(ConnectionState.FAILED);
         expect(onStateChange).toHaveBeenCalledWith(
@@ -303,9 +304,9 @@ describe('ConnectionManager', () => {
         client.registered = false;
         client.connected = false;
 
-        // Need 2 consecutive unhealthy checks (5s each), then immediate reconnect
-        await vi.advanceTimersByTimeAsync(5000);
-        await vi.advanceTimersByTimeAsync(5000);
+        // Need 2 consecutive unhealthy checks (60s each), then immediate reconnect
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
         await vi.advanceTimersByTimeAsync(10);
 
         expect(client.connect.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -333,8 +334,8 @@ describe('ConnectionManager', () => {
         // Some DingTalk configurations never send REGISTERED system message
         client.registered = false;
         // client.connected remains true — connection is healthy
-
-        await vi.advanceTimersByTimeAsync(30000);
+        // Advance within grace window to verify no false-trigger (grace=30s)
+        await vi.advanceTimersByTimeAsync(15000);
 
         expect(client.connect).toHaveBeenCalledTimes(1);
     });
@@ -346,10 +347,10 @@ describe('ConnectionManager', () => {
 
         await manager.connect();
 
-        // Simulate slow REGISTERED message: registered still false within grace window
+        // Simulate slow REGISTERED message: registered still false within grace window (30s)
         client.registered = false;
 
-        await vi.advanceTimersByTimeAsync(2500);
+        await vi.advanceTimersByTimeAsync(15000);
         expect(client.connect).toHaveBeenCalledTimes(1);
     });
 
@@ -465,8 +466,8 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        await vi.advanceTimersByTimeAsync(5000);
-        await vi.advanceTimersByTimeAsync(5000);
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
         await vi.advanceTimersByTimeAsync(300);
 
         // Deadline exceeded does not count toward maxReconnectCycles,
@@ -634,8 +635,9 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        // Trigger health check disconnect
-        await vi.advanceTimersByTimeAsync(10000);
+        // Trigger health check disconnect (2x 60s interval needed)
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
         await vi.advanceTimersByTimeAsync(200);
 
         // Check that the logged delay is <= 5 seconds
@@ -692,8 +694,9 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        // Health check -> reconnect attempt
-        await vi.advanceTimersByTimeAsync(10000);
+        // Health check -> reconnect attempt (2x 60s interval)
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
         await vi.advanceTimersByTimeAsync(100);
 
         manager.stop();
@@ -733,9 +736,9 @@ describe('ConnectionManager', () => {
         client.connected = false;
         client.registered = false;
 
-        // Health checks to detect disconnect
-        await vi.advanceTimersByTimeAsync(5000);
-        await vi.advanceTimersByTimeAsync(5000);
+        // Health checks to detect disconnect (60s interval)
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
 
         // Each deadline cycle: ~100ms deadline + ~100ms backoff delay + retries
         // Run enough time for 5 consecutive deadline timeouts
