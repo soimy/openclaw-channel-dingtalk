@@ -193,13 +193,17 @@ function summarizeEntries(entries: GroupHistoryEntry[]): GroupHistorySummarySegm
   };
 }
 
-function rollupEntries(entries: GroupHistoryEntry[], segments: GroupHistorySummarySegment[]): {
+function rollupEntriesToLimit(
+  entries: GroupHistoryEntry[],
+  segments: GroupHistorySummarySegment[],
+  retainLimit: number,
+): {
   entries: GroupHistoryEntry[];
   summarySegments: GroupHistorySummarySegment[];
 } {
   let nextEntries = entries;
   let nextSegments = segments;
-  while (nextEntries.length > MAX_HISTORY_ENTRIES) {
+  while (nextEntries.length > retainLimit) {
     const chunk = nextEntries.slice(0, ROLLUP_CHUNK_SIZE);
     nextEntries = nextEntries.slice(ROLLUP_CHUNK_SIZE);
     const segment = summarizeEntries(chunk);
@@ -366,9 +370,10 @@ export function appendRecentGroupHistoryEntry(params: {
     return;
   }
   const persisted = loadHistory(params);
-  const maxBufferedEntries = Math.min(MAX_HISTORY_ENTRIES + ROLLUP_CHUNK_SIZE, params.limit + ROLLUP_CHUNK_SIZE);
+  const retainLimit = Math.max(1, Math.min(params.limit, MAX_HISTORY_ENTRIES));
+  const maxBufferedEntries = Math.min(MAX_HISTORY_ENTRIES + ROLLUP_CHUNK_SIZE, retainLimit + ROLLUP_CHUNK_SIZE);
   const nextEntries = [...persisted.entries, normalized].slice(-maxBufferedEntries);
-  const rolled = rollupEntries(nextEntries, persisted.summarySegments ?? []);
+  const rolled = rollupEntriesToLimit(nextEntries, persisted.summarySegments ?? [], retainLimit);
   writeHistory({
     storePath: params.storePath,
     accountId: params.accountId,

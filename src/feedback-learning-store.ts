@@ -1,4 +1,4 @@
-import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+import { listNamespaceScopeValues, readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
 
 const MAX_EVENTS = 200;
 const MAX_SNAPSHOTS = 100;
@@ -577,7 +577,45 @@ export function clearAllLearningState(
   });
 
   const indexedTargetIds = readTargetRuleIndex(params).targetIds;
-  const targetIds = [...new Set([...(indexedTargetIds || []), ...(params.extraTargetIds || [])].filter(Boolean))];
+  const persistedTargetIds = [
+    ...listNamespaceScopeValues({
+      namespace: EVENTS_NAMESPACE,
+      storePath: params.storePath,
+      accountId: params.accountId,
+      scopeKey: "targetId",
+    }),
+    ...listNamespaceScopeValues({
+      namespace: SNAPSHOTS_NAMESPACE,
+      storePath: params.storePath,
+      accountId: params.accountId,
+      scopeKey: "targetId",
+    }),
+    ...listNamespaceScopeValues({
+      namespace: REFLECTIONS_NAMESPACE,
+      storePath: params.storePath,
+      accountId: params.accountId,
+      scopeKey: "targetId",
+    }),
+    ...listNamespaceScopeValues({
+      namespace: SESSION_NOTES_NAMESPACE,
+      storePath: params.storePath,
+      accountId: params.accountId,
+      scopeKey: "targetId",
+    }),
+    ...listNamespaceScopeValues({
+      namespace: TARGET_RULES_NAMESPACE,
+      storePath: params.storePath,
+      accountId: params.accountId,
+      scopeKey: "targetId",
+    }),
+  ];
+  const targetIds = [
+    ...new Set([
+      ...(indexedTargetIds || []),
+      ...(params.extraTargetIds || []),
+      ...persistedTargetIds,
+    ].filter(Boolean)),
+  ];
   let targetRules = 0;
   let sessionNotes = 0;
   let feedbackArtifacts = 0;

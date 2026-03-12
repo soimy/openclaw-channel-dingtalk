@@ -129,3 +129,44 @@ export function writeNamespaceJsonAtomic<T>(
     }
   }
 }
+
+export function listNamespaceScopeValues(params: {
+  namespace: string;
+  storePath?: string;
+  accountId: string;
+  scopeKey: "targetId";
+}): string[] {
+  if (!params.storePath) {
+    return [];
+  }
+  const baseDir = path.join(path.dirname(params.storePath), NAMESPACE_ROOT_DIR);
+  const safeNamespace = sanitizeSegment(params.namespace.trim());
+  if (!fs.existsSync(baseDir)) {
+    return [];
+  }
+  const accountMarker = `.account-${encodeScopeValue(params.accountId)}`;
+  const scopePrefix = `${safeNamespace}${accountMarker}.`;
+  const scopeTokenPrefix = `${params.scopeKey.replace(/Id$/, "")}-`;
+  const values = new Set<string>();
+  for (const entry of fs.readdirSync(baseDir)) {
+    if (!entry.startsWith(scopePrefix) || !entry.endsWith(".json")) {
+      continue;
+    }
+    const segments = entry.slice(safeNamespace.length + 1, -".json".length).split(".");
+    for (const segment of segments) {
+      if (!segment.startsWith(scopeTokenPrefix)) {
+        continue;
+      }
+      const encoded = segment.slice(scopeTokenPrefix.length);
+      if (!encoded) {
+        continue;
+      }
+      try {
+        values.add(Buffer.from(encoded, "base64url").toString("utf8"));
+      } catch {
+        continue;
+      }
+    }
+  }
+  return [...values];
+}

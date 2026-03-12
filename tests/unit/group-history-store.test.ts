@@ -80,6 +80,41 @@ describe("group-history-store", () => {
     expect(segments[0]!.toTs).toBeGreaterThanOrEqual(segments[0]!.fromTs);
   });
 
+  it("rolls older entries once the configured recent window is exceeded", () => {
+    const storePath = path.join(fs.mkdtempSync("/tmp/dt-history-window-rollup-"), "store.json");
+    for (let i = 0; i < 75; i++) {
+      appendRecentGroupHistoryEntry({
+        storePath,
+        accountId: "main",
+        conversationId: "group_1",
+        limit: 50,
+        entry: {
+          sender: `User ${i} (u${i})`,
+          senderId: `u${i}`,
+          body: `window-message-${i}`,
+          timestamp: 1_700_000_000_000 + i * 1000,
+          messageId: `wm_${i}`,
+        },
+      });
+    }
+
+    const recent = listRecentGroupHistory({
+      storePath,
+      accountId: "main",
+      conversationId: "group_1",
+      limit: 50,
+    });
+    const segments = listGroupHistorySummarySegments({
+      storePath,
+      accountId: "main",
+      conversationId: "group_1",
+    });
+
+    expect(recent.length).toBeLessThanOrEqual(50);
+    expect(segments.length).toBeGreaterThan(0);
+    expect(segments.at(-1)?.summary).toContain("window-message-");
+  });
+
   it("queries slices by chat type, time range, and sender", () => {
     const storePath = path.join(fs.mkdtempSync("/tmp/dt-history-query-"), "store.json");
     upsertConversationHistoryIndex({

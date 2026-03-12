@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
     analyzeImplicitNegativeFeedback,
     buildLearningContextBlock,
+    clearAllManualLearningState,
     recordExplicitFeedbackLearning,
     recordOutboundReplyForLearning,
 } from "../../src/feedback-learning-service";
 import {
+    appendSessionLearningNote,
     listActiveSessionLearningNotes,
     listFeedbackEvents,
     listLearnedRules,
@@ -155,5 +157,41 @@ describe("feedback-learning-service", () => {
         expect(events[0]?.kind).toBe("implicit_negative");
         expect(reflections[0]?.category).toBe("quoted_context_missing");
         expect(notes[0]?.instruction).toContain("禁止根据上下文臆测引用内容");
+    });
+
+    it("clears target-scoped artifacts even when target only exists in persisted note buckets", () => {
+        const storePath = createStorePath();
+        appendSessionLearningNote({
+            storePath,
+            accountId: "main",
+            targetId: "chat-orphan",
+            note: {
+                id: "note_1",
+                targetId: "chat-orphan",
+                instruction: "记住这条临时规则",
+                source: "implicit_negative",
+                category: "generic_negative",
+                createdAt: Date.now(),
+            },
+            ttlMs: 60_000,
+        });
+
+        expect(listActiveSessionLearningNotes({
+            storePath,
+            accountId: "main",
+            targetId: "chat-orphan",
+        })).toHaveLength(1);
+
+        const result = clearAllManualLearningState({
+            storePath,
+            accountId: "main",
+        });
+
+        expect(result.sessionNotes).toBeGreaterThanOrEqual(1);
+        expect(listActiveSessionLearningNotes({
+            storePath,
+            accountId: "main",
+            targetId: "chat-orphan",
+        })).toHaveLength(0);
     });
 });
