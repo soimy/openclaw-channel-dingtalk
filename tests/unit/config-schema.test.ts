@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { DingTalkConfigSchema } from '../../src/config-schema';
 
 describe('DingTalkConfigSchema', () => {
+    it('applies default journalTTLDays for top-level config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { journalTTLDays?: number };
+
+        expect(parsed.journalTTLDays).toBe(7);
+    });
+
     it('applies default maxReconnectCycles for top-level config', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
@@ -23,6 +32,20 @@ describe('DingTalkConfigSchema', () => {
         }) as { accounts: Record<string, { maxReconnectCycles?: number }> };
 
         expect(parsed.accounts.main?.maxReconnectCycles).toBe(3);
+    });
+
+    it('accepts custom journalTTLDays for account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    journalTTLDays: 14,
+                },
+            },
+        }) as { accounts: Record<string, { journalTTLDays?: number }> };
+
+        expect(parsed.accounts.main?.journalTTLDays).toBe(14);
     });
 
     it('accepts mediaUrlAllowlist on top-level and account-level config', () => {

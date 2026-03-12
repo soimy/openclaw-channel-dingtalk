@@ -19,10 +19,20 @@ const cardServiceMocks = vi.hoisted(() => ({
     sendProactiveCardTextMock: vi.fn(),
 }));
 
+const quoteJournalMocks = vi.hoisted(() => ({
+    appendOutboundToQuoteJournalMock: vi.fn(),
+    appendProactiveOutboundJournalMock: vi.fn(),
+}));
+
 vi.mock('../../src/card-service', () => ({
     isCardInTerminalState: cardServiceMocks.isCardInTerminalStateMock,
     streamAICard: cardServiceMocks.streamAICardMock,
     sendProactiveCardText: cardServiceMocks.sendProactiveCardTextMock,
+}));
+
+vi.mock('../../src/quote-journal', () => ({
+    appendOutboundToQuoteJournal: quoteJournalMocks.appendOutboundToQuoteJournalMock,
+    appendProactiveOutboundJournal: quoteJournalMocks.appendProactiveOutboundJournalMock,
 }));
 
 import { sendMessage } from '../../src/send-service';
@@ -39,6 +49,8 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockReset();
         cardServiceMocks.sendProactiveCardTextMock.mockReset();
         clearProactiveRiskObservationsForTest();
+        quoteJournalMocks.appendOutboundToQuoteJournalMock.mockReset();
+        quoteJournalMocks.appendProactiveOutboundJournalMock.mockReset();
     });
 
     it('falls back to proactive template API when proactive card send fails', async () => {
@@ -58,6 +70,64 @@ describe('send-service advanced branches', () => {
         expect(cardServiceMocks.sendProactiveCardTextMock).toHaveBeenCalledTimes(1);
         expect(mockedAxios).toHaveBeenCalledTimes(1);
         expect(result.ok).toBe(true);
+    });
+
+    it('preserves tracking metadata when card mode proactive send succeeds without a live card instance', async () => {
+        cardServiceMocks.sendProactiveCardTextMock.mockResolvedValueOnce({
+            ok: true,
+            outTrackId: 'track_card_real_1',
+            processQueryKey: 'card_process_real_1',
+            cardInstanceId: 'card_instance_real_1',
+        });
+
+        const result = await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            'manager123',
+            'text',
+            { accountId: 'main' } as any,
+        );
+
+        expect(cardServiceMocks.sendProactiveCardTextMock).toHaveBeenCalledTimes(1);
+        expect(mockedAxios).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            ok: true,
+            tracking: {
+                outTrackId: 'track_card_real_1',
+                processQueryKey: 'card_process_real_1',
+                cardInstanceId: 'card_instance_real_1',
+            },
+        });
+    });
+
+    it('journals proactive card sends using tracking metadata when storePath is provided', async () => {
+        cardServiceMocks.sendProactiveCardTextMock.mockResolvedValueOnce({
+            ok: true,
+            outTrackId: 'track_card_real_2',
+            processQueryKey: 'card_process_real_2',
+            cardInstanceId: 'card_instance_real_2',
+        });
+
+        await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            'manager123',
+            'card proactive text',
+            {
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+                conversationId: 'cid_dm_stable',
+            } as any,
+        );
+
+        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                storePath: '/tmp/sessions.json',
+                accountId: 'main',
+                conversationId: 'cid_dm_stable',
+                messageId: 'card_process_real_2',
+                messageType: 'outbound-proactive',
+                text: 'card proactive text',
+            }),
+        );
     });
 
     it('returns {ok:false} when proactive send throws', async () => {
@@ -135,5 +205,82 @@ describe('send-service advanced branches', () => {
             level: 'high',
             reason: 'Forbidden.AccessDenied.AccessTokenPermissionDenied',
         });
+    });
+
+    it('delegates session outbound journaling when storePath is provided', async () => {
+        mockedAxios.mockResolvedValueOnce({ data: { errcode: 0, errmsg: 'ok', msgid: 'legacy_msg_2' } } as any);
+
+        await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            'hello session',
+            {
+                sessionWebhook: 'https://session.webhook',
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+            } as any,
+        );
+
+        expect(quoteJournalMocks.appendOutboundToQuoteJournalMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                storePath: '/tmp/sessions.json',
+                accountId: 'main',
+                conversationId: 'cidA1B2C3',
+                messageId: 'legacy_msg_2',
+                messageType: 'outbound',
+                text: 'hello session',
+            }),
+        );
+    });
+
+    it('delegates proactive outbound journaling when storePath is provided', async () => {
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'proactive_q_1' } } as any);
+
+        await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            'hello proactive',
+            {
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+            } as any,
+        );
+
+        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                storePath: '/tmp/sessions.json',
+                accountId: 'main',
+                conversationId: 'cidA1B2C3',
+                messageId: 'proactive_q_1',
+                messageType: 'outbound-proactive',
+                text: 'hello proactive',
+            }),
+        );
+    });
+
+    it('uses provided DingTalk conversationId for DM journaling scope instead of user target id', async () => {
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'proactive_q_dm_1' } } as any);
+
+        await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'user_target_123',
+            'hello proactive dm',
+            {
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+                conversationId: 'cid_dm_stable',
+            } as any,
+        );
+
+        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: 'cid_dm_stable',
+            }),
+        );
+        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: 'user_target_123',
+            }),
+        );
     });
 });

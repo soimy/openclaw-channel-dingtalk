@@ -508,7 +508,16 @@ describe('card-service', () => {
     });
 
     it('sendProactiveCardText does not persist pending card state', async () => {
-        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                result: {
+                    outTrackId: 'track_card_1',
+                    processQueryKey: 'card_process_1',
+                    cardInstanceId: 'card_instance_1',
+                },
+            },
+        });
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const result = await sendProactiveCardText(
@@ -517,7 +526,12 @@ describe('card-service', () => {
             'proactive done'
         );
 
-        expect(result).toEqual({ ok: true });
+        expect(result).toEqual({
+            ok: true,
+            outTrackId: 'track_card_1',
+            processQueryKey: 'card_process_1',
+            cardInstanceId: 'card_instance_1',
+        });
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         expect(fs.existsSync(stateFilePath)).toBe(false);
@@ -553,5 +567,43 @@ describe('card-service', () => {
         expect(fs.existsSync(stateFilePath)).toBe(true);
         const namespaced = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(namespaced.pendingCards).toHaveLength(0);
+    });
+
+    it('persists outTrackId for pending cards so recovery finalizes with the original tracking id', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                result: {
+                    outTrackId: 'track_distinct_1',
+                    cardInstanceId: 'card_instance_distinct_1',
+                },
+            },
+        });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        const card = await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            'cid_pending_track',
+            undefined,
+            { accountId: 'main', storePath }
+        );
+
+        expect(card?.outTrackId).toBe('track_distinct_1');
+        const persisted = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
+        expect(persisted.pendingCards[0].outTrackId).toBe('track_distinct_1');
+        expect(persisted.pendingCards[0].cardInstanceId).toBe('card_instance_distinct_1');
+
+        mockedAxios.put.mockClear();
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            'main',
+            storePath
+        );
+
+        expect(recovered).toBe(1);
+        const putBody = mockedAxios.put.mock.calls[0]?.[1];
+        expect(putBody.outTrackId).toBe('track_distinct_1');
     });
 });

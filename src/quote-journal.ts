@@ -1,153 +1,242 @@
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
 
 const QUOTE_JOURNAL_NAMESPACE = "quoted.msg-journal";
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_ENTRIES_PER_CONVERSATION = 100;
+const QUOTE_JOURNAL_VERSION = 1;
+export const DEFAULT_JOURNAL_TTL_DAYS = 7;
+const MAX_RECORDS_PER_SCOPE = 1000;
 
-export interface QuoteJournalEntry {
+type JournalEntry = {
   msgId: string;
-  text: string;
   messageType: string;
+  text?: string;
   createdAt: number;
-  expiresAt: number;
-  mediaPath?: string;
-  mediaType?: string;
-}
+};
 
-interface PersistedQuoteJournal {
+type QuoteJournalState = {
+  version: number;
   updatedAt: number;
-  entries: Record<string, QuoteJournalEntry>;
+  records: JournalEntry[];
+};
+
+const stateCache = new Map<string, QuoteJournalState>();
+
+function getScopeKey(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+}): string {
+  return JSON.stringify([
+    params.storePath,
+    params.accountId,
+    params.conversationId || null,
+  ]);
 }
 
-function isValidEntry(value: unknown): value is QuoteJournalEntry {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const entry = value as Partial<QuoteJournalEntry>;
-  return (
-    typeof entry.msgId === "string" &&
-    entry.msgId.length > 0 &&
-    typeof entry.text === "string" &&
-    typeof entry.messageType === "string" &&
-    entry.messageType.length > 0 &&
-    typeof entry.createdAt === "number" &&
-    Number.isFinite(entry.createdAt) &&
-    typeof entry.expiresAt === "number" &&
-    Number.isFinite(entry.expiresAt) &&
-    (entry.mediaPath === undefined || typeof entry.mediaPath === "string") &&
-    (entry.mediaType === undefined || typeof entry.mediaType === "string")
-  );
+function fallbackState(): QuoteJournalState {
+  return {
+    version: QUOTE_JOURNAL_VERSION,
+    updatedAt: Date.now(),
+    records: [],
+  };
 }
 
-function loadEntries(
-  accountId: string,
-  conversationId: string,
-  storePath?: string,
-): Record<string, QuoteJournalEntry> {
-  if (!storePath) {
-    return {};
+function normalizeEntry(entry: unknown): JournalEntry | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
   }
-  const persisted = readNamespaceJson<PersistedQuoteJournal>(QUOTE_JOURNAL_NAMESPACE, {
-    storePath,
-    scope: { accountId, conversationId },
+  const candidate = entry as Partial<JournalEntry>;
+  if (typeof candidate.msgId !== "string" || typeof candidate.createdAt !== "number") {
+    return null;
+  }
+  return {
+    msgId: candidate.msgId,
+    messageType: typeof candidate.messageType === "string" ? candidate.messageType : "text",
+    text: typeof candidate.text === "string" ? candidate.text : undefined,
+    createdAt: candidate.createdAt,
+  };
+}
+
+function normalizeState(parsed: Partial<QuoteJournalState>): QuoteJournalState {
+  const records = Array.isArray(parsed.records)
+    ? parsed.records.map((entry) => normalizeEntry(entry)).filter((entry): entry is JournalEntry => entry !== null)
+    : [];
+  return {
+    version: typeof parsed.version === "number" ? parsed.version : QUOTE_JOURNAL_VERSION,
+    updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+    records,
+  };
+}
+
+function loadState(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+}): QuoteJournalState {
+  const scopeKey = getScopeKey(params);
+  const cached = stateCache.get(scopeKey);
+  if (cached) {
+    return cached;
+  }
+
+  const persisted = readNamespaceJson<Partial<QuoteJournalState>>(QUOTE_JOURNAL_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
     format: "json",
-    fallback: { updatedAt: 0, entries: {} },
+    fallback: fallbackState(),
   });
-
-  const entries: Record<string, QuoteJournalEntry> = {};
-  for (const [msgId, entry] of Object.entries(persisted.entries || {})) {
-    if (isValidEntry(entry)) {
-      entries[msgId] = entry;
-    }
-  }
-  return entries;
+  const normalized = normalizeState(persisted);
+  stateCache.set(scopeKey, normalized);
+  return normalized;
 }
 
-function purgeExpiredEntries(entries: Record<string, QuoteJournalEntry>, nowMs: number): void {
-  for (const [msgId, entry] of Object.entries(entries)) {
-    if (nowMs >= entry.expiresAt) {
-      delete entries[msgId];
-    }
-  }
+function writeState(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+  state: QuoteJournalState;
+}): void {
+  stateCache.set(getScopeKey(params), params.state);
+  writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    data: params.state,
+  });
 }
 
-function trimEntries(entries: Record<string, QuoteJournalEntry>): void {
-  const sorted = Object.values(entries).toSorted((left, right) => right.createdAt - left.createdAt);
-  for (const stale of sorted.slice(MAX_ENTRIES_PER_CONVERSATION)) {
-    delete entries[stale.msgId];
+function pruneByTtl(records: JournalEntry[], ttlDays: number, nowMs: number): JournalEntry[] {
+  if (!ttlDays || ttlDays <= 0) {
+    return records;
   }
+  const cutoff = nowMs - ttlDays * 24 * 60 * 60 * 1000;
+  return records.filter((entry) => entry.createdAt >= cutoff);
+}
+
+function capRecords(records: JournalEntry[]): JournalEntry[] {
+  if (records.length <= MAX_RECORDS_PER_SCOPE) {
+    return records;
+  }
+  return records.slice(-MAX_RECORDS_PER_SCOPE);
 }
 
 export function appendQuoteJournalEntry(params: {
-  storePath?: string;
+  storePath: string;
   accountId: string;
-  conversationId: string;
+  conversationId: string | null;
   msgId: string;
-  text: string;
   messageType: string;
-  createdAt?: number;
-  mediaPath?: string;
-  mediaType?: string;
+  text?: string;
+  createdAt: number;
+  ttlDays?: number;
+  nowMs?: number;
 }): void {
-  if (!params.storePath || !params.msgId.trim()) {
-    return;
-  }
-
-  const nowMs = Date.now();
-  const createdAt = params.createdAt && Number.isFinite(params.createdAt) ? params.createdAt : nowMs;
-  const entries = loadEntries(params.accountId, params.conversationId, params.storePath);
-  purgeExpiredEntries(entries, nowMs);
-  entries[params.msgId] = {
+  const now = params.nowMs ?? Date.now();
+  const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
+  const state = loadState(params);
+  const records = pruneByTtl(state.records, ttlDays, now);
+  records.push({
     msgId: params.msgId,
-    text: params.text,
     messageType: params.messageType,
-    createdAt,
-    expiresAt: nowMs + DEFAULT_TTL_MS,
-    mediaPath: params.mediaPath,
-    mediaType: params.mediaType,
-  };
-  trimEntries(entries);
-  writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
+    text: params.text,
+    createdAt: params.createdAt,
+  });
+  const cappedRecords = capRecords(records);
+  writeState({
     storePath: params.storePath,
-    scope: { accountId: params.accountId, conversationId: params.conversationId },
-    format: "json",
-    data: {
-      updatedAt: nowMs,
-      entries,
-    } satisfies PersistedQuoteJournal,
+    accountId: params.accountId,
+    conversationId: params.conversationId,
+    state: {
+      version: QUOTE_JOURNAL_VERSION,
+      updatedAt: now,
+      records: cappedRecords,
+    },
   });
 }
 
-export function findQuoteJournalEntryByMsgId(params: {
-  storePath?: string;
+export function cleanupExpiredQuoteJournalEntries(params: {
+  storePath: string;
   accountId: string;
-  conversationId: string;
-  msgId?: string;
-}): QuoteJournalEntry | null {
-  if (!params.storePath || !params.msgId?.trim()) {
-    return null;
-  }
-
-  const nowMs = Date.now();
-  const entries = loadEntries(params.accountId, params.conversationId, params.storePath);
-  purgeExpiredEntries(entries, nowMs);
-  const entry = entries[params.msgId];
-  if (!entry) {
-    return null;
-  }
-  if (nowMs >= entry.expiresAt) {
-    delete entries[params.msgId];
-    writeNamespaceJsonAtomic(QUOTE_JOURNAL_NAMESPACE, {
+  conversationId: string | null;
+  ttlDays: number;
+  nowMs?: number;
+}): number {
+  const now = params.nowMs ?? Date.now();
+  const state = loadState(params);
+  const kept = pruneByTtl(state.records, params.ttlDays, now);
+  const removed = state.records.length - kept.length;
+  if (removed > 0) {
+    writeState({
       storePath: params.storePath,
-      scope: { accountId: params.accountId, conversationId: params.conversationId },
-      format: "json",
-      data: {
-        updatedAt: nowMs,
-        entries,
-      } satisfies PersistedQuoteJournal,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      state: {
+        version: QUOTE_JOURNAL_VERSION,
+        updatedAt: now,
+        records: kept,
+      },
     });
-    return null;
   }
-  return entry;
+  return removed;
+}
+
+export function resolveQuotedMessageById(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+  originalMsgId: string;
+  ttlDays?: number;
+  nowMs?: number;
+}): { msgId: string; text?: string; createdAt: number } | null {
+  const state = loadState(params);
+  const now = params.nowMs ?? Date.now();
+  const ttlDays = params.ttlDays ?? DEFAULT_JOURNAL_TTL_DAYS;
+  const records = capRecords(pruneByTtl(state.records, ttlDays, now));
+  for (let i = records.length - 1; i >= 0; i--) {
+    const entry = records[i];
+    if (entry.msgId === params.originalMsgId) {
+      return { msgId: entry.msgId, text: entry.text, createdAt: entry.createdAt };
+    }
+  }
+  return null;
+}
+
+export async function appendOutboundToQuoteJournal(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+  messageId?: string;
+  text?: string;
+  messageType?: string;
+  log?: unknown;
+}): Promise<void> {
+  try {
+    if (!params.messageId) {
+      return;
+    }
+    appendQuoteJournalEntry({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      conversationId: params.conversationId || null,
+      msgId: params.messageId,
+      messageType: params.messageType || "outbound",
+      text: params.text,
+      createdAt: Date.now(),
+    });
+  } catch (err) {
+    (params.log as { debug?: (message: string) => void } | undefined)?.debug?.(
+      `[quote-journal] appendOutbound failed: ${String(err)}`,
+    );
+  }
+}
+
+export async function appendProactiveOutboundJournal(params: {
+  storePath: string;
+  accountId: string;
+  conversationId: string | null;
+  messageId?: string;
+  text?: string;
+  messageType?: string;
+  log?: unknown;
+}): Promise<void> {
+  return appendOutboundToQuoteJournal(params);
 }

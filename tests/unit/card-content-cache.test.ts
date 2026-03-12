@@ -49,8 +49,6 @@ describe('card-content-cache', () => {
         vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1);
 
         expect(findCardContent('default', 'conv1', 1000000)).toBeNull();
-
-        vi.useRealTimers();
     });
 
     it('每个会话上限（20 条）淘汰最早的', () => {

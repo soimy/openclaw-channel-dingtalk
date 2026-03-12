@@ -41,6 +41,7 @@ describe('config advanced', () => {
                     showThinking: false,
                     messageType: 'card',
                     cardTemplateId: 'tpl.schema',
+                    journalTTLDays: 9,
                     debug: true,
                     accounts: {
                         bot1: { clientId: 'bot1_id', clientSecret: 'bot1_sec' },
@@ -57,6 +58,7 @@ describe('config advanced', () => {
         expect(resolved.showThinking).toBe(false);
         expect(resolved.messageType).toBe('card');
         expect(resolved.cardTemplateId).toBe('tpl.schema');
+        expect(resolved.journalTTLDays).toBe(9);
         expect(resolved.debug).toBe(true);
     });
 

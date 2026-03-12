@@ -21,6 +21,7 @@ credentials.json
 .env.dingtalk-monitor.local
 
 # Opencode directories
+.codex/
 .opencode/
 .vscode/
 .idea/

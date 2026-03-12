@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_JOURNAL_TTL_DAYS } from "./quote-journal";
 
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
@@ -35,6 +36,8 @@ const DingTalkAccountConfigShape = {
 
   /** Show thinking indicator while processing (markdown mode only) */
   showThinking: z.boolean().optional().default(true),
+
+  journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_JOURNAL_TTL_DAYS),
 
   /** Custom thinking message content when showThinking is enabled (markdown mode only) */
   thinkingMessage: z.string().optional().default("🤔 思考中，请稍候..."),

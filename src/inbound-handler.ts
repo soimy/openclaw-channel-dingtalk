@@ -5,14 +5,51 @@ import { resolveAtAgents } from "./agent-name-matcher";
 import { getAccessToken } from "./auth";
 import {
   createAICard,
-  findCardContent,
   finishAICard,
+  findCardContent,
   formatContentForCard,
   getCardContentByProcessQueryKey,
   isCardInTerminalState,
 } from "./card-service";
 import classifySentenceWithEmoji from "./classifyWithEmoji";
 import { resolveGroupConfig } from "./config";
+import { formatGroupMembers, noteGroupMember } from "./group-members-store";
+import { setCurrentLogger } from "./logger-context";
+import {
+  formatLearnAppliedReply,
+  formatLearnCommandHelp,
+  formatLearnDeletedReply,
+  formatLearnDisabledReply,
+  formatLearnListReply,
+  formatOwnerOnlyDeniedReply,
+  formatOwnerStatusReply,
+  formatTargetSetSavedReply,
+  formatWhereAmIReply,
+  formatWhoAmIReply,
+  isLearningOwner,
+  parseLearnCommand,
+} from "./learning-command-service";
+import { extractMessageContent } from "./message-utils";
+import { registerPeerId } from "./peer-id-registry";
+import {
+  clearProactiveRiskObservationsForTest,
+  getProactiveRiskObservationForAny,
+} from "./proactive-risk-registry";
+import {
+  appendQuoteJournalEntry,
+  DEFAULT_JOURNAL_TTL_DAYS,
+  resolveQuotedMessageById,
+} from "./quote-journal";
+import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
+import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
+import { getDingTalkRuntime } from "./runtime";
+import { sendBySession, sendMessage } from "./send-service";
+import { getGroupHistoryContext } from "./session-history";
+import { acquireSessionLock } from "./session-lock";
+import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
+import { AICardStatus } from "./types";
+import type { AgentNameMatch, DingTalkInboundMessage } from "./types";
+import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 import {
   applyManualTargetLearningRule,
   applyManualTargetsLearningRule,
@@ -28,38 +65,6 @@ import {
   listScopedLearningRules,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
-import { formatGroupMembers, noteGroupMember } from "./group-members-store";
-import {
-  formatLearnAppliedReply,
-  formatLearnCommandHelp,
-  formatLearnDeletedReply,
-  formatLearnDisabledReply,
-  formatLearnListReply,
-  formatOwnerOnlyDeniedReply,
-  formatOwnerStatusReply,
-  formatTargetSetSavedReply,
-  formatWhereAmIReply,
-  formatWhoAmIReply,
-  isLearningOwner,
-  parseLearnCommand,
-} from "./learning-command-service";
-import { setCurrentLogger } from "./logger-context";
-import { extractMessageContent } from "./message-utils";
-import { registerPeerId } from "./peer-id-registry";
-import {
-  clearProactiveRiskObservationsForTest,
-  getProactiveRiskObservationForAny,
-} from "./proactive-risk-registry";
-import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
-import { cacheInboundDownloadCode, getCachedDownloadCode } from "./quoted-msg-cache";
-import { getDingTalkRuntime } from "./runtime";
-import { sendBySession, sendMessage } from "./send-service";
-import { getGroupHistoryContext } from "./session-history";
-import { acquireSessionLock } from "./session-lock";
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
-import { AICardStatus } from "./types";
-import type { AgentNameMatch, DingTalkInboundMessage } from "./types";
-import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const DEFAULT_THINKING_MESSAGE = "🤔 思考中，请稍候...";
@@ -74,6 +79,7 @@ function shouldSendProactivePermissionHint(params: {
   isDirect: boolean;
   accountId: string;
   senderId: string;
+  senderOriginalId?: string;
   senderStaffId?: string;
   config: DingTalkConfig;
   nowMs: number;
@@ -92,11 +98,14 @@ function shouldSendProactivePermissionHint(params: {
     return false;
   }
 
-  const riskObservation = getProactiveRiskObservationForAny(
-    params.accountId,
-    [params.senderId, params.senderStaffId],
-    params.nowMs,
-  );
+  const riskTargets = [params.senderId, params.senderOriginalId, params.senderStaffId]
+    .map((id) => (id || "").trim())
+    .filter((id, index, arr) => Boolean(id) && arr.indexOf(id) === index);
+  if (riskTargets.length === 0) {
+    return false;
+  }
+
+  const riskObservation = getProactiveRiskObservationForAny(params.accountId, riskTargets, params.nowMs);
   if (!riskObservation || riskObservation.source !== "proactive-api") {
     return false;
   }
@@ -124,6 +133,12 @@ function isUnhandledStopReasonText(value: string): boolean {
   return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
 }
 
+function stripQuotedPrefixForJournal(value: string): string {
+  return value
+    .replace(/^\[引用消息: .*?\]\n\n/s, "")
+    .replace(/^\[这是一条引用消息，原消息ID: .*?\]\n\n/s, "")
+    .trim();
+}
 function sanitizeGroupPromptName(value?: string): string {
   return (value || "")
     .replace(/[\r\n,=]/g, " ")
@@ -145,7 +160,6 @@ function buildGroupTurnContextPrompt(params: {
     "Treat senderDingtalkId and senderName as the authoritative sender for this turn. Do not guess the current sender from GroupMembers.",
   ].join("\n");
 }
-
 /**
  * Download DingTalk media file via runtime media service (sandbox-compatible).
  * Files are stored in the global media inbound directory.
@@ -252,20 +266,22 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  const content = extractMessageContent(data);
-  if (!content.text) {
+  const extractedContent = extractMessageContent(data);
+  if (!extractedContent.text) {
     return;
   }
 
   // Add context hint for sub-agent mode
   if (subAgentOptions) {
     const contextHint = `[你被 @ 为"${subAgentOptions.matchedName}"]\n\n`;
-    content.text = contextHint + content.text;
+    extractedContent.text = contextHint + extractedContent.text;
   }
 
   const isDirect = data.conversationType === "1";
   const isGroup = !isDirect;
-  const senderId = data.senderStaffId || data.senderId;
+  const senderOriginalId = (data.senderId || "").trim();
+  const senderStaffId = (data.senderStaffId || "").trim();
+  const senderId = senderStaffId || senderOriginalId;
   const senderName = data.senderNick || "Unknown";
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || "Group";
@@ -280,7 +296,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       isDirect,
       accountId,
       senderId,
-      senderStaffId: data.senderStaffId,
+      senderOriginalId,
+      senderStaffId,
       config: dingtalkConfig,
       nowMs: Date.now(),
     })
@@ -426,10 +443,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // Continue to main message handling logic
   } else {
     // 检测是否有 @sub-agent 需要处理
-    const atMentions = content.atMentions || [];
-    const atUserDingtalkIds = content.atUserDingtalkIds;
+    const atMentions = extractedContent.atMentions || [];
+    const atUserDingtalkIds = extractedContent.atUserDingtalkIds;
     // /learn 命令统一由 main agent 处理，不路由到 sub-agent
-    const parsedLearnCommand = parseLearnCommand(content.text);
+    const parsedLearnCommand = parseLearnCommand(extractedContent.text);
     const isLearnCommand = parsedLearnCommand.scope !== "unknown";
     log?.info?.(
       `[DingTalk] Sub-agent check: isGroup=${isGroup} atMentions=${JSON.stringify(atMentions)} atUserDingtalkIds=${atUserDingtalkIds?.length || 0} agentsList=${cfg.agents?.list?.length || 0} isLearnCommand=${isLearnCommand}`,
@@ -463,7 +480,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               cfg,
               accountId,
               data,
-              content,
+              content: extractedContent,
               agentMatch,
               baseRoute: route,
               dingtalkConfig,
@@ -521,7 +538,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   const to = isDirect ? senderId : groupId;
   // Parse /learn command for main agent processing
-  const parsedLearnCommand = parseLearnCommand(content.text);
+  const parsedLearnCommand = parseLearnCommand(extractedContent.text);
   const isOwner = isLearningOwner({
     cfg,
     config: dingtalkConfig,
@@ -807,7 +824,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     storePath: accountStorePath,
     accountId,
     targetId: data.conversationId,
-    content,
+    content: extractedContent,
   });
   if (manualForcedReply) {
     await sendBySession(dingtalkConfig, sessionWebhook, manualForcedReply, { log });
@@ -845,6 +862,55 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  const hasConcreteQuotedPayload =
+    !!extractedContent.quoted?.mediaDownloadCode ||
+    !!extractedContent.quoted?.isQuotedFile ||
+    !!extractedContent.quoted?.isQuotedCard ||
+    extractedContent.quoted?.prefix.startsWith('[引用消息: "') === true;
+  const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_JOURNAL_TTL_DAYS;
+  let resolvedContent = extractedContent;
+
+  // Journal-based quoted text resolution when only originalMsgId is present
+  if (data.text?.isReplyMsg && data.originalMsgId && !hasConcreteQuotedPayload) {
+    try {
+      const quoted = resolveQuotedMessageById({
+        storePath,
+        accountId,
+        conversationId: groupId,
+        originalMsgId: data.originalMsgId,
+        ttlDays: journalTTLDays,
+      });
+      if (quoted?.text?.trim()) {
+        const cleanedText = extractedContent.text.replace(
+          /^\[这是一条引用消息，原消息ID: [^\]]+\]\n\n/,
+          "",
+        );
+        resolvedContent = {
+          ...extractedContent,
+          text: `[引用消息: "${quoted.text.trim()}"]\n\n${cleanedText}`,
+        };
+      }
+    } catch (err) {
+      log?.debug?.(`[DingTalk] Quote journal lookup failed: ${String(err)}`);
+    }
+  }
+
+  try {
+    appendQuoteJournalEntry({
+      storePath,
+      accountId,
+      conversationId: groupId,
+      msgId: data.msgId,
+      messageType: resolvedContent.messageType,
+      text: stripQuotedPrefixForJournal(resolvedContent.text),
+      createdAt: data.createAt,
+      ttlDays: journalTTLDays,
+    });
+  } catch (err) {
+    log?.warn?.(`[DingTalk] Quote journal append failed: ${String(err)}`);
+  }
+
+  const content = resolvedContent;
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
@@ -1195,6 +1261,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             atUserId: !isDirect ? senderId : null,
             log,
             card: currentAICard,
+            accountId,
+            storePath,
+            conversationId: groupId,
           });
           if (!sendResult.ok) {
             throw new Error(sendResult.error || "Thinking message send failed");
@@ -1254,6 +1323,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                     atUserId: !isDirect ? senderId : null,
                     log,
                     card: currentAICard,
+                    accountId,
+                    storePath,
+                    conversationId: groupId,
                     cardUpdateMode: "append",
                   });
                   if (!sendResult.ok) {
@@ -1270,6 +1342,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 atUserId: !isDirect ? senderId : null,
                 log,
                 card: currentAICard,
+                accountId,
+                storePath,
+                conversationId: groupId,
               });
               if (!sendResult.ok) {
                 throw new Error(sendResult.error || "Reply send failed");
@@ -1306,6 +1381,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 atUserId: !isDirect ? senderId : null,
                 log,
                 card: currentAICard,
+                accountId,
+                storePath,
+                conversationId: groupId,
                 cardUpdateMode: "replace",
               });
               if (!sendResult.ok) {
