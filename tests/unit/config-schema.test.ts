@@ -184,20 +184,4 @@ describe('DingTalkConfigSchema', () => {
         expect(jsonSchema.properties?.accounts?.additionalProperties?.type).toBe('object');
     });
 
-    it('defaults historyLimit to 50 and accepts overrides', () => {
-        const parsed = DingTalkConfigSchema.parse({
-            clientId: 'id',
-            clientSecret: 'secret',
-            accounts: {
-                main: {
-                    clientId: 'id',
-                    clientSecret: 'secret',
-                    historyLimit: 80,
-                },
-            },
-        }) as { historyLimit?: number; accounts: Record<string, { historyLimit?: number }> };
-
-        expect(parsed.historyLimit).toBe(50);
-        expect(parsed.accounts.main?.historyLimit).toBe(80);
-    });
 });

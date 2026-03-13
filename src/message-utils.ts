@@ -125,12 +125,22 @@ function isMarkdownTableSeparator(line: string): boolean {
   return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
 }
 
-function splitMarkdownTableRow(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((cell) => cell.trim());
+function isMarkdownTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.includes("|") && !trimmed.startsWith("```");
 }
 
-function renderMarkdownTableRows(rows: string[][]): string {
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function renderMarkdownTable(lines: string[]): string {
+  const rows = lines.map(parseMarkdownTableRow).filter((cells) => cells.length > 0);
   return rows.map((cells) => cells.join(" | ")).join("\n");
 }
 
@@ -138,25 +148,36 @@ export function convertMarkdownTablesToPlainText(text: string): string {
   const lines = text.split("\n");
   const output: string[] = [];
   let index = 0;
+  let inCodeFence = false;
 
   while (index < lines.length) {
-    const header = lines[index];
-    const separator = lines[index + 1];
-
-    if (header && separator && header.includes("|") && isMarkdownTableSeparator(separator)) {
-      const rows: string[][] = [splitMarkdownTableRow(header)];
-      index += 2;
-
-      while (index < lines.length && lines[index].includes("|")) {
-        rows.push(splitMarkdownTableRow(lines[index]));
-        index += 1;
-      }
-
-      output.push(renderMarkdownTableRows(rows));
+    const line = lines[index] || "";
+    if (line.trim().startsWith("```")) {
+      inCodeFence = !inCodeFence;
+      output.push(line);
+      index += 1;
       continue;
     }
 
-    output.push(lines[index]);
+    if (
+      !inCodeFence &&
+      index + 1 < lines.length &&
+      isMarkdownTableRow(line) &&
+      isMarkdownTableSeparator(lines[index + 1] || "")
+    ) {
+      const tableLines = [line];
+      index += 2;
+
+      while (index < lines.length && isMarkdownTableRow(lines[index] || "")) {
+        tableLines.push(lines[index] || "");
+        index += 1;
+      }
+
+      output.push(renderMarkdownTable(tableLines));
+      continue;
+    }
+
+    output.push(line);
     index += 1;
   }
 

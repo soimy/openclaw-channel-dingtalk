@@ -190,6 +190,14 @@ async function generateSummaryNarrative(params: {
   return finalText || prompt.fallbackReply;
 }
 
+function isUnhandledStopReasonText(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
+}
+
 export function resetProactivePermissionHintStateForTest(): void {
   proactiveHintLastSentAt.clear();
   clearProactiveRiskObservationsForTest();
@@ -539,9 +547,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Route resolved before media download for session context and routing metadata.
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
-  });
-  const accountStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
-    agentId: accountId,
   });
   const historyLimit = Math.max(0, dingtalkConfig.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT);
 
@@ -1575,44 +1580,28 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           return;
         }
 
-        const isNonEmptyString = (value: any): boolean =>
+        const isNonEmptyString = (value: unknown): value is string =>
           typeof value === "string" && value.trim().length > 0;
-
-        const hasLastCardContent = isNonEmptyString(lastCardContent);
-        const hasQueuedFinalString = isNonEmptyString(queuedFinal);
-
-        if (hasLastCardContent || hasQueuedFinalString) {
-          const finalContentCandidate =
-            hasLastCardContent && typeof lastCardContent === "string"
-              ? lastCardContent
-              : typeof queuedFinal === "string"
-                ? queuedFinal
-                : "";
-          if (isUnhandledStopReasonText(finalContentCandidate)) {
-            log?.warn?.(
-              `[DingTalk] Suppressed stop reason from AI Card final content: ${finalContentCandidate}`,
-            );
-            currentAICard.state = AICardStatus.FINISHED;
-            currentAICard.lastUpdated = Date.now();
-            return;
-          }
-          const finalContent = finalContentCandidate;
-          await finishAICard(currentAICard, finalContent, log);
-          recordBotHistory(finalContent);
-        } else {
-          const lastStreamed = currentAICard.lastStreamedContent;
-          if (typeof lastStreamed === "string" && lastStreamed.trim().length > 0) {
-            await finishAICard(currentAICard, lastStreamed, log);
-            recordBotHistory(lastStreamed);
-          } else {
-            const defaultFinalContent = "✅ Done";
-            log?.debug?.(
-              "[DingTalk] No textual content was produced; finalizing AI Card with default completion content.",
-            );
-            await finishAICard(currentAICard, defaultFinalContent, log);
-            recordBotHistory(defaultFinalContent);
-          }
+        const queuedFinalText =
+          typeof queuedFinal === "string" && queuedFinal.trim().length > 0
+            ? queuedFinal.trim()
+            : undefined;
+        const streamedFinalText = finalContent.map((value) => value.trim()).filter(Boolean).join("\n\n") || undefined;
+        const finalText =
+          streamedFinalText
+          || queuedFinalText
+          || (isNonEmptyString(currentAICard.lastStreamedContent) ? currentAICard.lastStreamedContent.trim() : undefined)
+          || "✅ Done";
+        if (isUnhandledStopReasonText(finalText)) {
+          log?.warn?.(
+            `[DingTalk] Suppressed stop reason from AI Card final content: ${finalText}`,
+          );
+          currentAICard.state = AICardStatus.FINISHED;
+          currentAICard.lastUpdated = Date.now();
+          return;
         }
+        await finishAICard(currentAICard, finalText, log);
+        recordBotHistory(finalText);
       } catch (err: any) {
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
         if (err?.response?.data !== undefined) {
