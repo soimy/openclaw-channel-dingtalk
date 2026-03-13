@@ -2950,10 +2950,12 @@ describe('inbound-handler', () => {
       );
     });
 
-    it('shows error when @mention count exceeds real user count', async () => {
+    it('does not show error when real users are present (conservative heuristic)', async () => {
       const runtime = buildRuntime();
       shared.getRuntimeMock.mockReturnValueOnce(runtime);
       // @张三 @不存在的agent - atUserDingtalkIds has 1 entry, but 2 @mentions
+      // With conservative heuristic: if realUserCount > 0, never report invalid agent names
+      // This avoids false positives where real user names are incorrectly reported as missing agents
       shared.extractMessageContentMock.mockReturnValue({
         text: '@张三 @不存在的agent 你好',
         messageType: 'text',
@@ -2989,7 +2991,57 @@ describe('inbound-handler', () => {
         },
       } as any);
 
-      // unmatchedNames (2) > realUserCount (1), so error should be shown
+      // Conservative heuristic: realUserCount > 0, so no error should be shown
+      // even though there's an invalid agent name
+      expect(shared.sendBySessionMock).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.stringContaining('未找到'),
+        expect.anything(),
+      );
+    });
+
+    it('shows error when no real users and invalid agent name', async () => {
+      const runtime = buildRuntime();
+      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      // @不存在的agent - no atUserDingtalkIds (no real users)
+      // Only show error when realUserCount === 0 AND there are unmatchedNames
+      shared.extractMessageContentMock.mockReturnValue({
+        text: '@不存在的agent 你好',
+        messageType: 'text',
+        atMentions: [{ name: '不存在的agent' }],
+        atUserDingtalkIds: [], // no real users
+      });
+      shared.sendBySessionMock.mockResolvedValue(undefined);
+
+      await handleDingTalkMessage({
+        cfg: {
+          agents: {
+            list: [{ id: 'main', name: '助手', default: true }],
+          },
+        },
+        accountId: 'main',
+        sessionWebhook: 'https://session.webhook',
+        log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
+        dingtalkConfig: {
+          dmPolicy: 'open',
+          messageType: 'markdown',
+          showThinking: false,
+        } as any,
+        data: {
+          msgId: 'm_text_invalid_agent_no_real_users',
+          msgtype: 'text',
+          text: { content: '@不存在的agent 你好' },
+          conversationType: '2', // group chat
+          conversationId: 'group_1',
+          senderId: 'user_1',
+          chatbotUserId: 'bot_1',
+          sessionWebhook: 'https://session.webhook',
+          createAt: Date.now(),
+        },
+      } as any);
+
+      // realUserCount === 0 && unmatchedNames.length > 0, so error should be shown
       expect(shared.sendBySessionMock).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),

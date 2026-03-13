@@ -287,12 +287,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-const extractedContent = extractMessageContent(data);
+const extractedContent = { ...extractMessageContent(data) };
   if (!extractedContent.text) {
     return;
   }
 
   // Add context hint for sub-agent mode
+  // Note: We clone extractedContent above to avoid polluting the original
+  // extractMessageContent result, which may be used for quote journal entry
   if (subAgentOptions) {
     const contextHint = `[你被 @ 为"${subAgentOptions.matchedName}"]\n\n`;
     extractedContent.text = contextHint + extractedContent.text;

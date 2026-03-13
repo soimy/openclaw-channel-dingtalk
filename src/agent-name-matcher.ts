@@ -75,9 +75,13 @@ function matchAtName(atName: string, agents: AgentConfig[]): AgentNameMatch | nu
  *
  * @remarks
  * Exclusion logic for unmatched @mentions:
- * - If mention.userId is set (from richText or text.atUsers), it's a real user → excluded from unmatchedNames
- * - hasInvalidAgentNames is true when unmatchedNames.length > atUserDingtalkIds.length
- *   (meaning some @mentions are neither agents nor known real users)
+ * - If mention.userId is set (from richText), it's a real user → excluded from unmatchedNames
+ * - In text mode, we cannot map dingtalkIds to specific @mention names
+ * - To avoid false positives (reporting real user names as missing agents),
+ *   we use a conservative heuristic:
+ *   - If realUserCount > 0, hasInvalidAgentNames is always false
+ *   - This means we never report "agent not found" in text mode when there are real users
+ * - In richText mode, mention.userId allows precise exclusion, so the heuristic is not needed
  */
 export function resolveAtAgents(
   atMentions: AtMention[],
@@ -89,7 +93,7 @@ export function resolveAtAgents(
   mainAgentId: string;
   /** Count of @mentions that are likely real users (from atUserDingtalkIds) */
   realUserCount: number;
-  /** Whether there are invalid agent names (unmatchedNames > realUserCount) */
+  /** Whether there are invalid agent names (conservative: false if realUserCount > 0) */
   hasInvalidAgentNames: boolean;
 } {
   const agents = cfg?.agents?.list as AgentConfig[] | undefined;
@@ -117,7 +121,7 @@ export function resolveAtAgents(
         matchedAgents.push(match);
       }
     } else {
-      // Exclude @real users (those with userId are real users from richText or text.atUsers)
+      // Exclude @real users (those with userId are real users from richText)
       if (!mention.userId) {
         unmatchedNames.push(mention.name);
       }
@@ -127,8 +131,12 @@ export function resolveAtAgents(
   // Count real users from atUserDingtalkIds
   // These are real DingTalk users selected via @picker, but we don't know which names they correspond to
   const realUserCount = atUserDingtalkIds?.length || 0;
-  // If unmatchedNames.length > realUserCount, there are invalid agent names
-  const hasInvalidAgentNames = unmatchedNames.length > realUserCount;
+
+  // Conservative heuristic: if there are real users, never report invalid agent names
+  // This avoids false positives where real user names are incorrectly reported as missing agents
+  // In text mode, we cannot distinguish which @mentions correspond to real users
+  // In richText mode, mention.userId provides precise exclusion, so this is just a safety net
+  const hasInvalidAgentNames = realUserCount === 0 && unmatchedNames.length > 0;
 
   return {
     matchedAgents,
