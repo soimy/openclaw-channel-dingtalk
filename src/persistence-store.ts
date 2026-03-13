@@ -156,7 +156,7 @@ export function withNamespaceFileLock<T>(
         throw err;
       }
       if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for persistence lock: ${lockPath}`);
+        throw new Error(`Timed out waiting for persistence lock: ${lockPath}`, { cause: err });
       }
       sleepSync(LOCK_WAIT_MS);
     }
