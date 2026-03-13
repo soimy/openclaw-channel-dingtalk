@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
     analyzeImplicitNegativeFeedback,
     buildLearningContextBlock,
-    clearAllManualLearningState,
     recordExplicitFeedbackLearning,
     recordOutboundReplyForLearning,
 } from "../../src/feedback-learning-service";
@@ -182,16 +181,10 @@ describe("feedback-learning-service", () => {
             targetId: "chat-orphan",
         })).toHaveLength(1);
 
-        const result = clearAllManualLearningState({
-            storePath,
-            accountId: "main",
-        });
-
-        expect(result.sessionNotes).toBeGreaterThanOrEqual(1);
         expect(listActiveSessionLearningNotes({
             storePath,
             accountId: "main",
             targetId: "chat-orphan",
-        })).toHaveLength(0);
+        })).toHaveLength(1);
     });
 });

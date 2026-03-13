@@ -490,13 +490,11 @@ openclaw gateway restart
 - `/summary sender <senderId1,senderId2> [1d|3d|12h|today]`
 - `/summary mention <name1,name2|me> [1d|3d|12h|today]`
 - `/summary here [1d|3d|12h|today]`
-- `/learn clear all confirm`
 
 说明：
 
 - `summary` 当前只允许 owner 使用。
 - `/summary mention me ...` 会把 `me/@我/自己` 解析为当前 owner 的昵称，用于筛选被 @ 到的消息。
-- `/learn clear all confirm` 会清空当前账号下的手工规则、目标规则、目标组、会话笔记与反馈痕迹；这是破坏性操作，所以必须带 `confirm`。
 - 数据来源是本地按会话隔离的滚动消息窗口和历史摘要段，不会把不同群/私聊混在一起。
 - `historyLimit` 控制每个会话保留的最近原始消息窗口；更旧的内容会逐步压成带时间范围的摘要段，避免无限膨胀。该能力默认关闭，需要显式配置。
 - 当前滚动摘要段使用保守固定阈值：最多保留 90 个摘要段、单段最多约 1600 字符。这个值的目的不是精确 token 控制，而是限制长期磁盘增长，并把单段长度压在后续 summary prompt 可安全复用的范围内。

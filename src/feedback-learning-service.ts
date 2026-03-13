@@ -4,7 +4,6 @@ import {
   appendOutboundReplySnapshot,
   appendReflectionRecord,
   appendSessionLearningNote,
-  clearAllLearningState,
   deleteScopedRule,
   FeedbackKind,
   FeedbackEventRecord,
@@ -25,7 +24,6 @@ import {
   upsertTargetSet,
   upsertLearnedRule,
 } from "./feedback-learning-store";
-import { listConversationHistoryIndex } from "./group-history-store";
 import type { DingTalkConfig, MessageContent } from "./types";
 
 const NEGATIVE_SIGNAL_PATTERNS: Array<{ pattern: RegExp; category: ReflectionCategory }> = [
@@ -613,27 +611,6 @@ export function listScopedLearningRules(params: {
   accountId: string;
 }): ScopedLearnedRuleRecord[] {
   return listAllScopedRules(params);
-}
-
-export function clearAllManualLearningState(params: {
-  storePath?: string;
-  accountId: string;
-}): {
-  globalRules: number;
-  targetRules: number;
-  targetSets: number;
-  sessionNotes: number;
-  feedbackArtifacts: number;
-} {
-  const extraTargetIds = listConversationHistoryIndex({
-    storePath: params.storePath,
-    accountId: params.accountId,
-  }).map((conversation) => conversation.conversationId);
-  return clearAllLearningState({
-    storePath: params.storePath,
-    accountId: params.accountId,
-    extraTargetIds,
-  });
 }
 
 export function normalizeManualTriggerText(input: string | undefined): string {

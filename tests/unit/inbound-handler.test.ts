@@ -1626,54 +1626,38 @@ describe('inbound-handler', () => {
         expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('宿主');
     });
 
-    it('handleDingTalkMessage clears manual learning state with confirm', async () => {
+    it('handleDingTalkMessage summary path ignores legacy markdown fallback payloads', async () => {
         const nowMs = Date.now();
-        const storePath = path.join(fs.mkdtempSync('/tmp/dt-clear-learning-'), 'store.json');
+        const storePath = path.join(fs.mkdtempSync('/tmp/dt-summary-markdown-'), 'store.json');
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi.fn().mockReturnValue(storePath);
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockImplementation(async ({ dispatcherOptions }) => {
+            await dispatcherOptions.deliver({ markdown: 'legacy summary markdown should be ignored' }, { kind: 'final' });
+            return {};
+        });
         shared.getRuntimeMock.mockReturnValue(runtime);
         shared.extractMessageContentMock
-            .mockReturnValueOnce({ text: '/learn global 汉堡王是麦当劳的孙子', messageType: 'text' })
-            .mockReturnValueOnce({ text: '/learn target-set create 测试组 #@# cid_a,cid_b', messageType: 'text' })
-            .mockReturnValueOnce({ text: '/learn clear all confirm', messageType: 'text' });
+            .mockReturnValueOnce({ text: '第一条群消息', messageType: 'text' })
+            .mockReturnValueOnce({ text: '/summary group 1d', messageType: 'text' });
 
         await handleDingTalkMessage({
             cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', historyLimit: 50, messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', historyLimit: 50, messageType: 'markdown', showThinking: false } as any,
             data: {
-                msgId: 'm_clear_1',
+                msgId: 'm_summary_seed_markdown',
                 msgtype: 'text',
-                text: { content: '/learn global 汉堡王是麦当劳的孙子' },
-                conversationType: '1',
-                conversationId: 'cid_dm_owner',
-                senderId: 'owner-test-id',
-                senderNick: '宿主',
+                text: { content: '第一条群消息' },
+                conversationType: '2',
+                conversationId: 'cid_group_summary_markdown',
+                conversationTitle: '群聊SummaryMarkdown',
+                senderId: 'user_1',
+                senderNick: '甲',
                 chatbotUserId: 'bot_1',
                 sessionWebhook: 'https://session.webhook',
-                createAt: nowMs - 2_000,
-            },
-        } as any);
-
-        await handleDingTalkMessage({
-            cfg: { commands: { ownerAllowFrom: ['dingtalk:owner-test-id'] } },
-            accountId: 'main',
-            sessionWebhook: 'https://session.webhook',
-            log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', historyLimit: 50, messageType: 'markdown', showThinking: false } as any,
-            data: {
-                msgId: 'm_clear_2',
-                msgtype: 'text',
-                text: { content: '/learn target-set create 测试组 #@# cid_a,cid_b' },
-                conversationType: '1',
-                conversationId: 'cid_dm_owner',
-                senderId: 'owner-test-id',
-                senderNick: '宿主',
-                chatbotUserId: 'bot_1',
-                sessionWebhook: 'https://session.webhook',
-                createAt: nowMs - 1_000,
+                createAt: nowMs - 60_000,
             },
         } as any);
 
@@ -1684,15 +1668,14 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', historyLimit: 50, messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', historyLimit: 50, messageType: 'markdown', showThinking: false } as any,
             data: {
-                msgId: 'm_clear_3',
+                msgId: 'm_summary_run_markdown',
                 msgtype: 'text',
-                text: { content: '/learn clear all confirm' },
+                text: { content: '/summary group 1d' },
                 conversationType: '1',
                 conversationId: 'cid_dm_owner',
                 senderId: 'owner-test-id',
-                senderNick: '宿主',
                 chatbotUserId: 'bot_1',
                 sessionWebhook: 'https://session.webhook',
                 createAt: nowMs,
@@ -1700,9 +1683,9 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('已清空学习状态');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('globalRules: 1');
-        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('targetSets: 1');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).not.toContain('legacy summary markdown should be ignored');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('Summary 检索结果');
+        expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain('第一条群消息');
     });
 
     it('skips InboundHistory injection when historyLimit is disabled', async () => {

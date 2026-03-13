@@ -171,7 +171,7 @@ async function generateSummaryNarrative(params: {
           if (info?.kind && info.kind !== "final") {
             return;
           }
-          const text = payload.markdown || payload.text;
+          const text = payload.text;
           if (typeof text === "string" && text.trim()) {
             finalText = text.trim();
           }
