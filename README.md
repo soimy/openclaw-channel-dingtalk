@@ -60,7 +60,7 @@
 
 #### 已知限制
 
-- 此功能在 channel 插件层实现，**不使用**框架的 `rt.channel.routing.resolveAgentRoute`
+- sub-agent 路由使用框架的 `buildAgentSessionKey` API，但不通过 `bindings` 配置匹配
 - 与框架顶层的 `bindings` 配置**独立运作**，同时配置两者可能导致混淆
 - 未来 OpenClaw 原生支持多 agent @路由后，此实现可能需要迁移
 

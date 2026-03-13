@@ -464,15 +464,16 @@ const extractedContent = { ...extractMessageContent(data) };
    * @technical-debt Multi-agent routing implementation
    *
    * This @mention → agent routing is implemented at the channel plugin level,
-   * which conflicts with OpenClaw's framework-level bindings mechanism.
+   * using framework's buildAgentSessionKey API but bypassing the bindings mechanism.
+   *
+   * Current implementation:
+   * - main agent: uses resolveAgentRoute (binding-based routing)
+   * - sub-agent: uses buildAgentSessionKey with explicit agentId
    *
    * Ideally, multi-agent @mention routing should be a framework capability:
-   * - Framework's rt.channel.routing already supports agentId parameter
-   * - This implementation uses a separate cfg.agents.list config, bypassing bindings
-   * - Future OpenClaw native support may cause conflicts
-   *
-   * TODO: Request OpenClaw to provide native @agent routing, then migrate.
-   * See: https://github.com/wjueyao/openclaw/issues/XXX
+   * - Framework could provide @mention → agentId mapping as a built-in feature
+   * - This would integrate with bindings for consistent routing behavior
+   * - Future OpenClaw native support may require migration
    */
   // Skip @sub-agent detection when already in sub-agent mode
   if (subAgentOptions) {
