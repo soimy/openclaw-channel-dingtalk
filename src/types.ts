@@ -411,6 +411,11 @@ export interface HandleDingTalkMessageParams {
    * This enables reuse of the main message handling logic for sub-agents.
    */
   subAgentOptions?: SubAgentOptions;
+  /**
+   * Skip session lock acquisition (for recursive sub-agent calls).
+   * When true, the caller is responsible for ensuring proper serialization.
+   */
+  skipSessionLock?: boolean;
 }
 
 /**

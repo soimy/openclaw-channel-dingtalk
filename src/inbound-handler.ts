@@ -1378,7 +1378,10 @@ const extractedContent = { ...extractMessageContent(data) };
   // Serialize dispatchReply + card finalize per session to prevent the runtime
   // from receiving concurrent dispatch calls on the same session key, which
   // causes empty replies for all but the first caller.
-  const releaseSessionLock = await acquireSessionLock(route.sessionKey);
+  // Skip lock acquisition for sub-agent calls (caller holds the lock already).
+  const releaseSessionLock = params.skipSessionLock
+    ? () => {}
+    : await acquireSessionLock(route.sessionKey);
   try {
     // 4) Optional "thinking..." feedback (markdown mode only).
     if (dingtalkConfig.showThinking !== false) {
@@ -1617,6 +1620,16 @@ function buildAgentSpecificSessionKey(params: {
  * - Feedback learning integration
  *
  * @param params - Sub-agent message parameters
+ *
+ * @remarks
+ * Known limitations of the recursive approach:
+ * 1. **Media download duplication**: Each sub-agent call triggers media download independently.
+ *    For a message with an image and 3 matched agents, the image gets downloaded 3 times.
+ *    TODO: Implement media caching or pass pre-downloaded media to avoid duplication.
+ *
+ * 2. **sessionWebhook reuse**: DingTalk sessionWebhooks may have usage constraints.
+ *    Multiple sequential uses of the same webhook could fail silently for later agents.
+ *    This is mitigated by using `skipSessionLock: true` to avoid deadlock.
  */
 async function processSubAgentMessage(params: {
   cfg: OpenClawConfig;
@@ -1688,6 +1701,7 @@ async function processSubAgentMessage(params: {
   const agentIdentityPrefix = `[${agentMatch.matchedName}] `;
 
   // Call main handler with sub-agent options
+  // Skip session lock because the outer call already holds it
   await handleDingTalkMessage({
     cfg,
     accountId,
@@ -1700,5 +1714,6 @@ async function processSubAgentMessage(params: {
       responsePrefix: agentIdentityPrefix,
       matchedName: agentMatch.matchedName,
     },
+    skipSessionLock: true,
   });
 }
