@@ -273,7 +273,7 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions } = params;
+  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions, preDownloadedMedia } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -512,6 +512,15 @@ const extractedContent = { ...extractMessageContent(data) };
           `[DingTalk] Sub-agent matched: agents=${matchedAgents.map((a) => a.agentId).join(",")} groupId=${groupId}`,
         );
 
+        // Pre-download media once before processing sub-agents to avoid duplication
+        let preDownloadedMedia: { mediaPath?: string; mediaType?: string } | undefined;
+        if (extractedContent.mediaPath && dingtalkConfig.robotCode) {
+          const media = await downloadMedia(dingtalkConfig, extractedContent.mediaPath, log);
+          if (media) {
+            preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };
+          }
+        }
+
         // 顺序处理所有匹配的 agent，确保消息有序
         for (const agentMatch of matchedAgents) {
           try {
@@ -525,6 +534,7 @@ const extractedContent = { ...extractMessageContent(data) };
               dingtalkConfig,
               sessionWebhook,
               log,
+              preDownloadedMedia,
             });
           } catch (error) {
             log?.error?.(
@@ -1049,7 +1059,13 @@ const extractedContent = { ...extractMessageContent(data) };
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
+
+  // Use pre-downloaded media if available (from sub-agent outer call)
+  if (preDownloadedMedia?.mediaPath) {
+    mediaPath = preDownloadedMedia.mediaPath;
+    mediaType = preDownloadedMedia.mediaType;
+  } else if (content.mediaPath && dingtalkConfig.robotCode) {
+    // Download media only if not pre-downloaded
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
@@ -1622,14 +1638,17 @@ function buildAgentSpecificSessionKey(params: {
  * @param params - Sub-agent message parameters
  *
  * @remarks
- * Known limitations of the recursive approach:
- * 1. **Media download duplication**: Each sub-agent call triggers media download independently.
- *    For a message with an image and 3 matched agents, the image gets downloaded 3 times.
- *    TODO: Implement media caching or pass pre-downloaded media to avoid duplication.
+ * Design decisions to avoid reentry risks:
  *
- * 2. **sessionWebhook reuse**: DingTalk sessionWebhooks may have usage constraints.
+ * 1. **Session lock**: Uses `skipSessionLock: true` in recursive call because the outer
+ *    call already holds the lock. This prevents deadlock with the non-reentrant session lock.
+ *
+ * 2. **Media download**: Receives `preDownloadedMedia` from outer call to avoid downloading
+ *    the same media multiple times when processing multiple sub-agents.
+ *
+ * 3. **sessionWebhook reuse**: DingTalk sessionWebhooks may have usage constraints.
  *    Multiple sequential uses of the same webhook could fail silently for later agents.
- *    This is mitigated by using `skipSessionLock: true` to avoid deadlock.
+ *    This is a known limitation - consider webhook refresh if issues arise.
  */
 async function processSubAgentMessage(params: {
   cfg: OpenClawConfig;
@@ -1641,6 +1660,8 @@ async function processSubAgentMessage(params: {
   dingtalkConfig: DingTalkConfig;
   sessionWebhook: string;
   log?: any;
+  /** Pre-downloaded media from outer call to avoid duplication */
+  preDownloadedMedia?: { mediaPath?: string; mediaType?: string };
 }): Promise<void> {
   const {
     cfg,
@@ -1650,6 +1671,7 @@ async function processSubAgentMessage(params: {
     dingtalkConfig,
     sessionWebhook,
     log,
+    preDownloadedMedia,
   } = params;
 
   // 钉钉 conversationType: "1" = 单聊, "2" = 群聊
@@ -1702,6 +1724,7 @@ async function processSubAgentMessage(params: {
 
   // Call main handler with sub-agent options
   // Skip session lock because the outer call already holds it
+  // Pass preDownloadedMedia to avoid re-downloading in recursive calls
   await handleDingTalkMessage({
     cfg,
     accountId,
@@ -1715,5 +1738,6 @@ async function processSubAgentMessage(params: {
       matchedName: agentMatch.matchedName,
     },
     skipSessionLock: true,
+    preDownloadedMedia,
   });
 }

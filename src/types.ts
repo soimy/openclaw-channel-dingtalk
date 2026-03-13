@@ -416,6 +416,14 @@ export interface HandleDingTalkMessageParams {
    * When true, the caller is responsible for ensuring proper serialization.
    */
   skipSessionLock?: boolean;
+  /**
+   * Pre-downloaded media for sub-agent calls.
+   * When set, skips media download to avoid duplication in recursive calls.
+   */
+  preDownloadedMedia?: {
+    mediaPath?: string;
+    mediaType?: string;
+  };
 }
 
 /**
