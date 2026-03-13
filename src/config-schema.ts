@@ -128,32 +128,6 @@ const DingTalkAccountConfigShape = {
 
   /** @deprecated Use learningNoteTtlMs */
   feedbackLearningNoteTtlMs: z.number().int().min(60_000).optional(),
-
-  /**
-   * @experimental Multi-agent routing configuration
-   *
-   * This is an experimental feature that implements @mention-based agent routing
-   * at the channel plugin level. It operates independently from OpenClaw's
-   * framework-level bindings mechanism.
-   *
-   * Known limitations:
-   * - Does not integrate with framework's rt.channel.routing.resolveAgentRoute
-   * - Conflicts with top-level bindings configuration if both are used
-   * - Future OpenClaw native multi-agent support may require migration
-   */
-  agents: z
-    .object({
-      list: z
-        .array(
-          z.object({
-            id: z.string(),
-            name: z.string().optional(),
-            default: z.boolean().optional(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);

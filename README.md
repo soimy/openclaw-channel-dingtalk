@@ -26,6 +26,43 @@
 - ✅ **Markdown 表格兼容** — 自动把 Markdown 表格转换为钉钉更稳定的可读文本
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
+- ✅ **@多助手路由** — 在群聊中通过 `@助手名` 路由到不同的 agent（实验性功能）
+
+### @多助手路由（实验性）
+
+> ⚠️ **实验性功能**：此功能使用框架层 `agents.list` 配置实现，与框架的 `bindings` 机制独立运作。
+
+在群聊中，用户可以通过 `@助手名` 来指定要对话的 agent。例如：
+
+```
+用户: @frontend 帮我看看这个组件的问题
+[frontend] 好的，请贴出代码...
+
+用户: @dba 数据库慢查询怎么处理？
+[dba] 从数据库角度分析...
+```
+
+#### 配置方式
+
+在 OpenClaw 配置文件中配置 `agents.list`：
+
+```json
+{
+  "agents": {
+    "list": [
+      { "id": "main", "name": "助手", "default": true },
+      { "id": "frontend", "name": "前端专家" },
+      { "id": "dba", "name": "DBA" }
+    ]
+  }
+}
+```
+
+#### 已知限制
+
+- 此功能在 channel 插件层实现，**不使用**框架的 `rt.channel.routing.resolveAgentRoute`
+- 与框架顶层的 `bindings` 配置**独立运作**，同时配置两者可能导致混淆
+- 未来 OpenClaw 原生支持多 agent @路由后，此实现可能需要迁移
 
 ### 进程级（memory-only）运行态说明
 
