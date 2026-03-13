@@ -30,10 +30,12 @@ describe('dingtalkOnboardingAdapter', () => {
             .mockResolvedValueOnce('user_a, user_b')
             .mockResolvedValueOnce('')
             .mockResolvedValueOnce('7')
-            .mockResolvedValueOnce('20');
+            .mockResolvedValueOnce('20')
+            .mockResolvedValueOnce('14');
 
         const confirm = vi
             .fn()
+            .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
@@ -68,6 +70,7 @@ describe('dingtalkOnboardingAdapter', () => {
         expect(dingtalkConfig.mediaUrlAllowlist).toBeUndefined();
         expect(dingtalkConfig.maxReconnectCycles).toBe(7);
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
+        expect(dingtalkConfig.journalTTLDays).toBe(14);
         expect(note).toHaveBeenCalled();
     });
 });

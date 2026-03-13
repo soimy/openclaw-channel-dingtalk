@@ -21,7 +21,7 @@
 - ✅ **私聊支持** — 直接与机器人对话
 - ✅ **群聊支持** — 在群里 @机器人
 - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件、钉钉文档/钉盘文件卡片
-- ✅ **引用消息支持** — 支持恢复大多数引用场景（文字/图片/图文/文件/视频/语音/AI 卡片），优先走确定性索引；`钉钉文档/钉盘文件卡片` 目前仅支持单聊引用，群聊引用暂不支持
+- ✅ **引用消息支持** — 支持恢复大多数引用场景（文字/图片/图文/文件/视频/语音/AI 卡片）；单聊中的钉钉文档依赖权限 **Storage.DownloadInfo.Read**；群聊支持引用群图片、文件/文档（优先命中已持久化索引，未命中时走群文件 API 兜底），其中群文件相关能力需 **ConvFile.Space.Read**、**Storage.File.Read**、**Storage.DownloadInfo.Read**、**Contact.User.Read**，且兜底链路受时间窗口与企业认证限制
 - ✅ **Markdown 回复** — 支持富文本格式回复
 - ✅ **Markdown 表格兼容** — 自动把 Markdown 表格转换为钉钉更稳定的可读文本
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
@@ -52,15 +52,39 @@ openclaw plugins install @soimy/dingtalk
 如果你想对插件进行二次开发，可以先克隆仓库：
 
 ```bash
-# 1. 克隆仓库
+# 1. 在父仓库外单独克隆插件仓库（推荐）
 git clone https://github.com/soimy/openclaw-channel-dingtalk.git
 cd openclaw-channel-dingtalk
 
 # 2. 安装依赖 (必需)
 npm install
 
-# 3. 以链接模式安装 (方便修改代码后实时生效)
+# 3. 用全局 OpenClaw 以链接模式安装 (方便修改代码后实时生效)
 openclaw plugins install -l .
+```
+
+推荐的本地开发布局：
+
+```text
+~/Repo/openclaw                    # 仅用于阅读源码、跳转 plugin-sdk、研究内部链路
+~/Repo/openclaw-channel-dingtalk   # 插件主开发仓库
+~/.openclaw/extensions/...         # 由 openclaw plugins install -l 管理的运行时链接
+```
+
+这种布局比“把插件放在 `openclaw/extensions/` 里再单独开 worktree”更稳定，原因是：
+
+- 避免 submodule / worktree 的 gitdir 指向混乱
+- 插件仓库可以独立切分支、开 worktree、做实验
+- 运行时和源码阅读环境彻底解耦
+
+如果你的本地 `openclaw` 仓库位于 `~/Repo/openclaw`，而插件仓库位于 `~/Repo/openclaw-channel-dingtalk`，本仓库当前的 `tsconfig.json` 已兼容这种目录结构，会优先解析父仓库源码中的 `src/plugin-sdk`，在源码不存在时再回退到 `dist/plugin-sdk` 类型产物。
+
+如果你此前是把插件作为 `~/Repo/openclaw/extensions/openclaw-channel-dingtalk` 下的 submodule 使用，建议迁移为独立仓库后再执行：
+
+```bash
+cd ~/Repo/openclaw-channel-dingtalk
+openclaw plugins install -l .
+openclaw gateway restart
 ```
 
 ### 方法 C：手动安装
@@ -181,6 +205,8 @@ NPM_CONFIG_REGISTRY=https://registry.npmmirror.com npm install
 git pull
 openclaw gateway restart
 ```
+
+如果你采用推荐的独立仓库布局，更新插件代码时不需要改动本地 `~/Repo/openclaw` 仓库；后者仅用于代码解析和内部实现研究。
 
 ## 配置
 
@@ -320,6 +346,7 @@ openclaw configure --section channels
       "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
+      "journalTTLDays": 7,
       "showThinking": true, // 仅 markdown 模式生效
       "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效；设为 "emoji" 可启用随机颜文字彩蛋
       "asyncMode": false, // 开启后先回执“已收到”，再后台处理
@@ -327,6 +354,7 @@ openclaw configure --section channels
       "debug": false,
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
+      // "aicardDegradeMs": 1800000, // 可选：AI 卡片失败后降级持续时间（毫秒，默认 30 分钟）
       // 仅card需要配置
       "cardTemplateId": "你复制的模板ID",
       "cardTemplateKey": "你模板的内容变量"
@@ -358,6 +386,7 @@ openclaw gateway restart
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
+| `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
 | `showThinking`          | boolean  | `true`       | 是否发送“思考中”提示消息（仅 markdown 模式生效） |
 | `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式）；设为 `"emoji"` 可按用户语气返回随机颜文字 |
 | `asyncMode`             | boolean  | `false`      | 是否在收到消息后立即回执，并在后台继续处理 |
@@ -365,6 +394,7 @@ openclaw gateway restart
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
+| `aicardDegradeMs`       | number   | `1800000`    | AI 卡片连续失败后进入降级模式的持续时间（毫秒） |
 | `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
 | `mediaMaxMb`            | number   | -            | 接收文件大小上限（MB），不设则使用 runtime 默认值（5 MB） |
 | `maxConnectionAttempts` | number   | `10`         | 最大连接尝试次数                            |
@@ -420,6 +450,39 @@ openclaw gateway restart
 示例延迟序列（默认配置）：~1s, ~2s, ~4s, ~8s, ~16s, ~32s, ~60s（达到上限）
 
 更多详情请参阅 [CONNECTION_ROBUSTNESS.md](./CONNECTION_ROBUSTNESS.md)。
+
+## 钉钉文档 API
+
+插件额外注册了 4 个 gateway methods，可供 OpenClaw 侧直接调用：
+
+- `dingtalk.docs.create`
+- `dingtalk.docs.append`
+- `dingtalk.docs.search`
+- `dingtalk.docs.list`
+
+补充说明：
+
+- `dingtalk.docs.create` 支持可选的 `parentId`，未传时默认在 space 根目录创建。
+- `dingtalk.docs.append` 使用钉钉 block API 的 `index = -1` 语义，将新段落追加到文档末尾。
+- `dingtalk.docs.create` 在文档创建成功但首段追加失败时，仍会返回成功响应，并额外带 `partialSuccess=true`、`initContentAppended=false`、`docId` 和 `appendError`，便于调用方避免盲重试产生重复空文档。
+- 调用方处理 `dingtalk.docs.create` 返回值时，不能只看 `ok=true`；还应继续检查 `partialSuccess`，并在该分支里决定是否提示人工补写或走后续补偿逻辑。
+
+示例：
+
+```json
+{
+  "method": "dingtalk.docs.create",
+  "params": {
+    "accountId": "default",
+    "spaceId": "your-space-id",
+    "parentId": "optional-parent-dentry-id",
+    "title": "测试文档",
+    "content": "第一段内容"
+  }
+}
+```
+
+> 说明：这组方法的设计参考自 `DingTalk-Real-AI/dingtalk-openclaw-connector`，许可证为 `MIT`；当前实现按本仓库插件结构重新整理，并仅保留创建、追加、搜索、列举这 4 个最小能力。
 
 ## 反馈学习与共享知识
 
@@ -531,6 +594,59 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   - `/learn disable <ruleId>`
   - `/learn delete <ruleId>`
 
+#### 会话共享命令
+
+这些命令同样只允许 owner 使用，但它们不属于 `/learn` 规则注入，而是用于控制“哪个私聊/哪个群共用同一条会话记忆”。
+
+- **查看当前会话 alias**
+  - `/session-alias show`
+  - 用途：查看当前私聊或当前群当前实际使用的 peerId，以及它是默认值还是 override
+- **把当前会话绑定到共享 alias**
+  - `/session-alias set <alias>`
+  - 用途：把当前私聊或当前群绑定到指定共享会话别名
+- **清除当前会话 alias**
+  - `/session-alias clear`
+  - 用途：移除当前私聊或当前群的 override，恢复默认 peerId
+- **owner 远程绑定某个私聊**
+  - `/session-alias bind direct <senderId> <alias>`
+  - 用途：把某个用户私聊直接绑定到共享 alias
+- **owner 远程绑定某个群**
+  - `/session-alias bind group <conversationId> <alias>`
+  - 用途：把某个群直接绑定到共享 alias
+- **owner 远程解除绑定**
+  - `/session-alias unbind direct <senderId>`
+  - `/session-alias unbind group <conversationId>`
+
+#### 会话共享例子
+
+假设你想让“用户 A 的私聊”和“群 project-x”共用同一条会话记忆：
+
+1. 先让用户 A 私聊机器人，发送：
+   - `我是谁`
+   - 记下返回的 `senderId`
+2. 在目标群里发送：
+   - `这里是谁`
+   - 记下返回的 `conversationId`
+3. 由 owner 在任意 owner 会话里执行：
+
+```text
+/session-alias bind direct dingtalk:user_a_sender_id project-x
+/session-alias bind group cid_group_project_x project-x
+```
+
+这样之后：
+- 用户 A 私聊机器人
+- 群 `cid_group_project_x`
+
+都会共用 `project-x` 这条会话记忆。
+
+如果想解除其中一边：
+
+```text
+/session-alias unbind direct dingtalk:user_a_sender_id
+/session-alias unbind group cid_group_project_x
+```
+
 #### 真实可直接照抄的例子
 
 ```text
@@ -599,8 +715,8 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 | 引用文字     | ✅   | 提取被引用文本作为上下文前缀                                             |
 | 引用图片     | ✅   | 使用引用回调自带的 `downloadCode` 下载并传递给 AI                        |
 | 引用图文     | ✅   | 解析 `richText` 引用内容，提取文本摘要与图片 `downloadCode`              |
-| 引用文件/视频/语音 | ✅ | 单聊按 `msgId` 精确恢复；群聊优先查已固化元数据，首次未命中时走群文件 API 兜底 |
-| 引用钉钉文档/钉盘文件卡片 | ⚠️ | 单聊支持；群聊暂不支持，未支持场景会降级为提示文本 |
+| 引用文件/视频/语音 | ✅ | 单聊按 `msgId` 精确恢复；群聊优先查已固化元数据，首次未命中时走群文件 API 兜底（兜底链路依赖时间窗口匹配，不保证 100% 命中） |
+| 引用钉钉文档/钉盘文件卡片 | ⚠️ | 单聊支持；群聊支持缓存命中与群文件 API 兜底恢复，但仍受钉钉回调样本与企业认证限制 |
 | 引用 AI 卡片 | ✅   | 仅指机器人自己发送的 AI 卡片；按 `carrierId ↔ originalProcessQueryKey` 精确恢复 |
 
 > **引用消息实现说明**
@@ -615,8 +731,9 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 > | 单聊引用文件/视频/语音 | 原消息入站时持久化 `msgId → {downloadCode, spaceId, fileId}`，引用时按 `originalMsgId/repliedMsg.msgId` 精确命中 | 否 |
 > | 群聊引用文件/视频/语音 | 优先查已持久化的 `msgId → 文件元数据`；若机器人从未见过原文件消息，则首次仍通过群文件存储 API 链路兜底，成功后会把结果反向固化到本地索引 | 首次兜底时**是** |
 > | 单聊引用钉钉文档/钉盘文件卡片 | 原消息入站时持久化 `msgId → {spaceId, fileId}`，引用时按 `originalMsgId/repliedMsg.msgId` 精确命中 | 否 |
-> | 群聊引用钉钉文档/钉盘文件卡片 | 当前暂不支持；即使被引用消息表现为 `interactiveCard`，也不会按机器人 AI 卡片恢复 | 否 |
+> | 群聊引用钉钉文档/钉盘文件卡片 | 优先查已持久化的 `msgId → {spaceId, fileId}`；未命中时复用群文件 API 兜底链路，成功后会把结果反向固化到本地索引 | 首次兜底时**是** |
 > | 引用 AI 卡片（单聊+群聊） | 仅当被引用消息是机器人自己发送的 `interactiveCard` 时，创建卡片时保存 `deliverResults[0].carrierId`，引用时按 `originalProcessQueryKey` 精确命中 | 否 |
+> | 仅 `originalMsgId`（无 `repliedMsg`） | 仅对已持久化记录的**入站消息**，通过本地 Quote Journal 按 `msgId` 回溯文本，并按 `accountId + conversationId` 分桶查询 | 否 |
 >
 > 说明：
 >
@@ -625,9 +742,16 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 > - 图片和图文引用不依赖机器人是否见过原消息，只要引用回调带回 `downloadCode` 即可恢复。
 > - 单聊文件/视频/语音/钉钉文档卡片在机器人见过原消息后可稳定精确恢复，且索引会持久化到本地，机器人重启后仍可复用。
 > - 群聊文件/视频/语音在“原文件消息无法 @ 机器人”的场景下，若机器人从未见过原消息，则首次恢复仍需走群文件 API 兜底；后续再次引用同一文件会优先命中已固化索引。
-> - 群聊引用钉钉文档/钉盘文件卡片当前**不支持**。原因是现有引用回调样本里通常不会补回 `biz_custom_action_url/spaceId/fileId`，而群聊场景下也无法像普通文件那样稳定走现有兜底链路，因此会明确降级为提示文本，而不是误判成机器人 AI 卡片。
+> - **群文件兜底链路的时间匹配局限性**：首次兜底时，插件用 `repliedMsg.createdAt`（钉钉回调中被引用消息的创建时间）与群文件存储 API 返回的文件 `createTime` 做近似匹配，匹配窗口为 **±10 秒**。这意味着：
+>   - 大文件上传耗时较长时，钉钉消息的 `createdAt` 和文件实际写入存储的 `createTime` 之间可能产生数秒偏差，超出窗口则匹配失败；
+>   - 如果同一用户在 10 秒内连续发送多个文件，理论上可能匹配到错误的文件（取时间差最小的那个）；
+>   - 群文件列表按修改时间倒序返回，最多翻 3 页（150 个文件），非常老的文件可能超出扫描范围；
+>   - 匹配失败时会降级为提示文本，不会阻塞消息处理。
+> - 群聊引用钉钉文档/钉盘文件卡片并非完全确定性支持：若机器人见过原消息，会优先命中已持久化索引；首次未命中时会复用群文件 API 兜底，因此同样受 `createTime` 时间窗口、分页范围以及企业认证限制影响，失败时会降级为提示文本。
 > - 这条群文件兜底链路在部分企业环境下可能受到企业认证限制，表现为 `quotedFile.resolve` 返回 `orgAuthLevelNotEnough`。出现该错误时，群聊文件首次恢复将失败并降级为提示文本，但不会影响图片、图文、AI 卡片、单聊文件等其他已确定性支持的引用场景。
 > - 由于本地引用索引使用 TTL 清理，并按 `accountId + conversationId` 隔离存储，数据不会永久累积。
+> - `originalMsgId` / `repliedMsg.msgId` 的精确回溯仅覆盖**已被插件持久化记录的入站消息**；机器人出站消息当前不支持仅凭 `repliedMsg.msgId` 做通用回溯。
+> - `originalMsgId` 的文本回溯依赖本地 Quote Journal 持久化存储，默认通过 persistence store 落盘、按 `accountId + conversationId` 分桶，并保留最近 7 天记录用于回溯。
 
 ### 发送
 
@@ -770,7 +894,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
 - 仅对**会话内流式卡片（inbound）**记录 pending 状态，用于进程重启后的自动收尾
-- pending 文件路径基于 OpenClaw session `storePath` 目录推导：`path.dirname(storePath)/dingtalk-active-cards.json`
+- pending 状态通过 persistence namespace `cards.active.pending` 落盘（兼容读取并迁移 legacy 文件 `path.dirname(storePath)/dingtalk-active-cards.json`）
 - **proactive 卡片**采用 createAndDeliver 后立即 finalize 的短路径，默认**不写入** pending 状态文件
 - 插件启动时会尝试恢复并 finalize 未完成的 inbound 卡片；停止/重启时会 best-effort finalize 当前 active 卡片
 

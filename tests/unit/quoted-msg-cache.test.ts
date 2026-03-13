@@ -58,8 +58,6 @@ describe('quoted-msg-cache', () => {
         vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1);
 
         expect(getCachedDownloadCode('default', 'conv1', 'msg1', storePath)).toBeNull();
-
-        vi.useRealTimers();
     });
 
     it('每个会话上限淘汰', () => {

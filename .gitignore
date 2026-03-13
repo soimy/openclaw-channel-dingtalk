@@ -21,6 +21,7 @@ credentials.json
 .env.dingtalk-monitor.local
 
 # Opencode directories
+.codex/
 .opencode/
 .vscode/
 .idea/
@@ -34,3 +35,6 @@ docs/plans/
 
 # Local debug artifacts for feedback-learning tooling
 .local/
+
+# Codex automation artifacts
+.codex-artifacts/

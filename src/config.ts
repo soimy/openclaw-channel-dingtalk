@@ -11,6 +11,24 @@ const WINDOWS_ROOT_DIRECTORIES = new Set([
   "Windows",
   "Documents and Settings",
 ]);
+const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
+
+function normalizeLearningConfig(
+  config: DingTalkConfig,
+  options: { applyDefaults: boolean },
+): DingTalkConfig {
+  const learningEnabled = config.learningEnabled ?? config.feedbackLearningEnabled;
+  const learningAutoApply = config.learningAutoApply ?? config.feedbackLearningAutoApply;
+  const learningNoteTtlMs = config.learningNoteTtlMs ?? config.feedbackLearningNoteTtlMs;
+  return {
+    ...config,
+    learningEnabled: options.applyDefaults ? learningEnabled ?? false : learningEnabled,
+    learningAutoApply: options.applyDefaults ? learningAutoApply ?? false : learningAutoApply,
+    learningNoteTtlMs: options.applyDefaults
+      ? learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
+      : learningNoteTtlMs,
+  };
+}
 
 /**
  * Merge channel-level defaults into an account-specific config.
@@ -21,16 +39,20 @@ export function mergeAccountWithDefaults(
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
   const { accounts: _accounts, ...defaults } = channelCfg;
+  const normalizedAccountCfg = normalizeLearningConfig(accountCfg, { applyDefaults: false });
   const overrides: Partial<DingTalkConfig> = {};
-  for (const [key, value] of Object.entries(accountCfg)) {
+  for (const [key, value] of Object.entries(normalizedAccountCfg)) {
     if (value !== undefined) {
       Object.assign(overrides, { [key]: value });
     }
   }
-  return {
-    ...defaults,
-    ...overrides,
-  };
+  return normalizeLearningConfig(
+    {
+      ...defaults,
+      ...overrides,
+    },
+    { applyDefaults: true },
+  );
 }
 
 /**
@@ -48,7 +70,15 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
     return mergeAccountWithDefaults(dingtalkCfg, dingtalkCfg.accounts[accountId]);
   }
 
-  return dingtalkCfg;
+  if (accountId) {
+    return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
+  }
+
+  if (dingtalkCfg.accounts && Object.keys(dingtalkCfg.accounts).length > 0) {
+    return dingtalkCfg;
+  }
+
+  return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
 }
 
 export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { DingTalkConfigSchema } from '../../src/config-schema';
 
 describe('DingTalkConfigSchema', () => {
+    it('applies default journalTTLDays for top-level config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { journalTTLDays?: number };
+
+        expect(parsed.journalTTLDays).toBe(7);
+    });
+
     it('applies default maxReconnectCycles for top-level config', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
@@ -23,6 +32,20 @@ describe('DingTalkConfigSchema', () => {
         }) as { accounts: Record<string, { maxReconnectCycles?: number }> };
 
         expect(parsed.accounts.main?.maxReconnectCycles).toBe(3);
+    });
+
+    it('accepts custom journalTTLDays for account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    journalTTLDays: 14,
+                },
+            },
+        }) as { accounts: Record<string, { journalTTLDays?: number }> };
+
+        expect(parsed.accounts.main?.journalTTLDays).toBe(14);
     });
 
     it('accepts mediaUrlAllowlist on top-level and account-level config', () => {
@@ -92,8 +115,8 @@ describe('DingTalkConfigSchema', () => {
 
         expect(parsed.learningEnabled).toBe(true);
         expect(parsed.allowFrom).toEqual(['owner-test-id']);
-        expect(parsed.learningAutoApply).toBe(false);
-        expect(parsed.learningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
+        expect(parsed.learningAutoApply).toBeUndefined();
+        expect(parsed.learningNoteTtlMs).toBeUndefined();
     });
 
     it('keeps backward compatibility for legacy feedback learning keys', () => {
@@ -103,13 +126,22 @@ describe('DingTalkConfigSchema', () => {
             feedbackLearningEnabled: true,
             feedbackLearningAutoApply: true,
             feedbackLearningNoteTtlMs: 120000,
-        }) as { learningEnabled?: boolean; learningAutoApply?: boolean; learningNoteTtlMs?: number };
+        }) as {
+            learningEnabled?: boolean;
+            learningAutoApply?: boolean;
+            learningNoteTtlMs?: number;
+            feedbackLearningEnabled?: boolean;
+            feedbackLearningAutoApply?: boolean;
+            feedbackLearningNoteTtlMs?: number;
+        };
 
-        expect(parsed.learningEnabled).toBe(true);
-        expect(parsed.learningAutoApply).toBe(true);
-        expect(parsed.learningNoteTtlMs).toBe(120000);
+        expect(parsed.learningEnabled).toBeUndefined();
+        expect(parsed.learningAutoApply).toBeUndefined();
+        expect(parsed.learningNoteTtlMs).toBeUndefined();
+        expect(parsed.feedbackLearningEnabled).toBe(true);
+        expect(parsed.feedbackLearningAutoApply).toBe(true);
+        expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
     });
-
     it('accepts asyncMode config and default asyncAckText', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
@@ -119,5 +151,19 @@ describe('DingTalkConfigSchema', () => {
 
         expect(parsed.asyncMode).toBe(true);
         expect(parsed.asyncAckText).toBe('已收到，正在处理中，稍后回复。');
+    });
+
+    it('exports control-ui-compatible JSON schema nodes', () => {
+        const jsonSchema = DingTalkConfigSchema.toJSONSchema({
+            target: 'draft-07',
+            unrepresentable: 'any',
+        }) as {
+            type?: string;
+            properties?: Record<string, any>;
+        };
+
+        expect(jsonSchema.type).toBe('object');
+        expect(jsonSchema.properties?.accounts?.type).toBe('object');
+        expect(jsonSchema.properties?.accounts?.additionalProperties?.type).toBe('object');
     });
 });

@@ -42,6 +42,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   mediaUrlAllowlist?: string[];
+  journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
   asyncMode?: boolean;
@@ -104,6 +105,7 @@ export interface DingTalkChannelConfig {
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   mediaUrlAllowlist?: string[];
+  journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
   asyncMode?: boolean;
@@ -190,6 +192,14 @@ export interface MediaDownloadResponse {
 export interface MediaFile {
   path: string;
   mimeType: string;
+}
+
+export interface DocInfo {
+  docId: string;
+  title: string;
+  docType: string;
+  creatorId?: string;
+  updatedAt?: number | string;
 }
 
 /**
@@ -302,13 +312,21 @@ export interface SendMessageOptions {
   useMarkdown?: boolean;
   atUserId?: string | null;
   log?: Logger;
+  conversationId?: string;
   mediaPath?: string;
   filePath?: string;
   mediaUrl?: string;
   mediaType?: "image" | "voice" | "video" | "file";
   accountId?: string;
+  storePath?: string;
   cardUpdateMode?: "replace" | "append" | "finalize";
   cardFinalize?: boolean;
+}
+
+export interface DingTalkTrackingMetadata {
+  processQueryKey?: string;
+  outTrackId?: string;
+  cardInstanceId?: string;
 }
 
 /**
@@ -545,6 +563,7 @@ export interface AICardInstance {
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
   lastStreamedContent?: string;
+  outTrackId?: string;
 }
 
 /**
@@ -664,6 +683,7 @@ export function resolveDingTalkAccount(
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      journalTTLDays: dingtalk?.journalTTLDays,
       showThinking: dingtalk?.showThinking,
       thinkingMessage: dingtalk?.thinkingMessage,
       debug: dingtalk?.debug,
@@ -680,6 +700,7 @@ export function resolveDingTalkAccount(
       reconnectDeadlineMs: dingtalk?.reconnectDeadlineMs,
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
+      keepAlive: dingtalk?.keepAlive,
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,

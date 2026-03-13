@@ -2,6 +2,7 @@ import type { OpenClawConfig, ChannelOnboardingAdapter, WizardPrompter } from "o
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId, formatDocsLink } from "openclaw/plugin-sdk";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./types.js";
+import { DEFAULT_JOURNAL_TTL_DAYS } from "./quote-journal.js";
 
 const channel = "dingtalk" as const;
 
@@ -113,6 +114,7 @@ function applyAccountConfig(params: {
       ? { useConnectionManager: input.useConnectionManager }
       : {}),
     ...(typeof input.mediaMaxMb === "number" ? { mediaMaxMb: input.mediaMaxMb } : {}),
+    ...(typeof input.journalTTLDays === "number" ? { journalTTLDays: input.journalTTLDays } : {}),
   };
 
   if (useDefault) {
@@ -378,6 +380,41 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       mediaMaxMb = Number.isInteger(parsedMediaMax) && parsedMediaMax > 0 ? parsedMediaMax : 20;
     }
 
+    let journalTTLDays: number | undefined;
+    const wantsJournalTTL = await prompter.confirm({
+      message: "Configure quote journal retention in days?",
+      initialValue: typeof resolved.journalTTLDays === "number",
+    });
+    if (wantsJournalTTL) {
+      const parsedJournalTTL = Number(
+        String(
+          await prompter.text({
+            message: "Quote journal retention days",
+            placeholder: String(DEFAULT_JOURNAL_TTL_DAYS),
+            initialValue:
+              typeof resolved.journalTTLDays === "number"
+                ? String(resolved.journalTTLDays)
+                : String(DEFAULT_JOURNAL_TTL_DAYS),
+            validate: (value) => {
+              const raw = String(value ?? "").trim();
+              const num = Number(raw);
+              if (!raw) {
+                return "Required";
+              }
+              if (!Number.isInteger(num) || num < 1) {
+                return "Must be an integer >= 1";
+              }
+              return undefined;
+            },
+          }),
+        ).trim(),
+      );
+      journalTTLDays =
+        Number.isInteger(parsedJournalTTL) && parsedJournalTTL > 0
+          ? parsedJournalTTL
+          : DEFAULT_JOURNAL_TTL_DAYS;
+    }
+
     const next = applyAccountConfig({
       cfg,
       accountId,
@@ -396,6 +433,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         cardTemplateKey,
         maxReconnectCycles,
         mediaMaxMb,
+        journalTTLDays,
       },
     });
 

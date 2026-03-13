@@ -46,8 +46,8 @@ export class ConnectionManager {
   private connectedAt?: number;
   private consecutiveUnhealthyChecks: number = 0;
 
-  private static readonly HEALTH_CHECK_INTERVAL_MS = 5000;
-  private static readonly HEALTH_CHECK_GRACE_MS = 3000;
+  private static readonly HEALTH_CHECK_INTERVAL_MS = 60000;
+  private static readonly HEALTH_CHECK_GRACE_MS = 30000;
   private static readonly HEALTH_CHECK_UNHEALTHY_THRESHOLD = 2;
   private static readonly DEFAULT_MAX_RECONNECT_CYCLES = 10;
   private static readonly MAX_CYCLE_BACKOFF_MS = 5000;

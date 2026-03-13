@@ -42,6 +42,33 @@ openclaw configure --section channels
 
 ## Local Development Setup
 
+Recommended local setup:
+
+- Keep a globally installed `openclaw` CLI/runtime for manual testing
+- Keep this plugin as a standalone repository outside the OpenClaw parent repo
+- Keep a local `~/Repo/openclaw` clone only for source navigation, `plugin-sdk` type resolution, and internal flow inspection
+
+Recommended layout:
+
+```text
+~/Repo/openclaw
+~/Repo/openclaw-channel-dingtalk
+```
+
+Then link the standalone plugin into the global OpenClaw environment:
+
+```bash
+cd ~/Repo/openclaw-channel-dingtalk
+openclaw plugins install -l .
+```
+
+This repository's `tsconfig.json` is intentionally configured to resolve `openclaw/plugin-sdk` from either:
+
+- `~/Repo/openclaw-channel-dingtalk -> ../openclaw/src/plugin-sdk`
+- the older nested `~/Repo/openclaw/extensions/openclaw-channel-dingtalk -> ../../src/plugin-sdk`
+
+That lets contributors move away from `submodule + worktree` development without breaking editor navigation or local type-checking.
+
 Before testing changes locally:
 
 - Make sure the plugin is allowed in `~/.openclaw/openclaw.json` via `plugins.allow: ["dingtalk"]`

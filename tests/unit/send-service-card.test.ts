@@ -92,7 +92,12 @@ describe('sendMessage card mode', () => {
     it('creates and finalizes a new proactive card when provided card is terminal', async () => {
         const card = { cardInstanceId: 'card_done', state: AICardStatus.FINISHED, lastUpdated: Date.now() } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(true);
-        cardMocks.sendProactiveCardTextMock.mockResolvedValue({ ok: true });
+        cardMocks.sendProactiveCardTextMock.mockResolvedValue({
+            ok: true,
+            outTrackId: 'track_card_1',
+            processQueryKey: 'card_process_1',
+            cardInstanceId: 'card_instance_1',
+        });
 
         const result = await sendMessage(
             {
@@ -114,7 +119,14 @@ describe('sendMessage card mode', () => {
             'new terminal content',
             undefined,
         );
-        expect(result).toEqual({ ok: true });
+        expect(result).toEqual({
+            ok: true,
+            tracking: {
+                outTrackId: 'track_card_1',
+                processQueryKey: 'card_process_1',
+                cardInstanceId: 'card_instance_1',
+            },
+        });
     });
 
     it('skips card branch entirely when no card is provided', async () => {

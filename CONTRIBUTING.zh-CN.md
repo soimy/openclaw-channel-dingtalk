@@ -42,6 +42,33 @@ openclaw configure --section channels
 
 ## 本地开发环境
 
+推荐的本地开发方式：
+
+- 使用全局安装的 `openclaw` CLI / runtime 做手工联调
+- 将本插件仓库作为独立仓库放在 OpenClaw 父仓库之外
+- 本地保留一个 `~/Repo/openclaw` 仓库，仅用于源码跳转、`plugin-sdk` 类型解析和内部链路研究
+
+推荐目录结构：
+
+```text
+~/Repo/openclaw
+~/Repo/openclaw-channel-dingtalk
+```
+
+然后把独立插件仓库以链接方式安装进全局 OpenClaw 环境：
+
+```bash
+cd ~/Repo/openclaw-channel-dingtalk
+openclaw plugins install -l .
+```
+
+本仓库的 `tsconfig.json` 已刻意兼容以下两种路径来源：
+
+- 独立仓库模式：`~/Repo/openclaw-channel-dingtalk -> ../openclaw/src/plugin-sdk`
+- 历史嵌套模式：`~/Repo/openclaw/extensions/openclaw-channel-dingtalk -> ../../src/plugin-sdk`
+
+这样在从 `submodule + worktree` 迁移到独立仓库开发时，编辑器跳转和本地类型解析不会一起失效。
+
 开始本地测试前，请先确认：
 
 - `~/.openclaw/openclaw.json` 中已通过 `plugins.allow: ["dingtalk"]` 允许加载本插件
