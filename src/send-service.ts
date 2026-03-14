@@ -201,7 +201,7 @@ export async function sendProactiveTextOrMarkdown(
     ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
     : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
 
-  const normalizedText = convertMarkdownTablesToPlainText(text);
+  const normalizedText = config.convertMarkdownTables !== false ? convertMarkdownTablesToPlainText(text) : text;
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "OpenClaw 提醒");
 
   log?.debug?.(
@@ -449,7 +449,7 @@ export async function sendBySession(
   }
 
   // Fallback to text/markdown reply payload.
-  const normalizedText = convertMarkdownTablesToPlainText(text);
+  const normalizedText = config.convertMarkdownTables !== false ? convertMarkdownTablesToPlainText(text) : text;
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "Clawdbot 消息");
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 

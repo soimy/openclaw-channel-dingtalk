@@ -134,6 +134,9 @@ const DingTalkAccountConfigShape = {
 
   /** @deprecated Use learningNoteTtlMs */
   feedbackLearningNoteTtlMs: z.number().int().min(60_000).optional(),
+
+  /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
+  convertMarkdownTables: z.boolean().optional().default(true),
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);
