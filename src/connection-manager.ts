@@ -52,12 +52,19 @@ export class ConnectionManager {
   private static readonly DEFAULT_MAX_RECONNECT_CYCLES = 10;
   private static readonly MAX_CYCLE_BACKOFF_MS = 5000;
   private static readonly MAX_CONSECUTIVE_DEADLINE_TIMEOUTS = 5;
+  private static readonly HEARTBEAT_INTERVAL_MS = 20_000;
+  private static readonly HEARTBEAT_MISS_THRESHOLD = 2;
   private runtimeReconnectCycles: number = 0;
   private reconnectDeadline?: number;
   private consecutiveDeadlineTimeouts: number = 0;
+  private lastSocketActivityAt?: number;
+  private lastHeartbeatPingAt?: number;
+  private consecutiveHeartbeatMisses: number = 0;
   private runtimeCounters = {
     healthUnhealthyChecks: 0,
     healthTriggeredReconnects: 0,
+    heartbeatMisses: 0,
+    heartbeatTriggeredReconnects: 0,
     serverDisconnectMessages: 0,
     socketCloseEvents: 0,
     runtimeDisconnects: 0,
@@ -68,9 +75,11 @@ export class ConnectionManager {
 
   // Runtime monitoring resources
   private healthCheckInterval?: NodeJS.Timeout;
+  private heartbeatInterval?: NodeJS.Timeout;
   private socketCloseHandler?: (code: number, reason: string) => void;
   private socketErrorHandler?: (error: Error) => void;
   private socketMessageHandler?: (data: any) => void;
+  private socketPongHandler?: () => void;
   private monitoredSocket?: any;
 
   // Sleep abort control
@@ -106,8 +115,69 @@ export class ConnectionManager {
   private logRuntimeCounters(reason: string): void {
     const c = this.runtimeCounters;
     this.log?.info?.(
-      `[${this.accountId}] Runtime counters (${reason}): healthUnhealthyChecks=${c.healthUnhealthyChecks}, healthTriggeredReconnects=${c.healthTriggeredReconnects}, serverDisconnectMessages=${c.serverDisconnectMessages}, socketCloseEvents=${c.socketCloseEvents}, runtimeDisconnects=${c.runtimeDisconnects}, reconnectAttempts=${c.reconnectAttempts}, reconnectSuccess=${c.reconnectSuccess}, reconnectFailures=${c.reconnectFailures}`,
+      `[${this.accountId}] Runtime counters (${reason}): healthUnhealthyChecks=${c.healthUnhealthyChecks}, healthTriggeredReconnects=${c.healthTriggeredReconnects}, heartbeatMisses=${c.heartbeatMisses}, heartbeatTriggeredReconnects=${c.heartbeatTriggeredReconnects}, serverDisconnectMessages=${c.serverDisconnectMessages}, socketCloseEvents=${c.socketCloseEvents}, runtimeDisconnects=${c.runtimeDisconnects}, reconnectAttempts=${c.reconnectAttempts}, reconnectSuccess=${c.reconnectSuccess}, reconnectFailures=${c.reconnectFailures}`,
     );
+  }
+
+  private recordSocketActivity(now: number = Date.now()): void {
+    this.lastSocketActivityAt = now;
+    this.consecutiveHeartbeatMisses = 0;
+  }
+
+  private setupHeartbeat(socket: any): void {
+    this.cleanupHeartbeatInterval();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.stopped || this.state !== ConnectionStateEnum.CONNECTED) {
+        return;
+      }
+
+      if (socket.readyState !== 1) {
+        return;
+      }
+
+      const now = Date.now();
+      const idleMs = this.lastSocketActivityAt !== undefined
+        ? now - this.lastSocketActivityAt
+        : ConnectionManager.HEARTBEAT_INTERVAL_MS;
+      if (idleMs >= ConnectionManager.HEARTBEAT_INTERVAL_MS) {
+        this.consecutiveHeartbeatMisses += 1;
+        this.runtimeCounters.heartbeatMisses += 1;
+
+        if (this.consecutiveHeartbeatMisses >= ConnectionManager.HEARTBEAT_MISS_THRESHOLD) {
+          const lastPingAgoMs = this.lastHeartbeatPingAt !== undefined
+            ? now - this.lastHeartbeatPingAt
+            : undefined;
+          this.log?.warn?.(
+            `[${this.accountId}] Connection heartbeat missed ${this.consecutiveHeartbeatMisses}/${ConnectionManager.HEARTBEAT_MISS_THRESHOLD} checks, triggering reconnection (lastPingAgoMs=${lastPingAgoMs ?? "n/a"})`,
+          );
+          this.runtimeCounters.heartbeatTriggeredReconnects += 1;
+          this.logRuntimeCounters("heartbeat-triggered-reconnect");
+          this.cleanupHeartbeatInterval();
+          this.handleRuntimeDisconnection();
+          return;
+        }
+
+        this.log?.debug?.(
+          `[${this.accountId}] Connection heartbeat missed (${this.consecutiveHeartbeatMisses}/${ConnectionManager.HEARTBEAT_MISS_THRESHOLD})`,
+        );
+      }
+
+      this.lastHeartbeatPingAt = now;
+      try {
+        socket.ping();
+      } catch (err: any) {
+        this.log?.warn?.(
+          `[${this.accountId}] Failed to send heartbeat ping: ${err.message}`,
+        );
+      }
+    }, ConnectionManager.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private cleanupHeartbeatInterval(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = undefined;
+    }
   }
 
   /**
@@ -257,8 +327,11 @@ export class ConnectionManager {
 
       this.state = ConnectionStateEnum.CONNECTED;
       this.connectedAt = Date.now();
+      this.recordSocketActivity(this.connectedAt);
+      this.lastHeartbeatPingAt = undefined;
       this.reconnectDeadline = undefined;
       this.consecutiveUnhealthyChecks = 0;
+      this.consecutiveHeartbeatMisses = 0;
       this.notifyStateChange();
       const successfulAttempt = this.attemptCount;
       this.attemptCount = 0;
@@ -450,6 +523,7 @@ export class ConnectionManager {
       const socket = client.socket;
       // Store the socket instance we're attaching listeners to
       this.monitoredSocket = socket;
+      this.setupHeartbeat(socket);
 
       // Handler for socket close event
       this.socketCloseHandler = (code: number, reason: string) => {
@@ -487,6 +561,7 @@ export class ConnectionManager {
       // reconnecting immediately instead of waiting for the health check or
       // the eventual TCP close.
       this.socketMessageHandler = (data: any) => {
+        this.recordSocketActivity();
         try {
           const msg = JSON.parse(typeof data === "string" ? data : data.toString());
           if (msg?.type === "SYSTEM" && msg?.headers?.topic === "disconnect") {
@@ -505,6 +580,11 @@ export class ConnectionManager {
         }
       };
       socket.on("message", this.socketMessageHandler);
+
+      this.socketPongHandler = () => {
+        this.recordSocketActivity();
+      };
+      socket.on("pong", this.socketPongHandler);
     }
   }
 
@@ -543,6 +623,7 @@ export class ConnectionManager {
       this.healthCheckInterval = undefined;
       this.log?.debug?.(`[${this.accountId}] Health check interval cleared`);
     }
+    this.cleanupHeartbeatInterval();
 
     // Remove socket event listeners from the stored socket instance
     if (this.monitoredSocket) {
@@ -559,6 +640,10 @@ export class ConnectionManager {
       if (this.socketMessageHandler) {
         socket.removeListener("message", this.socketMessageHandler);
         this.socketMessageHandler = undefined;
+      }
+      if (this.socketPongHandler) {
+        socket.removeListener("pong", this.socketPongHandler);
+        this.socketPongHandler = undefined;
       }
 
       this.log?.debug?.(`[${this.accountId}] Socket event listeners removed from monitored socket`);
@@ -584,7 +669,10 @@ export class ConnectionManager {
     this.notifyStateChange("Runtime disconnection detected");
     this.attemptCount = 0;
     this.connectedAt = undefined;
+    this.lastSocketActivityAt = undefined;
+    this.lastHeartbeatPingAt = undefined;
     this.consecutiveUnhealthyChecks = 0;
+    this.consecutiveHeartbeatMisses = 0;
 
     const deadlineMs = this.config.reconnectDeadlineMs ?? 50000;
     this.reconnectDeadline = Date.now() + deadlineMs;
@@ -712,6 +800,9 @@ export class ConnectionManager {
     this.reconnectDeadline = undefined;
     this.consecutiveDeadlineTimeouts = 0;
     this.consecutiveUnhealthyChecks = 0;
+    this.lastSocketActivityAt = undefined;
+    this.lastHeartbeatPingAt = undefined;
+    this.consecutiveHeartbeatMisses = 0;
 
     // Clear reconnect timer
     this.clearReconnectTimer();
