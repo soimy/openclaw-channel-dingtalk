@@ -43,6 +43,7 @@ import {
   uploadMedia,
 } from "./send-service";
 import type {
+  DingTalkConfig,
   DingTalkInboundMessage,
   GatewayStartContext,
   GatewayStopResult,
