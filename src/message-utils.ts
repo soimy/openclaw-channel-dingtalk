@@ -150,7 +150,7 @@ function parseMarkdownTableRow(line: string): string[] {
 
 function renderMarkdownTable(lines: string[]): string {
   const rows = lines.map(parseMarkdownTableRow).filter((cells) => cells.length > 0);
-  return rows.map((cells) => cells.join(" | ")).join("\n");
+  return rows.map((cells) => cells.join(" | ")).join("  \n");
 }
 
 export function convertMarkdownTablesToPlainText(text: string): string {
