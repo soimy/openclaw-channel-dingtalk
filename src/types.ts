@@ -66,7 +66,9 @@ export interface DingTalkConfig extends OpenClawConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
-  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
+  /** Whether to enable DWClient built-in keepAlive; defaults to !useConnectionManager when omitted */
+  useBuiltinKeepAlive?: boolean;
+  /** @deprecated Use useBuiltinKeepAlive. Controls DWClient built-in keepAlive only. */
   keepAlive?: boolean;
   /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend?: boolean;
@@ -128,7 +130,9 @@ export interface DingTalkChannelConfig {
   useConnectionManager?: boolean;
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb?: number;
-  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
+  /** Whether to enable DWClient built-in keepAlive; defaults to !useConnectionManager when omitted */
+  useBuiltinKeepAlive?: boolean;
+  /** @deprecated Use useBuiltinKeepAlive. Controls DWClient built-in keepAlive only. */
   keepAlive?: boolean;
   /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend?: boolean;
@@ -700,6 +704,7 @@ export function resolveDingTalkAccount(
       reconnectDeadlineMs: dingtalk?.reconnectDeadlineMs,
       useConnectionManager: dingtalk?.useConnectionManager,
       mediaMaxMb: dingtalk?.mediaMaxMb,
+      useBuiltinKeepAlive: dingtalk?.useBuiltinKeepAlive,
       keepAlive: dingtalk?.keepAlive,
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,

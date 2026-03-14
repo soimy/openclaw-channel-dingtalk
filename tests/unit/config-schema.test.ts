@@ -34,6 +34,15 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.maxReconnectCycles).toBe(3);
     });
 
+    it('rejects initialReconnectDelay greater than maxReconnectDelay', () => {
+        expect(() => DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            initialReconnectDelay: 5000,
+            maxReconnectDelay: 1000,
+        })).toThrow(/initialReconnectDelay must be less than or equal to maxReconnectDelay/);
+    });
+
     it('accepts custom journalTTLDays for account config', () => {
         const parsed = DingTalkConfigSchema.parse({
             accounts: {
@@ -89,6 +98,16 @@ describe('DingTalkConfigSchema', () => {
         }) as { accounts: Record<string, { keepAlive?: boolean }> };
 
         expect(parsed.accounts.main?.keepAlive).toBeUndefined();
+    });
+
+    it('accepts useBuiltinKeepAlive on top-level config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            useBuiltinKeepAlive: true,
+        }) as { useBuiltinKeepAlive?: boolean };
+
+        expect(parsed.useBuiltinKeepAlive).toBe(true);
     });
 
     it('accepts custom aicardDegradeMs for account config', () => {

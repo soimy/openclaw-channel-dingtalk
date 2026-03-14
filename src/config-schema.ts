@@ -102,7 +102,10 @@ const DingTalkAccountConfigShape = {
   /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb: z.number().int().min(1).optional(),
 
-  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
+  /** Whether to enable DWClient built-in keepAlive; resolved at runtime to !useConnectionManager when omitted */
+  useBuiltinKeepAlive: z.boolean().optional(),
+
+  /** @deprecated Use useBuiltinKeepAlive. Controls DWClient built-in keepAlive only. */
   keepAlive: z.boolean().optional(),
   /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend: z.boolean().optional().default(false),
@@ -136,7 +139,21 @@ const DingTalkAccountConfigShape = {
   feedbackLearningNoteTtlMs: z.number().int().min(60_000).optional(),
 } as const;
 
-const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);
+const DingTalkAccountConfigSchema = z
+  .object(DingTalkAccountConfigShape)
+  .superRefine((value, ctx) => {
+    if (
+      typeof value.initialReconnectDelay === "number" &&
+      typeof value.maxReconnectDelay === "number" &&
+      value.initialReconnectDelay > value.maxReconnectDelay
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["initialReconnectDelay"],
+        message: "initialReconnectDelay must be less than or equal to maxReconnectDelay",
+      });
+    }
+  });
 
 /**
  * DingTalk configuration schema using Zod

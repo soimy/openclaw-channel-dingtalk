@@ -90,7 +90,14 @@ function createStartContext(abortSignal?: AbortSignal) {
 
     return {
         ctx: {
-            cfg: {},
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        clientId: 'ding_id',
+                        clientSecret: 'ding_secret',
+                    },
+                },
+            },
             account: {
                 accountId: 'main',
                 config: { clientId: 'ding_id', clientSecret: 'ding_secret' },
@@ -200,6 +207,7 @@ describe('gateway.startAccount lifecycle', () => {
             clientSecret: 'ding_secret',
             useConnectionManager: false,
         } as any;
+        (ctx.cfg as any).channels.dingtalk.useConnectionManager = false;
         shared.clientConnectMock.mockImplementation(async () => {
             controller.abort();
         });
@@ -218,6 +226,92 @@ describe('gateway.startAccount lifecycle', () => {
         stopResult.stop();
         expect(shared.clientDisconnectMock).toHaveBeenCalledTimes(1);
         expect(shared.stopMock).not.toHaveBeenCalled();
+    });
+
+    it('uses useBuiltinKeepAlive to configure DWClient built-in keepAlive', async () => {
+        const controller = new AbortController();
+        const { ctx } = createStartContext(controller.signal);
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+            useBuiltinKeepAlive: false,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.useConnectionManager = false;
+        (ctx.cfg as any).channels.dingtalk.useBuiltinKeepAlive = false;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(shared.dwClientConfig).toMatchObject({
+            keepAlive: false,
+            autoReconnect: true,
+        });
+
+        stopResult.stop();
+    });
+
+    it('warns when legacy keepAlive is explicitly configured', async () => {
+        const controller = new AbortController();
+        const { ctx } = createStartContext(controller.signal);
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+            keepAlive: true,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.useConnectionManager = false;
+        (ctx.cfg as any).channels.dingtalk.keepAlive = true;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('deprecated'));
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('useBuiltinKeepAlive'));
+
+        stopResult.stop();
+    });
+
+    it('warns when useConnectionManager and useBuiltinKeepAlive are both true', async () => {
+        const { ctx } = createStartContext();
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: true,
+            useBuiltinKeepAlive: true,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.useConnectionManager = true;
+        (ctx.cfg as any).channels.dingtalk.useBuiltinKeepAlive = true;
+
+        await startGatewayAccount(ctx as any);
+
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('Both "channels.dingtalk.useConnectionManager" and "channels.dingtalk.useBuiltinKeepAlive" are enabled'));
+    });
+
+    it('warns when useConnectionManager and useBuiltinKeepAlive are both false', async () => {
+        const controller = new AbortController();
+        const { ctx } = createStartContext(controller.signal);
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+            useBuiltinKeepAlive: false,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.useConnectionManager = false;
+        (ctx.cfg as any).channels.dingtalk.useBuiltinKeepAlive = false;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('Both "channels.dingtalk.useConnectionManager" and "channels.dingtalk.useBuiltinKeepAlive" are disabled'));
+
+        stopResult.stop();
     });
 
     it('labels websocket-stage failures when native connect fails after open succeeds', async () => {

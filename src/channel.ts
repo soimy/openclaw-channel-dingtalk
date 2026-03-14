@@ -128,6 +128,63 @@ function instrumentConnectionStages(client: DWClient): void {
   };
 }
 
+type ExplicitBooleanConfig = {
+  value: boolean;
+  path: string;
+};
+
+type ExplicitConnectionModeConfig = {
+  useConnectionManager?: ExplicitBooleanConfig;
+  useBuiltinKeepAlive?: ExplicitBooleanConfig;
+  keepAlive?: ExplicitBooleanConfig;
+};
+
+function readExplicitBooleanConfig(
+  source: Record<string, unknown> | undefined,
+  key: "useConnectionManager" | "useBuiltinKeepAlive" | "keepAlive",
+  path: string,
+): ExplicitBooleanConfig | undefined {
+  if (!source || !Object.prototype.hasOwnProperty.call(source, key)) {
+    return undefined;
+  }
+  const value = source[key];
+  if (typeof value !== "boolean") {
+    return undefined;
+  }
+  return { value, path };
+}
+
+function resolveExplicitConnectionModeConfig(
+  cfg: OpenClawConfig,
+  accountId: string,
+): ExplicitConnectionModeConfig {
+  const dingtalk = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
+  const topLevel = dingtalk as Record<string, unknown> | undefined;
+  const accountLevel = accountId !== "default"
+    ? (dingtalk?.accounts?.[accountId] as Record<string, unknown> | undefined)
+    : undefined;
+
+  return {
+    useConnectionManager:
+      readExplicitBooleanConfig(
+        accountLevel,
+        "useConnectionManager",
+        `channels.dingtalk.accounts.${accountId}.useConnectionManager`,
+      ) ??
+      readExplicitBooleanConfig(topLevel, "useConnectionManager", "channels.dingtalk.useConnectionManager"),
+    useBuiltinKeepAlive:
+      readExplicitBooleanConfig(
+        accountLevel,
+        "useBuiltinKeepAlive",
+        `channels.dingtalk.accounts.${accountId}.useBuiltinKeepAlive`,
+      ) ??
+      readExplicitBooleanConfig(topLevel, "useBuiltinKeepAlive", "channels.dingtalk.useBuiltinKeepAlive"),
+    keepAlive:
+      readExplicitBooleanConfig(accountLevel, "keepAlive", `channels.dingtalk.accounts.${accountId}.keepAlive`) ??
+      readExplicitBooleanConfig(topLevel, "keepAlive", "channels.dingtalk.keepAlive"),
+  };
+}
+
 const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
 const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
 export const CHANNEL_INFLIGHT_NAMESPACE_POLICY = "memory-only" as const;
@@ -637,7 +694,44 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       }
 
+      const explicitConnectionMode = resolveExplicitConnectionModeConfig(cfg, account.accountId);
       const useConnectionManager = config.useConnectionManager ?? true;
+      const useBuiltinKeepAlive =
+        config.useBuiltinKeepAlive ?? config.keepAlive ?? !useConnectionManager;
+
+      if (explicitConnectionMode.keepAlive) {
+        if (explicitConnectionMode.useBuiltinKeepAlive) {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Config key "${explicitConnectionMode.keepAlive.path}" is deprecated and ignored because "${explicitConnectionMode.useBuiltinKeepAlive.path}" is also set. Use "useBuiltinKeepAlive" instead.`,
+          );
+        } else {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Config key "${explicitConnectionMode.keepAlive.path}" is deprecated; use "useBuiltinKeepAlive" instead. This flag controls DWClient built-in keepAlive only, not ConnectionManager heartbeat.`,
+          );
+        }
+      }
+
+      const explicitlyConfiguredBuiltinKeepAlive =
+        explicitConnectionMode.useBuiltinKeepAlive?.value ?? explicitConnectionMode.keepAlive?.value;
+      const explicitlyConfiguredBuiltinKeepAlivePath =
+        explicitConnectionMode.useBuiltinKeepAlive?.path ?? explicitConnectionMode.keepAlive?.path;
+      if (
+        explicitConnectionMode.useConnectionManager &&
+        explicitlyConfiguredBuiltinKeepAlive !== undefined
+      ) {
+        if (explicitConnectionMode.useConnectionManager.value && explicitlyConfiguredBuiltinKeepAlive) {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Both "${explicitConnectionMode.useConnectionManager.path}" and "${explicitlyConfiguredBuiltinKeepAlivePath}" are enabled. This starts ConnectionManager heartbeat and DWClient built-in keepAlive together; prefer disabling "useBuiltinKeepAlive" when ConnectionManager manages the connection.`,
+          );
+        } else if (
+          !explicitConnectionMode.useConnectionManager.value &&
+          !explicitlyConfiguredBuiltinKeepAlive
+        ) {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Both "${explicitConnectionMode.useConnectionManager.path}" and "${explicitlyConfiguredBuiltinKeepAlivePath}" are disabled. The connection will have no active heartbeat detection; enable at least one of them.`,
+          );
+        }
+      }
 
       // Factory that creates a fresh DWClient with the TOPIC_ROBOT callback
       // already registered. Each client captures its own reference for
@@ -650,7 +744,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           clientId: config.clientId,
           clientSecret: config.clientSecret,
           debug: config.debug || false,
-          keepAlive: config.keepAlive ?? !useConnectionManager,
+          keepAlive: useBuiltinKeepAlive,
         });
 
         instrumentConnectionStages(c);
