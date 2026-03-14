@@ -376,8 +376,6 @@ openclaw configure --section channels
       "journalTTLDays": 7,
       "showThinking": true, // 仅 markdown 模式生效
       "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效；设为 "emoji" 可启用随机颜文字彩蛋
-      "asyncMode": false, // 开启后先回执“已收到”，再后台处理
-      "asyncAckText": "已收到，正在处理中，稍后回复。", // asyncMode 生效时的即时回执文案
       "debug": false,
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
@@ -416,8 +414,6 @@ openclaw gateway restart
 | `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
 | `showThinking`          | boolean  | `true`       | 是否发送“思考中”提示消息（仅 markdown 模式生效） |
 | `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式）；设为 `"emoji"` 可按用户语气返回随机颜文字 |
-| `asyncMode`             | boolean  | `false`      | 是否在收到消息后立即回执，并在后台继续处理 |
-| `asyncAckText`          | string   | `"已收到，正在处理中，稍后回复。"` | `asyncMode` 开启时的即时回执文案 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -448,15 +444,10 @@ openclaw gateway restart
 ```
 
 > 说明：这是一个轻量彩蛋功能，仅影响 markdown 模式下的“思考中”提示；`messageType="card"` 时不会发送该独立提示消息。
-
-### `asyncMode` 异步回执
-
-当 `asyncMode=true` 时，插件会先通过 `sessionWebhook` 发送一条即时回执，然后在后台继续完成整条消息处理链路，适合处理耗时较长的推理请求。
-
-- 即时回执文案由 `asyncAckText` 控制
-- 当前仅对带 `sessionWebhook` 的普通文本消息生效
-- 异步后台回复会强制使用 `markdown` 模式；即使配置了 `messageType: "card"`，也不会创建或流式更新 AI 卡片
-- 后台处理失败时，会额外回一条失败提示，避免静默丢回复
+| `bypassProxyForSend`    | boolean  | `false`      | 仅对 send/card/upload 出站请求绕过系统 HTTP(S) 代理 |
+| `learningEnabled` | boolean | `false`    | 启用本地学习闭环（事件、反思、会话笔记、全局规则） |
+| `learningAutoApply` | boolean | `false` | 是否将反思自动注入会话/全局规则；默认只采集不生效 |
+| `learningNoteTtlMs` | number | `21600000` | 会话级学习笔记有效期（毫秒，默认 6 小时） |
 
 ### 连接鲁棒性配置
 
