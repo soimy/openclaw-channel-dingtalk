@@ -43,6 +43,7 @@ import {
   uploadMedia,
 } from "./send-service";
 import type {
+  DingTalkConfig,
   DingTalkInboundMessage,
   GatewayStartContext,
   GatewayStopResult,
@@ -126,6 +127,54 @@ function instrumentConnectionStages(client: DWClient): void {
   };
 }
 
+type ExplicitBooleanConfig = {
+  value: boolean;
+  path: string;
+};
+
+type ExplicitDebugConfig = {
+  dwClientDebug?: ExplicitBooleanConfig;
+  debug?: ExplicitBooleanConfig;
+};
+
+function readExplicitBooleanConfig(
+  source: Record<string, unknown> | undefined,
+  key: "dwClientDebug" | "debug",
+  path: string,
+): ExplicitBooleanConfig | undefined {
+  if (!source || !Object.prototype.hasOwnProperty.call(source, key)) {
+    return undefined;
+  }
+  const value = source[key];
+  if (typeof value !== "boolean") {
+    return undefined;
+  }
+  return { value, path };
+}
+
+function resolveExplicitDebugConfig(
+  cfg: OpenClawConfig,
+  accountId: string,
+): ExplicitDebugConfig {
+  const dingtalk = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
+  const topLevel = dingtalk as Record<string, unknown> | undefined;
+  const accountLevel = accountId !== "default"
+    ? (dingtalk?.accounts?.[accountId] as Record<string, unknown> | undefined)
+    : undefined;
+
+  return {
+    dwClientDebug:
+      readExplicitBooleanConfig(
+        accountLevel,
+        "dwClientDebug",
+        `channels.dingtalk.accounts.${accountId}.dwClientDebug`,
+      ) ??
+      readExplicitBooleanConfig(topLevel, "dwClientDebug", "channels.dingtalk.dwClientDebug"),
+    debug:
+      readExplicitBooleanConfig(accountLevel, "debug", `channels.dingtalk.accounts.${accountId}.debug`) ??
+      readExplicitBooleanConfig(topLevel, "debug", "channels.dingtalk.debug"),
+  };
+}
 const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
 const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
 export const CHANNEL_INFLIGHT_NAMESPACE_POLICY = "memory-only" as const;
@@ -592,6 +641,20 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       }
 
       const useConnectionManager = config.useConnectionManager ?? true;
+      const explicitDebugConfig = resolveExplicitDebugConfig(cfg, account.accountId);
+      const dwClientDebug = config.dwClientDebug ?? config.debug ?? false;
+
+      if (explicitDebugConfig.debug) {
+        if (explicitDebugConfig.dwClientDebug) {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Config key "${explicitDebugConfig.debug.path}" is deprecated and ignored because "${explicitDebugConfig.dwClientDebug.path}" is also set. Use "dwClientDebug" instead.`,
+          );
+        } else {
+          ctx.log?.warn?.(
+            `[${account.accountId}] Config key "${explicitDebugConfig.debug.path}" is deprecated; use "dwClientDebug" instead. This flag controls DWClient debug logging only, not plugin-wide log verbosity.`,
+          );
+        }
+      }
 
       // Factory that creates a fresh DWClient with the TOPIC_ROBOT callback
       // already registered. Each client captures its own reference for
@@ -603,7 +666,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         const c = new DWClient({
           clientId: config.clientId,
           clientSecret: config.clientSecret,
-          debug: config.debug || false,
+          debug: dwClientDebug,
           keepAlive: config.keepAlive ?? !useConnectionManager,
         });
 

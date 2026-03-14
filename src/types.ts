@@ -45,6 +45,9 @@ export interface DingTalkConfig extends OpenClawConfig {
   journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
+  /** Whether to enable DWClient debug logging */
+  dwClientDebug?: boolean;
+  /** @deprecated Use dwClientDebug. Controls DWClient debug logging only. */
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
@@ -106,6 +109,9 @@ export interface DingTalkChannelConfig {
   journalTTLDays?: number;
   showThinking?: boolean;
   thinkingMessage?: string;
+  /** Whether to enable DWClient debug logging */
+  dwClientDebug?: boolean;
+  /** @deprecated Use dwClientDebug. Controls DWClient debug logging only. */
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
@@ -682,6 +688,7 @@ export function resolveDingTalkAccount(
       journalTTLDays: dingtalk?.journalTTLDays,
       showThinking: dingtalk?.showThinking,
       thinkingMessage: dingtalk?.thinkingMessage,
+      dwClientDebug: dingtalk?.dwClientDebug,
       debug: dingtalk?.debug,
       messageType: dingtalk?.messageType,
       cardTemplateId: dingtalk?.cardTemplateId,

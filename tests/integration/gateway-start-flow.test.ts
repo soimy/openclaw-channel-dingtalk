@@ -220,6 +220,65 @@ describe('gateway.startAccount lifecycle', () => {
         expect(shared.stopMock).not.toHaveBeenCalled();
     });
 
+    it('uses dwClientDebug to configure DWClient debug flag', async () => {
+        const controller = new AbortController();
+        const { ctx } = createStartContext(controller.signal);
+        (ctx.cfg as any).channels = {
+            dingtalk: {
+                clientId: 'ding_id',
+                clientSecret: 'ding_secret',
+                dwClientDebug: true,
+            },
+        };
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+            dwClientDebug: true,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.dwClientDebug = true;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(shared.dwClientConfig).toMatchObject({
+            debug: true,
+            autoReconnect: true,
+        });
+
+        stopResult.stop();
+    });
+
+    it('warns when legacy debug is explicitly configured', async () => {
+        const controller = new AbortController();
+        const { ctx } = createStartContext(controller.signal);
+        (ctx.cfg as any).channels = {
+            dingtalk: {
+                clientId: 'ding_id',
+                clientSecret: 'ding_secret',
+                debug: true,
+            },
+        };
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            useConnectionManager: false,
+            debug: true,
+        } as any;
+        (ctx.cfg as any).channels.dingtalk.debug = true;
+        shared.clientConnectMock.mockImplementation(async () => {
+            controller.abort();
+        });
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('deprecated'));
+        expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('dwClientDebug'));
+
+        stopResult.stop();
+    });
     it('labels websocket-stage failures when native connect fails after open succeeds', async () => {
         const { ctx } = createStartContext();
         ctx.account.config = {

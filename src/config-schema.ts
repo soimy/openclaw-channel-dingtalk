@@ -42,7 +42,10 @@ const DingTalkAccountConfigShape = {
   /** Custom thinking message content when showThinking is enabled (markdown mode only) */
   thinkingMessage: z.string().optional().default("🤔 思考中，请稍候..."),
 
-  /** Enable debug logging */
+  /** Whether to enable DWClient debug logging */
+  dwClientDebug: z.boolean().optional(),
+
+  /** @deprecated Use dwClientDebug. Controls DWClient debug logging only. */
   debug: z.boolean().optional().default(false),
 
   /** Message type for replies: markdown or card */

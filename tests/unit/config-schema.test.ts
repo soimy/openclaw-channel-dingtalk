@@ -91,6 +91,15 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.keepAlive).toBeUndefined();
     });
 
+    it('accepts dwClientDebug on top-level config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            dwClientDebug: true,
+        }) as { dwClientDebug?: boolean };
+
+        expect(parsed.dwClientDebug).toBe(true);
+    });
     it('accepts custom aicardDegradeMs for account config', () => {
         const parsed = DingTalkConfigSchema.parse({
             accounts: {
