@@ -374,9 +374,7 @@ openclaw configure --section channels
       "dmPolicy": "open",
       "groupPolicy": "open",
       "journalTTLDays": 7,
-      "showThinking": true, // 仅 markdown 模式生效
-      "thinkingMessage": "🤔 思考中，请稍候...", // 仅 markdown 模式生效；设为 "emoji" 可启用随机颜文字彩蛋
-      "showThinkingReaction": false, // 可选：给原消息贴“🤔思考中”表情，处理结束后撤回
+      "ackReaction": "🤔思考中", // 给原消息贴处理中的表情反馈；设为 "" 可关闭
       "debug": false,
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
@@ -413,9 +411,7 @@ openclaw gateway restart
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
-| `showThinking`          | boolean  | `true`       | 是否发送“思考中”提示消息（仅 markdown 模式生效） |
-| `thinkingMessage`       | string   | `"🤔 思考中，请稍候..."` | 自定义“思考中”提示文案（showThinking 开启时生效，仅 markdown 模式）；设为 `"emoji"` 可按用户语气返回随机颜文字 |
-| `showThinkingReaction`  | boolean  | `false`      | 是否给用户原消息添加钉钉原生“🤔思考中”表情，并在处理结束后撤回 |
+| `ackReaction`          | string   | `"🤔思考中"` | 官方 `ackReaction` 配置入口；设为 `""` 可关闭 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -427,28 +423,9 @@ openclaw gateway restart
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
 
-### `thinkingMessage` 彩蛋（`emoji`）
-
-当 `messageType` 为 `markdown` 且 `showThinking=true` 时，可将 `thinkingMessage` 设为 `"emoji"`，让机器人根据用户当前输入语气随机返回颜文字，替代默认的“🤔 思考中，请稍候...”。
-
-示例：
-
-```json5
-{
-  "channels": {
-    "dingtalk": {
-      "showThinking": true,
-      "messageType": "markdown",
-      "thinkingMessage": "emoji"
-    }
-  }
-}
-```
-
-> 说明：这是一个轻量彩蛋功能，仅影响 markdown 模式下的“思考中”提示；`messageType="card"` 时不会发送该独立提示消息。
 ### 钉钉原生“思考中”表情反馈
 
-当 `showThinkingReaction=true` 时，插件会在处理开始时给用户原消息添加一条钉钉原生“🤔思考中”表情反馈，并在处理结束后自动撤回。该增强不会阻断主流程：贴表情或撤表情失败时只记录日志，仍继续正常回复。
+当 `ackReaction` 为非空字符串时，插件会在处理开始时给用户原消息添加一条钉钉原生“🤔思考中”表情反馈，并在处理结束后自动撤回。该增强不会阻断主流程：贴表情或撤表情失败时只记录日志，仍继续正常回复。
 
 > 设计/实现参考自 `DingTalk-Real-AI/dingtalk-openclaw-connector`（MIT）：
 > <https://github.com/DingTalk-Real-AI/dingtalk-openclaw-connector>
@@ -457,7 +434,9 @@ openclaw gateway restart
 
 - `markdown` 和 `card` 模式都可启用
 - 该反馈作用于用户原消息，不会额外发送一条“思考中”消息
-- 当 `showThinkingReaction=true` 时，会优先使用原消息表情反馈，不再额外发送 `showThinking` 独立提示消息
+- 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction`
+- 默认值保留钉钉原有体验：`"🤔思考中"`
+- 当前钉钉实现底层仍走原生“🤔思考中” reaction 能力；因此配置入口已对齐官方，但平台能力暂未扩展为任意 emoji
 
 ### 连接鲁棒性配置
 

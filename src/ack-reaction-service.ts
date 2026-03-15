@@ -3,27 +3,31 @@ import { getAccessToken } from "./auth";
 import type { DingTalkConfig } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 
-const THINKING_EMOTION_NAME = "🤔思考中";
+// DingTalk currently exposes a dedicated native "thinking" reaction flow rather than
+// a generic arbitrary-emoji reaction API for this plugin path.
+export const DINGTALK_NATIVE_ACK_REACTION = "🤔思考中";
+
+const THINKING_EMOTION_NAME = DINGTALK_NATIVE_ACK_REACTION;
 const THINKING_EMOTION_ID = "2659900";
 const THINKING_EMOTION_BACKGROUND_ID = "im_bg_1";
 const THINKING_REACTION_RECALL_DELAYS_MS = [0, 1500, 5000] as const;
 
-type ThinkingReactionLogger = {
+type AckReactionLogger = {
   debug?: (msg: string) => void;
   info?: (msg: string) => void;
   warn?: (msg: string) => void;
 };
 
-type ThinkingReactionTarget = {
+type AckReactionTarget = {
   msgId: string;
   conversationId: string;
   robotCode?: string;
 };
 
-export async function addThinkingEmotionReply(
+export async function attachNativeAckReaction(
   config: DingTalkConfig,
-  data: ThinkingReactionTarget,
-  log?: ThinkingReactionLogger,
+  data: AckReactionTarget,
+  log?: AckReactionLogger,
 ): Promise<boolean> {
   const robotCode = (data.robotCode || config.robotCode || config.clientId || "").trim();
   if (!robotCode || !data.msgId || !data.conversationId) {
@@ -55,21 +59,21 @@ export async function addThinkingEmotionReply(
         ...getProxyBypassOption(config),
       },
     );
-    log?.info?.("[DingTalk] Thinking reaction attach succeeded");
+    log?.info?.("[DingTalk] Native ack reaction attach succeeded");
     return true;
   } catch (err: any) {
-    log?.warn?.(`[DingTalk] Thinking reaction attach failed: ${err.message}`);
+    log?.warn?.(`[DingTalk] Native ack reaction attach failed: ${err.message}`);
     if (err?.response?.data !== undefined) {
-      log?.warn?.(formatDingTalkErrorPayloadLog("inbound.thinkingReactionAttach", err.response.data));
+      log?.warn?.(formatDingTalkErrorPayloadLog("inbound.ackReactionAttach", err.response.data));
     }
     return false;
   }
 }
 
-async function recallThinkingEmotionReply(
+async function recallNativeAckReaction(
   config: DingTalkConfig,
-  data: ThinkingReactionTarget,
-  log?: ThinkingReactionLogger,
+  data: AckReactionTarget,
+  log?: AckReactionLogger,
 ): Promise<boolean> {
   const robotCode = (data.robotCode || config.robotCode || config.clientId || "").trim();
   if (!robotCode || !data.msgId || !data.conversationId) {
@@ -102,27 +106,27 @@ async function recallThinkingEmotionReply(
         ...getProxyBypassOption(config),
       },
     );
-    log?.info?.("[DingTalk] Thinking reaction recall succeeded");
+    log?.info?.("[DingTalk] Native ack reaction recall succeeded");
     return true;
   } catch (err: any) {
-    log?.warn?.(`[DingTalk] Thinking reaction recall failed: ${err.message}`);
+    log?.warn?.(`[DingTalk] Native ack reaction recall failed: ${err.message}`);
     if (err?.response?.data !== undefined) {
-      log?.warn?.(formatDingTalkErrorPayloadLog("inbound.thinkingReactionRecall", err.response.data));
+      log?.warn?.(formatDingTalkErrorPayloadLog("inbound.ackReactionRecall", err.response.data));
     }
     return false;
   }
 }
 
-export async function recallThinkingEmotionReplyWithRetry(
+export async function recallNativeAckReactionWithRetry(
   config: DingTalkConfig,
-  data: ThinkingReactionTarget,
-  log?: ThinkingReactionLogger,
+  data: AckReactionTarget,
+  log?: AckReactionLogger,
 ): Promise<void> {
   for (const delayMs of THINKING_REACTION_RECALL_DELAYS_MS) {
     if (delayMs > 0) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
-    if (await recallThinkingEmotionReply(config, data, log)) {
+    if (await recallNativeAckReaction(config, data, log)) {
       return;
     }
   }

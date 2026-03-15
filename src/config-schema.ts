@@ -34,16 +34,10 @@ const DingTalkAccountConfigShape = {
 
   mediaUrlAllowlist: z.array(z.string()).optional(),
 
-  /** Show thinking indicator while processing (markdown mode only) */
-  showThinking: z.boolean().optional().default(true),
+  /** Official OpenClaw ackReaction entry for processing feedback; empty string disables it */
+  ackReaction: z.string().optional().default("🤔思考中"),
 
   journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_JOURNAL_TTL_DAYS),
-
-  /** Custom thinking message content when showThinking is enabled (markdown mode only) */
-  thinkingMessage: z.string().optional().default("🤔 思考中，请稍候..."),
-
-  /** Show native DingTalk thinking reaction on the inbound message */
-  showThinkingReaction: z.boolean().optional().default(false),
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 

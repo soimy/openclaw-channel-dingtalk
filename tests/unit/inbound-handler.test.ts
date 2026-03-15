@@ -451,7 +451,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_owner_plain_text',
                 msgtype: 'text',
@@ -724,7 +724,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_session_alias_followup',
                 msgtype: 'text',
@@ -777,7 +777,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_session_alias_direct_followup',
                 msgtype: 'text',
@@ -834,7 +834,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_session_alias_bind_direct_followup',
                 msgtype: 'text',
@@ -914,7 +914,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_session_alias_group1_followup',
                 msgtype: 'text',
@@ -934,7 +934,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm2_session_alias_group2_followup',
                 msgtype: 'text',
@@ -1145,7 +1145,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 learningEnabled: true,
             } as any,
             data: {
@@ -1221,7 +1221,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 learningEnabled: true,
             } as any,
             data: {
@@ -1514,7 +1514,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: true } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '🤔思考中' } as any,
             data: {
                 msgId: 'm5',
                 msgtype: 'text',
@@ -1554,7 +1554,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm5_card_quote',
                 msgtype: 'text',
@@ -1605,7 +1605,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm5_card_fallback',
                 msgtype: 'text',
@@ -1996,7 +1996,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
             data: {
                 msgId: 'm6_card_degrade',
                 msgtype: 'text',
@@ -2093,7 +2093,7 @@ describe('inbound-handler', () => {
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
     });
 
-    it('handleDingTalkMessage adds and recalls native thinking reaction in markdown mode', async () => {
+    it('handleDingTalkMessage attaches and recalls native ack reaction in markdown mode', async () => {
         vi.useFakeTimers();
         mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
         const releaseFn = vi.fn();
@@ -2109,8 +2109,7 @@ describe('inbound-handler', () => {
                     clientSecret: 'secret',
                     dmPolicy: 'open',
                     messageType: 'markdown',
-                    showThinking: false,
-                    showThinkingReaction: true,
+                    ackReaction: '🤔思考中',
                 } as any,
                 data: {
                     msgId: 'm5_reaction',
@@ -2163,7 +2162,7 @@ describe('inbound-handler', () => {
         }
     });
 
-    it('handleDingTalkMessage prefers native thinking reaction over standalone thinking message', async () => {
+    it('handleDingTalkMessage uses native ack reaction when ackReaction is configured', async () => {
         vi.useFakeTimers();
         mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
         try {
@@ -2177,8 +2176,98 @@ describe('inbound-handler', () => {
                     clientSecret: 'secret',
                     dmPolicy: 'open',
                     messageType: 'markdown',
-                    showThinking: true,
-                    showThinkingReaction: true,
+                    ackReaction: '🤔思考中',
+                } as any,
+                data: {
+                    msgId: 'm5_ackreaction_native',
+                    msgtype: 'text',
+                    text: { content: 'hello' },
+                    conversationType: '1',
+                    conversationId: 'cid_ok',
+                    senderId: 'user_1',
+                    chatbotUserId: 'bot_1',
+                    sessionWebhook: 'https://session.webhook',
+                    createAt: Date.now(),
+                },
+            } as any);
+            await vi.advanceTimersByTimeAsync(1200);
+
+            expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+                1,
+                'https://api.dingtalk.com/v1.0/robot/emotion/reply',
+                expect.objectContaining({
+                    openMsgId: 'm5_ackreaction_native',
+                    openConversationId: 'cid_ok',
+                    emotionName: '🤔思考中',
+                }),
+                expect.any(Object),
+            );
+            const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ''));
+            expect(sentTexts.some((text: string) => text.includes('思考中'))).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('handleDingTalkMessage falls back to global messages.ackReaction when channel ackReaction is absent', async () => {
+        vi.useFakeTimers();
+        mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+        try {
+            await handleDingTalkMessage({
+                cfg: { messages: { ackReaction: '👀' } },
+                accountId: 'main',
+                sessionWebhook: 'https://session.webhook',
+                log: undefined,
+                dingtalkConfig: {
+                    clientId: 'ding_client',
+                    clientSecret: 'secret',
+                    dmPolicy: 'open',
+                    messageType: 'markdown',
+                } as any,
+                data: {
+                    msgId: 'm5_global_ackreaction',
+                    msgtype: 'text',
+                    text: { content: 'hello' },
+                    conversationType: '1',
+                    conversationId: 'cid_ok',
+                    senderId: 'user_1',
+                    chatbotUserId: 'bot_1',
+                    sessionWebhook: 'https://session.webhook',
+                    createAt: Date.now(),
+                },
+            } as any);
+            await vi.advanceTimersByTimeAsync(1200);
+
+            expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+                1,
+                'https://api.dingtalk.com/v1.0/robot/emotion/reply',
+                expect.objectContaining({
+                    openMsgId: 'm5_global_ackreaction',
+                    openConversationId: 'cid_ok',
+                    emotionName: '🤔思考中',
+                }),
+                expect.any(Object),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('handleDingTalkMessage does not send standalone thinking message when ackReaction is enabled', async () => {
+        vi.useFakeTimers();
+        mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+        try {
+            await handleDingTalkMessage({
+                cfg: {},
+                accountId: 'main',
+                sessionWebhook: 'https://session.webhook',
+                log: undefined,
+                dingtalkConfig: {
+                    clientId: 'ding_client',
+                    clientSecret: 'secret',
+                    dmPolicy: 'open',
+                    messageType: 'markdown',
+                    ackReaction: '🤔思考中',
                 } as any,
                 data: {
                     msgId: 'm5_reaction_prefer',
@@ -2202,7 +2291,7 @@ describe('inbound-handler', () => {
         }
     });
 
-    it('handleDingTalkMessage adds thinking reaction in card mode', async () => {
+    it('handleDingTalkMessage attaches native ack reaction in card mode', async () => {
         vi.useFakeTimers();
         mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
         try {
@@ -2216,8 +2305,7 @@ describe('inbound-handler', () => {
                     clientSecret: 'secret',
                     dmPolicy: 'open',
                     messageType: 'card',
-                    showThinking: false,
-                    showThinkingReaction: true,
+                    ackReaction: '🤔思考中',
                 } as any,
                 data: {
                     msgId: 'm5_card_reaction',
@@ -2257,7 +2345,7 @@ describe('inbound-handler', () => {
         }
     });
 
-    it('handleDingTalkMessage keeps thinking reaction when configured card mode falls back', async () => {
+    it('handleDingTalkMessage keeps native ack reaction when configured card mode falls back', async () => {
         vi.useFakeTimers();
         shared.createAICardMock.mockResolvedValueOnce(null);
         mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
@@ -2272,8 +2360,7 @@ describe('inbound-handler', () => {
                     clientSecret: 'secret',
                     dmPolicy: 'open',
                     messageType: 'card',
-                    showThinking: false,
-                    showThinkingReaction: true,
+                    ackReaction: '🤔思考中',
                 } as any,
                 data: {
                     msgId: 'm5_card_fallback_reaction',
@@ -2296,7 +2383,7 @@ describe('inbound-handler', () => {
         }
     });
 
-    it('handleDingTalkMessage continues when thinking reaction attach fails', async () => {
+    it('handleDingTalkMessage continues when native ack reaction attach fails', async () => {
         mockedAxiosPost.mockRejectedValueOnce(new Error('reaction failed'));
 
         await expect(handleDingTalkMessage({
@@ -2309,8 +2396,7 @@ describe('inbound-handler', () => {
                 clientSecret: 'secret',
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
-                showThinkingReaction: true,
+                ackReaction: '🤔思考中',
             } as any,
             data: {
                 msgId: 'm5_reaction_fail',
@@ -2325,11 +2411,12 @@ describe('inbound-handler', () => {
             },
         } as any)).resolves.toBeUndefined();
 
-        expect(shared.sendMessageMock).toHaveBeenCalled();
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+        const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ''));
+        expect(sentTexts.some((text: string) => text.includes('思考中'))).toBe(false);
     });
 
-    it('handleDingTalkMessage falls back to standalone thinking message when reaction attach fails', async () => {
+    it('handleDingTalkMessage does not fall back to standalone thinking message when reaction attach fails', async () => {
         mockedAxiosPost.mockRejectedValueOnce(new Error('reaction failed'));
 
         await expect(handleDingTalkMessage({
@@ -2342,8 +2429,7 @@ describe('inbound-handler', () => {
                 clientSecret: 'secret',
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: true,
-                showThinkingReaction: true,
+                ackReaction: '🤔思考中',
             } as any,
             data: {
                 msgId: 'm5_reaction_fail_fallback',
@@ -2360,7 +2446,7 @@ describe('inbound-handler', () => {
 
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
         const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ''));
-        expect(sentTexts).toContain('🤔 思考中，请稍候...');
+        expect(sentTexts.some((text: string) => text.includes('思考中'))).toBe(false);
     });
 
     it('handleDingTalkMessage ignores thinking and tool card updates when card is already finalized', async () => {
@@ -2510,7 +2596,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm_payload_text_only',
                 msgtype: 'text',
@@ -2557,7 +2643,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
             data: {
                 msgId: 'm_reasoning_replace',
                 msgtype: 'text',
@@ -2597,7 +2683,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 proactivePermissionHint: { enabled: true, cooldownHours: 24 },
             } as any,
             data: {
@@ -2635,7 +2721,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 proactivePermissionHint: { enabled: true, cooldownHours: 24 },
             } as any,
             data: {
@@ -2668,7 +2754,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 proactivePermissionHint: { enabled: true, cooldownHours: 24 },
             } as any,
             data: {
@@ -2705,7 +2791,7 @@ describe('inbound-handler', () => {
             dingtalkConfig: {
                 dmPolicy: 'open',
                 messageType: 'markdown',
-                showThinking: false,
+                ackReaction: '',
                 proactivePermissionHint: { enabled: true, cooldownHours: 24 },
             } as any,
             data: {
@@ -2735,7 +2821,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { groupPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'm_group_turn_ctx',
                 msgtype: 'text',
@@ -2800,7 +2886,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
         };
 
         const promiseA = handleDingTalkMessage({
@@ -2867,7 +2953,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
         };
 
         const promiseA = handleDingTalkMessage({
@@ -2916,7 +3002,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
             data: {
                 msgId: 'term_card', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -2935,7 +3021,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'lock_test', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -2960,7 +3046,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
             data: {
                 msgId: 'lock_crash', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -2984,7 +3070,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
             data: {
                 msgId: 'lock_crash_card', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',

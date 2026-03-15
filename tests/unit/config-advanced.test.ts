@@ -38,7 +38,7 @@ describe('config advanced', () => {
                     clientSecret: 'top_sec',
                     dmPolicy: 'allowlist',
                     allowFrom: ['user1'],
-                    showThinking: false,
+                    ackReaction: '',
                     messageType: 'card',
                     cardTemplateId: 'tpl.schema',
                     journalTTLDays: 9,
@@ -55,7 +55,7 @@ describe('config advanced', () => {
         expect(resolved.clientSecret).toBe('bot1_sec');
         expect(resolved.dmPolicy).toBe('allowlist');
         expect(resolved.allowFrom).toEqual(['user1']);
-        expect(resolved.showThinking).toBe(false);
+        expect(resolved.ackReaction).toBe('');
         expect(resolved.messageType).toBe('card');
         expect(resolved.cardTemplateId).toBe('tpl.schema');
         expect(resolved.journalTTLDays).toBe(9);

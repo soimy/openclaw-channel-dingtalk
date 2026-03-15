@@ -143,21 +143,21 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
     });
 
-    it('accepts showThinkingReaction config and defaults it to false', () => {
+    it('accepts ackReaction config and defaults it to the native DingTalk ack reaction', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
-            showThinkingReaction: true,
-        }) as { showThinkingReaction?: boolean };
+            ackReaction: '✅',
+        }) as { ackReaction?: string };
 
-        expect(parsed.showThinkingReaction).toBe(true);
+        expect(parsed.ackReaction).toBe('✅');
 
         const defaults = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
-        }) as { showThinkingReaction?: boolean };
+        }) as { ackReaction?: string };
 
-        expect(defaults.showThinkingReaction).toBe(false);
+        expect(defaults.ackReaction).toBe('🤔思考中');
     });
 
     it('exports control-ui-compatible JSON schema nodes', () => {
