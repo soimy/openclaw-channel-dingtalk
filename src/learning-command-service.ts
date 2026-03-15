@@ -224,6 +224,7 @@ export function formatLearnCommandHelp(): string {
     "- /learn list：查看当前全局规则、目标规则与目标组摘要",
     "- /learn disable <ruleId>：停用一条规则，停止继续命中，但保留记录",
     "- /learn delete <ruleId>：彻底删除一条规则或目标规则",
+    "- /summary [all|group|dm|conversations <ids>|sender <ids>|mention <name|me>] [1d|3d|12h|today]：查看指定范围内的会话摘要材料",
     "",
     "可用的 owner 会话控制命令：",
     "- /session-alias show：查看当前会话共享会话别名",
@@ -236,6 +237,7 @@ export function formatLearnCommandHelp(): string {
     "",
     "权限说明：",
     "- 只有 owner 才能真正执行 /learn 的写操作和控制操作。",
+    "- /summary 目前也仅允许 owner 使用。",
     "- 如果你现在不是 owner，也可以先用 `/learn whoami` 查看 senderId，再由宿主把它加入 commands.ownerAllowFrom。",
   ].join("\n");
 }

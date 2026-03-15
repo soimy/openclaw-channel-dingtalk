@@ -29,6 +29,8 @@ export interface WriteNamespaceJsonOptions<T> extends ResolveNamespacePathOption
 }
 
 const NAMESPACE_ROOT_DIR = "dingtalk-state";
+const LOCK_WAIT_MS = 25;
+const LOCK_TIMEOUT_MS = 2_000;
 
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -127,5 +129,42 @@ export function writeNamespaceJsonAtomic<T>(
     if (fs.existsSync(tempPath)) {
       fs.rmSync(tempPath, { force: true });
     }
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function withNamespaceFileLock<T>(
+  namespace: string,
+  options: ResolveNamespacePathOptions,
+  fn: () => T,
+): T {
+  const filePath = resolveNamespacePath(namespace, options);
+  const lockPath = `${filePath}.lock`;
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+
+  while (true) {
+    try {
+      fs.mkdirSync(lockPath, { recursive: false });
+      break;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "EEXIST") {
+        throw err;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for persistence lock: ${lockPath}`, { cause: err });
+      }
+      sleepSync(LOCK_WAIT_MS);
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    fs.rmSync(lockPath, { recursive: true, force: true });
   }
 }

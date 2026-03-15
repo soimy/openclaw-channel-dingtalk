@@ -11,6 +11,11 @@ import {
 } from "./card-service";
 import { resolveGroupConfig } from "./config";
 import { formatGroupMembers, noteGroupMember } from "./group-members-store";
+import {
+  appendRecentGroupHistoryEntry,
+  listRecentGroupHistory,
+  upsertConversationHistoryIndex,
+} from "./group-history-store";
 import { setCurrentLogger } from "./logger-context";
 import {
   formatLearnAppliedReply,
@@ -73,10 +78,125 @@ import {
   resolveManualForcedReply,
 } from "./feedback-learning-service";
 import { formatDingTalkErrorPayloadLog, maskSensitiveData } from "./utils";
+import {
+  buildSummaryNarrativePrompt,
+  parseSummaryCommand,
+} from "./summary-command-service";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const DEFAULT_THINKING_MESSAGE = "🤔 思考中，请稍候...";
+const DEFAULT_GROUP_HISTORY_LIMIT = 0;
 const proactiveHintLastSentAt = new Map<string, number>();
+
+function resolveSummaryMentionNames(mentionNames: string[] | undefined, senderName: string | undefined): string[] | undefined {
+  if (!mentionNames || mentionNames.length === 0) {
+    return undefined;
+  }
+  const sender = String(senderName || "").trim();
+  const aliases = new Set(["me", "@me", "self", "@self", "我", "@我", "自己", "@自己"]);
+  const resolved = mentionNames
+    .map((name) => {
+      const normalized = name.trim().toLowerCase();
+      if (aliases.has(normalized)) {
+        return sender || undefined;
+      }
+      return name.trim();
+    })
+    .filter((name): name is string => Boolean(name));
+  return resolved.length > 0 ? [...new Set(resolved)] : undefined;
+}
+
+async function generateSummaryNarrative(params: {
+  rt: ReturnType<typeof getDingTalkRuntime>;
+  cfg: HandleDingTalkMessageParams["cfg"];
+  accountId: string;
+  senderId: string;
+  senderName: string;
+  to: string;
+  routeSessionKey: string;
+  conversationLabel: string;
+  chatType: "direct" | "group";
+  storePath?: string;
+  chatTypeFilter?: "direct" | "group";
+  conversationIds?: string[];
+  senderIds?: string[];
+  mentionNames?: string[];
+  sinceTs?: number;
+  windowLabel: string;
+}): Promise<string> {
+  const prompt = buildSummaryNarrativePrompt({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    chatType: params.chatTypeFilter,
+    conversationIds: params.conversationIds,
+    senderIds: params.senderIds,
+    mentionNames: params.mentionNames,
+    sinceTs: params.sinceTs,
+    windowLabel: params.windowLabel,
+  });
+  if (prompt.slices.length === 0) {
+    return prompt.fallbackReply;
+  }
+
+  const ctx = params.rt.channel.reply.finalizeInboundContext({
+    Body: prompt.userPrompt,
+    RawBody: prompt.userPrompt,
+    CommandBody: prompt.userPrompt,
+    BodyForCommands: prompt.userPrompt,
+    From: params.to,
+    To: params.to,
+    SessionKey: `${params.routeSessionKey}::summary`,
+    AccountId: params.accountId,
+    ChatType: params.chatType,
+    ConversationLabel: `${params.conversationLabel} [summary]`,
+    SenderName: params.senderName,
+    SenderId: params.senderId,
+    Provider: "dingtalk",
+    Surface: "dingtalk",
+    Timestamp: Date.now(),
+    GroupSystemPrompt: prompt.systemPrompt,
+    CommandAuthorized: true,
+    OriginatingChannel: "dingtalk",
+    OriginatingTo: params.to,
+  });
+
+  let finalText = "";
+  try {
+    const dispatchResult = await params.rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx,
+      cfg: params.cfg,
+      dispatcherOptions: {
+        responsePrefix: "",
+        deliver: async (payload: { text?: string; markdown?: string }, info?: { kind?: string }) => {
+          if (info?.kind && info.kind !== "final") {
+            return;
+          }
+          const text = payload.text;
+          if (typeof text === "string" && text.trim()) {
+            finalText = text.trim();
+          }
+        },
+      },
+      replyOptions: {},
+    });
+    const queuedFinalText: string | undefined =
+      typeof dispatchResult?.queuedFinal === "string" ? String(dispatchResult.queuedFinal) : undefined;
+    if (!finalText && queuedFinalText && queuedFinalText.trim().length > 0) {
+      finalText = queuedFinalText.trim();
+    }
+  } catch {
+    return prompt.fallbackReply;
+  }
+  return finalText || prompt.fallbackReply;
+}
+
+function isUnhandledStopReasonText(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
+}
 
 export function resetProactivePermissionHintStateForTest(): void {
   proactiveHintLastSentAt.clear();
@@ -428,10 +548,46 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
+  const historyLimit = Math.max(0, dingtalkConfig.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT);
+
+  const recordBotHistory = (text: string | undefined): void => {
+    const body = String(text || "").trim();
+    if (!body || historyLimit <= 0) {
+      return;
+    }
+    appendRecentGroupHistoryEntry({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: data.conversationId,
+      limit: historyLimit,
+      entry: {
+        sender: `OpenClaw (${data.chatbotUserId || "bot"})`,
+        senderId: data.chatbotUserId || "bot",
+        body,
+        timestamp: Date.now(),
+        messageId: `bot_${Date.now()}`,
+      },
+    });
+  };
+
+  const sendSessionReply = async (text: string, options?: { includeInHistory?: boolean; atUserId?: string | null }): Promise<void> => {
+    await sendBySession(dingtalkConfig, sessionWebhook, text, { log, atUserId: options?.atUserId });
+    if (options?.includeInHistory) {
+      recordBotHistory(text);
+    }
+  };
+  upsertConversationHistoryIndex({
+    storePath: accountStorePath,
+    accountId,
+    conversationId: data.conversationId,
+    chatType: isDirect ? "direct" : "group",
+    title: isDirect ? senderName : groupName,
+  });
 
   const to = isDirect ? senderId : groupId;
   const parsedLearnCommand = parseLearnCommand(extractedContent.text);
   const parsedSessionCommand = parseSessionCommand(extractedContent.text);
+  const parsedSummaryCommand = parseSummaryCommand(extractedContent.text);
   const isOwner = isLearningOwner({
     cfg,
     config: dingtalkConfig,
@@ -439,47 +595,42 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     rawSenderId: data.senderId,
   });
   if (isDirect && parsedLearnCommand.scope === "whoami") {
-    await sendBySession(
-      dingtalkConfig,
-      sessionWebhook,
+    await sendSessionReply(
       formatWhoAmIReply({
         senderId,
         rawSenderId: data.senderId,
         senderStaffId: data.senderStaffId,
         isOwner,
       }),
-      { log },
     );
     return;
   }
   if (parsedLearnCommand.scope === "whereami") {
-    await sendBySession(
-      dingtalkConfig,
-      sessionWebhook,
+    await sendSessionReply(
       formatWhereAmIReply({
         conversationId: data.conversationId,
         conversationType: isDirect ? "dm" : "group",
         peerId: sessionPeer.peerId,
       }),
-      { log },
     );
     return;
   }
   if (isDirect && parsedLearnCommand.scope === "owner-status") {
-    await sendBySession(
-      dingtalkConfig,
-      sessionWebhook,
+    await sendSessionReply(
       formatOwnerStatusReply({
         senderId,
         rawSenderId: data.senderId,
         isOwner,
       }),
-      { log },
     );
     return;
   }
   if (parsedLearnCommand.scope === "help") {
-    await sendBySession(dingtalkConfig, sessionWebhook, formatLearnCommandHelp(), { log });
+    await sendSessionReply(formatLearnCommandHelp());
+    return;
+  }
+  if (parsedSummaryCommand.scope === "summary" && !isOwner) {
+    await sendSessionReply(formatOwnerOnlyDeniedReply());
     return;
   }
   if (
@@ -500,7 +651,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       || parsedSessionCommand.scope === "session-alias-unbind")
     && !isOwner
   ) {
-    await sendBySession(dingtalkConfig, sessionWebhook, formatOwnerOnlyDeniedReply(), { log });
+    await sendSessionReply(formatOwnerOnlyDeniedReply());
     return;
   }
   if (isOwner) {
@@ -620,21 +771,43 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       return;
     }
+    if (parsedSummaryCommand.scope === "summary") {
+      const conversationIds =
+        parsedSummaryCommand.conversationIds?.[0] === "here" ? [data.conversationId] : parsedSummaryCommand.conversationIds;
+      const mentionNames = resolveSummaryMentionNames(parsedSummaryCommand.mentionNames, senderName);
+      const summaryReply = await generateSummaryNarrative({
+        rt,
+        cfg,
+        accountId,
+        senderId,
+        senderName,
+        to,
+        routeSessionKey: route.sessionKey,
+        conversationLabel: isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`,
+        chatType: isDirect ? "direct" : "group",
+        storePath: accountStorePath,
+        chatTypeFilter: parsedSummaryCommand.chatType,
+        conversationIds,
+        senderIds: parsedSummaryCommand.senderIds,
+        mentionNames,
+        sinceTs: parsedSummaryCommand.sinceTs,
+        windowLabel: parsedSummaryCommand.windowLabel,
+      });
+      await sendSessionReply(summaryReply);
+      return;
+    }
     if (parsedLearnCommand.scope === "global" && parsedLearnCommand.instruction) {
       const applied = applyManualGlobalLearningRule({
         storePath: accountStorePath,
         accountId,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnAppliedReply({
           scope: "global",
           instruction: parsedLearnCommand.instruction,
           ruleId: applied?.ruleId,
         }),
-        { log },
       );
       return;
     }
@@ -645,14 +818,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         targetId: data.conversationId,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnAppliedReply({
           scope: "session",
           instruction: parsedLearnCommand.instruction,
         }),
-        { log },
       );
       return;
     }
@@ -663,16 +833,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         targetId: data.conversationId,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnAppliedReply({
           scope: "target",
           targetId: data.conversationId,
           instruction: parsedLearnCommand.instruction,
           ruleId: applied?.ruleId,
         }),
-        { log },
       );
       return;
     }
@@ -683,16 +850,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         targetId: parsedLearnCommand.targetId,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnAppliedReply({
           scope: "target",
           targetId: parsedLearnCommand.targetId,
           instruction: parsedLearnCommand.instruction,
           ruleId: applied?.ruleId,
         }),
-        { log },
       );
       return;
     }
@@ -703,16 +867,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         targetIds: parsedLearnCommand.targetIds,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnAppliedReply({
           scope: "targets",
           targetIds: parsedLearnCommand.targetIds,
           instruction: parsedLearnCommand.instruction,
           ruleId: applied[0]?.ruleId,
         }),
-        { log },
       );
       return;
     }
@@ -723,16 +884,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         name: parsedLearnCommand.setName,
         targetIds: parsedLearnCommand.targetIds,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         saved
           ? formatTargetSetSavedReply({
             setName: parsedLearnCommand.setName,
             targetIds: parsedLearnCommand.targetIds,
           })
           : "目标组保存失败，请检查名称和目标列表。",
-        { log },
       );
       return;
     }
@@ -743,9 +901,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         name: parsedLearnCommand.setName,
         instruction: parsedLearnCommand.instruction,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         applied.length > 0
           ? formatLearnAppliedReply({
             scope: "target-set",
@@ -755,7 +911,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             ruleId: applied[0]?.ruleId,
           })
           : `未找到目标组 \`${parsedLearnCommand.setName}\`，或该目标组为空。`,
-        { log },
       );
       return;
     }
@@ -770,12 +925,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       const targetSets = listLearningTargetSets({ storePath: accountStorePath, accountId })
         .slice(0, 10)
         .map((targetSet) => `- [target-set] ${targetSet.name} => ${targetSet.targetIds.join(", ")}`);
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
-        formatLearnListReply([...rules, ...targetSets]),
-        { log },
-      );
+      await sendSessionReply(formatLearnListReply([...rules, ...targetSets]));
       return;
     }
     if (parsedLearnCommand.scope === "disable" && parsedLearnCommand.ruleId) {
@@ -784,16 +934,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         accountId,
         ruleId: parsedLearnCommand.ruleId,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnDisabledReply({
           ruleId: parsedLearnCommand.ruleId,
           existed: result.existed,
           scope: result.scope,
           targetId: result.targetId,
         }),
-        { log },
       );
       return;
     }
@@ -803,16 +950,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         accountId,
         ruleId: parsedLearnCommand.ruleId,
       });
-      await sendBySession(
-        dingtalkConfig,
-        sessionWebhook,
+      await sendSessionReply(
         formatLearnDeletedReply({
           ruleId: parsedLearnCommand.ruleId,
           existed: result.existed,
           scope: result.scope,
           targetId: result.targetId,
         }),
-        { log },
       );
       return;
     }
@@ -824,7 +968,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     content: extractedContent,
   });
   if (manualForcedReply) {
-    await sendBySession(dingtalkConfig, sessionWebhook, manualForcedReply, { log });
+    await sendSessionReply(manualForcedReply, { includeInHistory: true });
     return;
   }
   // 3) Select response mode (card vs markdown).
@@ -1162,6 +1306,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
+  const inboundHistory =
+    !isDirect && historyLimit > 0
+      ? listRecentGroupHistory({
+          storePath: accountStorePath,
+          accountId,
+          conversationId: data.conversationId,
+          limit: historyLimit,
+        })
+      : undefined;
   // GroupSystemPrompt is injected every turn (not only first-turn intro).
   const groupSystemPromptParts = !isDirect
     ? [
@@ -1197,6 +1350,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     Body: body,
     RawBody: inboundText,
     CommandBody: inboundText,
+    InboundHistory: inboundHistory,
     From: to,
     To: to,
     SessionKey: route.sessionKey,
@@ -1230,6 +1384,25 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
     },
   });
+
+  if (historyLimit > 0) {
+    appendRecentGroupHistoryEntry({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: data.conversationId,
+      limit: historyLimit,
+      entry: {
+        sender: `${senderName} (${senderId})`,
+        senderId,
+        mentions: content.mentions,
+        body: inboundText,
+        timestamp: data.createAt,
+        messageId: data.msgId,
+        quotedMessageId: content.quoted?.msgId,
+        quotedPreview: content.quoted?.prefix?.replace(/\s+/g, " ").trim().slice(0, 160),
+      },
+    });
+  }
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
@@ -1333,6 +1506,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               if (!sendResult.ok) {
                 throw new Error(sendResult.error || "Reply send failed");
               }
+              if (!(useCardMode && currentAICard)) {
+                recordBotHistory(textToSend);
+              }
             } catch (err: any) {
               log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
               if (err?.response?.data !== undefined) {
@@ -1404,9 +1580,28 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           return;
         }
 
-        const finalText = queuedFinal ? finalContent.map(v => v.trim()).filter(v => v.length > 0).join("\n\n") : 
-          currentAICard.lastStreamedContent || "✅ Done";
+        const isNonEmptyString = (value: unknown): value is string =>
+          typeof value === "string" && value.trim().length > 0;
+        const queuedFinalText =
+          typeof queuedFinal === "string" && queuedFinal.trim().length > 0
+            ? queuedFinal.trim()
+            : undefined;
+        const streamedFinalText = finalContent.map((value) => value.trim()).filter(Boolean).join("\n\n") || undefined;
+        const finalText =
+          streamedFinalText
+          || queuedFinalText
+          || (isNonEmptyString(currentAICard.lastStreamedContent) ? currentAICard.lastStreamedContent.trim() : undefined)
+          || "✅ Done";
+        if (isUnhandledStopReasonText(finalText)) {
+          log?.warn?.(
+            `[DingTalk] Suppressed stop reason from AI Card final content: ${finalText}`,
+          );
+          currentAICard.state = AICardStatus.FINISHED;
+          currentAICard.lastUpdated = Date.now();
+          return;
+        }
         await finishAICard(currentAICard, finalText, log);
+        recordBotHistory(finalText);
       } catch (err: any) {
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
         if (err?.response?.data !== undefined) {

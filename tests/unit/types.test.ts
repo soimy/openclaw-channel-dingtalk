@@ -93,6 +93,7 @@ describe('types helpers', () => {
             channels: {
                 dingtalk: {
                     bypassProxyForSend: true,
+                    historyLimit: 64,
                     learningEnabled: true,
                     allowFrom: ['owner-test-id'],
                     learningAutoApply: true,
@@ -106,6 +107,7 @@ describe('types helpers', () => {
 
         const account = resolveDingTalkAccount(cfg, 'main');
         expect(account.bypassProxyForSend).toBe(true);
+        expect(account.historyLimit).toBe(64);
         expect(account.learningEnabled).toBe(true);
         expect(account.allowFrom).toEqual(['owner-test-id']);
         expect(account.learningAutoApply).toBe(true);

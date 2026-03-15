@@ -448,6 +448,7 @@ openclaw gateway restart
 | `learningEnabled` | boolean | `false`    | 启用本地学习闭环（事件、反思、会话笔记、全局规则） |
 | `learningAutoApply` | boolean | `false` | 是否将反思自动注入会话/全局规则；默认只采集不生效 |
 | `learningNoteTtlMs` | number | `21600000` | 会话级学习笔记有效期（毫秒，默认 6 小时） |
+| `historyLimit` | number | `0` | 每个私聊/群聊保留的最近消息窗口条数，用于上下文注入和后续 summary；默认关闭，显式配置后才启用 |
 
 ### 连接鲁棒性配置
 
@@ -459,9 +460,33 @@ openclaw gateway restart
 - **reconnectJitter**: 延迟抖动因子，在延迟基础上增加随机变化（±30%），避免多个客户端同时重连。
 - **bypassProxyForSend**: 仅作用于发送链路（session send / proactive send / AI card / media upload），不影响如 `getAccessToken` 之类的其他出站请求。
 - **learningEnabled**: 开启后，插件会记录发送快照、显式点赞/点踩、隐式不满信号、反思记录，并在下一条消息进入时把学习提示注入当前上下文。
-- **allowFrom**: 这里同时复用为 owner 判定来源。`/learn ...` 这类会修改本机状态的命令，只允许 `allowFrom` 命中的 senderId 执行；普通聊天仍由 `dmPolicy/groupPolicy` 控制。
+- **allowFrom**: 只控制普通消息入口（配合 `dmPolicy/groupPolicy`）。
+- **commands.ownerAllowFrom**: owner 学习/控制命令（如 `/learn ...`、`/summary ...`）的独立鉴权来源；这类命令不会再复用 `allowFrom`。
 - **learningAutoApply**: 默认关闭。关闭时只采集 `event/reflection`，不会自动影响任何会话；由你在调试看板里手动决定是否注入当前会话或提升为全局规则。
 - **learningNoteTtlMs**: 控制会话级学习笔记有效期；target 级和全局规则会继续持久化，分别作用于指定群/私聊和整个账号。
+- **historyLimit**: 为每个私聊/群聊维护最近消息窗口。窗口会按会话隔离，不会串群；它用于 `InboundHistory` 和后续按时间/会话过滤的 summary 基础能力，不代表平台全量历史。默认关闭，建议按需显式开启。
+
+### Summary 命令（owner）
+
+当前支持基于本地滚动消息窗口/摘要材料做 owner 级自然语言总结；如果模型总结失败，会自动回退到结构化检索结果：
+
+- `/summary`
+- `/summary all [1d|3d|12h|today]`
+- `/summary group [1d|3d|12h|today]`
+- `/summary dm [1d|3d|12h|today]`
+- `/summary conversations <conversationId1,conversationId2> [1d|3d|12h|today]`
+- `/summary sender <senderId1,senderId2> [1d|3d|12h|today]`
+- `/summary mention <name1,name2|me> [1d|3d|12h|today]`
+- `/summary here [1d|3d|12h|today]`
+
+说明：
+
+- `summary` 当前只允许 owner 使用。
+- `/summary mention me ...` 会把 `me/@我/自己` 解析为当前 owner 的昵称，用于筛选被 @ 到的消息。
+- 数据来源是本地按会话隔离的滚动消息窗口和历史摘要段，不会把不同群/私聊混在一起。
+- `historyLimit` 控制每个会话保留的最近原始消息窗口；更旧的内容会逐步压成带时间范围的摘要段，避免无限膨胀。该能力默认关闭，需要显式配置。
+- 当前滚动摘要段使用保守固定阈值：最多保留 90 个摘要段、单段最多约 1600 字符。这个值的目的不是精确 token 控制，而是限制长期磁盘增长，并把单段长度压在后续 summary prompt 可安全复用的范围内。
+- 每次 `/summary` 都会触发一次单独的总结请求（使用独立 `::summary` 会话后缀）；如果模型总结失败，会回退到本地结构化检索结果，但成功生成自然语言总结时会产生额外 token 成本。
 
 重连延迟计算公式：`delay = min(initialDelay × 2^attempt, maxDelay) × (1 ± jitter)`
 

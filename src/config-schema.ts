@@ -120,6 +120,9 @@ const DingTalkAccountConfigShape = {
   /** Session learning note TTL in milliseconds (default: 6 hours) */
   learningNoteTtlMs: z.number().int().min(60_000).optional(),
 
+  /** Number of recent group messages to retain for reply context and summary (disabled by default) */
+  historyLimit: z.number().int().min(0).optional(),
+
   /** @deprecated Use learningEnabled */
   feedbackLearningEnabled: z.boolean().optional(),
 
