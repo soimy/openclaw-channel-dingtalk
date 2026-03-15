@@ -86,6 +86,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   feedbackLearningAutoApply?: boolean;
   /** @deprecated Use learningNoteTtlMs */
   feedbackLearningNoteTtlMs?: number;
+  /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
+  convertMarkdownTables?: boolean;
 }
 
 /**
@@ -146,6 +148,8 @@ export interface DingTalkChannelConfig {
   feedbackLearningAutoApply?: boolean;
   /** @deprecated Use learningNoteTtlMs */
   feedbackLearningNoteTtlMs?: number;
+  /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
+  convertMarkdownTables?: boolean;
 }
 
 /**
@@ -706,6 +710,7 @@ export function resolveDingTalkAccount(
       feedbackLearningEnabled: dingtalk?.feedbackLearningEnabled,
       feedbackLearningAutoApply: dingtalk?.feedbackLearningAutoApply,
       feedbackLearningNoteTtlMs: dingtalk?.feedbackLearningNoteTtlMs,
+      convertMarkdownTables: dingtalk?.convertMarkdownTables,
     };
     return {
       ...config,
