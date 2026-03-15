@@ -35,21 +35,20 @@ describe('sendMessage card mode', () => {
         cardMocks.sendProactiveCardTextMock.mockReset();
     });
 
-    it('streams into provided card when card is alive', async () => {
+    it('skips card branch when card is alive but no cardUpdateMode is provided', async () => {
         const card = { cardInstanceId: 'card_1', state: AICardStatus.PROCESSING, lastUpdated: Date.now() } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
-        cardMocks.streamAICardMock.mockResolvedValue(undefined);
+        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_skip' } } as any);
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
             'cidA1B2C3',
             'stream content',
-            { card }
+            { card, sessionWebhook: 'https://session.webhook' }
         );
 
-        expect(cardMocks.streamAICardMock).toHaveBeenCalledTimes(1);
-        expect(mockedAxios).not.toHaveBeenCalled();
-        expect(result).toEqual({ ok: true });
+        expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
+        expect(result.ok).toBe(true);
     });
 
     it('composes append updates locally and streams full content', async () => {
@@ -145,16 +144,16 @@ describe('sendMessage card mode', () => {
         expect(result.ok).toBe(true);
     });
 
-    it('returns failure when card stream fails to avoid duplicate fallback sends', async () => {
-        const card = { cardInstanceId: 'card_1', state: AICardStatus.PROCESSING, lastUpdated: Date.now() } as any;
+    it('returns failure when card append stream fails', async () => {
+        const card = { cardInstanceId: 'card_1', state: AICardStatus.PROCESSING, lastUpdated: Date.now(), lastStreamedContent: 'prev' } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
         cardMocks.streamAICardMock.mockRejectedValue(new Error('stream failed'));
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
             'cidA1B2C3',
-            'fallback content',
-            { card }
+            'appended',
+            { card, cardUpdateMode: 'append' } as any
         );
 
         expect(card.state).toBe(AICardStatus.FAILED);

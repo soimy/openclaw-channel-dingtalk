@@ -514,15 +514,10 @@ export async function sendMessage(
             },
           };
         }
-      } else {
+      } else if (options.cardUpdateMode === "append") {
         try {
-          const mode = options.cardUpdateMode || "replace";
-          const shouldFinalize = mode === "finalize" || options.cardFinalize === true;
-          const nextContent =
-            mode === "append"
-              ? composeCardContentForAppend(card.lastStreamedContent, text)
-              : text;
-          await streamAICard(card, nextContent, shouldFinalize, log);
+          const nextContent = composeCardContentForAppend(card.lastStreamedContent, text);
+          await streamAICard(card, nextContent, false, log);
           return { ok: true };
         } catch (err: any) {
           log?.warn?.(`[DingTalk] AI Card streaming failed: ${err.message}`);

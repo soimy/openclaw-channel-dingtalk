@@ -2199,11 +2199,10 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.isCardInTerminalStateMock).toHaveBeenCalledWith('5');
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
     });
 
-    it('handleDingTalkMessage ignores thinking and tool card updates when card is already finalized', async () => {
+    it('handleDingTalkMessage skips tool deliver and finalize when card is already FINISHED', async () => {
         const runtime = buildRuntime();
         runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
             .fn()
@@ -2237,8 +2236,13 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.streamAICardMock).not.toHaveBeenCalled();
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
+        expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            'tool output',
+            expect.objectContaining({ cardUpdateMode: 'append' }),
+        );
     });
 
     it('handleDingTalkMessage marks card FAILED when finishAICard throws', async () => {
@@ -2368,7 +2372,7 @@ describe('inbound-handler', () => {
             expect.anything(),
             'user_1',
             'plain text reply',
-            expect.objectContaining({ card: undefined }),
+            expect.not.objectContaining({ card: expect.anything() }),
         );
         expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
             expect.anything(),
@@ -2378,7 +2382,7 @@ describe('inbound-handler', () => {
         );
     });
 
-    it('streams reasoning updates to card in replace mode', async () => {
+    it('streams reasoning updates to card via controller (streamAICard)', async () => {
         const runtime = buildRuntime();
         runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
             .fn()
@@ -2397,7 +2401,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false, cardRealTimeStream: true } as any,
             data: {
                 msgId: 'm_reasoning_replace',
                 msgtype: 'text',
@@ -2411,11 +2415,11 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.sendMessageMock).toHaveBeenCalledWith(
-            expect.anything(),
-            'user_1',
-            'thinking pass 1',
-            expect.objectContaining({ card, cardUpdateMode: 'replace' }),
+        expect(shared.streamAICardMock).toHaveBeenCalledWith(
+            card,
+            expect.stringContaining('thinking pass 1'),
+            false,
+            undefined,
         );
     });
 
@@ -2767,6 +2771,52 @@ describe('inbound-handler', () => {
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
         const cardSendCalls = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
         expect(cardSendCalls).toHaveLength(0);
+    });
+
+    it('defers markdown fallback to post-dispatch when card fails mid-stream before deliver(final)', async () => {
+        const card = { cardInstanceId: 'card_mid_fail', state: '1', lastUpdated: Date.now() } as any;
+        shared.createAICardMock.mockResolvedValueOnce(card);
+        shared.isCardInTerminalStateMock.mockImplementation((state: string) => state === '3' || state === '5');
+
+        shared.streamAICardMock.mockImplementation(async () => {
+            card.state = '5';
+            throw new Error('stream api error');
+        });
+
+        const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+                replyOptions?.onPartialReply?.({ text: 'partial content' });
+                await new Promise((r) => setTimeout(r, 350));
+                await dispatcherOptions.deliver({ text: 'complete final answer' }, { kind: 'final' });
+                return { queuedFinal: 'complete final answer' };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: log as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true } as any,
+            data: {
+                msgId: 'mid_fail_test', msgtype: 'text', text: { content: 'hello' },
+                conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
+                chatbotUserId: 'bot_1', sessionWebhook: 'https://session.webhook', createAt: Date.now(),
+            },
+        } as any);
+
+        const infoLogs = log.info.mock.calls.map((args: unknown[]) => String(args[0]));
+        expect(infoLogs.some((msg) => msg.includes('deferring markdown fallback to post-dispatch'))).toBe(true);
+
+        const fallbackCalls = shared.sendMessageMock.mock.calls.filter(
+            (call: any[]) => !call[3]?.card && !call[3]?.cardUpdateMode
+        );
+        expect(fallbackCalls.length).toBeGreaterThanOrEqual(1);
+        expect(fallbackCalls[0][2]).toBe('complete final answer');
     });
 
     it('acquires session lock with the resolved sessionKey', async () => {

@@ -381,6 +381,7 @@ openclaw configure --section channels
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
       // "aicardDegradeMs": 1800000, // 可选：AI 卡片失败后降级持续时间（毫秒，默认 30 分钟）
+      // "cardRealTimeStream": false, // 可选：开启真流式卡片更新（默认 false，开启后 API 调用量增加约 2-3 倍）
       // 仅card需要配置
       "cardTemplateId": "你复制的模板ID",
       "cardTemplateKey": "你模板的内容变量"
@@ -418,6 +419,7 @@ openclaw gateway restart
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
+| `cardRealTimeStream`    | boolean  | `false`      | 开启真流式卡片更新（300ms 节流，首 token 快、流畅但 API 调用更多）。详见下方说明 |
 | `aicardDegradeMs`       | number   | `1800000`    | AI 卡片连续失败后进入降级模式的持续时间（毫秒） |
 | `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
 | `mediaMaxMb`            | number   | -            | 接收文件大小上限（MB），不设则使用 runtime 默认值（5 MB） |
@@ -862,30 +864,32 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 | 阶段         | API 调用               | 说明                                                |
 | ------------ | ---------------------- | --------------------------------------------------- |
 | **创建卡片** | 1                      | `POST /v1.0/card/instances/createAndDeliver`        |
-| **流式更新** | M                      | M = 回复块数量，每块一次 `PUT /v1.0/card/streaming` |
+| **流式更新** | M                      | M = 取决于流式模式（见下方说明），每次 `PUT /v1.0/card/streaming` |
 | **完成卡片** | 包含在最后一次流更新中 | 使用 `isFinalize=true` 标记                         |
-| **总计**     | **1 + M**              | M = Agent 产生的回复块数                            |
+| **总计**     | **1 + M**              | M 由 `cardStreamThrottleMs` 决定                    |
 
 ### 典型场景成本对比
 
-| 场景             | Text/Markdown | Card | 节省   |
-| ---------------- | ------------- | ---- | ------ |
-| 简短回复（1 块） | 2             | 2    | ✓ 相同 |
-| 中等回复（5 块） | 6             | 6    | ✓ 相同 |
-| 长回复（10 块）  | 12            | 11   | ✓ 1 次 |
+以一次 10 秒的 AI 回复为例：
+
+| 流式模式                               | `streamAICard` 调用数 | 首 token 延迟 | 流畅度 |
+| -------------------------------------- | --------------------- | ------------- | ------ |
+| Block 缓冲（`cardRealTimeStream: false`，默认） | ~10-15 次   | ~1-1.5s       | 卡顿   |
+| 真流式（`cardRealTimeStream: true`）            | ~30 次      | ~300ms        | 流畅   |
 
 ### 优化策略
 
 **降低 API 调用的方法：**
 
-1. **合并回复块** — 通过调整 Agent 输出配置，减少块数量
-2. **使用缓存** — Token 自动缓存（60 秒），无需每次都获取
-3. **Buffer 模式** — 使用 `dispatchReplyWithBufferedBlockDispatcher` 合并多个小块
+1. **保持默认** — `cardRealTimeStream: false`（block 缓冲模式），API 调用量最少
+2. **开启真流式** — `cardRealTimeStream: true`，体验更好但 API 调用约多 2-3 倍
+3. **使用缓存** — Token 自动缓存（60 秒），无需每次都获取
 
 **成本建议：**
 
-- ✅ **推荐** — Card 模式：流式体验更好，成本与 Text/Markdown 相当或更低
-- ⚠️ **谨慎** — 频繁调用需要监测配额，建议使用钉钉开发者后台查看 API 调用量
+- ✅ **默认** — Block 缓冲模式：API 调用最少，适合对 API 配额敏感的场景
+- ✅ **推荐体验** — `cardRealTimeStream: true`：首 token 快、打字机效果流畅，适合重视用户体验的场景
+- ⚠️ **注意** — 频繁调用需要监测配额，建议使用钉钉开发者后台查看 API 调用量
 
 ## 消息类型选择
 
@@ -914,9 +918,20 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 当配置 `messageType: 'card'` 时：
 
 1. 使用 `/v1.0/card/instances/createAndDeliver` 创建并投放卡片
-2. 使用 `/v1.0/card/streaming` 实现真正的流式更新
+2. 使用 `/v1.0/card/streaming` 实现流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
-4. 更稳定的流式体验，无需手动节流
+4. 内置 300ms 节流 + 单航班（single-flight）保护，避免 API 过载
+
+**卡片流式模式 (`cardRealTimeStream`)：**
+
+插件支持两种卡片更新策略，通过 `cardRealTimeStream` 配置：
+
+| 值 | 模式 | 说明 |
+| -- | ---- | ---- |
+| `false`（默认） | Block 缓冲 | runtime 攒够一定量文本后回调一次，API 调用最少，但首 token 延迟较高（~1-1.5s），更新较卡顿 |
+| `true` | 真流式 | 每 300ms 最多一次卡片更新 PUT，首 token 延迟低（~300ms），打字机效果流畅。API 调用量约为 block 模式的 2-3 倍 |
+
+> **API 调用量参考**：以一次 10 秒的 AI 回复为例，真流式约产生 ~30 次 `streamAICard` PUT，block 模式约 ~10-15 次。钉钉企业内部应用的 QPS 限制为 40 次/秒，真流式的峰值约 3.3 次/秒，远低于限制。
 
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
@@ -950,6 +965,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   messageType: 'card', // 启用 AI 互动卡片模式
   cardTemplateId: '382e4302-551d-4880-bf29-a30acfab2e71.schema', // AI 卡片模板 ID（默认值）
   cardTemplateKey: 'content', // 卡片内容字段键（默认值：content）
+  // cardRealTimeStream: false, // 开启真流式卡片更新（默认 false）
 }
 ```
 

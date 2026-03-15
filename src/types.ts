@@ -72,6 +72,8 @@ export interface DingTalkConfig extends OpenClawConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
+  cardRealTimeStream?: boolean;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
@@ -132,6 +134,8 @@ export interface DingTalkChannelConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
+  /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
+  cardRealTimeStream?: boolean;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
@@ -315,8 +319,7 @@ export interface SendMessageOptions {
   mediaType?: "image" | "voice" | "video" | "file";
   accountId?: string;
   storePath?: string;
-  cardUpdateMode?: "replace" | "append" | "finalize";
-  cardFinalize?: boolean;
+  cardUpdateMode?: "append";
 }
 
 export interface DingTalkTrackingMetadata {
@@ -699,6 +702,7 @@ export function resolveDingTalkAccount(
       keepAlive: dingtalk?.keepAlive,
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      cardRealTimeStream: dingtalk?.cardRealTimeStream,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       learningEnabled: dingtalk?.learningEnabled ?? dingtalk?.feedbackLearningEnabled,
       learningAutoApply: dingtalk?.learningAutoApply ?? dingtalk?.feedbackLearningAutoApply,
