@@ -1,5 +1,7 @@
 import axios from "axios";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from "./access-control";
+import { resolveAtAgents } from "./agent-name-matcher";
 import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import {
@@ -43,7 +45,7 @@ import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage, sendProactiveMedia } from "./send-service";
 import { clearSessionPeerOverride, getSessionPeerOverride, setSessionPeerOverride } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
+import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { AICardStatus } from "./types";
 import { createCardDraftController } from "./card-draft-controller";
 import { acquireSessionLock } from "./session-lock";
@@ -135,6 +137,14 @@ function shouldSendProactivePermissionHint(params: {
 
   proactiveHintLastSentAt.set(key, params.nowMs);
   return true;
+}
+
+function isUnhandledStopReasonText(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  return /^Unhandled stop reason:\s*[A-Za-z0-9_-]+/i.test(normalized);
 }
 
 function stripQuotedPrefixForJournal(value: string): string {
@@ -266,7 +276,7 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
+  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions, preDownloadedMedia } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -280,12 +290,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
-  const extractedContent = extractMessageContent(data);
+const extractedContent = { ...extractMessageContent(data) };
   if (!extractedContent.text) {
     return;
   }
 
+  // Add context hint for sub-agent mode
+  if (subAgentOptions) {
+    const contextHint = `[你被 @ 为"${subAgentOptions.matchedName}"]\n\n`;
+    extractedContent.text = contextHint + extractedContent.text;
+  }
+
   const isDirect = data.conversationType === "1";
+  const isGroup = !isDirect;
   const senderOriginalId = (data.senderId || "").trim();
   const senderStaffId = (data.senderStaffId || "").trim();
   const senderId = senderStaffId || senderOriginalId;
@@ -403,6 +420,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+// Calculate account store path and session peer (for session alias feature)
   const accountStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: accountId,
   });
@@ -421,12 +439,121 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     peerIdOverride,
     config: dingtalkConfig,
   });
-  const route = rt.channel.routing.resolveAgentRoute({
-    cfg,
-    channel: "dingtalk",
-    accountId,
-    peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
-  });
+
+  // Resolve route: use sub-agent ID if specified, otherwise use framework routing.
+  // For sub-agents we use the public buildAgentSessionKey API with an explicit agentId,
+  // bypassing binding-based resolution (resolveAgentRoute) which cannot accept a forced agentId.
+  const route = subAgentOptions
+    ? {
+        agentId: subAgentOptions.agentId,
+        sessionKey: rt.channel.routing
+          .buildAgentSessionKey({
+            agentId: subAgentOptions.agentId,
+            channel: "dingtalk",
+            accountId,
+            peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
+            dmScope: cfg.session?.dmScope,
+            identityLinks: cfg.session?.identityLinks,
+          })
+          .toLowerCase(),
+        mainSessionKey: "", // Not used in sub-agent mode
+      }
+    : rt.channel.routing.resolveAgentRoute({
+        cfg,
+        channel: "dingtalk",
+        accountId,
+        peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
+      });
+
+  // ==================== @Sub-Agent 路由 ====================
+  // Skip when already in sub-agent mode (recursive call)
+  if (!subAgentOptions) {
+    const atMentions = extractedContent.atMentions || [];
+    const atUserDingtalkIds = extractedContent.atUserDingtalkIds;
+    const isLearnCommand = parseLearnCommand(extractedContent.text).scope !== "unknown";
+    if (
+      isGroup &&
+      atMentions.length > 0 &&
+      cfg.agents?.list &&
+      cfg.agents.list.length > 0 &&
+      !isLearnCommand
+    ) {
+      const { matchedAgents, unmatchedNames, realUserCount, hasInvalidAgentNames } = resolveAtAgents(
+        atMentions,
+        cfg,
+        atUserDingtalkIds,
+      );
+      log?.info?.(
+        `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")} realUsers=${realUserCount}`,
+      );
+
+      if (matchedAgents.length > 0) {
+        // 有匹配的 sub-agent，顺序处理（避免 sessionWebhook 竞争和消息交错）
+        log?.debug?.(
+          `[DingTalk] Sub-agent matched: agents=${matchedAgents.map((a) => a.agentId).join(",")} groupId=${groupId}`,
+        );
+
+        // Pre-download media once before processing sub-agents to avoid duplication
+        let preDownloadedMedia: { mediaPath?: string; mediaType?: string } | undefined;
+        if (extractedContent.mediaPath && dingtalkConfig.robotCode) {
+          const media = await downloadMedia(dingtalkConfig, extractedContent.mediaPath, log);
+          if (media) {
+            preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };
+          }
+        }
+
+        // 顺序处理所有匹配的 agent，确保消息有序
+        for (const agentMatch of matchedAgents) {
+          try {
+            await processSubAgentMessage({
+              cfg,
+              accountId,
+              data,
+              agentMatch,
+              dingtalkConfig,
+              sessionWebhook,
+              log,
+              preDownloadedMedia,
+            });
+          } catch (error) {
+            log?.error?.(
+              `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+
+        // 如果有无效的 agent 名字，发送提示
+        if (hasInvalidAgentNames) {
+          const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
+          try {
+            await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
+              atUserId: senderId,
+              log,
+            });
+          } catch (err: any) {
+            log?.debug?.(`[DingTalk] Failed to send sub-agent fallback notice: ${err.message}`);
+          }
+        }
+
+        return;
+      }
+
+      // 有 @ 但没有匹配到任何 agent，检查是否需要 fallback 提示
+      if (hasInvalidAgentNames) {
+        // 有无效的 agent 名字，发送提示后继续用 main agent 处理
+        const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
+        try {
+          await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
+            atUserId: senderId,
+            log,
+          });
+        } catch (err: any) {
+          log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);
+        }
+      }
+    }
+  }
+  // ==================== End @Sub-Agent 路由 ====================
 
   // Route resolved before media download for session context and routing metadata.
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
@@ -911,7 +1038,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
+
+  // Use pre-downloaded media if available (from sub-agent outer call)
+  if (preDownloadedMedia?.mediaPath) {
+    mediaPath = preDownloadedMedia.mediaPath;
+    mediaType = preDownloadedMedia.mediaType;
+  } else if (content.mediaPath && dingtalkConfig.robotCode) {
+    // Download media only if not pre-downloaded
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
@@ -1257,6 +1390,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Serialize dispatchReply + card finalize per session to prevent the runtime
   // from receiving concurrent dispatch calls on the same session key, which
   // causes empty replies for all but the first caller.
+  // Each sub-agent call acquires its own lock since sub-agent sessions have
+  // different session keys (different agentId), so no deadlock risk.
   const releaseSessionLock = await acquireSessionLock(route.sessionKey);
   try {
     // 4) Optional "thinking..." feedback (markdown mode only).
@@ -1302,7 +1437,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         ctx,
         cfg,
         dispatcherOptions: {
-          responsePrefix: "",
+          responsePrefix: subAgentOptions?.responsePrefix || "",
           deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
             async function deliverMediaAttachments(urls: string[]) {
               for (const rawMediaUrl of urls) {
@@ -1357,6 +1492,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                   : [];
 
               if ((typeof textToSend !== "string" || textToSend.length === 0) && mediaUrls.length === 0) {
+                return;
+              }
+
+              if (typeof textToSend === "string" && isUnhandledStopReasonText(textToSend)) {
+                log?.warn?.(`[DingTalk] Suppressed stop reason from outbound chat content: ${textToSend}`);
                 return;
               }
 
@@ -1549,4 +1689,39 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   } finally {
     releaseSessionLock();
   }
+}
+
+// ==================== @Sub-Agent 处理函数 ====================
+
+/**
+ * Route a message to a specific sub-agent by recursively calling handleDingTalkMessage.
+ * Reuses the full message handling pipeline (media, cards, learning, etc.).
+ * Group auth is already checked by the outer call; each sub-agent acquires its own session lock.
+ */
+async function processSubAgentMessage(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  data: DingTalkInboundMessage;
+  agentMatch: AgentNameMatch;
+  dingtalkConfig: DingTalkConfig;
+  sessionWebhook: string;
+  log?: any;
+  preDownloadedMedia?: { mediaPath?: string; mediaType?: string };
+}): Promise<void> {
+  const { cfg, accountId, data, agentMatch, dingtalkConfig, sessionWebhook, log, preDownloadedMedia } = params;
+
+  await handleDingTalkMessage({
+    cfg,
+    accountId,
+    data,
+    sessionWebhook,
+    log,
+    dingtalkConfig,
+    subAgentOptions: {
+      agentId: agentMatch.agentId,
+      responsePrefix: `[${agentMatch.matchedName}] `,
+      matchedName: agentMatch.matchedName,
+    },
+    preDownloadedMedia,
+  });
 }

@@ -209,6 +209,14 @@ export interface DingTalkInboundMessage {
   msgId: string;
   msgtype: string;
   createAt: number;
+  /**
+   * @ 提及的用户列表（消息顶层，与 text 同级）
+   * 包含通过 @picker 选中的所有真实钉钉用户和机器人
+   * 格式: [{ dingtalkId: "$:LWCP_v1:$xxx" }]
+   */
+  atUsers?: Array<{
+    dingtalkId: string;
+  }>;
   text?: {
     content: string;
     isReplyMsg?: boolean; // 是否是回复消息
@@ -244,6 +252,7 @@ export interface DingTalkInboundMessage {
       type: string;
       text?: string;
       atName?: string;
+      atUserId?: string;
       downloadCode?: string;
     }>;
     quoteContent?: string;
@@ -290,6 +299,28 @@ export interface QuotedInfo {
 }
 
 /**
+ * @ 提及信息
+ */
+export interface AtMention {
+  /** @ 显示的名字（去除 @ 前缀） */
+  name: string;
+  /** 钉钉用户 ID（如果是 @ 真人） */
+  userId?: string;
+}
+
+/**
+ * Agent 名字匹配结果
+ */
+export interface AgentNameMatch {
+  /** 匹配到的 agent ID */
+  agentId: string;
+  /** 匹配来源：'name' | 'id' */
+  matchSource: "name" | "id";
+  /** 匹配到的名字 */
+  matchedName: string;
+}
+
+/**
  * Extracted message content for unified processing
  */
 export interface MessageContent {
@@ -302,6 +333,16 @@ export interface MessageContent {
   docSpaceId?: string;
   docFileId?: string;
   quoted?: QuotedInfo;
+  /** @ 提及列表（从文本或 richText 提取的名字） */
+  atMentions?: AtMention[];
+  /**
+   * 通过 @picker 选中的真实钉钉用户的 dingtalkId 列表
+   * - 仅包含真实钉钉用户和机器人，不包含 agent 名
+   * - 用于排除真人：如果 atMentions 中的名字匹配到 agent，说明是 agent；
+   *   如果没匹配到 agent 且有 atUserDingtalkIds，则可能是真人
+   * - 注意：无法将 dingtalkId 映射到具体名字，因为 webhook 不提供此映射
+   */
+  atUserDingtalkIds?: string[];
 }
 
 /**
@@ -347,6 +388,18 @@ export interface SessionWebhookResponse {
 }
 
 /**
+ * Sub-agent routing options for parameterized message handling
+ */
+export interface SubAgentOptions {
+  /** The agent ID to route to */
+  agentId: string;
+  /** Prefix to add to response messages (e.g., "[AgentName] ") */
+  responsePrefix: string;
+  /** The matched agent name */
+  matchedName: string;
+}
+
+/**
  * Message handler parameters
  */
 export interface HandleDingTalkMessageParams {
@@ -356,6 +409,19 @@ export interface HandleDingTalkMessageParams {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  /**
+   * When set, routes message to the specified sub-agent instead of main agent.
+   * This enables reuse of the main message handling logic for sub-agents.
+   */
+  subAgentOptions?: SubAgentOptions;
+  /**
+   * Pre-downloaded media for sub-agent calls.
+   * When set, skips media download to avoid duplication in recursive calls.
+   */
+  preDownloadedMedia?: {
+    mediaPath?: string;
+    mediaType?: string;
+  };
 }
 
 /**
