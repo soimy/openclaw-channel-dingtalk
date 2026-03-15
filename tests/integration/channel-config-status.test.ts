@@ -44,7 +44,7 @@ describe('channel config + status helpers', () => {
                     allowFrom: ['user1'],
                     messageType: 'card',
                     cardTemplateId: 'tpl.schema',
-                    showThinking: false,
+                    ackReaction: '',
                     accounts: {
                         main: { clientId: 'id1', clientSecret: 'sec1', name: 'Main' },
                         custom: { clientId: 'id2', clientSecret: 'sec2', dmPolicy: 'open' },
@@ -59,7 +59,7 @@ describe('channel config + status helpers', () => {
         expect(main.config.allowFrom).toEqual(['user1']);
         expect(main.config.messageType).toBe('card');
         expect(main.config.cardTemplateId).toBe('tpl.schema');
-        expect(main.config.showThinking).toBe(false);
+        expect(main.config.ackReaction).toBe('');
 
         const custom = plugin.config.resolveAccount(cfg, 'custom');
         expect(custom.config.dmPolicy).toBe('open');

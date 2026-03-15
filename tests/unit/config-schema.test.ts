@@ -143,6 +143,23 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
     });
 
+    it('accepts ackReaction config without injecting a schema default', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            ackReaction: '✅',
+        }) as { ackReaction?: string };
+
+        expect(parsed.ackReaction).toBe('✅');
+
+        const defaults = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { ackReaction?: string };
+
+        expect(defaults.ackReaction).toBeUndefined();
+    });
+
     it('exports control-ui-compatible JSON schema nodes', () => {
         const jsonSchema = DingTalkConfigSchema.toJSONSchema({
             target: 'draft-07',

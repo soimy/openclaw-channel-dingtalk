@@ -34,14 +34,10 @@ const DingTalkAccountConfigShape = {
 
   mediaUrlAllowlist: z.array(z.string()).optional(),
 
-  /** Show thinking indicator while processing (markdown mode only) */
-  showThinking: z.boolean().optional().default(true),
+  /** Official OpenClaw ackReaction entry for processing feedback; empty string disables it */
+  ackReaction: z.string().optional(),
 
   journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_JOURNAL_TTL_DAYS),
-
-  /** Custom thinking message content when showThinking is enabled (markdown mode only) */
-  thinkingMessage: z.string().optional().default("🤔 思考中，请稍候..."),
-
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
@@ -107,10 +103,6 @@ const DingTalkAccountConfigShape = {
     })
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
-
-  /** Enable real-time card streaming (default: false).
-   *  When true, card updates are streamed per-token with 300ms throttle for a smoother experience, at the cost of more API calls. */
-  cardRealTimeStream: z.boolean().optional().default(false),
 
   /** AICard degrade duration in milliseconds after trigger errors (default: 30 minutes) */
   aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
