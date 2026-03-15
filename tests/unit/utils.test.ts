@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     cleanupOrphanedTempFiles,
+    createResolve4FallbackLookupWithDeps,
     formatDingTalkConnectionErrorLog,
     formatDingTalkErrorPayload,
     formatDingTalkErrorPayloadLog,
@@ -69,6 +70,90 @@ describe('utils', () => {
             expect(text).toContain('[DingTalk][ConnectionError][connect.websocket]');
             expect(text).toContain('endpoint=wss://wss-open-connection.dingtalk.com:443/connect');
             expect(text).toContain('proxy');
+        });
+    });
+
+    describe('createResolve4FallbackLookupWithDeps', () => {
+        it('falls back to resolve4 when lookup returns ENOTFOUND', async () => {
+            const dnsImpl = {
+                lookup: ((
+                    _hostname: string,
+                    _options: { family?: number; hints?: number },
+                    callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
+                ) => callback(Object.assign(new Error('not found'), { code: 'ENOTFOUND' }), '', 0)) as any,
+                resolve4: ((
+                    _hostname: string,
+                    callback: (err: NodeJS.ErrnoException | null, addresses?: string[]) => void
+                ) => callback(null, ['47.92.127.191'])) as any,
+            };
+            const log = { warn: vi.fn() };
+            const lookup = createResolve4FallbackLookupWithDeps(log as any, 'default', dnsImpl, { isIP: () => 0 });
+
+            const result = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+                lookup('wss-open-connection.dingtalk.com', { family: 0, hints: 0 }, (err, address, family) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve({ address: address as string, family: family ?? 0 });
+                });
+            });
+
+            expect(result).toEqual({ address: '47.92.127.191', family: 4 });
+            expect(log.warn).toHaveBeenCalledWith(
+                expect.stringContaining('using resolve4 fallback 47.92.127.191'),
+            );
+        });
+
+        it('preserves successful system lookup without resolve4 fallback', async () => {
+            const resolve4 = vi.fn();
+            const dnsImpl = {
+                lookup: ((
+                    _hostname: string,
+                    _options: { family?: number; hints?: number },
+                    callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
+                ) => callback(null, '1.2.3.4', 4)) as any,
+                resolve4: resolve4 as any,
+            };
+            const lookup = createResolve4FallbackLookupWithDeps(undefined, undefined, dnsImpl, { isIP: () => 0 });
+
+            const result = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+                lookup('wss-open-connection.dingtalk.com', { family: 0, hints: 0 }, (err, address, family) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve({ address: address as string, family: family ?? 0 });
+                });
+            });
+
+            expect(result).toEqual({ address: '1.2.3.4', family: 4 });
+            expect(resolve4).not.toHaveBeenCalled();
+        });
+
+        it('returns lookup-address array for IP literals when options.all is true', async () => {
+            const dnsImpl = {
+                lookup: vi.fn(),
+                resolve4: vi.fn(),
+            };
+            const lookup = createResolve4FallbackLookupWithDeps(undefined, undefined, dnsImpl as any, { isIP: () => 4 });
+
+            const result = await new Promise<{ address: { address: string; family: number }[]; family: number }>((resolve, reject) => {
+                lookup('1.2.3.4', { all: true }, (err, address, family) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve({ address: address as { address: string; family: number }[], family: family ?? 0 });
+                });
+            });
+
+            expect(result).toEqual({
+                address: [{ address: '1.2.3.4', family: 4 }],
+                family: 4,
+            });
+            expect(dnsImpl.lookup).not.toHaveBeenCalled();
+            expect(dnsImpl.resolve4).not.toHaveBeenCalled();
         });
     });
 

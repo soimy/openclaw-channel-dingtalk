@@ -28,7 +28,7 @@ import { handleDingTalkMessage } from "./inbound-handler";
 import { getLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
-import { resolveOriginalPeerId } from "./peer-id-registry";
+import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
 import {
   isFeedbackLearningAutoApplyEnabled,
@@ -54,6 +54,7 @@ import type {
 import { ConnectionState } from "./types";
 import {
   cleanupOrphanedTempFiles,
+  createResolve4FallbackLookup,
   formatDingTalkConnectionErrorLog,
   formatDingTalkErrorPayloadLog,
   getCurrentTimestamp,
@@ -241,28 +242,36 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const config = getConfig(cfg, accountId ?? undefined);
 
     if (hasMedia && mediaInput) {
-      const mediaPath = resolveRelativePath(mediaInput);
-      const mediaType = resolveOutboundMediaType({
-        mediaType: requestedMediaType ?? undefined,
-        mediaPath,
-        asVoice,
-      });
-      const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
-        log,
-        accountId: accountId ?? undefined,
-      });
+      let preparedMedia;
+      try {
+        preparedMedia = await prepareMediaInput(mediaInput, log, config.mediaUrlAllowlist);
+        const mediaPath = preparedMedia.cleanup
+          ? preparedMedia.path
+          : resolveRelativePath(preparedMedia.path);
+        const mediaType = resolveOutboundMediaType({
+          mediaType: requestedMediaType ?? undefined,
+          mediaPath,
+          asVoice,
+        });
+        const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
+          log,
+          accountId: accountId ?? undefined,
+        });
 
-      if (!result.ok) {
-        throw new Error(result.error || "send media failed");
+        if (!result.ok) {
+          throw new Error(result.error || "send media failed");
+        }
+
+        return pluginSdk.jsonResult({
+          ok: true,
+          to: target,
+          mediaType,
+          messageId: result.messageId ?? null,
+          result: result.data ?? null,
+        });
+      } finally {
+        await preparedMedia?.cleanup?.();
       }
-
-      return pluginSdk.jsonResult({
-        ok: true,
-        to: target,
-        mediaType,
-        messageId: result.messageId ?? null,
-        result: result.data ?? null,
-      });
     }
 
     if (asVoice) {
@@ -572,6 +581,12 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
       ctx.log?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
 
+      // Preload known peer IDs from sessions so outbound delivery (e.g. cron
+      // jobs that fire immediately after startup) can resolve the original
+      // case-sensitive conversationId before any inbound message has arrived.
+      preloadPeerIdsFromSessions();
+      ctx.log?.debug?.(`[${account.accountId}] Peer ID registry preloaded from sessions`);
+
       cleanupOrphanedTempFiles(ctx.log);
       try {
         const recovered = await recoverPendingCardsForAccount(
@@ -606,6 +621,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           debug: config.debug || false,
           keepAlive: config.keepAlive ?? !useConnectionManager,
         });
+        (c as any).sslopts = {
+          ...(c as any).sslopts,
+          lookup: createResolve4FallbackLookup(ctx.log, account.accountId),
+        };
 
         instrumentConnectionStages(c);
 

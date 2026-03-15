@@ -2089,7 +2089,6 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.isCardInTerminalStateMock).toHaveBeenCalledWith('5');
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
     });
 
@@ -2536,7 +2535,12 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.streamAICardMock).not.toHaveBeenCalled();
+        expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            'tool output',
+            expect.objectContaining({ cardUpdateMode: 'append' }),
+        );
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
     });
 
@@ -2667,7 +2671,7 @@ describe('inbound-handler', () => {
             expect.anything(),
             'user_1',
             'plain text reply',
-            expect.objectContaining({ card: undefined }),
+            expect.not.objectContaining({ card: expect.anything() }),
         );
         expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
             expect.anything(),
@@ -2677,7 +2681,7 @@ describe('inbound-handler', () => {
         );
     });
 
-    it('streams reasoning updates to card in replace mode', async () => {
+    it('streams reasoning updates to card via controller (streamAICard)', async () => {
         const runtime = buildRuntime();
         runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
             .fn()
@@ -2696,7 +2700,7 @@ describe('inbound-handler', () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '', cardRealTimeStream: true } as any,
             data: {
                 msgId: 'm_reasoning_replace',
                 msgtype: 'text',
@@ -2710,11 +2714,11 @@ describe('inbound-handler', () => {
             },
         } as any);
 
-        expect(shared.sendMessageMock).toHaveBeenCalledWith(
-            expect.anything(),
-            'user_1',
-            'thinking pass 1',
-            expect.objectContaining({ card, cardUpdateMode: 'replace' }),
+        expect(shared.streamAICardMock).toHaveBeenCalledWith(
+            card,
+            expect.stringContaining('thinking pass 1'),
+            false,
+            undefined,
         );
     });
 

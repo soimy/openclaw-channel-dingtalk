@@ -1,4 +1,6 @@
+import * as dns from "node:dns";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Logger, RetryOptions } from "./types";
@@ -128,6 +130,77 @@ export function formatDingTalkErrorPayloadLog(
 
 export function getProxyBypassOption(config?: { bypassProxyForSend?: boolean }): { proxy: false } | Record<string, never> {
   return config?.bypassProxyForSend ? { proxy: false } : {};
+}
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | dns.LookupAddress[],
+  family?: number,
+) => void;
+
+type LookupOptions = dns.LookupOneOptions | dns.LookupAllOptions;
+
+export function createResolve4FallbackLookup(log?: Logger, accountId?: string) {
+  return createResolve4FallbackLookupWithDeps(log, accountId, dns, net);
+}
+
+export function createResolve4FallbackLookupWithDeps(
+  log: Logger | undefined,
+  accountId: string | undefined,
+  dnsImpl: Pick<typeof dns, "lookup" | "resolve4">,
+  netImpl: Pick<typeof net, "isIP">,
+) {
+  let fallbackLogged = false;
+
+  return (hostname: string, options: LookupOptions, callback: LookupCallback): void => {
+    const ipFamily = netImpl.isIP(hostname);
+    if (ipFamily !== 0) {
+      if (options.all) {
+        callback(null, [{ address: hostname, family: ipFamily }], ipFamily);
+        return;
+      }
+
+      callback(null, hostname, ipFamily);
+      return;
+    }
+
+    dnsImpl.lookup(hostname, options, (lookupErr, address, family) => {
+      if (!lookupErr) {
+        callback(null, address, family);
+        return;
+      }
+
+      if (lookupErr.code !== "ENOTFOUND") {
+        callback(lookupErr, address, family);
+        return;
+      }
+
+      dnsImpl.resolve4(hostname, (resolveErr, addresses) => {
+        if (resolveErr || !addresses || addresses.length === 0) {
+          callback(lookupErr, address, family);
+          return;
+        }
+
+        if (!fallbackLogged) {
+          fallbackLogged = true;
+          log?.warn?.(
+            `[${accountId ?? "default"}] System DNS lookup failed for ${hostname} (ENOTFOUND); using resolve4 fallback ${addresses[0]}`,
+          );
+        }
+
+        if (options.all) {
+          callback(
+            null,
+            addresses.map((item) => ({ address: item, family: 4 })),
+            4,
+          );
+          return;
+        }
+
+        callback(null, addresses[0], 4);
+      });
+    });
+  };
 }
 
 function getHeaderCaseInsensitive(headers: unknown, key: string): string | undefined {

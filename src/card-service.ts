@@ -328,17 +328,15 @@ export function formatContentForCard(content: string | undefined, type: "thinkin
     content.slice(0, THINKING_TRUNCATE_LENGTH) +
     (content.length > THINKING_TRUNCATE_LENGTH ? "…" : "");
 
-  // Quote each line to improve readability in markdown card content.
-  const quotedLines = truncated
-    .split("\n")
-    .map((line) => line.replace(/^_(?=[^ ])/, "*").replace(/(?<=[^ ])_(?=$)/, "*"))
-    .map((line) => `> ${line}`)
-    .join("\n");
-
   const emoji = type === "thinking" ? "🤔" : "🛠️";
   const label = type === "thinking" ? "思考中" : "工具执行";
 
-  return `${emoji} **${label}**\n${quotedLines}`;
+  const escaped = truncated
+    .split("\n")
+    .map((line) => line.replace(/^_(?=[^ ])/, "*").replace(/(?<=[^ ])_(?=$)/, "*"))
+    .join("\n");
+
+  return `${emoji} **${label}**\n\n${escaped}`;
 }
 
 async function sendTemplateMismatchNotification(

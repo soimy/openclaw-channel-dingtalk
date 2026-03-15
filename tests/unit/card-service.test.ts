@@ -375,9 +375,23 @@ describe('card-service', () => {
         const content = `${'x'.repeat(510)}`;
         const result = formatContentForCard(content, 'thinking');
 
-        expect(result).toContain('思考中');
-        expect(result).toContain('> ');
-        expect(result.endsWith('…')).toBe(true);
+        expect(result).toContain('🤔 **思考中**');
+        expect(result).toContain('…');
+        expect(result).not.toContain('> ');
+        expect(result.startsWith('🤔 **思考中**\n\n')).toBe(true);
+    });
+
+    it('formatContentForCard renders short content without truncation', () => {
+        const result = formatContentForCard('line1\nline2', 'thinking');
+
+        expect(result).toBe('🤔 **思考中**\n\nline1\nline2');
+    });
+
+    it('formatContentForCard uses tool emoji and label', () => {
+        const result = formatContentForCard('tool output', 'tool');
+
+        expect(result).toContain('🛠️ **工具执行**');
+        expect(result).toContain('tool output');
     });
 
     it('refreshes aged token before streaming', async () => {

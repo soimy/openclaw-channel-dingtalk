@@ -48,6 +48,7 @@
 - ✅ **私聊支持** — 直接与机器人对话
 - ✅ **群聊支持** — 在群里 @机器人
 - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件、钉钉文档/钉盘文件卡片
+- ✅ **附件文本抽取** — 对常见文本类附件以及 `PDF/DOCX` 自动抽取正文并注入当前会话上下文
 - ✅ **引用消息支持** — 支持恢复大多数引用场景（文字/图片/图文/文件/视频/语音/AI 卡片）；单聊中的钉钉文档依赖权限 **Storage.DownloadInfo.Read**；群聊支持引用群图片、文件/文档（优先命中已持久化索引，未命中时走群文件 API 兜底），其中群文件相关能力需 **ConvFile.Space.Read**、**Storage.File.Read**、**Storage.DownloadInfo.Read**、**Contact.User.Read**，且兜底链路受时间窗口与企业认证限制
 - ✅ **Markdown 回复** — 支持富文本格式回复
 - ✅ **Markdown 表格兼容** — 自动把 Markdown 表格转换为钉钉更稳定的可读文本
@@ -379,6 +380,7 @@ openclaw configure --section channels
       "messageType": "markdown", // 或 "card"
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
       // "aicardDegradeMs": 1800000, // 可选：AI 卡片失败后降级持续时间（毫秒，默认 30 分钟）
+      // "cardRealTimeStream": false, // 可选：开启真流式卡片更新（默认 false，开启后 API 调用量增加约 2-3 倍）
       // 仅card需要配置
       "cardTemplateId": "你复制的模板ID",
       "cardTemplateKey": "你模板的内容变量"
@@ -415,6 +417,7 @@ openclaw gateway restart
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
+| `cardRealTimeStream`    | boolean  | `false`      | 开启真流式卡片更新（300ms 节流，首 token 快、流畅但 API 调用更多）。详见下方说明 |
 | `aicardDegradeMs`       | number   | `1800000`    | AI 卡片连续失败后进入降级模式的持续时间（毫秒） |
 | `debug`                 | boolean  | `false`      | 是否开启调试日志                            |
 | `mediaMaxMb`            | number   | -            | 接收文件大小上限（MB），不设则使用 runtime 默认值（5 MB） |
@@ -434,7 +437,7 @@ openclaw gateway restart
 
 - `markdown` 和 `card` 模式都可启用
 - 该反馈作用于用户原消息，不会额外发送一条“思考中”消息
-- 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji`
+- 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji` -> 默认 `👀`
 - 若上述路径都未配置，插件不再注入 channel 级默认值
 - 当前钉钉实现底层仍走原生“🤔思考中” reaction 能力；因此配置入口已对齐官方，但平台能力暂未扩展为任意 emoji
 
@@ -717,14 +720,22 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 | 图片         | ✅   | 下载并传递给 AI                                                          |
 | 语音         | ✅   | 使用钉钉语音识别结果                                                     |
 | 视频         | ✅   | 下载并传递给 AI                                                          |
-| 文件         | ✅   | 下载并传递给 AI                                                          |
-| 钉钉文档/钉盘文件卡片 | ✅ | 解析 `interactiveCard` 中的 `biz_custom_action_url`，提取 `spaceId/fileId` 后按文件消息下载 |
+| 文件         | ✅   | 下载并传递给 AI；文本类附件会额外抽取正文并注入上下文                   |
+| 钉钉文档/钉盘文件卡片 | ✅ | 解析 `interactiveCard` 中的 `biz_custom_action_url`，提取 `spaceId/fileId` 后按文件消息下载；可对 `PDF/DOCX` 补充正文抽取 |
 | 引用文字     | ✅   | 提取被引用文本作为上下文前缀                                             |
 | 引用图片     | ✅   | 使用引用回调自带的 `downloadCode` 下载并传递给 AI                        |
 | 引用图文     | ✅   | 解析 `richText` 引用内容，提取文本摘要与图片 `downloadCode`              |
 | 引用文件/视频/语音 | ✅ | 单聊按 `msgId` 精确恢复；群聊优先查已固化元数据，首次未命中时走群文件 API 兜底（兜底链路依赖时间窗口匹配，不保证 100% 命中） |
 | 引用钉钉文档/钉盘文件卡片 | ⚠️ | 单聊支持；群聊支持缓存命中与群文件 API 兜底恢复，但仍受钉钉回调样本与企业认证限制 |
 | 引用 AI 卡片 | ✅   | 仅指机器人自己发送的 AI 卡片；按 `carrierId ↔ originalProcessQueryKey` 精确恢复 |
+
+> **附件正文抽取实现说明**
+>
+> 当前实现采用固定策略：
+>
+> - 仅处理 **2MB 以下**附件（超过上限会跳过正文抽取）
+> - 抽取结果最多注入 **6000 字符**（超出部分会标记为“内容已截断”）
+> - 抽取失败仅记录 `warn` 日志，不阻断原有媒体传递与回复链路
 
 > **引用消息实现说明**
 >
@@ -842,30 +853,32 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 | 阶段         | API 调用               | 说明                                                |
 | ------------ | ---------------------- | --------------------------------------------------- |
 | **创建卡片** | 1                      | `POST /v1.0/card/instances/createAndDeliver`        |
-| **流式更新** | M                      | M = 回复块数量，每块一次 `PUT /v1.0/card/streaming` |
+| **流式更新** | M                      | M = 取决于流式模式（见下方说明），每次 `PUT /v1.0/card/streaming` |
 | **完成卡片** | 包含在最后一次流更新中 | 使用 `isFinalize=true` 标记                         |
-| **总计**     | **1 + M**              | M = Agent 产生的回复块数                            |
+| **总计**     | **1 + M**              | M 由 `cardStreamThrottleMs` 决定                    |
 
 ### 典型场景成本对比
 
-| 场景             | Text/Markdown | Card | 节省   |
-| ---------------- | ------------- | ---- | ------ |
-| 简短回复（1 块） | 2             | 2    | ✓ 相同 |
-| 中等回复（5 块） | 6             | 6    | ✓ 相同 |
-| 长回复（10 块）  | 12            | 11   | ✓ 1 次 |
+以一次 10 秒的 AI 回复为例：
+
+| 流式模式                               | `streamAICard` 调用数 | 首 token 延迟 | 流畅度 |
+| -------------------------------------- | --------------------- | ------------- | ------ |
+| Block 缓冲（`cardRealTimeStream: false`，默认） | ~10-15 次   | ~1-1.5s       | 卡顿   |
+| 真流式（`cardRealTimeStream: true`）            | ~30 次      | ~300ms        | 流畅   |
 
 ### 优化策略
 
 **降低 API 调用的方法：**
 
-1. **合并回复块** — 通过调整 Agent 输出配置，减少块数量
-2. **使用缓存** — Token 自动缓存（60 秒），无需每次都获取
-3. **Buffer 模式** — 使用 `dispatchReplyWithBufferedBlockDispatcher` 合并多个小块
+1. **保持默认** — `cardRealTimeStream: false`（block 缓冲模式），API 调用量最少
+2. **开启真流式** — `cardRealTimeStream: true`，体验更好但 API 调用约多 2-3 倍
+3. **使用缓存** — Token 自动缓存（60 秒），无需每次都获取
 
 **成本建议：**
 
-- ✅ **推荐** — Card 模式：流式体验更好，成本与 Text/Markdown 相当或更低
-- ⚠️ **谨慎** — 频繁调用需要监测配额，建议使用钉钉开发者后台查看 API 调用量
+- ✅ **默认** — Block 缓冲模式：API 调用最少，适合对 API 配额敏感的场景
+- ✅ **推荐体验** — `cardRealTimeStream: true`：首 token 快、打字机效果流畅，适合重视用户体验的场景
+- ⚠️ **注意** — 频繁调用需要监测配额，建议使用钉钉开发者后台查看 API 调用量
 
 ## 消息类型选择
 
@@ -894,9 +907,20 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 当配置 `messageType: 'card'` 时：
 
 1. 使用 `/v1.0/card/instances/createAndDeliver` 创建并投放卡片
-2. 使用 `/v1.0/card/streaming` 实现真正的流式更新
+2. 使用 `/v1.0/card/streaming` 实现流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
-4. 更稳定的流式体验，无需手动节流
+4. 内置 300ms 节流 + 单航班（single-flight）保护，避免 API 过载
+
+**卡片流式模式 (`cardRealTimeStream`)：**
+
+插件支持两种卡片更新策略，通过 `cardRealTimeStream` 配置：
+
+| 值 | 模式 | 说明 |
+| -- | ---- | ---- |
+| `false`（默认） | Block 缓冲 | runtime 攒够一定量文本后回调一次，API 调用最少，但首 token 延迟较高（~1-1.5s），更新较卡顿 |
+| `true` | 真流式 | 每 300ms 最多一次卡片更新 PUT，首 token 延迟低（~300ms），打字机效果流畅。API 调用量约为 block 模式的 2-3 倍 |
+
+> **API 调用量参考**：以一次 10 秒的 AI 回复为例，真流式约产生 ~30 次 `streamAICard` PUT，block 模式约 ~10-15 次。钉钉企业内部应用的 QPS 限制为 40 次/秒，真流式的峰值约 3.3 次/秒，远低于限制。
 
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
@@ -930,6 +954,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
   messageType: 'card', // 启用 AI 互动卡片模式
   cardTemplateId: '382e4302-551d-4880-bf29-a30acfab2e71.schema', // AI 卡片模板 ID（默认值）
   cardTemplateKey: 'content', // 卡片内容字段键（默认值：content）
+  // cardRealTimeStream: false, // 开启真流式卡片更新（默认 false）
 }
 ```
 
