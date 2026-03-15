@@ -5,7 +5,7 @@ import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 
 // DingTalk currently exposes a dedicated native "thinking" reaction flow rather than
 // a generic arbitrary-emoji reaction API for this plugin path.
-export const DINGTALK_NATIVE_ACK_REACTION = "🤔思考中";
+const DINGTALK_NATIVE_ACK_REACTION = "🤔思考中";
 const THINKING_EMOTION_ID = "2659900";
 const THINKING_EMOTION_BACKGROUND_ID = "im_bg_1";
 const THINKING_REACTION_RECALL_DELAYS_MS = [0, 1500, 5000] as const;
