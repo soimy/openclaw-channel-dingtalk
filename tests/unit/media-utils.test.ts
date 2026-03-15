@@ -113,6 +113,54 @@ describe('media-utils', () => {
         expect(fs.existsSync(prepared.path)).toBe(false);
     });
 
+    it('follows redirects and pins DNS lookup for each hop', async () => {
+        mockedDnsLookup
+            .mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }] as any)
+            .mockResolvedValueOnce([{ address: '104.26.4.30', family: 4 }] as any);
+
+        mockedAxiosGet
+            .mockResolvedValueOnce({
+                status: 302,
+                headers: { location: 'https://cdn.example.com/img.png' },
+                data: Buffer.from(''),
+            } as any)
+            .mockResolvedValueOnce({
+                status: 200,
+                data: Buffer.from('img'),
+                headers: { 'content-type': 'image/png' },
+            } as any);
+
+        const prepared = await prepareMediaInput('https://example.com/path/photo', {
+            debug: vi.fn(),
+        } as any);
+
+        expect(mockedAxiosGet).toHaveBeenCalledTimes(2);
+
+        const firstRequestConfig = mockedAxiosGet.mock.calls[0]?.[1] as {
+            lookup?: (hostname: string) => Promise<{ address: string; family: number }>;
+        };
+        const secondRequestConfig = mockedAxiosGet.mock.calls[1]?.[1] as {
+            lookup?: (hostname: string) => Promise<{ address: string; family: number }>;
+        };
+
+        expect(firstRequestConfig.lookup).toBeTypeOf('function');
+        expect(secondRequestConfig.lookup).toBeTypeOf('function');
+
+        await expect(firstRequestConfig.lookup?.('example.com')).resolves.toMatchObject({
+            address: '93.184.216.34',
+            family: 4,
+        });
+        await expect(firstRequestConfig.lookup?.('cdn.example.com')).rejects.toThrow(/unexpected host/);
+
+        await expect(secondRequestConfig.lookup?.('cdn.example.com')).resolves.toMatchObject({
+            address: '104.26.4.30',
+            family: 4,
+        });
+        await expect(secondRequestConfig.lookup?.('example.com')).rejects.toThrow(/unexpected host/);
+
+        await prepared.cleanup?.();
+    });
+
     it('rejects local or private network media URLs', async () => {
         await expect(prepareMediaInput('http://127.0.0.1/internal.png')).rejects.toThrow(
             /private or local network host/
