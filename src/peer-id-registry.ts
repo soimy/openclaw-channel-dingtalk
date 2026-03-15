@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync } from "fs";
 import * as os from "os";
 import { join } from "path";
+import { getLogger } from "./logger-context";
 
 const peerIdMap = new Map<string, string>();
 let preloaded = false;
@@ -73,12 +74,10 @@ export function preloadPeerIdsFromSessions(homeDir?: string): void {
     return;
   }
 
-  if (!homeDir) {
-    preloaded = true;
-  }
-
   const home = homeDir || os.homedir();
   const agentsDir = join(home, ".openclaw", "agents");
+  const log = getLogger();
+  let preloadCompleted = false;
 
   try {
     const agentDirs = readdirSync(agentsDir, { withFileTypes: true })
@@ -112,11 +111,31 @@ export function preloadPeerIdsFromSessions(homeDir?: string): void {
           maybeRegisterDingTalkGroupPeerId(originRecord.from);
           maybeRegisterDingTalkGroupPeerId(originRecord.to);
         }
-      } catch {
+      } catch (err) {
         // sessions.json may be missing or malformed for some agents; ignore per file.
+        log?.debug?.(
+          `[DingTalk][PeerIdRegistry] Failed to parse preload sessions file ${sessionsPath}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
     }
-  } catch {
-    // agents directory may not exist yet; ignore.
+    preloadCompleted = true;
+  } catch (err) {
+    const errorCode = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (errorCode === "ENOENT") {
+      // agents directory may not exist yet; this is a stable no-op state.
+      preloadCompleted = true;
+    } else {
+      log?.debug?.(
+        `[DingTalk][PeerIdRegistry] Failed to scan preload directory ${agentsDir}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  if (!homeDir && preloadCompleted) {
+    preloaded = true;
   }
 }

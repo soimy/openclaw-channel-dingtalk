@@ -103,4 +103,24 @@ describe('peer id registry preload', () => {
         expect(() => peer.preloadPeerIdsFromSessions()).not.toThrow();
         expect(peer.resolveOriginalPeerId('cidunknown==')).toBe('cidunknown==');
     });
+
+    it('retries lazy preload after top-level scan failure', async () => {
+        const brokenHomePath = join(tempHomeDir, 'broken-home');
+        writeFileSync(brokenHomePath, 'not-a-directory', 'utf-8');
+        mocked.homeDir = brokenHomePath;
+
+        const peer = await import('../../src/peer-id-registry');
+
+        expect(peer.resolveOriginalPeerId('cidretry111==')).toBe('cidretry111==');
+
+        const validHomePath = join(tempHomeDir, 'valid-home');
+        writeSessions(validHomePath, {
+            s1: {
+                lastTo: 'cidReTrY111==',
+            },
+        });
+        mocked.homeDir = validHomePath;
+
+        expect(peer.resolveOriginalPeerId('cidretry111==')).toBe('cidReTrY111==');
+    });
 });
