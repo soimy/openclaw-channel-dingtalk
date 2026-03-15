@@ -1185,7 +1185,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       {
         msgId: data.msgId,
         conversationId: groupId,
-        robotCode: data.robotCode,
         reactionName: resolvedAckReaction,
       },
       log,
@@ -1474,7 +1473,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           {
             msgId: data.msgId,
             conversationId: groupId,
-            robotCode: data.robotCode,
             reactionName: resolvedAckReaction,
           },
           log,

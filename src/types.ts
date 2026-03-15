@@ -266,7 +266,6 @@ export interface DingTalkInboundMessage {
   senderStaffId?: string;
   senderNick?: string;
   chatbotUserId: string;
-  robotCode?: string;
   sessionWebhook: string;
 }
 

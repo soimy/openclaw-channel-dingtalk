@@ -57,6 +57,7 @@ export async function attachNativeAckReaction(
           "x-acs-dingtalk-access-token": token,
           "Content-Type": "application/json",
         },
+        timeout: 5000,
         ...getProxyBypassOption(config),
       },
     );
