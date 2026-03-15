@@ -212,7 +212,7 @@ describe('config advanced', () => {
             cfg: {} as any,
             accountId: 'main',
             agentId: 'main',
-        })).toBe('🤔思考中');
+        })).toBeUndefined();
     });
 
     it('normalizes legacy learning keys in single-account config', () => {

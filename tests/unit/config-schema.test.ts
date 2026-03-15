@@ -143,7 +143,7 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
     });
 
-    it('accepts ackReaction config and keeps the native DingTalk default', () => {
+    it('accepts ackReaction config without injecting a schema default', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
@@ -157,7 +157,7 @@ describe('DingTalkConfigSchema', () => {
             clientSecret: 'secret',
         }) as { ackReaction?: string };
 
-        expect(defaults.ackReaction).toBe('🤔思考中');
+        expect(defaults.ackReaction).toBeUndefined();
     });
 
     it('exports control-ui-compatible JSON schema nodes', () => {
