@@ -11,7 +11,7 @@ const WINDOWS_ROOT_DIRECTORIES = new Set([
   "Windows",
   "Documents and Settings",
 ]);
-const DEFAULT_ACK_REACTION = "👀";
+const DEFAULT_ACK_REACTION = "🤔思考中";
 const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function normalizeLearningConfig(
