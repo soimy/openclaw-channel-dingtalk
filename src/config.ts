@@ -11,7 +11,6 @@ const WINDOWS_ROOT_DIRECTORIES = new Set([
   "Windows",
   "Documents and Settings",
 ]);
-const DEFAULT_ACK_REACTION = "🤔思考中";
 const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function normalizeLearningConfig(
@@ -194,7 +193,7 @@ export function resolveAckReactionSetting(params: {
     return typeof messages.ackReaction === "string" ? messages.ackReaction.trim() : "";
   }
 
-  return resolveAgentIdentityEmoji(params.cfg, params.agentId) ?? DEFAULT_ACK_REACTION;
+  return resolveAgentIdentityEmoji(params.cfg, params.agentId) ?? "";
 }
 
 /**

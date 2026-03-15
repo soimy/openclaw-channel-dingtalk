@@ -207,6 +207,12 @@ describe('config advanced', () => {
             accountId: 'main',
             agentId: 'main',
         })).toBe('👀');
+
+        expect(resolveAckReactionSetting({
+            cfg: {} as any,
+            accountId: 'main',
+            agentId: 'main',
+        })).toBe('');
     });
 
     it('normalizes legacy learning keys in single-account config', () => {
