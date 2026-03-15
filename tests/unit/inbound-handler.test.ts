@@ -7,6 +7,7 @@ import { getAccessToken } from '../../src/auth';
 const shared = vi.hoisted(() => ({
     sendBySessionMock: vi.fn(),
     sendMessageMock: vi.fn(),
+    sendProactiveMediaMock: vi.fn(),
     extractMessageContentMock: vi.fn(),
     findCardContentMock: vi.fn(),
     getCardContentByProcessQueryKeyMock: vi.fn(),
@@ -22,6 +23,9 @@ const shared = vi.hoisted(() => ({
     acquireSessionLockMock: vi.fn(),
     appendQuoteJournalEntryMock: vi.fn(),
     resolveQuotedMessageByIdMock: vi.fn(),
+    extractAttachmentTextMock: vi.fn(),
+    prepareMediaInputMock: vi.fn(),
+    resolveOutboundMediaTypeMock: vi.fn(),
 }));
 
 vi.mock('axios', () => ({
@@ -44,10 +48,24 @@ vi.mock('../../src/message-utils', () => ({
     extractMessageContent: shared.extractMessageContentMock,
 }));
 
+vi.mock('../../src/attachment-text-extractor', () => ({
+    extractAttachmentText: shared.extractAttachmentTextMock,
+}));
+
 vi.mock('../../src/send-service', () => ({
     sendBySession: shared.sendBySessionMock,
     sendMessage: shared.sendMessageMock,
+    sendProactiveMedia: shared.sendProactiveMediaMock,
 }));
+
+vi.mock('../../src/media-utils', async () => {
+    const actual = await vi.importActual<typeof import('../../src/media-utils')>('../../src/media-utils');
+    return {
+        ...actual,
+        prepareMediaInput: shared.prepareMediaInputMock,
+        resolveOutboundMediaType: shared.resolveOutboundMediaTypeMock,
+    };
+});
 
 vi.mock('../../src/card-service', () => ({
     createAICard: shared.createAICardMock,
@@ -126,6 +144,15 @@ describe('inbound-handler', () => {
         mockedGetAccessToken.mockResolvedValue('token_abc');
         shared.sendBySessionMock.mockReset();
         shared.sendMessageMock.mockReset();
+        shared.sendProactiveMediaMock.mockReset();
+        shared.sendProactiveMediaMock.mockResolvedValue({ ok: true });
+        shared.prepareMediaInputMock.mockReset();
+        shared.prepareMediaInputMock.mockImplementation(async (rawMediaUrl: string) => ({
+            path: `/tmp/prepared/${path.basename(rawMediaUrl) || 'media.bin'}`,
+            cleanup: vi.fn().mockResolvedValue(undefined),
+        }));
+        shared.resolveOutboundMediaTypeMock.mockReset();
+        shared.resolveOutboundMediaTypeMock.mockReturnValue('file');
         shared.sendMessageMock.mockImplementation(async (_config: any, _to: any, text: any, options: any) => {
             // Simulate real sendMessage behavior: update lastStreamedContent when appending to card
             if (options?.card && options?.cardUpdateMode === 'append') {
@@ -155,6 +182,8 @@ describe('inbound-handler', () => {
         shared.appendQuoteJournalEntryMock.mockReturnValue(undefined);
         shared.resolveQuotedMessageByIdMock.mockReset();
         shared.resolveQuotedMessageByIdMock.mockReturnValue(null);
+        shared.extractAttachmentTextMock.mockReset();
+        shared.extractAttachmentTextMock.mockResolvedValue(null);
 
         shared.getRuntimeMock.mockReturnValue(buildRuntime());
         shared.extractMessageContentMock.mockReturnValue({ text: 'hello', messageType: 'text' });
@@ -2092,6 +2121,280 @@ describe('inbound-handler', () => {
         expect(shared.finishAICardMock).not.toHaveBeenCalled();
     });
 
+    it('deliver callback sends single media payload through session webhook', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver({ mediaUrl: 'https://cdn.example.com/report.pdf' }, { kind: 'final' });
+                return { queuedFinal: false };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const cleanup = vi.fn().mockResolvedValue(undefined);
+        shared.prepareMediaInputMock.mockResolvedValueOnce({
+            path: '/tmp/prepared/report.pdf',
+            cleanup,
+        });
+        shared.resolveOutboundMediaTypeMock.mockReturnValueOnce('file');
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_media_single',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.prepareMediaInputMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/report.pdf',
+            undefined,
+            undefined,
+        );
+        expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'https://session.webhook',
+            '',
+            expect.objectContaining({ mediaPath: '/tmp/prepared/report.pdf', mediaType: 'file' }),
+        );
+        expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('deliver callback sends multiple media payloads sequentially', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver(
+                    { mediaUrls: ['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'] },
+                    { kind: 'final' },
+                );
+                return { queuedFinal: false };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const cleanupA = vi.fn().mockResolvedValue(undefined);
+        const cleanupB = vi.fn().mockResolvedValue(undefined);
+        shared.prepareMediaInputMock
+            .mockResolvedValueOnce({ path: '/tmp/prepared/a.png', cleanup: cleanupA })
+            .mockResolvedValueOnce({ path: '/tmp/prepared/b.png', cleanup: cleanupB });
+        shared.resolveOutboundMediaTypeMock.mockReturnValue('image');
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_media_multi',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenNthCalledWith(
+            1,
+            expect.anything(),
+            'https://session.webhook',
+            '',
+            expect.objectContaining({ mediaPath: '/tmp/prepared/a.png', mediaType: 'image' }),
+        );
+        expect(shared.sendBySessionMock).toHaveBeenNthCalledWith(
+            2,
+            expect.anything(),
+            'https://session.webhook',
+            '',
+            expect.objectContaining({ mediaPath: '/tmp/prepared/b.png', mediaType: 'image' }),
+        );
+        expect(cleanupA).toHaveBeenCalledTimes(1);
+        expect(cleanupB).toHaveBeenCalledTimes(1);
+    });
+
+    it('deliver callback sends mixed text and media payloads', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver(
+                    { text: 'final output', mediaUrl: 'https://cdn.example.com/report.pdf' },
+                    { kind: 'final' },
+                );
+                return { queuedFinal: false };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_media_text',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'https://session.webhook',
+            '',
+            expect.objectContaining({ mediaPath: '/tmp/prepared/report.pdf', mediaType: 'file' }),
+        );
+        expect(shared.sendMessageMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'user_1',
+            'final output',
+            expect.objectContaining({ sessionWebhook: 'https://session.webhook' }),
+        );
+    });
+
+    it('card mode + media bypasses finalContent accumulation and still finalizes with text', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver(
+                    { text: 'final output', mediaUrl: 'https://cdn.example.com/report.pdf' },
+                    { kind: 'final' },
+                );
+                return { queuedFinal: true };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const card = { cardInstanceId: 'card_media_final', state: '1', lastUpdated: Date.now() } as any;
+        shared.createAICardMock.mockResolvedValueOnce(card);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_card_media_text',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'https://session.webhook',
+            '',
+            expect.objectContaining({ mediaPath: '/tmp/prepared/report.pdf', mediaType: 'file' }),
+        );
+        expect(shared.finishAICardMock).toHaveBeenCalledWith(card, 'final output', undefined);
+    });
+
+    it('deliver callback falls back to proactive media send when sessionWebhook is absent', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver({ mediaUrl: 'https://cdn.example.com/report.pdf' }, { kind: 'final' });
+                return { queuedFinal: false };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: undefined,
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_media_proactive',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+        expect(shared.sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'user_1',
+            '/tmp/prepared/report.pdf',
+            'file',
+            expect.objectContaining({ accountId: 'main' }),
+        );
+    });
+
+    it('deliver callback cleans up prepared media when send fails', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions }) => {
+                await dispatcherOptions.deliver({ mediaUrl: 'https://cdn.example.com/report.pdf' }, { kind: 'final' });
+                return { queuedFinal: false };
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        const cleanup = vi.fn().mockResolvedValue(undefined);
+        shared.prepareMediaInputMock.mockResolvedValueOnce({
+            path: '/tmp/prepared/report.pdf',
+            cleanup,
+        });
+        shared.sendBySessionMock.mockRejectedValueOnce(new Error('send failed'));
+
+        await expect(handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', ackReaction: '' } as any,
+            data: {
+                msgId: 'm_media_cleanup_failure',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '1',
+                conversationId: 'cid_ok',
+                senderId: 'user_1',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any)).rejects.toThrow('send failed');
+
+        expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
     it('handleDingTalkMessage attaches and recalls native ack reaction in markdown mode', async () => {
         vi.useFakeTimers();
         mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
@@ -2295,6 +2598,50 @@ describe('inbound-handler', () => {
                 'https://api.dingtalk.com/v1.0/robot/emotion/reply',
                 expect.objectContaining({
                     openMsgId: 'm5_identity_ackreaction',
+                    openConversationId: 'cid_ok',
+                    emotionName: '🤔思考中',
+                }),
+                expect.any(Object),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('handleDingTalkMessage falls back to native default when config and agent identity ackReaction are absent', async () => {
+        vi.useFakeTimers();
+        mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+        try {
+            await handleDingTalkMessage({
+                cfg: {},
+                accountId: 'main',
+                sessionWebhook: 'https://session.webhook',
+                log: undefined,
+                dingtalkConfig: {
+                    clientId: 'ding_client',
+                    clientSecret: 'secret',
+                    dmPolicy: 'open',
+                    messageType: 'markdown',
+                } as any,
+                data: {
+                    msgId: 'm5_default_ackreaction',
+                    msgtype: 'text',
+                    text: { content: 'hello' },
+                    conversationType: '1',
+                    conversationId: 'cid_ok',
+                    senderId: 'user_1',
+                    chatbotUserId: 'bot_1',
+                    sessionWebhook: 'https://session.webhook',
+                    createAt: Date.now(),
+                },
+            } as any);
+            await vi.advanceTimersByTimeAsync(1200);
+
+            expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+                1,
+                'https://api.dingtalk.com/v1.0/robot/emotion/reply',
+                expect.objectContaining({
+                    openMsgId: 'm5_default_ackreaction',
                     openConversationId: 'cid_ok',
                     emotionName: '🤔思考中',
                 }),

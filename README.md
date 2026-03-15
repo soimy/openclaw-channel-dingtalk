@@ -411,9 +411,13 @@ openclaw gateway restart
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `bypassProxyForSend`    | boolean  | `false`      | 发送链路直连，不走全局代理                  |
+| `learningEnabled`       | boolean  | `false`      | 开启学习信号采集与学习提示注入              |
+| `learningAutoApply`     | boolean  | `false`      | 自动将学习笔记注入当前会话                  |
+| `learningNoteTtlMs`     | number   | `21600000`   | 会话级学习笔记有效期（毫秒）                |
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
-| `ackReaction`          | string   |              | 官方 `ackReaction` 配置入口；设为 `""` 可关闭 |
+| `ackReaction`          | string   | `"🤔思考中"` | 官方 `ackReaction` 配置入口；设为 `""` 可关闭 |
 | `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
@@ -437,8 +441,8 @@ openclaw gateway restart
 
 - `markdown` 和 `card` 模式都可启用
 - 该反馈作用于用户原消息，不会额外发送一条“思考中”消息
-- 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji`
-- 若上述路径都未配置，则不发送 ack reaction
+- 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji` -> 默认 `🤔思考中`
+- 若上述路径都未配置，则回退到默认 `🤔思考中`
 - 当前钉钉实现底层仍走原生“🤔思考中” reaction 能力；因此配置入口已对齐官方，但平台能力暂未扩展为任意 emoji
 
 ### 连接鲁棒性配置
