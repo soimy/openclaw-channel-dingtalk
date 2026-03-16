@@ -1358,41 +1358,36 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                   ? [richPayload.mediaUrl]
                   : [];
 
+              // In card mode, deliver(final) must always reach finalize even with empty text
+              // (e.g. bot sent a file via tool with no accompanying text).
               if ((typeof textToSend !== "string" || textToSend.length === 0) && mediaUrls.length === 0) {
-                return;
+                if (useCardMode && currentAICard && info?.kind === "final") {
+                  // fall through to card finalize below
+                } else {
+                  return;
+                }
               }
 
               // ---- card mode: final ----
+              // Do NOT finalize or stop the controller here — runtime calls
+              // deliver(final) once per assistant turn, so there may be more
+              // turns coming after tool calls. Finalization is deferred to
+              // step 5 (post-dispatch) where the full accumulated content
+              // is available.
               if (useCardMode && currentAICard && info?.kind === "final") {
-                const rawFinalText = typeof textToSend === "string" ? textToSend : "";
-                await controller!.flush();
-                await controller!.waitForInFlight();
-                controller!.stop();
+                log?.info?.(
+                  `[DingTalk][Finalize] deliver(final) received — cardState=${currentAICard.state} ` +
+                  `textLen=${typeof textToSend === "string" ? textToSend.length : "null"} ` +
+                  `mediaUrls=${mediaUrls.length} ` +
+                  `lastAnswer="${(controller?.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
+                  `lastContent="${(controller?.getLastContent() ?? "").slice(0, 80)}"`,
+                );
                 if (mediaUrls.length > 0) {
                   await deliverMediaAttachments(mediaUrls);
                 }
-                const finalText = controller!.getLastContent() || rawFinalText;
-                if (!isCardInTerminalState(currentAICard.state) && !controller!.isFailed()) {
-                  try {
-                    await finishAICard(currentAICard, finalText, log);
-                    cardFinalized = true;
-                  } catch (finalizeErr: any) {
-                    log?.debug?.(`[DingTalk] AI Card finalization failed in deliver: ${finalizeErr.message}`);
-                    if (finalizeErr?.response?.data !== undefined) {
-                      log?.debug?.(formatDingTalkErrorPayloadLog("inbound.cardFinalize", finalizeErr.response.data));
-                    }
-                    if (currentAICard.state !== AICardStatus.FINISHED) {
-                      currentAICard.state = AICardStatus.FAILED;
-                      currentAICard.lastUpdated = Date.now();
-                    }
-                    finalTextForFallback = finalText;
-                  }
-                } else if (currentAICard.state === AICardStatus.FINISHED) {
-                  log?.info?.("[DingTalk] Card already FINISHED before deliver(final), skipping duplicate finalize");
-                  cardFinalized = true;
-                } else {
-                  log?.info?.("[DingTalk] Card failed before deliver(final), deferring markdown fallback to post-dispatch");
-                  finalTextForFallback = finalText;
+                const rawFinalText = typeof textToSend === "string" ? textToSend : "";
+                if (rawFinalText) {
+                  finalTextForFallback = rawFinalText;
                 }
                 return;
               }
@@ -1461,6 +1456,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         replyOptions: {
           disableBlockStreaming: dingtalkConfig.cardRealTimeStream && controller ? true : undefined,
 
+          onAssistantMessageStart: controller
+            ? () => { controller.notifyNewAssistantTurn(); }
+            : undefined,
+
           onPartialReply: dingtalkConfig.cardRealTimeStream && controller
             ? (payload: ReplyStreamPayload) => {
                 if (payload.text) {
@@ -1495,18 +1494,30 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       throw dispatchErr;
     }
 
-    // 5) Fallback finalize: covers queuedFinal=false (tool-only, no final text).
+    // 5) Post-dispatch card finalization.
+    // This is the sole finalize path — deliver(final) defers here because
+    // runtime may call deliver(final) multiple times (once per assistant turn).
+    log?.info?.(
+      `[DingTalk][Finalize] Step 5 entry — useCardMode=${useCardMode} ` +
+      `hasCard=${!!currentAICard} cardFinalized=${cardFinalized} ` +
+      `cardState=${currentAICard?.state ?? "N/A"} ` +
+      `controllerFailed=${controller?.isFailed() ?? "N/A"} ` +
+      `finalTextForFallback="${(finalTextForFallback ?? "").slice(0, 80)}" ` +
+      `lastAnswer="${(controller?.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
+      `lastContent="${(controller?.getLastContent() ?? "").slice(0, 80)}"`,
+    );
     if (useCardMode && currentAICard && !cardFinalized) {
       try {
         if (currentAICard.state === AICardStatus.FINISHED) {
-          log?.debug?.(
-            `[DingTalk] Skipping AI Card finalization because card is already FINISHED`,
+          log?.info?.(
+            `[DingTalk][Finalize] Skipping — card already FINISHED`,
           );
           return;
         }
 
         if (currentAICard.state === AICardStatus.FAILED || controller!.isFailed()) {
           const fallbackText = finalTextForFallback
+            || controller!.getLastAnswerContent()
             || controller!.getLastContent()
             || currentAICard.lastStreamedContent;
           if (fallbackText) {
@@ -1531,10 +1542,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         await controller!.flush();
         await controller!.waitForInFlight();
         controller!.stop();
-        const fallbackText = controller!.getLastContent()
-          || currentAICard.lastStreamedContent
+        const finalText = controller!.getLastAnswerContent()
+          || finalTextForFallback
           || "✅ Done";
-        await finishAICard(currentAICard, fallbackText, log);
+        log?.info?.(
+          `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
+          `source=${controller!.getLastAnswerContent() ? "lastAnswerContent" : finalTextForFallback ? "finalTextForFallback" : "fallbackDone"} ` +
+          `preview="${finalText.slice(0, 120)}"`,
+        );
+        await finishAICard(currentAICard, finalText, log);
       } catch (err: any) {
         log?.debug?.(`[DingTalk] AI Card finalization failed: ${err.message}`);
         if (err?.response?.data !== undefined) {

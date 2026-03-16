@@ -22,7 +22,6 @@ import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 // Thinking/tool stream snippets are truncated to keep card updates compact.
-const THINKING_TRUNCATE_LENGTH = 500;
 const CARD_STATE_FILE_VERSION = 1;
 const CARD_PENDING_NAMESPACE = "cards.active.pending";
 const CARD_PROCESS_QUERY_NAMESPACE = "cards.content.quote-process-query";
@@ -323,15 +322,10 @@ export function formatContentForCard(content: string | undefined, type: "thinkin
     return "";
   }
 
-  // Truncate to configured length and keep a visual ellipsis when truncated.
-  const truncated =
-    content.slice(0, THINKING_TRUNCATE_LENGTH) +
-    (content.length > THINKING_TRUNCATE_LENGTH ? "…" : "");
-
   const emoji = type === "thinking" ? "🤔" : "🛠️";
   const label = type === "thinking" ? "思考中" : "工具执行";
 
-  const escaped = truncated
+  const escaped = content
     .split("\n")
     .map((line) => line.replace(/^_(?=[^ ])/, "*").replace(/(?<=[^ ])_(?=$)/, "*"))
     .join("\n");

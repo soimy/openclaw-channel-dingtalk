@@ -21,11 +21,16 @@ export type CardDraftPhase = "idle" | "reasoning" | "answer";
 export interface CardDraftController {
     updateAnswer: (text: string) => void;
     updateReasoning: (text: string) => void;
+    /** Signal that a new assistant turn has started (e.g. after a tool call). */
+    notifyNewAssistantTurn: () => void;
     flush: () => Promise<void>;
     waitForInFlight: () => Promise<void>;
     stop: () => void;
     isFailed: () => boolean;
+    /** Last content sent to card (reasoning or answer). */
     getLastContent: () => string;
+    /** Last content sent to card during answer phase only. */
+    getLastAnswerContent: () => string;
 }
 
 export function createCardDraftController(params: {
@@ -37,8 +42,9 @@ export function createCardDraftController(params: {
     let failed = false;
     let stopped = false;
     let lastSentContent = "";
+    let lastAnswerContent = "";
     let answerPrefix = "";
-    let lastPartialLen = 0;
+    let turnBoundaryPending = false;
 
     const loop = createDraftStreamLoop({
         throttleMs: params.throttleMs ?? 300,
@@ -47,6 +53,9 @@ export function createCardDraftController(params: {
             try {
                 await streamAICard(params.card, content, false, params.log);
                 lastSentContent = content;
+                if (phase === "answer") {
+                    lastAnswerContent = content;
+                }
             } catch (err: unknown) {
                 failed = true;
                 const message = err instanceof Error ? err.message : String(err);
@@ -68,22 +77,25 @@ export function createCardDraftController(params: {
         updateAnswer: (text: string) => {
             if (stopped || failed) { return; }
             if (phase !== "answer") {
-                if (phase === "reasoning") {
-                    loop.resetPending();
-                }
                 params.log?.debug?.(`[DingTalk][Draft] phase ${phase} → answer`);
                 phase = "answer";
             }
             if (text) {
-                // Heuristic: runtime resets payload.text per assistant turn
-                // (e.g. after a tool call). A dramatic length drop (>50%)
-                // signals a new turn; minor trimming is ignored.
-                if (text.length < lastPartialLen * 0.5 && lastSentContent) {
-                    answerPrefix = lastSentContent + "\n\n";
+                if (turnBoundaryPending && lastAnswerContent) {
+                    answerPrefix = lastAnswerContent + "\n\n";
+                    turnBoundaryPending = false;
                 }
-                lastPartialLen = text.length;
                 loop.update(answerPrefix + text);
             }
+        },
+
+        notifyNewAssistantTurn: () => {
+            if (stopped || failed) { return; }
+            turnBoundaryPending = true;
+            if (phase === "reasoning") {
+                loop.resetPending();
+            }
+            phase = "idle";
         },
 
         flush: () => loop.flush(),
@@ -96,5 +108,6 @@ export function createCardDraftController(params: {
 
         isFailed: () => failed,
         getLastContent: () => lastSentContent,
+        getLastAnswerContent: () => lastAnswerContent,
     };
 }

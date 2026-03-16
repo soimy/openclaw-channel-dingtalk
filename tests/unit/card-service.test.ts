@@ -371,13 +371,13 @@ describe('card-service', () => {
         expect(card.state).toBe(AICardStatus.FINISHED);
     });
 
-    it('formatContentForCard truncates and annotates content', () => {
+    it('formatContentForCard preserves full content without truncation', () => {
         const content = `${'x'.repeat(510)}`;
         const result = formatContentForCard(content, 'thinking');
 
         expect(result).toContain('🤔 **思考中**');
-        expect(result).toContain('…');
-        expect(result).not.toContain('> ');
+        expect(result).toContain('x'.repeat(510));
+        expect(result).not.toContain('…');
         expect(result.startsWith('🤔 **思考中**\n\n')).toBe(true);
     });
 

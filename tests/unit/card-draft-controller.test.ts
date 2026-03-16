@@ -244,60 +244,74 @@ describe("card-draft-controller", () => {
         expect(inFlightDone).toBe(true);
     });
 
-    it("answerPrefix: dramatic length drop (>50%) prepends previous content", async () => {
+    it("notifyNewAssistantTurn: next updateAnswer prepends previous answer content", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
-        ctrl.updateAnswer("long answer text here");
+        ctrl.updateAnswer("Turn 1 content");
         await vi.advanceTimersByTimeAsync(0);
         streamAICardMock.mockClear();
 
-        ctrl.updateAnswer("Hi");
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("Turn 2");
         await vi.advanceTimersByTimeAsync(0);
 
         expect(streamAICardMock).toHaveBeenCalledWith(
             card,
-            "long answer text here\n\nHi",
+            "Turn 1 content\n\nTurn 2",
             false,
             undefined,
         );
     });
 
-    it("answerPrefix: minor length drop (<50%) does NOT trigger prefix", async () => {
+    it("notifyNewAssistantTurn: without prior answer content does not prepend", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
-        ctrl.updateAnswer("abcdefghij");
+        ctrl.updateReasoning("thinking...");
         await vi.advanceTimersByTimeAsync(0);
         streamAICardMock.mockClear();
 
-        ctrl.updateAnswer("abcdefg");
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("first answer");
         await vi.advanceTimersByTimeAsync(0);
 
         expect(streamAICardMock).toHaveBeenCalledWith(
             card,
-            "abcdefg",
+            "first answer",
             false,
             undefined,
         );
     });
 
-    it("answerPrefix: exactly 50% length does NOT trigger prefix", async () => {
+    it("notifyNewAssistantTurn: resets phase to idle, allowing reasoning again", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
-        ctrl.updateAnswer("abcdefghij");
+        ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
         streamAICardMock.mockClear();
 
-        ctrl.updateAnswer("abcde");
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateReasoning("new thinking");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledWith(
-            card,
-            "abcde",
-            false,
-            undefined,
-        );
+        const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
+        expect(sentContent).toContain("思考中");
+        expect(sentContent).toContain("new thinking");
+    });
+
+    it("getLastAnswerContent only tracks answer phase sends", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        ctrl.updateReasoning("thinking");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ctrl.getLastAnswerContent()).toBe("");
+        expect(ctrl.getLastContent()).toContain("思考中");
+
+        ctrl.updateAnswer("answer text");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ctrl.getLastAnswerContent()).toBe("answer text");
     });
 });
