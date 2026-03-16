@@ -1502,15 +1502,17 @@ const extractedContent = { ...extractMessageContent(data) };
 
               // ---- card mode: final ----
               if (useCardMode && currentAICard && info?.kind === "final") {
+                const rawFinalText = typeof textToSend === "string" ? textToSend : "";
                 await controller!.flush();
                 await controller!.waitForInFlight();
                 controller!.stop();
                 if (mediaUrls.length > 0) {
                   await deliverMediaAttachments(mediaUrls);
                 }
+                const finalText = controller!.getLastContent() || rawFinalText;
                 if (!isCardInTerminalState(currentAICard.state) && !controller!.isFailed()) {
                   try {
-                    await finishAICard(currentAICard, textToSend, log);
+                    await finishAICard(currentAICard, finalText, log);
                     cardFinalized = true;
                   } catch (finalizeErr: any) {
                     log?.debug?.(`[DingTalk] AI Card finalization failed in deliver: ${finalizeErr.message}`);
@@ -1521,14 +1523,14 @@ const extractedContent = { ...extractMessageContent(data) };
                       currentAICard.state = AICardStatus.FAILED;
                       currentAICard.lastUpdated = Date.now();
                     }
-                    finalTextForFallback = textToSend;
+                    finalTextForFallback = finalText;
                   }
                 } else if (currentAICard.state === AICardStatus.FINISHED) {
                   log?.info?.("[DingTalk] Card already FINISHED before deliver(final), skipping duplicate finalize");
                   cardFinalized = true;
                 } else {
                   log?.info?.("[DingTalk] Card failed before deliver(final), deferring markdown fallback to post-dispatch");
-                  finalTextForFallback = textToSend;
+                  finalTextForFallback = finalText;
                 }
                 return;
               }
@@ -1542,9 +1544,9 @@ const extractedContent = { ...extractMessageContent(data) };
                 await controller!.flush();
                 await controller!.waitForInFlight();
                 log?.info?.(
-                  `[DingTalk] Tool result received, streaming to AI Card: ${textToSend.slice(0, 100)}`,
+                  `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
                 );
-                const toolText = formatContentForCard(textToSend, "tool");
+                const toolText = typeof textToSend === "string" ? formatContentForCard(textToSend, "tool") : "";
                 if (toolText) {
                   const sendResult = await sendMessage(dingtalkConfig, to, toolText, {
                     sessionWebhook,

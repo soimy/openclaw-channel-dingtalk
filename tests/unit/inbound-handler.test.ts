@@ -3220,6 +3220,51 @@ describe('inbound-handler', () => {
         );
     });
 
+    it('cardRealTimeStream finalize uses accumulated multi-turn content instead of last-turn-only deliver text', async () => {
+        const card = { cardInstanceId: 'card_accum', state: '1', lastUpdated: Date.now() } as any;
+        shared.createAICardMock.mockResolvedValueOnce(card);
+        shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+        const runtime = buildRuntime();
+        runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+            .fn()
+            .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+                // Turn 1: long content (e.g. inspection report)
+                replyOptions?.onPartialReply?.({ text: 'Turn 1: Full inspection report with tables and analysis' });
+                await new Promise((r) => setTimeout(r, 350));
+
+                // Turn 2: text resets after tool call — dramatic length drop triggers answerPrefix
+                replyOptions?.onPartialReply?.({ text: 'Tu' });
+                await new Promise((r) => setTimeout(r, 50));
+                replyOptions?.onPartialReply?.({ text: 'Turn 2 short summary' });
+                await new Promise((r) => setTimeout(r, 350));
+
+                // deliver(final) only provides last turn's text
+                await dispatcherOptions.deliver({ text: 'Turn 2 short summary' }, { kind: 'final' });
+                return {};
+            });
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'main',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true, showThinking: false } as any,
+            data: {
+                msgId: 'mid_accum_test', msgtype: 'text', text: { content: 'hello' },
+                conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
+                chatbotUserId: 'bot_1', sessionWebhook: 'https://session.webhook', createAt: Date.now(),
+            },
+        } as any);
+
+        expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+        const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+        expect(finalizeContent).toContain('Turn 1');
+        expect(finalizeContent).toContain('Turn 2');
+        expect(finalizeContent).not.toBe('Turn 2 short summary');
+    });
+
   // ==================== @Sub-Agent 回归测试 ====================
   describe('@sub-agent feature', () => {
     it('respects groupPolicy allowlist for sub-agent routing', async () => {
@@ -3576,4 +3621,5 @@ describe('inbound-handler', () => {
       expect(webhookCalls[1].responsePrefix).toContain('[Agent2]');
     });
   });
+
 });

@@ -15,6 +15,7 @@
 - [#302 TCP half-open问题](https://github.com/soimy/openclaw-channel-dingtalk/issues/302)
 - [#303 Connection attempt x failed: protocol mismatch](https://github.com/soimy/openclaw-channel-dingtalk/issues/303)
 - [#289 dingtalk connection error 503 & 400](https://github.com/soimy/openclaw-channel-dingtalk/issues/289)
+- [#345 机器人时不时收不到回复，只能重新发送，几次才能好](https://github.com/soimy/openclaw-channel-dingtalk/issues/345)
 
 相关 PRs：
 - [#96 fix(dingtalk): harden inbound message handling](https://github.com/soimy/openclaw-channel-dingtalk/pull/96)
@@ -36,6 +37,7 @@
 - [ ] 验证 `#323/#325` 后长待机与恢复窗口是否仍出现“间歇性收不到消息”（关联 `#104` 新增反馈）
 - [ ] 结合 `#104` 新评论（指向 stream-sdk-nodejs#13）补充“连接存活但收不到入站事件”的链路级排查与可观测性
 - [ ] 复核 `#336` 在低流量静默群聊下是否消除“空闲误重连”，并确认不影响真实断链恢复
+- [ ] 合并核对 `#345` 新反馈（markdown 模式也出现间歇性丢回复），确认是否与连接层问题同源
 
 ### 2. AI Card 发送链路一致性
 相关 Issues：
@@ -48,6 +50,8 @@
 - [#290 bug: reasoning token 内容重复堆叠进 AI card](https://github.com/soimy/openclaw-channel-dingtalk/issues/290)
 - [#282 reasoning没有结束状态](https://github.com/soimy/openclaw-channel-dingtalk/issues/282)
 - [#208 当 LiteLLM 返回 429/503 错误时，机器人没有回复用户任何信息，希望能推送错误提示](https://github.com/soimy/openclaw-channel-dingtalk/issues/208)
+- [#198 如果工具调用失败，就会导致一段时间无法对话](https://github.com/soimy/openclaw-channel-dingtalk/issues/198)
+- [#292 bug: tool stream delivery failure aborts entire dispatch, subsequent AI reply is lost](https://github.com/soimy/openclaw-channel-dingtalk/issues/292)
 
 相关 PRs：
 - [#191 serialize send pipeline with session-scoped dispatch lock](https://github.com/soimy/openclaw-channel-dingtalk/pull/191)
@@ -78,6 +82,7 @@
 - [ ] 跟进 `#311` 的 review blocking 项，基于已 rebase 分支复核 deliver MEDIA 边界（入站回包/主动回复/卡片并行）
 - [ ] 复盘 `#334` 对 `#295` 的回滚影响，明确 async ack 是否保留为后续可选能力
 - [ ] 校验 `#300/#335` 的 markdown 表格兼容策略与默认值，避免不同钉钉客户端表现分叉
+- [ ] 基于 `#198/#292` 复核“工具流发送失败不应中断后续正文回复”的错误分级与降级路径
 
 ### 3. 文件上传 / 文件读取 / 文件预览 / 大文件链路
 相关 Issues：
@@ -98,6 +103,7 @@
 - [ ] 明确哪些属于补尾，哪些需要新增开发
 - [ ] 复核 `#315` 场景在当前版本中的行为与诊断提示是否一致
 - [ ] 评估 `#298` 的附件正文抽取边界（类型/长度/失败回退）与现有文件链路兼容性
+- [ ] 跟进 `#207` 新增进展：`robotCode` 已配置仍失败，补充“企业认证/权限付费门槛”前置条件说明
 
 ### 4. 图片 / 语音 / 媒体链路补强
 相关 Issues：
@@ -202,7 +208,7 @@
 - [ ] 明确 `session-alias` 与框架 routing bindings 的职责边界（#307）
 - [ ] 评估 `@sub-agent` 能力与现有路由模型整合方案（#317）
 - [ ] 复核 dashboard schema 渲染与 legacy key 归一化行为在 UI/Raw 配置路径的一致性（#304/#324）
-- [ ] 跟进 `#317` 冲突与 review blocking 项，避免再次回归 `#327` 已修复的 inbound 能力
+- [ ] 跟进 `#317` review blocking 项与“先暂缓”结论，冻结范围在基础路由能力并避免再次回归 `#327` 已修复的 inbound 能力
 - [ ] 排查并修复 `#185` 反馈的多 agent workspace 绑定异常（疑似默认 `main` 绑定导致配置失效）
 
 ### 9. 支持群聊 @人 / @all
@@ -240,12 +246,15 @@
 - [#236 思考中如何关闭](https://github.com/soimy/openclaw-channel-dingtalk/issues/236)
 - [#312 为什么卡片模板的参数只支持一个，如果相传多个怎么实现](https://github.com/soimy/openclaw-channel-dingtalk/issues/312)
 - [#320 reasoning stream提示 Reasoning stream enabled (Telegram only).（Dup #236）](https://github.com/soimy/openclaw-channel-dingtalk/issues/320)
+- [#244 能否只是card的宽屏模式？目前电脑端，窄屏太小了](https://github.com/soimy/openclaw-channel-dingtalk/issues/244)
 
 相关 PRs：
 - [#119 AI Card thinking/tool use streaming](https://github.com/soimy/openclaw-channel-dingtalk/pull/119)
 - [#214 make thinking message configurable](https://github.com/soimy/openclaw-channel-dingtalk/pull/214)
 - [#322 fix: wire onToolResult to enable verbose tool streaming in card mode](https://github.com/soimy/openclaw-channel-dingtalk/pull/322)
 - [#332 feat(dingtalk): add native thinking reaction feedback](https://github.com/soimy/openclaw-channel-dingtalk/pull/332)
+- [#344 feat(dingtalk): add native thinking reaction feedback](https://github.com/soimy/openclaw-channel-dingtalk/pull/344)
+- [#314 feat: real-time tool progress notifications during agent tasks](https://github.com/soimy/openclaw-channel-dingtalk/pull/314)
 
 任务：
 - [ ] 明确 thinking 展示可配置项
@@ -257,6 +266,8 @@
 - [ ] 回归 reasoning 结束态在钉钉卡片上的收敛行为（#282）
 - [ ] 回归 `/verbose on` 下 tool result 流式展示在卡片模式的可见性（#322）
 - [ ] 复核 `#332`“思考中表情”在钉钉 UI 延迟显示场景下的撤回收敛行为与 API 调用成本
+- [ ] 跟进 `#344` 的 review blocking 项（冲突、默认值语义、media deliver 覆盖回归、超时设置），确认 `ackReaction` 对齐策略后再评估可合并性
+- [ ] 评估 `#314` 的“工具执行实时进度提示”与现有 thinking/usage 提示的职责边界及节流策略
 
 ---
 
@@ -269,6 +280,7 @@
 
 相关 PRs：
 - [#255 make stream keepAlive configurable and default off](https://github.com/soimy/openclaw-channel-dingtalk/pull/255)
+- [#341 feat(dingtalk): real-time stream update for card mode](https://github.com/soimy/openclaw-channel-dingtalk/pull/341)
 
 任务：
 - [ ] 评估 20 秒延迟是否仅在超大规模部署下发生
@@ -277,11 +289,15 @@
 - [ ] 评估低更新频率的替代方案
 - [ ] 修复 chunk 模式仅显示增量字符的问题
 - [ ] 给出“继续投入 / 保持现状”的结论
+- [ ] 回归 `#341` 引入的实时流式开关与默认值，验证“时延改善 vs API 成本”是否达到可接受平衡
 
 ### 13. README / 截图 / onboarding / 配置说明补齐
 相关 Issues：
 - [#242 README 能否增加一些图片截图](https://github.com/soimy/openclaw-channel-dingtalk/issues/242)
 - [#243 为啥我配置好了参数 一直显示0 ... Request failed with status code 400](https://github.com/soimy/openclaw-channel-dingtalk/issues/243)
+- [#293 给机器人开了钉钉的项目管理权限，是不是不能用](https://github.com/soimy/openclaw-channel-dingtalk/issues/293)
+- [#340 钉钉文档表格还是有问题，无法创建和编辑](https://github.com/soimy/openclaw-channel-dingtalk/issues/340)
+- [#342 输出文本不支持msgtype:type吗？](https://github.com/soimy/openclaw-channel-dingtalk/issues/342)
 
 相关 PRs：
 - [#175 docs: align README cardTemplateKey default](https://github.com/soimy/openclaw-channel-dingtalk/pull/175)
@@ -300,6 +316,16 @@
 - [ ] 补充 `dingtalk.docs.*` gateway methods 的使用示例与权限/参数说明（#301）
 - [ ] 整合 `#328` 的多 bot 多 agent 绑定示例到 onboarding/FAQ，减少与 `#317` 相关配置误解
 - [ ] 补充 `debug` -> `dwClientDebug` 的迁移说明与兼容窗口说明（#337）
+- [ ] 增补“钉钉上游能力边界”FAQ：项目管理接口、文档表格编辑、消息输出类型限制（#293/#340/#342）
+
+### 14. 群聊历史滚动摘要 /summary 命令
+相关 PRs：
+- [#331 feat(dingtalk): add rolling summary history commands](https://github.com/soimy/openclaw-channel-dingtalk/pull/331)
+
+任务：
+- [ ] 跟进 `#331` 的阻塞项：`Atomics.wait` 同步锁导致事件循环阻塞风险，需改为异步锁/非阻塞重试
+- [ ] 对齐 `historyLimit` 默认值语义（代码默认关闭 vs 注释默认 50）并补充文档
+- [ ] 在 rebase 后复核 `/summary` 命令边界（owner 鉴权、token 成本、历史窗口与归档段限制）
 
 ---
 

@@ -60,7 +60,7 @@
 
 > ⚠️ **实验性功能**：此功能使用框架层 `agents.list` 配置实现，与框架的 `bindings` 机制独立运作。
 
-在群聊中，用户可以通过 `@助手名` 来指定要对话的 agent。例如：
+在群聊中，用户可以通过 `@助手名` 来指定要对话的 agent。每个 agent 拥有独立的 session。
 
 ```
 用户: @frontend 帮我看看这个组件的问题
@@ -86,11 +86,22 @@
 }
 ```
 
+#### 当前功能范围
+
+- @mention 解析 → agent 名匹配（支持 `name` 和 `id`）
+- 路由到独立 agent session
+- 回复自动添加 `[助手名]` 前缀
+
+#### 后续迭代计划
+
+- 群聊历史上下文注入（被 @ 的 agent 能看到近期对话）
+- 多专家协作讨论（专家间链式 @mention、讨论记录共享）
+- `/agents` 命令列出可用专家
+
 #### 已知限制
 
-- sub-agent 路由使用框架的 `buildAgentSessionKey` API，但不通过 `bindings` 配置匹配
+- sub-agent 路由使用框架的 `buildAgentSessionKey` API，不通过 `bindings` 配置匹配
 - 与框架顶层的 `bindings` 配置**独立运作**，同时配置两者可能导致混淆
-- 未来 OpenClaw 原生支持多 agent @路由后，此实现可能需要迁移
 
 ### 进程级（memory-only）运行态说明
 
