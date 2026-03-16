@@ -1362,13 +1362,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
               // ---- card mode: final ----
               if (useCardMode && currentAICard && info?.kind === "final") {
-                const finalText = typeof textToSend === "string" ? textToSend : "";
+                const rawFinalText = typeof textToSend === "string" ? textToSend : "";
                 await controller!.flush();
                 await controller!.waitForInFlight();
                 controller!.stop();
                 if (mediaUrls.length > 0) {
                   await deliverMediaAttachments(mediaUrls);
                 }
+                const finalText = controller!.getLastContent() || rawFinalText;
                 if (!isCardInTerminalState(currentAICard.state) && !controller!.isFailed()) {
                   try {
                     await finishAICard(currentAICard, finalText, log);
