@@ -60,9 +60,9 @@ describe('quoted-msg-cache', () => {
         expect(getCachedDownloadCode('default', 'conv1', 'msg1', storePath)).toBeNull();
     });
 
-    it('每个会话上限淘汰', () => {
+    it('每个会话上限淘汰最早记录', () => {
         const baseTime = Date.now();
-        for (let i = 0; i <= 100; i++) {
+        for (let i = 0; i <= 1000; i++) {
             cacheInboundDownloadCode(
                 'default',
                 'conv_same',
@@ -74,38 +74,15 @@ describe('quoted-msg-cache', () => {
             );
         }
 
-        expect(getCachedDownloadCode('default', 'conv_same', 'msg_100', storePath)).not.toBeNull();
-        expect(getCachedDownloadCode('default', 'conv_same', 'msg_100', storePath)!.downloadCode).toBe(
-            'code_100',
+        expect(getCachedDownloadCode('default', 'conv_same', 'msg_1000', storePath)).not.toBeNull();
+        expect(getCachedDownloadCode('default', 'conv_same', 'msg_1000', storePath)!.downloadCode).toBe(
+            'code_1000',
         );
 
         expect(getCachedDownloadCode('default', 'conv_same', 'msg_0', storePath)).toBeNull();
     });
 
-    it('全局会话上限淘汰', () => {
-        const baseTime = Date.now();
-        for (let i = 0; i <= 1000; i++) {
-            cacheInboundDownloadCode(
-                'default',
-                `conv_${i}`,
-                'msg1',
-                `code_${i}`,
-                'file',
-                baseTime + i,
-                { storePath },
-            );
-        }
-
-        expect(getCachedDownloadCode('default', 'conv_1000', 'msg1', storePath)).not.toBeNull();
-        expect(getCachedDownloadCode('default', 'conv_1000', 'msg1', storePath)!.downloadCode).toBe(
-            'code_1000',
-        );
-
-        clearQuotedMsgCacheForTest();
-        expect(getCachedDownloadCode('default', 'conv_0', 'msg1', storePath)!.downloadCode).toBe('code_0');
-    });
-
-    it('容量已满时仍可从持久化恢复新会话数据', () => {
+    it('清空内存缓存后仍可从持久化恢复新会话数据', () => {
         const baseTime = Date.now();
 
         cacheInboundDownloadCode('default', 'conv_persisted', 'msg_persisted', 'code_persisted', 'file', baseTime, {
@@ -140,7 +117,7 @@ describe('quoted-msg-cache', () => {
             { storePath, spaceId: 'space_1', fileId: 'file_1' },
         );
 
-        const persistedFile = resolveNamespacePath('quoted.msg-download-code', {
+        const persistedFile = resolveNamespacePath('messages.context', {
             storePath,
             scope: { accountId, conversationId },
             format: 'json',

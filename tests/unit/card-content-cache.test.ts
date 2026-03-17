@@ -51,33 +51,10 @@ describe('card-content-cache', () => {
         expect(findCardContent('default', 'conv1', 1000000)).toBeNull();
     });
 
-    it('每个会话上限（20 条）淘汰最早的', () => {
-        const conversationId = 'conv_limit';
-        for (let i = 1; i <= 21; i++) {
-            cacheCardContent('default', conversationId, `content_${i}`, i * 4000);
-        }
-
-        expect(findCardContent('default', conversationId, 84000)).toBe('content_21');
-        expect(findCardContent('default', conversationId, 4000)).toBeNull();
-    });
-
-    it('全局会话上限（500 个）淘汰最久未活跃的', () => {
-        for (let i = 0; i <= 500; i++) {
-            cacheCardContent('default', `conv_${i}`, `content_${i}`, 1000000 + i);
-        }
-
-        expect(findCardContent('default', 'conv_500', 1000500)).toBe('content_500');
-        expect(findCardContent('default', 'conv_0', 1000000)).toBeNull();
-    });
-
-    it('容量已满时仍可从持久化恢复新会话内容', () => {
+    it('清空内存缓存后仍可从持久化恢复新会话内容', () => {
         cacheCardContent('default', 'conv_persisted', '持久化内容', 1000000, storePath);
 
         clearCardContentCacheForTest();
-
-        for (let i = 0; i < 500; i++) {
-            cacheCardContent('default', `conv_${i}`, `content_${i}`, 2000000 + i);
-        }
 
         expect(findCardContent('default', 'conv_persisted', 1000500, storePath)).toBe('持久化内容');
     });
@@ -97,7 +74,7 @@ describe('card-content-cache', () => {
 
         cacheCardContent(accountId, conversationId, '持久化内容', createdAt, storePath);
 
-        const persistedFile = resolveNamespacePath('cards.content.quote-lookup', {
+        const persistedFile = resolveNamespacePath('messages.context', {
             storePath,
             scope: { accountId, conversationId },
             format: 'json',

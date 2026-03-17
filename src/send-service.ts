@@ -38,24 +38,49 @@ function isTrackingResult(result: ProactiveTextSendResult): result is { tracking
   return "tracking" in result;
 }
 
-function extractOutboundMessageId(payload: unknown): string | undefined {
+function extractOutboundDeliveryMetadata(payload: unknown): {
+  messageId?: string;
+  processQueryKey?: string;
+  outTrackId?: string;
+  cardInstanceId?: string;
+} {
   if (!payload || typeof payload !== "object") {
-    return undefined;
+    return {};
   }
   const data = payload as Record<string, unknown>;
   const tracking =
     data.tracking && typeof data.tracking === "object"
       ? (data.tracking as Record<string, unknown>)
       : undefined;
-  const value =
-    data.processQueryKey ??
-    data.messageId ??
-    data.msgid ??
-    tracking?.processQueryKey ??
-    tracking?.messageId ??
-    tracking?.msgid ??
-    tracking?.outTrackId;
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const messageId =
+    typeof data.messageId === "string" && data.messageId.trim()
+      ? data.messageId.trim()
+      : typeof data.msgid === "string" && data.msgid.trim()
+        ? data.msgid.trim()
+        : typeof tracking?.messageId === "string" && tracking.messageId.trim()
+          ? tracking.messageId.trim()
+          : typeof tracking?.msgid === "string" && tracking.msgid.trim()
+            ? tracking.msgid.trim()
+            : undefined;
+  const processQueryKey =
+    typeof data.processQueryKey === "string" && data.processQueryKey.trim()
+      ? data.processQueryKey.trim()
+      : typeof tracking?.processQueryKey === "string" && tracking.processQueryKey.trim()
+        ? tracking.processQueryKey.trim()
+        : undefined;
+  const outTrackId =
+    typeof data.outTrackId === "string" && data.outTrackId.trim()
+      ? data.outTrackId.trim()
+      : typeof tracking?.outTrackId === "string" && tracking.outTrackId.trim()
+        ? tracking.outTrackId.trim()
+        : undefined;
+  const cardInstanceId =
+    typeof data.cardInstanceId === "string" && data.cardInstanceId.trim()
+      ? data.cardInstanceId.trim()
+      : typeof tracking?.cardInstanceId === "string" && tracking.cardInstanceId.trim()
+        ? tracking.cardInstanceId.trim()
+        : undefined;
+  return { messageId, processQueryKey, outTrackId, cardInstanceId };
 }
 
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
@@ -349,7 +374,8 @@ export async function sendProactiveMedia(
       deleteProactiveRiskObservation(options.accountId, resolvedTarget);
     }
 
-    const messageId = extractOutboundMessageId(result.data);
+    const delivery = extractOutboundDeliveryMetadata(result.data);
+    const messageId = delivery.messageId || delivery.processQueryKey || delivery.outTrackId;
     if (options.storePath && options.accountId) {
       await appendProactiveOutboundJournal({
         storePath: options.storePath,
@@ -358,6 +384,10 @@ export async function sendProactiveMedia(
         messageId,
         text: `[media:${mediaType}] ${mediaPath}`,
         messageType: "outbound-proactive-media",
+        delivery: {
+          ...delivery,
+          kind: "proactive-media",
+        },
         log,
       });
     }
@@ -530,7 +560,8 @@ export async function sendMessage(
 
     if (options.sessionWebhook) {
       const data = await sendBySession(config, options.sessionWebhook, text, options);
-      const messageId = extractOutboundMessageId(data);
+      const delivery = extractOutboundDeliveryMetadata(data);
+      const messageId = delivery.messageId || delivery.processQueryKey || delivery.outTrackId;
       if (options.storePath && options.accountId) {
         await appendOutboundToQuoteJournal({
           storePath: options.storePath,
@@ -539,6 +570,10 @@ export async function sendMessage(
           messageId,
           text,
           messageType: "outbound",
+          delivery: {
+            ...delivery,
+            kind: "session",
+          },
           log,
         });
       }
@@ -546,7 +581,8 @@ export async function sendMessage(
     }
 
     const result = await sendProactiveTextOrMarkdown(config, conversationId, text, options);
-    const messageId = extractOutboundMessageId(result);
+    const delivery = extractOutboundDeliveryMetadata(result);
+    const messageId = delivery.messageId || delivery.processQueryKey || delivery.outTrackId;
     if (options.storePath && options.accountId) {
       await appendProactiveOutboundJournal({
         storePath: options.storePath,
@@ -555,6 +591,10 @@ export async function sendMessage(
         messageId,
         text,
         messageType: "outbound-proactive",
+        delivery: {
+          ...delivery,
+          kind: isTrackingResult(result) ? "proactive-card" : "proactive-text",
+        },
         log,
       });
     }

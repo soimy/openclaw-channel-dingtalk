@@ -1,0 +1,616 @@
+import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+
+const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
+const MESSAGE_CONTEXT_VERSION = 1;
+export const DEFAULT_MESSAGE_CONTEXT_TTL_DAYS = 7;
+export const DEFAULT_CARD_CONTENT_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_MEDIA_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_CREATED_AT_MATCH_WINDOW_MS = 2000;
+const MAX_RECORDS_PER_SCOPE = 1000;
+
+export type MessageContextDirection = "inbound" | "outbound";
+export type MessageAliasKind = "inboundMsgId" | "messageId" | "processQueryKey" | "outTrackId" | "cardInstanceId";
+export type MessageDeliveryKind = "session" | "proactive-text" | "proactive-card" | "proactive-media";
+
+export interface MessageRecord {
+  msgId: string;
+  direction: MessageContextDirection;
+  topic: string | null;
+  accountId: string;
+  conversationId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number;
+  messageType?: string;
+  text?: string;
+  media?: {
+    downloadCode?: string;
+    spaceId?: string;
+    fileId?: string;
+  };
+  delivery?: {
+    messageId?: string;
+    processQueryKey?: string;
+    outTrackId?: string;
+    cardInstanceId?: string;
+    kind?: MessageDeliveryKind;
+  };
+}
+
+interface MessageContextState {
+  version: number;
+  updatedAt: number;
+  records: Record<string, MessageRecord>;
+  byAlias: Record<string, string>;
+  recentByCreatedAt: string[];
+}
+
+interface BaseUpsertParams {
+  storePath?: string;
+  accountId: string;
+  conversationId: string | null;
+  createdAt: number;
+  updatedAt?: number;
+  ttlMs?: number;
+  ttlReferenceMs?: number;
+  topic?: string | null;
+  messageType?: string;
+  text?: string;
+  media?: {
+    downloadCode?: string;
+    spaceId?: string;
+    fileId?: string;
+  };
+}
+
+export interface UpsertInboundMessageContextParams extends BaseUpsertParams {
+  msgId: string;
+}
+
+export interface UpsertOutboundMessageContextParams extends BaseUpsertParams {
+  delivery?: MessageRecord["delivery"];
+}
+
+interface ScopeParams {
+  storePath?: string;
+  accountId: string;
+  conversationId: string | null;
+}
+
+const stateCache = new Map<string, MessageContextState>();
+
+function getScopeKey(params: ScopeParams): string {
+  return JSON.stringify([params.storePath || "__memory__", params.accountId, params.conversationId || null]);
+}
+
+function fallbackState(): MessageContextState {
+  return {
+    version: MESSAGE_CONTEXT_VERSION,
+    updatedAt: Date.now(),
+    records: {},
+    byAlias: {},
+    recentByCreatedAt: [],
+  };
+}
+
+function hydrateState(params: ScopeParams): MessageContextState {
+  if (!params.storePath) {
+    return fallbackState();
+  }
+  const persisted = readNamespaceJson<Partial<MessageContextState>>(MESSAGE_CONTEXT_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    fallback: fallbackState(),
+  });
+  const parsedRecords = asRecord(persisted.records) || {};
+  const hydrated = fallbackState();
+  hydrated.updatedAt = typeof persisted.updatedAt === "number" ? persisted.updatedAt : Date.now();
+  for (const [key, value] of Object.entries(parsedRecords)) {
+    const normalized = normalizeMessageRecord(value);
+    if (normalized) {
+      hydrated.records[key] = normalized;
+    }
+  }
+  return hydrated;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeMedia(value: unknown): MessageRecord["media"] | undefined {
+  const candidate = asRecord(value);
+  if (!candidate) {
+    return undefined;
+  }
+  const downloadCode = typeof candidate.downloadCode === "string" && candidate.downloadCode.trim()
+    ? candidate.downloadCode.trim()
+    : undefined;
+  const spaceId = typeof candidate.spaceId === "string" && candidate.spaceId.trim()
+    ? candidate.spaceId.trim()
+    : undefined;
+  const fileId = typeof candidate.fileId === "string" && candidate.fileId.trim()
+    ? candidate.fileId.trim()
+    : undefined;
+  if (!downloadCode && !spaceId && !fileId) {
+    return undefined;
+  }
+  return { downloadCode, spaceId, fileId };
+}
+
+function normalizeDelivery(value: unknown): MessageRecord["delivery"] | undefined {
+  const candidate = asRecord(value);
+  if (!candidate) {
+    return undefined;
+  }
+  const messageId = typeof candidate.messageId === "string" && candidate.messageId.trim()
+    ? candidate.messageId.trim()
+    : undefined;
+  const processQueryKey = typeof candidate.processQueryKey === "string" && candidate.processQueryKey.trim()
+    ? candidate.processQueryKey.trim()
+    : undefined;
+  const outTrackId = typeof candidate.outTrackId === "string" && candidate.outTrackId.trim()
+    ? candidate.outTrackId.trim()
+    : undefined;
+  const cardInstanceId = typeof candidate.cardInstanceId === "string" && candidate.cardInstanceId.trim()
+    ? candidate.cardInstanceId.trim()
+    : undefined;
+  const kind = typeof candidate.kind === "string" && candidate.kind.trim()
+    ? (candidate.kind.trim() as MessageDeliveryKind)
+    : undefined;
+  if (!messageId && !processQueryKey && !outTrackId && !cardInstanceId && !kind) {
+    return undefined;
+  }
+  return { messageId, processQueryKey, outTrackId, cardInstanceId, kind };
+}
+
+function normalizeMessageRecord(value: unknown): MessageRecord | null {
+  const candidate = asRecord(value);
+  if (!candidate) {
+    return null;
+  }
+  const msgId = typeof candidate.msgId === "string" && candidate.msgId.trim() ? candidate.msgId.trim() : "";
+  const direction = candidate.direction === "outbound" ? "outbound" : candidate.direction === "inbound" ? "inbound" : null;
+  const accountId = typeof candidate.accountId === "string" && candidate.accountId.trim()
+    ? candidate.accountId.trim()
+    : "";
+  const conversationId = typeof candidate.conversationId === "string" && candidate.conversationId.trim()
+    ? candidate.conversationId.trim()
+    : null;
+  const createdAt = typeof candidate.createdAt === "number" && Number.isFinite(candidate.createdAt)
+    ? candidate.createdAt
+    : NaN;
+  const updatedAt = typeof candidate.updatedAt === "number" && Number.isFinite(candidate.updatedAt)
+    ? candidate.updatedAt
+    : Date.now();
+  if (!msgId || !direction || !accountId || !Number.isFinite(createdAt)) {
+    return null;
+  }
+  const expiresAt = typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt)
+    ? candidate.expiresAt
+    : undefined;
+  return {
+    msgId,
+    direction,
+    topic: candidate.topic === null ? null : typeof candidate.topic === "string" ? candidate.topic : null,
+    accountId,
+    conversationId,
+    createdAt,
+    updatedAt,
+    expiresAt,
+    messageType: typeof candidate.messageType === "string" ? candidate.messageType : undefined,
+    text: typeof candidate.text === "string" ? candidate.text : undefined,
+    media: normalizeMedia(candidate.media),
+    delivery: normalizeDelivery(candidate.delivery),
+  };
+}
+
+function buildAliasKey(kind: MessageAliasKind, value: string): string {
+  return `${kind}:${value.trim()}`;
+}
+
+function buildAliasEntries(record: MessageRecord): Array<[string, string]> {
+  const aliases: Array<[string, string]> = [];
+  if (record.direction === "inbound" && record.msgId.trim()) {
+    aliases.push([buildAliasKey("inboundMsgId", record.msgId), record.msgId]);
+  }
+  const delivery = record.delivery;
+  if (!delivery) {
+    return aliases;
+  }
+  if (delivery.messageId) {
+    aliases.push([buildAliasKey("messageId", delivery.messageId), record.msgId]);
+  }
+  if (delivery.processQueryKey) {
+    aliases.push([buildAliasKey("processQueryKey", delivery.processQueryKey), record.msgId]);
+  }
+  if (delivery.outTrackId) {
+    aliases.push([buildAliasKey("outTrackId", delivery.outTrackId), record.msgId]);
+  }
+  if (delivery.cardInstanceId) {
+    aliases.push([buildAliasKey("cardInstanceId", delivery.cardInstanceId), record.msgId]);
+  }
+  return aliases;
+}
+
+function rebuildState(state: MessageContextState, nowMs: number): { state: MessageContextState; removed: number } {
+  const normalizedRecords: Record<string, MessageRecord> = {};
+  const sortedRecords = Object.values(state.records)
+    .map((record) => normalizeMessageRecord(record))
+    .filter((record): record is MessageRecord => record !== null)
+    .filter((record) => !record.expiresAt || nowMs < record.expiresAt)
+    .toSorted((left, right) => left.createdAt - right.createdAt);
+  const keptRecords = sortedRecords.slice(-MAX_RECORDS_PER_SCOPE);
+  for (const record of keptRecords) {
+    normalizedRecords[record.msgId] = record;
+  }
+  const byAlias: Record<string, string> = {};
+  for (const record of keptRecords) {
+    for (const [key, value] of buildAliasEntries(record)) {
+      byAlias[key] = value;
+    }
+  }
+  return {
+    removed: Object.keys(state.records).length - Object.keys(normalizedRecords).length,
+    state: {
+      version: MESSAGE_CONTEXT_VERSION,
+      updatedAt: state.updatedAt,
+      records: normalizedRecords,
+      byAlias,
+      recentByCreatedAt: keptRecords.map((record) => record.msgId),
+    },
+  };
+}
+
+function loadState(params: ScopeParams, nowMs: number = Date.now()): MessageContextState {
+  const scopeKey = getScopeKey(params);
+  const cached = stateCache.get(scopeKey);
+  if (cached) {
+    const rebuilt = rebuildState(cached, nowMs).state;
+    stateCache.set(scopeKey, rebuilt);
+    return rebuilt;
+  }
+  if (!params.storePath) {
+    const emptyState = fallbackState();
+    stateCache.set(scopeKey, emptyState);
+    return emptyState;
+  }
+  const hydrated = hydrateState(params);
+  const rebuilt = rebuildState(hydrated, nowMs).state;
+  stateCache.set(scopeKey, rebuilt);
+  return rebuilt;
+}
+
+function writeState(params: ScopeParams, state: MessageContextState): void {
+  const normalized = rebuildState(state, state.updatedAt || Date.now()).state;
+  stateCache.set(getScopeKey(params), normalized);
+  if (!params.storePath) {
+    return;
+  }
+  writeNamespaceJsonAtomic(MESSAGE_CONTEXT_NAMESPACE, {
+    storePath: params.storePath,
+    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+    format: "json",
+    data: normalized,
+  });
+}
+
+function mergeText(existing: string | undefined, next: string | undefined): string | undefined {
+  if (typeof next !== "string") {
+    return existing;
+  }
+  return next;
+}
+
+function mergeMedia(
+  existing: MessageRecord["media"] | undefined,
+  next: MessageRecord["media"] | undefined,
+): MessageRecord["media"] | undefined {
+  if (!existing) {
+    return next;
+  }
+  if (!next) {
+    return existing;
+  }
+  return {
+    downloadCode: next.downloadCode || existing.downloadCode,
+    spaceId: next.spaceId || existing.spaceId,
+    fileId: next.fileId || existing.fileId,
+  };
+}
+
+function mergeDelivery(
+  existing: MessageRecord["delivery"] | undefined,
+  next: MessageRecord["delivery"] | undefined,
+): MessageRecord["delivery"] | undefined {
+  if (!existing) {
+    return next;
+  }
+  if (!next) {
+    return existing;
+  }
+  return {
+    messageId: next.messageId || existing.messageId,
+    processQueryKey: next.processQueryKey || existing.processQueryKey,
+    outTrackId: next.outTrackId || existing.outTrackId,
+    cardInstanceId: next.cardInstanceId || existing.cardInstanceId,
+    kind: next.kind || existing.kind,
+  };
+}
+
+function resolveExistingMsgId(
+  state: MessageContextState,
+  params: { direction: MessageContextDirection; msgId?: string; delivery?: MessageRecord["delivery"] },
+): string | undefined {
+  if (params.direction === "inbound" && params.msgId && state.records[params.msgId]) {
+    return params.msgId;
+  }
+  const delivery = params.delivery;
+  if (!delivery) {
+    return undefined;
+  }
+  const candidates: Array<[MessageAliasKind, string | undefined]> = [
+    ["messageId", delivery.messageId],
+    ["processQueryKey", delivery.processQueryKey],
+    ["outTrackId", delivery.outTrackId],
+    ["cardInstanceId", delivery.cardInstanceId],
+  ];
+  for (const [kind, value] of candidates) {
+    if (!value) {
+      continue;
+    }
+    const aliasHit = state.byAlias[buildAliasKey(kind, value)];
+    if (aliasHit && state.records[aliasHit]) {
+      return aliasHit;
+    }
+  }
+  return undefined;
+}
+
+function computeExpiresAt(nowMs: number, ttlMs?: number, ttlReferenceMs?: number): number | undefined {
+  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
+    return undefined;
+  }
+  return (typeof ttlReferenceMs === "number" && Number.isFinite(ttlReferenceMs) ? ttlReferenceMs : nowMs) + ttlMs;
+}
+
+function upsertRecord(
+  params: ScopeParams & {
+    direction: MessageContextDirection;
+    msgId?: string;
+    createdAt: number;
+    updatedAt?: number;
+    topic?: string | null;
+    ttlMs?: number;
+    ttlReferenceMs?: number;
+    messageType?: string;
+    text?: string;
+    media?: MessageRecord["media"];
+    delivery?: MessageRecord["delivery"];
+  },
+): string | undefined {
+  const nowMs = params.updatedAt ?? Date.now();
+  const state = loadState(params, nowMs);
+  const existingMsgId = resolveExistingMsgId(state, {
+    direction: params.direction,
+    msgId: params.msgId,
+    delivery: params.delivery,
+  });
+  const canonicalMsgId =
+    existingMsgId ||
+    params.msgId ||
+    (params.direction === "inbound"
+      ? params.msgId
+      : params.delivery?.messageId || params.delivery?.processQueryKey || params.delivery?.outTrackId);
+  if (!canonicalMsgId || !canonicalMsgId.trim()) {
+    return undefined;
+  }
+  const existing = state.records[canonicalMsgId];
+  const expiresAt = computeExpiresAt(nowMs, params.ttlMs, params.ttlReferenceMs);
+  state.records[canonicalMsgId] = {
+    msgId: canonicalMsgId,
+    direction: params.direction,
+    topic: params.topic ?? existing?.topic ?? null,
+    accountId: params.accountId,
+    conversationId: params.conversationId,
+    createdAt: existing?.createdAt ?? params.createdAt,
+    updatedAt: nowMs,
+    expiresAt:
+      expiresAt === undefined
+        ? existing?.expiresAt
+        : Math.max(expiresAt, existing?.expiresAt ?? 0),
+    messageType: params.messageType || existing?.messageType,
+    text: mergeText(existing?.text, params.text),
+    media: mergeMedia(existing?.media, params.media),
+    delivery: mergeDelivery(existing?.delivery, params.delivery),
+  };
+  state.updatedAt = nowMs;
+  writeState(params, state);
+  return canonicalMsgId;
+}
+
+export function upsertInboundMessageContext(params: UpsertInboundMessageContextParams): string {
+  return (
+    upsertRecord({
+      ...params,
+      direction: "inbound",
+      topic: params.topic ?? null,
+      msgId: params.msgId,
+    }) || params.msgId
+  );
+}
+
+export function upsertOutboundMessageContext(params: UpsertOutboundMessageContextParams): string | undefined {
+  return upsertRecord({
+    ...params,
+    direction: "outbound",
+    topic: params.topic ?? null,
+  });
+}
+
+let syntheticCounter = 0;
+
+export function upsertCreatedAtFallbackMessageContext(
+  params: Omit<UpsertOutboundMessageContextParams, "delivery">,
+): string {
+  syntheticCounter += 1;
+  const syntheticMsgId = `createdAt:${params.createdAt}:${syntheticCounter}`;
+  return (
+    upsertRecord({
+      ...params,
+      direction: "outbound",
+      topic: params.topic ?? null,
+      msgId: syntheticMsgId,
+    }) || syntheticMsgId
+  );
+}
+
+function getRecordByCanonicalOrInboundAlias(
+  params: ScopeParams & { msgId: string; nowMs?: number },
+): MessageRecord | null {
+  const state = loadState(params, params.nowMs);
+  const direct = state.records[params.msgId];
+  if (direct) {
+    return direct;
+  }
+  const aliasTarget = state.byAlias[buildAliasKey("inboundMsgId", params.msgId)];
+  if (!aliasTarget) {
+    return null;
+  }
+  return state.records[aliasTarget] || null;
+}
+
+export function resolveByAlias(params: ScopeParams & { kind: MessageAliasKind; value: string; nowMs?: number }): MessageRecord | null {
+  const state = loadState(params, params.nowMs);
+  const msgId = state.byAlias[buildAliasKey(params.kind, params.value)];
+  if (!msgId) {
+    return null;
+  }
+  return state.records[msgId] || null;
+}
+
+export function resolveQuotedTextByMsgId(
+  params: ScopeParams & { msgId: string; ttlDays?: number; nowMs?: number },
+): { msgId: string; text?: string; createdAt: number } | null {
+  const record = getRecordByCanonicalOrInboundAlias(params);
+  if (!record || typeof record.text !== "string") {
+    return null;
+  }
+  const nowMs = params.nowMs ?? Date.now();
+  const ttlDays = params.ttlDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
+  if (ttlDays > 0) {
+    const cutoff = nowMs - ttlDays * 24 * 60 * 60 * 1000;
+    if (record.createdAt < cutoff) {
+      return null;
+    }
+  }
+  return { msgId: record.msgId, text: record.text, createdAt: record.createdAt };
+}
+
+export function resolveQuotedMediaByMsgId(
+  params: ScopeParams & { msgId: string; nowMs?: number },
+): { msgId: string; media?: MessageRecord["media"]; createdAt: number; messageType?: string; expiresAt?: number } | null {
+  const record = getRecordByCanonicalOrInboundAlias(params);
+  if (!record?.media) {
+    return null;
+  }
+  return {
+    msgId: record.msgId,
+    media: record.media,
+    createdAt: record.createdAt,
+    messageType: record.messageType,
+    expiresAt: record.expiresAt,
+  };
+}
+
+export function resolveQuotedCardByProcessQueryKey(
+  params: ScopeParams & { processQueryKey: string; nowMs?: number },
+): string | null {
+  const record = resolveByAlias({ ...params, kind: "processQueryKey", value: params.processQueryKey });
+  if (!record?.text?.trim()) {
+    return null;
+  }
+  return record.text;
+}
+
+export function resolveByCreatedAtWindow(
+  params: ScopeParams & {
+    createdAt: number;
+    windowMs?: number;
+    direction?: MessageContextDirection;
+    nowMs?: number;
+  },
+): MessageRecord | null {
+  const nowMs = params.nowMs ?? Date.now();
+  const windowMs = params.windowMs ?? DEFAULT_CREATED_AT_MATCH_WINDOW_MS;
+  const state = loadState(params, nowMs);
+  let bestRecord: MessageRecord | null = null;
+  let bestDelta = Infinity;
+  for (const msgId of state.recentByCreatedAt) {
+    const record = state.records[msgId];
+    if (!record) {
+      continue;
+    }
+    if (params.direction && record.direction !== params.direction) {
+      continue;
+    }
+    const delta = Math.abs(record.createdAt - params.createdAt);
+    if (delta <= windowMs && delta < bestDelta) {
+      bestDelta = delta;
+      bestRecord = record;
+    }
+  }
+  return bestRecord;
+}
+
+export function cleanupExpiredMessageContexts(
+  params: ScopeParams & { nowMs?: number },
+): number {
+  const nowMs = params.nowMs ?? Date.now();
+  const scopeKey = getScopeKey(params);
+  const rawState = stateCache.get(scopeKey) || hydrateState(params);
+  const beforeCount = Object.keys(rawState.records).length;
+  const state = loadState(params, nowMs);
+  const rebuilt = rebuildState(state, nowMs);
+  const removed = beforeCount - Object.keys(rebuilt.state.records).length;
+  if (removed > 0) {
+    rebuilt.state.updatedAt = nowMs;
+    writeState(params, rebuilt.state);
+  }
+  return removed;
+}
+
+export function cleanupMessageContextsByCreatedAt(
+  params: ScopeParams & { ttlDays: number; nowMs?: number },
+): number {
+  const nowMs = params.nowMs ?? Date.now();
+  const ttlDays = params.ttlDays;
+  if (!ttlDays || ttlDays <= 0) {
+    return 0;
+  }
+  const state = loadState(params);
+  const beforeCount = Object.keys(state.records).length;
+  const cutoff = nowMs - ttlDays * 24 * 60 * 60 * 1000;
+  const nextRecords: Record<string, MessageRecord> = {};
+  for (const [msgId, record] of Object.entries(state.records)) {
+    if (record.createdAt >= cutoff) {
+      nextRecords[msgId] = record;
+    }
+  }
+  const removed = beforeCount - Object.keys(nextRecords).length;
+  if (removed > 0) {
+    state.records = nextRecords;
+    state.updatedAt = nowMs;
+    writeState(params, state);
+  }
+  return removed;
+}
+
+export function clearMessageContextCacheForTest(): void {
+  stateCache.clear();
+  syntheticCounter = 0;
+}

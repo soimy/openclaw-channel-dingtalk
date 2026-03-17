@@ -56,56 +56,62 @@ describe('persistence migration sanity', () => {
         expect(fs.existsSync(namespaced)).toBe(true);
     });
 
-    it('restores quoted message and card-content entries from persisted files after cache clear', () => {
+    it('restores quoted message and card-content entries from unified persisted file after cache clear', () => {
         const storePath = createStorePath();
         const accountId = 'main';
         const conversationId = 'cid_restore';
 
-        const quotedPath = resolveNamespacePath('quoted.msg-download-code', {
+        const unifiedPath = resolveNamespacePath('messages.context', {
             storePath,
             scope: { accountId, conversationId },
             format: 'json',
         });
-        fs.mkdirSync(path.dirname(quotedPath), { recursive: true });
+        fs.mkdirSync(path.dirname(unifiedPath), { recursive: true });
         fs.writeFileSync(
-            quotedPath,
+            unifiedPath,
             JSON.stringify(
                 {
+                    version: 1,
                     updatedAt: Date.now(),
-                    entries: {
+                    records: {
                         msg_restore: {
-                            downloadCode: 'dl_restore',
-                            msgType: 'file',
+                            msgId: 'msg_restore',
+                            direction: 'inbound',
+                            topic: null,
+                            accountId,
+                            conversationId,
                             createdAt: Date.now(),
+                            updatedAt: Date.now(),
                             expiresAt: Date.now() + 60_000,
-                            spaceId: 'space_restore',
-                            fileId: 'file_restore',
+                            messageType: 'file',
+                            media: {
+                                downloadCode: 'dl_restore',
+                                spaceId: 'space_restore',
+                                fileId: 'file_restore',
+                            },
                         },
-                    },
-                },
-                null,
-                2,
-            ),
-        );
-
-        const cardPath = resolveNamespacePath('cards.content.quote-process-query', {
-            storePath,
-            scope: { accountId, conversationId },
-            format: 'json',
-        });
-        fs.mkdirSync(path.dirname(cardPath), { recursive: true });
-        fs.writeFileSync(
-            cardPath,
-            JSON.stringify(
-                {
-                    updatedAt: Date.now(),
-                    entries: {
                         carrier_restore: {
-                            content: 'restored card content',
+                            msgId: 'carrier_restore',
+                            direction: 'outbound',
+                            topic: null,
+                            accountId,
+                            conversationId,
                             createdAt: 1_000_000,
+                            updatedAt: Date.now(),
                             expiresAt: Date.now() + 60_000,
+                            messageType: 'card',
+                            text: 'restored card content',
+                            delivery: {
+                                processQueryKey: 'carrier_restore',
+                                kind: 'proactive-card',
+                            },
                         },
                     },
+                    byAlias: {
+                        'inboundMsgId:msg_restore': 'msg_restore',
+                        'processQueryKey:carrier_restore': 'carrier_restore',
+                    },
+                    recentByCreatedAt: ['carrier_restore', 'msg_restore'],
                 },
                 null,
                 2,

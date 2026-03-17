@@ -186,7 +186,7 @@ describe('quote-journal', () => {
 
     expect(hit).toBeNull();
 
-    const persistedFile = resolveNamespacePath('quoted.msg-journal', {
+    const persistedFile = resolveNamespacePath('messages.context', {
       storePath,
       scope: { accountId: 'main', conversationId: 'cid_1' },
       format: 'json',
