@@ -6,7 +6,7 @@ import type {
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
-import { analyzeCardCallback } from "./card-callback-service";
+import { analyzeCardCallback, extractCardActionParams, formatCardActionMessage } from "./card-callback-service";
 import {
   createAICard,
   streamAICard,
@@ -776,6 +776,36 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack: ${sendErr?.message || String(sendErr)}`,
                 );
               }
+            } else if (analysis.params && Object.keys(analysis.params).length > 0) {
+              const messageText = formatCardActionMessage(analysis.params);
+              const spaceType = (typeof payload.spaceType === "string" ? payload.spaceType.trim().toLowerCase() : "");
+              const isDirect = spaceType === "im";
+              const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
+              const spaceId = typeof payload.spaceId === "string" ? payload.spaceId.trim() : "";
+
+              const syntheticData = {
+                msgId: `card_action_${messageId || randomUUID()}`,
+                msgtype: "text" as const,
+                text: { content: messageText },
+                conversationType: isDirect ? "1" : "2",
+                conversationId: isDirect ? userId : spaceId,
+                senderId: userId,
+                chatbotUserId: "",
+                sessionWebhook: "",
+              };
+
+              ctx.log?.info?.(
+                `[${account.accountId}] [DingTalk][CardCallback] forwarding action params to AI: ${messageText}`,
+              );
+
+              await handleDingTalkMessage({
+                cfg,
+                accountId: account.accountId,
+                data: syntheticData,
+                sessionWebhook: "",
+                log: ctx.log,
+                dingtalkConfig: config,
+              });
             }
           } catch (error: any) {
             ctx.log?.error?.(

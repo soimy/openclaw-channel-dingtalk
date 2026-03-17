@@ -362,6 +362,94 @@ describe('gateway inbound callback pipeline', () => {
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_1', { success: true });
     });
 
+    it('forwards non-feedback card action callback to handleDingTalkMessage', async () => {
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_2' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['btn_run_sql'],
+                        params: { '运行吗': '运行SQL' },
+                    },
+                }),
+                spaceType: 'IM',
+                userId: 'user_action_1',
+                spaceId: 'space_123',
+            }),
+        });
+
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                accountId: 'main',
+                data: expect.objectContaining({
+                    msgtype: 'text',
+                    text: { content: '[Card Action Callback]\n运行吗: 运行SQL' },
+                    conversationType: '1',
+                    senderId: 'user_action_1',
+                }),
+            }),
+        );
+        expect(shared.sendProactiveTextMock).not.toHaveBeenCalled();
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', { success: true });
+    });
+
+    it('forwards group card action callback with correct conversationType', async () => {
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_3' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['btn_confirm'],
+                        params: { action: 'confirm' },
+                    },
+                }),
+                spaceType: 'GROUP',
+                userId: 'user_group_1',
+                spaceId: 'space_group_456',
+            }),
+        });
+
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    conversationType: '2',
+                    conversationId: 'space_group_456',
+                    senderId: 'user_group_1',
+                }),
+            }),
+        );
+    });
+
+    it('does not forward card callback without params', async () => {
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_4' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: { actionIds: ['btn_no_params'] },
+                }),
+                spaceType: 'IM',
+                userId: 'user_no_params',
+            }),
+        });
+
+        expect(shared.handleDingTalkMessageMock).not.toHaveBeenCalled();
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_4', { success: true });
+    });
+
     it('clears account in-flight locks on disconnect state change', async () => {
         shared.isMessageProcessedMock.mockReturnValue(false);
         let resolveFirst: (() => void) | undefined;

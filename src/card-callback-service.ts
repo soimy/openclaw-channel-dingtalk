@@ -5,6 +5,7 @@ export interface CardCallbackAnalysis {
   feedbackAckText?: string;
   userId?: string;
   processQueryKey?: string;
+  params?: Record<string, unknown>;
 }
 
 function stringifyCandidate(value: unknown): string {
@@ -83,6 +84,36 @@ export function extractCardActionId(data: unknown): string | undefined {
   return undefined;
 }
 
+export function extractCardActionParams(data: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(data);
+  const embeddedValue = asRecord(parseEmbeddedJson(record?.value));
+  const embeddedContent = asRecord(parseEmbeddedJson(record?.content));
+
+  // Skip feedback actions — those are handled separately
+  const actionId = extractCardActionId(data);
+  if (actionId === "feedback_up" || actionId === "feedback_down") {
+    return undefined;
+  }
+
+  for (const source of [embeddedValue, embeddedContent, record].filter(Boolean)) {
+    const sourceRecord = asRecord(source);
+    const cardPrivateData = asRecord(sourceRecord?.cardPrivateData);
+    const params = asRecord(cardPrivateData?.params);
+    if (params && Object.keys(params).length > 0) {
+      return params;
+    }
+  }
+
+  return undefined;
+}
+
+export function formatCardActionMessage(params: Record<string, unknown>): string {
+  const lines = Object.entries(params).map(
+    ([key, value]) => `${key}: ${stringifyCandidate(value)}`,
+  );
+  return `[Card Action Callback]\n${lines.join("\n")}`;
+}
+
 export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   const record = asRecord(data);
   const summary = extractCardActionSummary(data);
@@ -96,7 +127,8 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
     undefined;
 
   if (actionId !== "feedback_up" && actionId !== "feedback_down") {
-    return { summary, actionId, processQueryKey };
+    const params = extractCardActionParams(data);
+    return { summary, actionId, processQueryKey, params };
   }
 
   const spaceType = typeof record?.spaceType === "string" ? record.spaceType.trim().toLowerCase() : "";
