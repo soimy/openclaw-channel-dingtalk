@@ -15,6 +15,8 @@
  * - Maps tool_execution_start events to emoji via resolveToolReactionEmoji
  * - Recalls the previous reaction and attaches the new one
  * - Fires a heartbeat reaction if no tool event arrives for 55+ seconds
+ * - On dispose: recalls the current reaction and notifies the caller via
+ *   onReactionDisposed so the finally block does not double-recall
  * - Cleans up (unsubscribe + clear timer) on finalize/abort
  *
  * Important: the subscription MUST filter by runId or sessionKey to avoid
@@ -39,6 +41,12 @@ export interface DynamicReactionParams {
   onAttachReaction: (reactionName: string) => Promise<boolean>;
   onRecallReaction: (reactionName: string) => Promise<void>;
   subscribeAgentEvents: (listener: (event: unknown) => void) => () => void;
+  /**
+   * Called when the decorator recalls its current reaction during dispose.
+   * The caller should set ackReactionAttached=false so the finally block
+   * does not attempt to recall the same (already-removed) reaction.
+   */
+  onReactionDisposed?: () => void;
   log?: Logger;
 }
 
@@ -78,6 +86,7 @@ export function withDynamicReaction(
 ): ReplyStrategy {
   const { log } = params;
   let currentReaction = params.initialReaction;
+  let reactionChanged = false;
   let disposed = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let lastEventAt = 0;
@@ -90,6 +99,7 @@ export function withDynamicReaction(
     const ok = await params.onAttachReaction(nextReaction);
     if (ok) {
       currentReaction = nextReaction;
+      reactionChanged = true;
       lastEventAt = Date.now();
     }
   };
@@ -120,13 +130,25 @@ export function withDynamicReaction(
     }
   }, TOOL_HEARTBEAT_INTERVAL_MS);
 
-  const dispose = () => {
+  const dispose = async () => {
     if (disposed) return;
     disposed = true;
     unsubscribe();
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
+    }
+    // Wait for any in-flight reaction update to finish.
+    await updateChain.catch(() => undefined);
+    // Recall whatever reaction is currently displayed, then notify the
+    // caller so the finally block does not double-recall.
+    if (reactionChanged) {
+      try {
+        await params.onRecallReaction(currentReaction);
+        params.onReactionDisposed?.();
+      } catch (err: any) {
+        log?.warn?.(`[DingTalk] Failed to recall reaction on dispose: ${err.message}`);
+      }
     }
   };
 
@@ -140,17 +162,12 @@ export function withDynamicReaction(
     },
 
     async finalize(): Promise<void> {
-      dispose();
-      // Wait for any in-flight reaction update to complete before inner.finalize(),
-      // otherwise the ack reaction recall in the finally block may race with
-      // an ongoing onRecallReaction from the update chain.
-      await updateChain.catch(() => undefined);
+      await dispose();
       await inner.finalize();
     },
 
     async abort(error: Error): Promise<void> {
-      dispose();
-      await updateChain.catch(() => undefined);
+      await dispose();
       await inner.abort(error);
     },
 

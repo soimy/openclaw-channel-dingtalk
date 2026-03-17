@@ -85,13 +85,11 @@ describe("withDynamicReaction", () => {
             subscribeAgentEvents,
         }));
 
-        // Fire a tool event
         eventListener({
             stream: "tool",
             data: { phase: "start", name: "web_search" },
         });
 
-        // Let promises resolve
         await vi.advanceTimersByTimeAsync(10);
 
         expect(onRecallReaction).toHaveBeenCalledWith("🤔思考中");
@@ -253,5 +251,129 @@ describe("withDynamicReaction", () => {
 
             expect(onAttachReaction).toHaveBeenCalledWith(expectedEmoji);
         }
+    });
+
+    it("dispose recalls current reaction and calls onReactionDisposed when reaction changed", async () => {
+        const inner = buildInnerStrategy();
+        const onAttachReaction = vi.fn().mockResolvedValue(true);
+        const onRecallReaction = vi.fn().mockResolvedValue(undefined);
+        const onReactionDisposed = vi.fn();
+        let eventListener: (event: unknown) => void = () => {};
+        const subscribeAgentEvents = vi.fn((listener: (event: unknown) => void) => {
+            eventListener = listener;
+            return vi.fn();
+        });
+
+        const decorated = withDynamicReaction(inner, buildParams({
+            onAttachReaction,
+            onRecallReaction,
+            subscribeAgentEvents,
+            onReactionDisposed,
+        }));
+
+        // Switch reaction from initial to 🌐
+        eventListener({ stream: "tool", data: { phase: "start", name: "web_search" } });
+        await vi.advanceTimersByTimeAsync(10);
+
+        // onRecallReaction called once for the switch (recall initial)
+        expect(onRecallReaction).toHaveBeenCalledTimes(1);
+        expect(onRecallReaction).toHaveBeenCalledWith("🤔思考中");
+
+        onRecallReaction.mockClear();
+
+        // finalize triggers dispose which recalls current reaction (🌐)
+        await decorated.finalize();
+
+        expect(onRecallReaction).toHaveBeenCalledTimes(1);
+        expect(onRecallReaction).toHaveBeenCalledWith("🌐");
+        expect(onReactionDisposed).toHaveBeenCalledTimes(1);
+    });
+
+    it("dispose does not recall or notify when reaction never changed", async () => {
+        const inner = buildInnerStrategy();
+        const onRecallReaction = vi.fn().mockResolvedValue(undefined);
+        const onReactionDisposed = vi.fn();
+
+        const decorated = withDynamicReaction(inner, buildParams({
+            onRecallReaction,
+            onReactionDisposed,
+        }));
+
+        // No tool events fired — reaction never changed
+        await decorated.finalize();
+
+        // onRecallReaction should NOT be called during dispose (no change happened)
+        expect(onRecallReaction).not.toHaveBeenCalled();
+        expect(onReactionDisposed).not.toHaveBeenCalled();
+    });
+
+    it("dispose handles onRecallReaction failure gracefully", async () => {
+        const inner = buildInnerStrategy();
+        const onAttachReaction = vi.fn().mockResolvedValue(true);
+        const onRecallReaction = vi.fn()
+            .mockResolvedValueOnce(undefined) // first switch recall succeeds
+            .mockRejectedValueOnce(new Error("recall api error")); // dispose recall fails
+        const onReactionDisposed = vi.fn();
+        const log = { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() };
+        let eventListener: (event: unknown) => void = () => {};
+        const subscribeAgentEvents = vi.fn((listener: (event: unknown) => void) => {
+            eventListener = listener;
+            return vi.fn();
+        });
+
+        const decorated = withDynamicReaction(inner, buildParams({
+            onAttachReaction,
+            onRecallReaction,
+            subscribeAgentEvents,
+            onReactionDisposed,
+            log: log as any,
+        }));
+
+        // Switch reaction
+        eventListener({ stream: "tool", data: { phase: "start", name: "read" } });
+        await vi.advanceTimersByTimeAsync(10);
+
+        // finalize — dispose recall will fail but should not throw
+        await decorated.finalize();
+
+        expect(log.warn).toHaveBeenCalledWith(
+            expect.stringContaining("Failed to recall reaction on dispose"),
+        );
+        // onReactionDisposed should NOT be called when recall fails
+        expect(onReactionDisposed).not.toHaveBeenCalled();
+        // inner.finalize should still be called
+        expect(inner.finalize).toHaveBeenCalledTimes(1);
+    });
+
+    it("abort also recalls current reaction via dispose", async () => {
+        const inner = buildInnerStrategy();
+        const onAttachReaction = vi.fn().mockResolvedValue(true);
+        const onRecallReaction = vi.fn().mockResolvedValue(undefined);
+        const onReactionDisposed = vi.fn();
+        let eventListener: (event: unknown) => void = () => {};
+        const subscribeAgentEvents = vi.fn((listener: (event: unknown) => void) => {
+            eventListener = listener;
+            return vi.fn();
+        });
+
+        const decorated = withDynamicReaction(inner, buildParams({
+            onAttachReaction,
+            onRecallReaction,
+            subscribeAgentEvents,
+            onReactionDisposed,
+        }));
+
+        // Switch reaction
+        eventListener({ stream: "tool", data: { phase: "start", name: "write" } });
+        await vi.advanceTimersByTimeAsync(10);
+
+        onRecallReaction.mockClear();
+
+        await decorated.abort(new Error("crash"));
+
+        // dispose recalls current reaction (✍️)
+        expect(onRecallReaction).toHaveBeenCalledWith("✍️");
+        expect(onReactionDisposed).toHaveBeenCalledTimes(1);
+        expect(inner.abort).toHaveBeenCalledTimes(1);
     });
 });
