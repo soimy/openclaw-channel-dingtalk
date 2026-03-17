@@ -492,7 +492,7 @@ export async function sendMessage(
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
 
-    if (messageType === "card" && options.card) {
+    if (messageType === "card" && options.card && !options.forceMarkdown) {
       const card = options.card;
       if (isCardInTerminalState(card.state)) {
         if (options.sessionWebhook) {

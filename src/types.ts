@@ -322,6 +322,9 @@ export interface SendMessageOptions {
   accountId?: string;
   storePath?: string;
   cardUpdateMode?: "append";
+  /** Force markdown/text delivery even when messageType is "card". Bypasses card
+   *  creation while preserving journal writes and other side-effects. */
+  forceMarkdown?: boolean;
 }
 
 export interface DingTalkTrackingMetadata {

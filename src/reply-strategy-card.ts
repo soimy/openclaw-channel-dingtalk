@@ -13,7 +13,7 @@ import {
 } from "./card-service";
 import { createCardDraftController } from "./card-draft-controller";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
-import { sendBySession, sendMessage, sendProactiveTextOrMarkdown } from "./send-service";
+import { sendMessage } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
@@ -139,18 +139,17 @@ export function createCardReplyStrategy(
           || card.lastStreamedContent;
         if (fallbackText) {
           log?.debug?.("[DingTalk] Card failed during streaming, sending markdown fallback");
-          if (ctx.sessionWebhook) {
-            await sendBySession(ctx.config, ctx.sessionWebhook, fallbackText, {
-              atUserId: !ctx.isDirect ? ctx.senderId : null,
-              log,
-            });
-          } else {
-            await sendProactiveTextOrMarkdown(
-              { ...ctx.config, messageType: "markdown" },
-              ctx.to,
-              fallbackText,
-              { atUserId: !ctx.isDirect ? ctx.senderId : null, log, accountId: ctx.accountId, storePath: ctx.storePath, conversationId: ctx.groupId },
-            );
+          const sendResult = await sendMessage(ctx.config, ctx.to, fallbackText, {
+            sessionWebhook: ctx.sessionWebhook,
+            atUserId: !ctx.isDirect ? ctx.senderId : null,
+            log,
+            accountId: ctx.accountId,
+            storePath: ctx.storePath,
+            conversationId: ctx.groupId,
+            forceMarkdown: true,
+          });
+          if (!sendResult.ok) {
+            throw new Error(sendResult.error || "Markdown fallback send failed after card failure");
           }
         } else {
           log?.debug?.("[DingTalk] Card failed but no content to fallback with");
