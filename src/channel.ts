@@ -6,7 +6,7 @@ import type {
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
-import { analyzeCardCallback, extractCardActionParams, formatCardActionMessage } from "./card-callback-service";
+import { analyzeCardCallback, formatCardActionMessage } from "./card-callback-service";
 import {
   createAICard,
   streamAICard,
@@ -776,7 +776,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack: ${sendErr?.message || String(sendErr)}`,
                 );
               }
-            } else if (analysis.params && Object.keys(analysis.params).length > 0) {
+            } else if (analysis.params) {
               const messageText = formatCardActionMessage(analysis.params);
               const spaceType = (typeof payload.spaceType === "string" ? payload.spaceType.trim().toLowerCase() : "");
               const isDirect = spaceType === "im";
@@ -786,6 +786,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               const syntheticData = {
                 msgId: `card_action_${messageId || randomUUID()}`,
                 msgtype: "text" as const,
+                createAt: Date.now(),
                 text: { content: messageText },
                 conversationType: isDirect ? "1" : "2",
                 conversationId: isDirect ? userId : spaceId,
@@ -798,14 +799,20 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 `[${account.accountId}] [DingTalk][CardCallback] forwarding action params to AI: ${messageText}`,
               );
 
-              await handleDingTalkMessage({
-                cfg,
-                accountId: account.accountId,
-                data: syntheticData,
-                sessionWebhook: "",
-                log: ctx.log,
-                dingtalkConfig: config,
-              });
+              try {
+                await handleDingTalkMessage({
+                  cfg,
+                  accountId: account.accountId,
+                  data: syntheticData,
+                  sessionWebhook: "",
+                  log: ctx.log,
+                  dingtalkConfig: config,
+                });
+              } catch (forwardErr: any) {
+                ctx.log?.warn?.(
+                  `[${account.accountId}] [DingTalk][CardCallback] Failed to forward action callback: ${forwardErr?.message || String(forwardErr)}`,
+                );
+              }
             }
           } catch (error: any) {
             ctx.log?.error?.(

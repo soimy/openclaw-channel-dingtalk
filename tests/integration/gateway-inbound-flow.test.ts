@@ -450,6 +450,33 @@ describe('gateway inbound callback pipeline', () => {
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_4', { success: true });
     });
 
+    it('still acknowledges card callback when forwarding fails', async () => {
+        shared.handleDingTalkMessageMock.mockRejectedValueOnce(new Error('downstream failure'));
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_5' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['btn_fail'],
+                        params: { action: 'will_fail' },
+                    },
+                }),
+                spaceType: 'IM',
+                userId: 'user_fail',
+            }),
+        });
+
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+        expect(ctx.log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to forward action callback'),
+        );
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', { success: true });
+    });
+
     it('clears account in-flight locks on disconnect state change', async () => {
         shared.isMessageProcessedMock.mockReturnValue(false);
         let resolveFirst: (() => void) | undefined;
