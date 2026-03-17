@@ -5,6 +5,7 @@ import type {
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
+import { buildChannelConfigSchema } from "openclaw/plugin-sdk/discord";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
 import {
@@ -315,7 +316,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     blurb: "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
     aliases: ["dd", "ding"],
   },
-  configSchema: pluginSdk.buildChannelConfigSchema(DingTalkConfigSchema),
+  configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
   onboarding: dingtalkOnboardingAdapter,
   capabilities: {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
