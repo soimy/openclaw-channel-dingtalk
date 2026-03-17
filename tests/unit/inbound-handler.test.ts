@@ -3684,11 +3684,12 @@ describe('inbound-handler', () => {
         const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
         expect(debugLogs.some((msg) => msg.includes('Card failed during streaming, sending markdown fallback'))).toBe(true);
 
-        const fallbackCalls = shared.sendMessageMock.mock.calls.filter(
-            (call: any[]) => !call[3]?.card && !call[3]?.cardUpdateMode
-        );
-        expect(fallbackCalls.length).toBeGreaterThanOrEqual(1);
-        expect(fallbackCalls[0][2]).toBe('complete final answer');
+        // Fallback now uses sendBySession directly (bypassing sendMessage to avoid
+        // sendProactiveCardText creating a second card).
+        expect(shared.sendBySessionMock).toHaveBeenCalled();
+        const sessionCalls = shared.sendBySessionMock.mock.calls;
+        const fallbackCall = sessionCalls.find((call: any[]) => call[2] === 'complete final answer');
+        expect(fallbackCall).toBeTruthy();
     });
 
     it('acquires session lock with the resolved sessionKey', async () => {
