@@ -789,7 +789,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 createAt: Date.now(),
                 text: { content: messageText },
                 conversationType: isDirect ? "1" : "2",
-                conversationId: isDirect ? userId : spaceId,
+                conversationId: spaceId,
                 senderId: userId,
                 chatbotUserId: "",
                 sessionWebhook: "",

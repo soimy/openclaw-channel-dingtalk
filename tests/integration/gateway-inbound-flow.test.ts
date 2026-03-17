@@ -390,6 +390,7 @@ describe('gateway inbound callback pipeline', () => {
                     msgtype: 'text',
                     text: { content: '[Card Action Callback]\n运行吗: 运行SQL' },
                     conversationType: '1',
+                    conversationId: 'space_123',
                     senderId: 'user_action_1',
                 }),
             }),
