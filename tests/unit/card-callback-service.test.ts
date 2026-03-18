@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   analyzeCardCallback,
   extractCardActionId,
   extractCardActionParams,
   formatCardActionMessage,
+  updateCardVariables,
 } from "../../src/card-callback-service";
 
 describe("card-callback-service", () => {
@@ -52,11 +53,11 @@ describe("card-callback-service", () => {
         value: JSON.stringify({
           cardPrivateData: {
             actionIds: ["btn_run"],
-            params: { "运行吗": "运行SQL" },
+            params: { status: "approved" },
           },
         }),
       });
-      expect(result).toEqual({ "运行吗": "运行SQL" });
+      expect(result).toEqual({ status: "approved" });
     });
 
     it("extracts params from top-level cardPrivateData", () => {
@@ -92,8 +93,8 @@ describe("card-callback-service", () => {
 
   describe("formatCardActionMessage", () => {
     it("formats params as [Card Action Callback] block", () => {
-      const result = formatCardActionMessage({ "运行吗": "运行SQL" });
-      expect(result).toBe("[Card Action Callback]\n运行吗: 运行SQL");
+      const result = formatCardActionMessage({ status: "approved" });
+      expect(result).toBe("[Card Action Callback]\nstatus: approved");
     });
 
     it("formats multiple params with one per line", () => {
@@ -107,8 +108,8 @@ describe("card-callback-service", () => {
     });
 
     it("includes outTrackId when provided", () => {
-      const result = formatCardActionMessage({ "运行吗": "运行SQL" }, "card-1773752494405");
-      expect(result).toBe("[Card Action Callback]\noutTrackId: card-1773752494405\n运行吗: 运行SQL");
+      const result = formatCardActionMessage({ status: "approved" }, "card-1773752494405");
+      expect(result).toBe("[Card Action Callback]\noutTrackId: card-1773752494405\nstatus: approved");
     });
 
     it("omits outTrackId when not provided", () => {
@@ -117,12 +118,30 @@ describe("card-callback-service", () => {
     });
   });
 
+  describe("updateCardVariables", () => {
+    it("sends PUT request with stringified params", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({ status: 200 } as Response);
+      const status = await updateCardVariables("card-123", { status: "approved", count: 42 }, "test-token");
+      expect(status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchSpy.mock.calls[0]!;
+      expect(url).toBe("https://api.dingtalk.com/v1.0/card/instances");
+      expect(options!.method).toBe("PUT");
+      expect((options!.headers as Record<string, string>)["x-acs-dingtalk-access-token"]).toBe("test-token");
+      const body = JSON.parse(options!.body as string);
+      expect(body.outTrackId).toBe("card-123");
+      expect(body.cardData.cardParamMap).toEqual({ status: "approved", count: "42" });
+      expect(body.cardUpdateOptions.updateCardDataByKey).toBe(true);
+      fetchSpy.mockRestore();
+    });
+  });
+
   it("analyzeCardCallback populates params and outTrackId for non-feedback actions", () => {
     const analysis = analyzeCardCallback({
       value: JSON.stringify({
         cardPrivateData: {
           actionIds: ["btn_run"],
-          params: { "运行吗": "运行SQL" },
+          params: { status: "approved" },
         },
       }),
       outTrackId: "card-12345",
@@ -130,7 +149,7 @@ describe("card-callback-service", () => {
       userId: "user_456",
       spaceId: "space_789",
     });
-    expect(analysis.params).toEqual({ "运行吗": "运行SQL" });
+    expect(analysis.params).toEqual({ status: "approved" });
     expect(analysis.outTrackId).toBe("card-12345");
     expect(analysis.feedbackTarget).toBeUndefined();
   });

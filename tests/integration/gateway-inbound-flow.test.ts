@@ -11,6 +11,8 @@ const shared = vi.hoisted(() => ({
     markMessageProcessedMock: vi.fn(),
     handleDingTalkMessageMock: vi.fn(),
     sendProactiveTextMock: vi.fn(),
+    getAccessTokenMock: vi.fn().mockResolvedValue('mock-token'),
+    updateCardVariablesMock: vi.fn().mockResolvedValue(200),
     connectionConfig: undefined as any,
 }));
 
@@ -61,6 +63,18 @@ vi.mock('../../src/dedup', () => ({
 vi.mock('../../src/inbound-handler', () => ({
     handleDingTalkMessage: shared.handleDingTalkMessageMock,
 }));
+
+vi.mock('../../src/auth', () => ({
+    getAccessToken: shared.getAccessTokenMock,
+}));
+
+vi.mock('../../src/card-callback-service', async (importOriginal) => {
+    const orig = await importOriginal<typeof import('../../src/card-callback-service')>();
+    return {
+        ...orig,
+        updateCardVariables: shared.updateCardVariablesMock,
+    };
+});
 
 vi.mock('../../src/send-service', () => ({
     sendMessage: vi.fn(),
@@ -372,8 +386,8 @@ describe('gateway inbound callback pipeline', () => {
             data: JSON.stringify({
                 value: JSON.stringify({
                     cardPrivateData: {
-                        actionIds: ['btn_run_sql'],
-                        params: { '运行吗': '运行SQL' },
+                        actionIds: ['btn_approve'],
+                        params: { status: 'approved' },
                     },
                 }),
                 outTrackId: 'card-1773752494405',
@@ -389,7 +403,7 @@ describe('gateway inbound callback pipeline', () => {
                 accountId: 'main',
                 data: expect.objectContaining({
                     msgtype: 'text',
-                    text: { content: '[Card Action Callback]\noutTrackId: card-1773752494405\n运行吗: 运行SQL' },
+                    text: { content: '[Card Action Callback]\noutTrackId: card-1773752494405\nstatus: approved' },
                     conversationType: '1',
                     conversationId: 'space_123',
                     senderId: 'user_action_1',
@@ -397,10 +411,10 @@ describe('gateway inbound callback pipeline', () => {
             }),
         );
         expect(shared.sendProactiveTextMock).not.toHaveBeenCalled();
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', {
-            cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
-            cardData: { cardParamMap: { '运行吗': '运行SQL' } },
-        });
+        expect(shared.updateCardVariablesMock).toHaveBeenCalledTimes(1);
+        expect(shared.updateCardVariablesMock.mock.calls[0]![0]).toBe('card-1773752494405');
+        expect(shared.updateCardVariablesMock.mock.calls[0]![1]).toEqual({ status: 'approved' });
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', { success: true });
     });
 
     it('forwards group card action callback with correct conversationType', async () => {
@@ -479,10 +493,7 @@ describe('gateway inbound callback pipeline', () => {
         expect(ctx.log.warn).toHaveBeenCalledWith(
             expect.stringContaining('Failed to forward action callback'),
         );
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', {
-            cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
-            cardData: { cardParamMap: { action: 'will_fail' } },
-        });
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', { success: true });
     });
 
     it('clears account in-flight locks on disconnect state change', async () => {

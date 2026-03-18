@@ -119,6 +119,32 @@ export function formatCardActionMessage(params: Record<string, unknown>, outTrac
   return `[Card Action Callback]\n${lines.join("\n")}`;
 }
 
+const DINGTALK_API = "https://api.dingtalk.com";
+
+export async function updateCardVariables(
+  outTrackId: string,
+  params: Record<string, unknown>,
+  token: string,
+): Promise<number> {
+  const stringMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params)) {
+    stringMap[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+  const resp = await fetch(`${DINGTALK_API}/v1.0/card/instances`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "x-acs-dingtalk-access-token": token,
+    },
+    body: JSON.stringify({
+      outTrackId,
+      cardData: { cardParamMap: stringMap },
+      cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
+    }),
+  });
+  return resp.status;
+}
+
 export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   const record = asRecord(data);
   const summary = extractCardActionSummary(data);

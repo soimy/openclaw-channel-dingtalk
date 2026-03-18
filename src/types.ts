@@ -358,6 +358,8 @@ export interface HandleDingTalkMessageParams {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  /** Skip ack reaction for synthetic messages (e.g. card action callbacks). */
+  skipAckReaction?: boolean;
 }
 
 /**

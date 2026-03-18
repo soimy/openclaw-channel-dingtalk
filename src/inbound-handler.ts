@@ -267,7 +267,7 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
+  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, skipAckReaction } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -1265,7 +1265,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         });
   const resolvedAckReaction =
     ackReaction === "emoji" ? classifyAckReactionEmoji(content.text).emoji : ackReaction;
-  const shouldAttachAckReaction = Boolean(resolvedAckReaction);
+  const shouldAttachAckReaction = Boolean(resolvedAckReaction) && !skipAckReaction;
   let ackReactionAttached = false;
   let ackReactionAttachedAt = 0;
 

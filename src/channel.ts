@@ -6,7 +6,7 @@ import type {
 } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
-import { analyzeCardCallback, formatCardActionMessage } from "./card-callback-service";
+import { analyzeCardCallback, formatCardActionMessage, updateCardVariables } from "./card-callback-service";
 import {
   createAICard,
   streamAICard,
@@ -726,24 +726,12 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
         c.registerCallbackListener(TOPIC_CARD, async (res: any) => {
           const messageId = res.headers?.messageId;
-          let ackCardData: Record<string, unknown> | undefined;
           const acknowledge = () => {
             if (!messageId) {
               return;
             }
             try {
-              if (ackCardData) {
-                const stringMap: Record<string, string> = {};
-                for (const [k, v] of Object.entries(ackCardData)) {
-                  stringMap[k] = typeof v === "string" ? v : JSON.stringify(v);
-                }
-                c.socketCallBackResponse(messageId, {
-                  cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
-                  cardData: { cardParamMap: stringMap },
-                });
-              } else {
-                c.socketCallBackResponse(messageId, { success: true });
-              }
+              c.socketCallBackResponse(messageId, { success: true });
             } catch (ackError: any) {
               ctx.log?.warn?.(
                 `[${account.accountId}] Failed to acknowledge card callback ${messageId}: ${ackError.message}`,
@@ -789,12 +777,26 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 );
               }
             } else if (analysis.params) {
-              ackCardData = analysis.params;
               const messageText = formatCardActionMessage(analysis.params, analysis.outTrackId);
               const spaceType = (typeof payload.spaceType === "string" ? payload.spaceType.trim().toLowerCase() : "");
               const isDirect = spaceType === "im";
               const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
               const spaceId = typeof payload.spaceId === "string" ? payload.spaceId.trim() : "";
+
+              // Update card variables via PUT API (echo params back to card)
+              if (analysis.outTrackId && Object.keys(analysis.params).length > 0) {
+                try {
+                  const token = await getAccessToken(config, ctx.log);
+                  const status = await updateCardVariables(analysis.outTrackId, analysis.params, token);
+                  ctx.log?.info?.(
+                    `[${account.accountId}] [DingTalk][CardCallback] card variable update: ${status} outTrackId=${analysis.outTrackId}`,
+                  );
+                } catch (updateErr: any) {
+                  ctx.log?.warn?.(
+                    `[${account.accountId}] [DingTalk][CardCallback] Failed to update card variables: ${updateErr?.message || String(updateErr)}`,
+                  );
+                }
+              }
 
               const syntheticData = {
                 msgId: `card_action_${messageId || randomUUID()}`,
@@ -804,6 +806,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 conversationType: isDirect ? "1" : "2",
                 conversationId: spaceId,
                 senderId: userId,
+                senderNick: "Card Action",
                 chatbotUserId: "",
                 sessionWebhook: "",
               };
@@ -820,6 +823,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   sessionWebhook: "",
                   log: ctx.log,
                   dingtalkConfig: config,
+                  skipAckReaction: true,
                 });
               } catch (forwardErr: any) {
                 ctx.log?.warn?.(
