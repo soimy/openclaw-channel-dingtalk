@@ -1,8 +1,8 @@
 import type { OpenClawConfig, ChannelOnboardingAdapter, WizardPrompter } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId, formatDocsLink } from "openclaw/plugin-sdk";
+import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./types.js";
-import { DEFAULT_JOURNAL_TTL_DAYS } from "./quote-journal.js";
 
 const channel = "dingtalk" as const;
 
@@ -390,11 +390,11 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         String(
           await prompter.text({
             message: "Quote journal retention days",
-            placeholder: String(DEFAULT_JOURNAL_TTL_DAYS),
+            placeholder: String(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
             initialValue:
               typeof resolved.journalTTLDays === "number"
                 ? String(resolved.journalTTLDays)
-                : String(DEFAULT_JOURNAL_TTL_DAYS),
+                : String(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
             validate: (value) => {
               const raw = String(value ?? "").trim();
               const num = Number(raw);
@@ -412,7 +412,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       journalTTLDays =
         Number.isInteger(parsedJournalTTL) && parsedJournalTTL > 0
           ? parsedJournalTTL
-          : DEFAULT_JOURNAL_TTL_DAYS;
+          : DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
     }
 
     const next = applyAccountConfig({

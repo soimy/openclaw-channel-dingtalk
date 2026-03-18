@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_JOURNAL_TTL_DAYS } from "./quote-journal";
+import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store";
 
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
@@ -37,7 +37,7 @@ const DingTalkAccountConfigShape = {
   /** Official OpenClaw ackReaction entry for processing feedback; empty string disables it */
   ackReaction: z.string().optional(),
 
-  journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_JOURNAL_TTL_DAYS),
+  journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
   /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 

@@ -19,9 +19,8 @@ const cardServiceMocks = vi.hoisted(() => ({
     sendProactiveCardTextMock: vi.fn(),
 }));
 
-const quoteJournalMocks = vi.hoisted(() => ({
-    appendOutboundToQuoteJournalMock: vi.fn(),
-    appendProactiveOutboundJournalMock: vi.fn(),
+const messageContextMocks = vi.hoisted(() => ({
+    upsertOutboundMessageContextMock: vi.fn(),
 }));
 
 vi.mock('../../src/card-service', () => ({
@@ -30,10 +29,13 @@ vi.mock('../../src/card-service', () => ({
     sendProactiveCardText: cardServiceMocks.sendProactiveCardTextMock,
 }));
 
-vi.mock('../../src/quote-journal', () => ({
-    appendOutboundToQuoteJournal: quoteJournalMocks.appendOutboundToQuoteJournalMock,
-    appendProactiveOutboundJournal: quoteJournalMocks.appendProactiveOutboundJournalMock,
-}));
+vi.mock('../../src/message-context-store', async () => {
+    const actual = await vi.importActual<typeof import('../../src/message-context-store')>('../../src/message-context-store');
+    return {
+        ...actual,
+        upsertOutboundMessageContext: messageContextMocks.upsertOutboundMessageContextMock,
+    };
+});
 
 import { sendMessage } from '../../src/send-service';
 import {
@@ -49,8 +51,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockReset();
         cardServiceMocks.sendProactiveCardTextMock.mockReset();
         clearProactiveRiskObservationsForTest();
-        quoteJournalMocks.appendOutboundToQuoteJournalMock.mockReset();
-        quoteJournalMocks.appendProactiveOutboundJournalMock.mockReset();
+        messageContextMocks.upsertOutboundMessageContextMock.mockReset();
     });
 
     it('falls back to proactive template API when proactive card send fails', async () => {
@@ -118,14 +119,18 @@ describe('send-service advanced branches', () => {
             } as any,
         );
 
-        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cid_dm_stable',
-                messageId: 'card_process_real_2',
+                createdAt: expect.any(Number),
                 messageType: 'outbound-proactive',
                 text: 'card proactive text',
+                delivery: expect.objectContaining({
+                    processQueryKey: 'card_process_real_2',
+                    kind: 'proactive-card',
+                }),
             }),
         );
     });
@@ -221,14 +226,18 @@ describe('send-service advanced branches', () => {
             } as any,
         );
 
-        expect(quoteJournalMocks.appendOutboundToQuoteJournalMock).toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cidA1B2C3',
-                messageId: 'legacy_msg_2',
+                createdAt: expect.any(Number),
                 messageType: 'outbound',
                 text: 'hello session',
+                delivery: expect.objectContaining({
+                    messageId: 'legacy_msg_2',
+                    kind: 'session',
+                }),
             }),
         );
     });
@@ -246,14 +255,18 @@ describe('send-service advanced branches', () => {
             } as any,
         );
 
-        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cidA1B2C3',
-                messageId: 'proactive_q_1',
+                createdAt: expect.any(Number),
                 messageType: 'outbound-proactive',
                 text: 'hello proactive',
+                delivery: expect.objectContaining({
+                    processQueryKey: 'proactive_q_1',
+                    kind: 'proactive-text',
+                }),
             }),
         );
     });
@@ -272,12 +285,12 @@ describe('send-service advanced branches', () => {
             } as any,
         );
 
-        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: 'cid_dm_stable',
             }),
         );
-        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).not.toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).not.toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: 'user_target_123',
             }),

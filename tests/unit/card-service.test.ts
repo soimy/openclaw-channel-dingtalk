@@ -25,7 +25,6 @@ import {
     finalizeActiveCardsForAccount,
     finishAICard,
     formatContentForCard,
-    getCardContentByProcessQueryKey,
     getAICardDegradeState,
     isAICardDegraded,
     recoverPendingCardsForAccount,
@@ -33,6 +32,7 @@ import {
     streamAICard,
 } from '../../src/card-service';
 import { getAccessToken } from '../../src/auth';
+import { resolveByAlias } from '../../src/message-context-store';
 import { resolveNamespacePath } from '../../src/persistence-store';
 import { AICardStatus } from '../../src/types';
 
@@ -283,9 +283,13 @@ describe('card-service', () => {
 
         await finishAICard(card, 'final text');
 
-        expect(getCardContentByProcessQueryKey('main', 'cidA1B2C3', 'carrier_quoted', storePath)).toBe(
-            'final text'
-        );
+        expect(resolveByAlias({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cidA1B2C3',
+            kind: 'processQueryKey',
+            value: 'carrier_quoted',
+        })?.text).toBe('final text');
     });
 
     it('streamAICard marks FAILED and sends mismatch notification on 500 unknownError', async () => {

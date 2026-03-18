@@ -5,14 +5,17 @@ vi.mock('../../src/auth', () => ({
     getAccessToken: vi.fn().mockResolvedValue('token_abc'),
 }));
 
-const quoteJournalMocks = vi.hoisted(() => ({
-    appendProactiveOutboundJournalMock: vi.fn(),
+const messageContextMocks = vi.hoisted(() => ({
+    upsertOutboundMessageContextMock: vi.fn(),
 }));
 
-vi.mock('../../src/quote-journal', () => ({
-    appendOutboundToQuoteJournal: vi.fn(),
-    appendProactiveOutboundJournal: quoteJournalMocks.appendProactiveOutboundJournalMock,
-}));
+vi.mock('../../src/message-context-store', async () => {
+    const actual = await vi.importActual<typeof import('../../src/message-context-store')>('../../src/message-context-store');
+    return {
+        ...actual,
+        upsertOutboundMessageContext: messageContextMocks.upsertOutboundMessageContextMock,
+    };
+});
 
 vi.mock('../../src/media-utils', () => ({
     uploadMedia: vi.fn(),
@@ -41,7 +44,7 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockReset();
         mockedGetVoiceDurationMs.mockReset();
         mockedGetVoiceDurationMs.mockResolvedValue(1000);
-        quoteJournalMocks.appendProactiveOutboundJournalMock.mockReset();
+        messageContextMocks.upsertOutboundMessageContextMock.mockReset();
     });
 
     it('sendBySession uses native image body when upload succeeds', async () => {
@@ -153,13 +156,17 @@ describe('send-service media branches', () => {
             { accountId: 'main', storePath: '/tmp/sessions.json' } as any,
         );
 
-        expect(quoteJournalMocks.appendProactiveOutboundJournalMock).toHaveBeenCalledWith(
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'user_123',
-                messageId: 'q_voice_2',
+                createdAt: expect.any(Number),
                 messageType: 'outbound-proactive-media',
+                delivery: expect.objectContaining({
+                    processQueryKey: 'q_voice_2',
+                    kind: 'proactive-media',
+                }),
             }),
         );
     });
