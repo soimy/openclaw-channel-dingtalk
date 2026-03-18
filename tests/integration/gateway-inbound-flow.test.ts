@@ -397,7 +397,10 @@ describe('gateway inbound callback pipeline', () => {
             }),
         );
         expect(shared.sendProactiveTextMock).not.toHaveBeenCalled();
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', { success: true });
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', {
+            success: true,
+            cardData: { cardParamMap: { '运行吗': '运行SQL' } },
+        });
     });
 
     it('forwards group card action callback with correct conversationType', async () => {
@@ -476,7 +479,10 @@ describe('gateway inbound callback pipeline', () => {
         expect(ctx.log.warn).toHaveBeenCalledWith(
             expect.stringContaining('Failed to forward action callback'),
         );
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', { success: true });
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', {
+            success: true,
+            cardData: { cardParamMap: { action: 'will_fail' } },
+        });
     });
 
     it('clears account in-flight locks on disconnect state change', async () => {

@@ -726,12 +726,17 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
         c.registerCallbackListener(TOPIC_CARD, async (res: any) => {
           const messageId = res.headers?.messageId;
+          let ackCardData: Record<string, unknown> | undefined;
           const acknowledge = () => {
             if (!messageId) {
               return;
             }
             try {
-              c.socketCallBackResponse(messageId, { success: true });
+              const response: Record<string, unknown> = { success: true };
+              if (ackCardData) {
+                response.cardData = { cardParamMap: ackCardData };
+              }
+              c.socketCallBackResponse(messageId, response);
             } catch (ackError: any) {
               ctx.log?.warn?.(
                 `[${account.accountId}] Failed to acknowledge card callback ${messageId}: ${ackError.message}`,
@@ -777,6 +782,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 );
               }
             } else if (analysis.params) {
+              ackCardData = analysis.params;
               const messageText = formatCardActionMessage(analysis.params, analysis.outTrackId);
               const spaceType = (typeof payload.spaceType === "string" ? payload.spaceType.trim().toLowerCase() : "");
               const isDirect = spaceType === "im";
