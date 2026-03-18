@@ -38,6 +38,15 @@ function isTrackingResult(result: ProactiveTextSendResult): result is { tracking
   return "tracking" in result;
 }
 
+function firstTrimmedString(...candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+}
+
 function extractOutboundDeliveryMetadata(payload: unknown): {
   messageId?: string;
   processQueryKey?: string;
@@ -52,34 +61,10 @@ function extractOutboundDeliveryMetadata(payload: unknown): {
     data.tracking && typeof data.tracking === "object"
       ? (data.tracking as Record<string, unknown>)
       : undefined;
-  const messageId =
-    typeof data.messageId === "string" && data.messageId.trim()
-      ? data.messageId.trim()
-      : typeof data.msgid === "string" && data.msgid.trim()
-        ? data.msgid.trim()
-        : typeof tracking?.messageId === "string" && tracking.messageId.trim()
-          ? tracking.messageId.trim()
-          : typeof tracking?.msgid === "string" && tracking.msgid.trim()
-            ? tracking.msgid.trim()
-            : undefined;
-  const processQueryKey =
-    typeof data.processQueryKey === "string" && data.processQueryKey.trim()
-      ? data.processQueryKey.trim()
-      : typeof tracking?.processQueryKey === "string" && tracking.processQueryKey.trim()
-        ? tracking.processQueryKey.trim()
-        : undefined;
-  const outTrackId =
-    typeof data.outTrackId === "string" && data.outTrackId.trim()
-      ? data.outTrackId.trim()
-      : typeof tracking?.outTrackId === "string" && tracking.outTrackId.trim()
-        ? tracking.outTrackId.trim()
-        : undefined;
-  const cardInstanceId =
-    typeof data.cardInstanceId === "string" && data.cardInstanceId.trim()
-      ? data.cardInstanceId.trim()
-      : typeof tracking?.cardInstanceId === "string" && tracking.cardInstanceId.trim()
-        ? tracking.cardInstanceId.trim()
-        : undefined;
+  const messageId = firstTrimmedString(data.messageId, data.msgid, tracking?.messageId, tracking?.msgid);
+  const processQueryKey = firstTrimmedString(data.processQueryKey, tracking?.processQueryKey);
+  const outTrackId = firstTrimmedString(data.outTrackId, tracking?.outTrackId);
+  const cardInstanceId = firstTrimmedString(data.cardInstanceId, tracking?.cardInstanceId);
   return { messageId, processQueryKey, outTrackId, cardInstanceId };
 }
 

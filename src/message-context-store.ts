@@ -257,27 +257,6 @@ function normalizeState(state: MessageContextState, nowMs: number): { state: Mes
   };
 }
 
-function reindexState(state: MessageContextState): MessageContextState {
-  const sortedRecords = Object.values(state.records)
-    .toSorted((left, right) => left.createdAt - right.createdAt)
-    .slice(-MAX_RECORDS_PER_SCOPE);
-  const records: Record<string, MessageRecord> = {};
-  const byAlias: Record<string, string> = {};
-  for (const record of sortedRecords) {
-    records[record.msgId] = record;
-    for (const [key, value] of buildAliasEntries(record)) {
-      byAlias[key] = value;
-    }
-  }
-  return {
-    version: MESSAGE_CONTEXT_VERSION,
-    updatedAt: state.updatedAt,
-    records,
-    byAlias,
-    recentByCreatedAt: sortedRecords.map((record) => record.msgId),
-  };
-}
-
 function hydrateState(params: ScopeParams, nowMs: number): MessageContextState {
   if (!params.storePath) {
     return fallbackState();
@@ -326,6 +305,16 @@ function writeState(params: ScopeParams, state: MessageContextState): void {
       records: state.records,
     } satisfies PersistedMessageContextState,
   });
+}
+
+function cloneStateForMutation(state: MessageContextState): MessageContextState {
+  return {
+    version: state.version,
+    updatedAt: state.updatedAt,
+    records: { ...state.records },
+    byAlias: state.byAlias,
+    recentByCreatedAt: state.recentByCreatedAt,
+  };
 }
 
 function mergeText(existing: string | undefined, next: string | undefined): string | undefined {
@@ -415,9 +404,13 @@ function computeExpiresAt(nowMs: number, ttlMs?: number, ttlReferenceMs?: number
   return (typeof ttlReferenceMs === "number" && Number.isFinite(ttlReferenceMs) ? ttlReferenceMs : nowMs) + ttlMs;
 }
 
-function pruneStateByCreatedAt(state: MessageContextState, ttlDays: number, nowMs: number): number {
+function pruneStateByCreatedAt(
+  state: MessageContextState,
+  ttlDays: number,
+  nowMs: number,
+): { state: MessageContextState; removed: number } {
   if (!ttlDays || ttlDays <= 0) {
-    return 0;
+    return { state, removed: 0 };
   }
   const cutoff = nowMs - ttlDays * 24 * 60 * 60 * 1000;
   const nextRecords: Record<string, MessageRecord> = {};
@@ -427,10 +420,16 @@ function pruneStateByCreatedAt(state: MessageContextState, ttlDays: number, nowM
     }
   }
   const removed = Object.keys(state.records).length - Object.keys(nextRecords).length;
-  if (removed > 0) {
-    state.records = nextRecords;
+  if (removed === 0) {
+    return { state, removed: 0 };
   }
-  return removed;
+  return {
+    removed,
+    state: {
+      ...state,
+      records: nextRecords,
+    },
+  };
 }
 
 function upsertRecord(
@@ -450,10 +449,9 @@ function upsertRecord(
   },
 ): string | undefined {
   const nowMs = params.updatedAt ?? Date.now();
-  let state = normalizeState(loadState(params, nowMs), nowMs).state;
+  let state = cloneStateForMutation(loadState(params, nowMs));
   if (params.cleanupCreatedAtTtlDays && params.cleanupCreatedAtTtlDays > 0) {
-    pruneStateByCreatedAt(state, params.cleanupCreatedAtTtlDays, nowMs);
-    state = reindexState(state);
+    state = pruneStateByCreatedAt(state, params.cleanupCreatedAtTtlDays, nowMs).state;
   }
   const existingMsgId = resolveExistingMsgId(state, {
     direction: params.direction,
@@ -463,9 +461,9 @@ function upsertRecord(
   const canonicalMsgId =
     existingMsgId ||
     params.msgId ||
-    (params.direction === "inbound"
-      ? params.msgId
-      : params.delivery?.messageId || params.delivery?.processQueryKey || params.delivery?.outTrackId);
+    params.delivery?.messageId ||
+    params.delivery?.processQueryKey ||
+    params.delivery?.outTrackId;
   if (!canonicalMsgId || !canonicalMsgId.trim()) {
     return undefined;
   }
@@ -489,8 +487,7 @@ function upsertRecord(
     delivery: mergeDelivery(existing?.delivery, params.delivery),
   };
   state.updatedAt = nowMs;
-  state = reindexState(state);
-  writeState(params, state);
+  writeState(params, normalizeState(state, nowMs).state);
   return canonicalMsgId;
 }
 
