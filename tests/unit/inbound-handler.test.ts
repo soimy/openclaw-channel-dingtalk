@@ -1206,10 +1206,10 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/agent-store.json')
             .mockReturnValueOnce('/tmp/account-store.json')
             .mockReturnValueOnce('/tmp/agent-store.json')
-            .mockReturnValueOnce('/tmp/account-store.json');
+            .mockReturnValueOnce('/tmp/account-store.json')
+            .mockReturnValueOnce('/tmp/agent-store.json');
         shared.getRuntimeMock.mockReturnValue(runtime);
         shared.extractMessageContentMock
             .mockReturnValueOnce({
@@ -1329,8 +1329,8 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/agent-store.json')
-            .mockReturnValueOnce('/tmp/account-store.json');
+            .mockReturnValueOnce('/tmp/account-store.json')
+            .mockReturnValueOnce('/tmp/agent-store.json');
         shared.getRuntimeMock.mockReturnValueOnce(runtime);
 
         await handleDingTalkMessage({
@@ -1370,8 +1370,8 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/dm-agent-store.json')
-            .mockReturnValueOnce('/tmp/dm-account-store.json');
+            .mockReturnValueOnce('/tmp/dm-account-store.json')
+            .mockReturnValueOnce('/tmp/dm-agent-store.json');
         shared.getRuntimeMock.mockReturnValueOnce(runtime);
         shared.extractMessageContentMock.mockReturnValueOnce({
             text: '[这是一条引用消息，原消息ID: orig_msg_001]\n\nhello',
@@ -1410,6 +1410,7 @@ describe('inbound-handler', () => {
 
         expect(mockedResolveByMsgId).toHaveBeenCalledWith(
             expect.objectContaining({
+                storePath: '/tmp/dm-account-store.json',
                 accountId: 'main',
                 conversationId: 'cid_ok',
                 msgId: 'orig_msg_001',
@@ -1424,8 +1425,8 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/dm-agent-store.json')
-            .mockReturnValueOnce('/tmp/dm-account-store.json');
+            .mockReturnValueOnce('/tmp/dm-account-store.json')
+            .mockReturnValueOnce('/tmp/dm-agent-store.json');
         shared.getRuntimeMock.mockReturnValueOnce(runtime);
         shared.extractMessageContentMock.mockReturnValueOnce({
             text: '[引用消息: "历史原文"]\n\n真正正文',
@@ -1453,6 +1454,7 @@ describe('inbound-handler', () => {
 
         expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
             expect.objectContaining({
+                storePath: '/tmp/dm-account-store.json',
                 text: '真正正文',
             }),
         );
@@ -1462,8 +1464,8 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/dm-agent-store.json')
-            .mockReturnValueOnce('/tmp/dm-account-store.json');
+            .mockReturnValueOnce('/tmp/dm-account-store.json')
+            .mockReturnValueOnce('/tmp/dm-agent-store.json');
         shared.getRuntimeMock.mockReturnValueOnce(runtime);
 
         await handleDingTalkMessage({
@@ -1487,6 +1489,7 @@ describe('inbound-handler', () => {
 
         expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
             expect.objectContaining({
+                storePath: '/tmp/dm-account-store.json',
                 conversationId: 'cid_dm_stable',
             }),
         );
@@ -1501,8 +1504,8 @@ describe('inbound-handler', () => {
         const runtime = buildRuntime();
         runtime.channel.session.resolveStorePath = vi
             .fn()
-            .mockReturnValueOnce('/tmp/dm-agent-store.json')
-            .mockReturnValueOnce('/tmp/dm-account-store.json');
+            .mockReturnValueOnce('/tmp/dm-account-store.json')
+            .mockReturnValueOnce('/tmp/dm-agent-store.json');
         shared.getRuntimeMock.mockReturnValueOnce(runtime);
         shared.extractMessageContentMock.mockReturnValueOnce({
             text: '我在讨论字符串 [引用消息:] 本身',
@@ -1542,11 +1545,21 @@ describe('inbound-handler', () => {
         const envelopeArg = (runtime.channel.reply.formatInboundEnvelope as any).mock.calls[0]?.[0];
         expect(envelopeArg.body).toContain('[引用消息: "被引用原文"]');
         expect(mockedResolveByMsgId).toHaveBeenCalledWith(
-            expect.objectContaining({ msgId: 'orig_msg_literal' }),
+            expect.objectContaining({
+                storePath: '/tmp/dm-account-store.json',
+                msgId: 'orig_msg_literal',
+            }),
         );
     });
 
     it('handleDingTalkMessage runs non-card flow and sends thinking + final outputs', async () => {
+        const runtime = buildRuntime();
+        runtime.channel.session.resolveStorePath = vi
+            .fn()
+            .mockReturnValueOnce('/tmp/account-store.json')
+            .mockReturnValueOnce('/tmp/agent-store.json');
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
         await handleDingTalkMessage({
             cfg: {},
             accountId: 'main',
@@ -1567,6 +1580,12 @@ describe('inbound-handler', () => {
         } as any);
 
         expect(shared.sendMessageMock).toHaveBeenCalled();
+        expect(shared.sendMessageMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'user_1',
+            expect.any(String),
+            expect.objectContaining({ storePath: '/tmp/account-store.json' }),
+        );
     });
 
     it('handleDingTalkMessage restores quoted card by originalProcessQueryKey', async () => {
@@ -2526,7 +2545,11 @@ describe('inbound-handler', () => {
             'user_1',
             '/tmp/prepared/report.pdf',
             'file',
-            expect.objectContaining({ accountId: 'main' }),
+            expect.objectContaining({
+                accountId: 'main',
+                storePath: '/tmp/store.json',
+                conversationId: 'user_1',
+            }),
         );
     });
 

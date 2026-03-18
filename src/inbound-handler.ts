@@ -877,7 +877,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (data.text?.isReplyMsg && data.originalMsgId && !hasConcreteQuotedPayload) {
     try {
       const quoted = resolveByMsgId({
-        storePath,
+        storePath: accountStorePath,
         accountId,
         conversationId: groupId,
         msgId: data.originalMsgId,
@@ -900,7 +900,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   try {
     upsertInboundMessageContext({
-      storePath,
+      storePath: accountStorePath,
       accountId,
       conversationId: groupId,
       msgId: data.msgId,
@@ -929,7 +929,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
   if (content.mediaPath && data.msgId) {
     upsertInboundMessageContext({
-      storePath,
+      storePath: accountStorePath,
       accountId,
       conversationId: data.conversationId,
       msgId: data.msgId,
@@ -954,7 +954,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     content.docFileId
   ) {
     upsertInboundMessageContext({
-      storePath,
+      storePath: accountStorePath,
       accountId,
       conversationId: data.conversationId,
       msgId: data.msgId,
@@ -996,7 +996,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       return null;
     }
     const cached = resolveByMsgId({
-      storePath,
+      storePath: accountStorePath,
       accountId,
       conversationId: data.conversationId,
       msgId: quotedMsgId,
@@ -1068,7 +1068,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         fileResolved = true;
         if (content.quoted.msgId) {
           upsertInboundMessageContext({
-            storePath,
+            storePath: accountStorePath,
             accountId,
             conversationId: data.conversationId,
             msgId: content.quoted.msgId,
@@ -1129,7 +1129,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         content.text = content.text.replace(content.quoted.prefix, "[引用了钉钉文档]\n\n");
         if (content.quoted.msgId) {
           upsertInboundMessageContext({
-            storePath,
+            storePath: accountStorePath,
             accountId,
             conversationId: data.conversationId,
             msgId: content.quoted.msgId,
@@ -1354,6 +1354,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             {
               accountId,
               log,
+              storePath: accountStorePath,
+              conversationId: to,
             },
           );
           if (!sendResult.ok) {
@@ -1398,7 +1400,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       senderId,
       isDirect,
       accountId,
-      storePath,
+      storePath: accountStorePath,
       groupId,
       log,
       deliverMedia: deliverMediaAttachments,
