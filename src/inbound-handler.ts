@@ -37,6 +37,7 @@ import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
+import { upsertObservedGroupTarget, upsertObservedUserTarget } from "./target-directory-store";
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy";
 import { getDingTalkRuntime } from "./runtime";
@@ -410,6 +411,30 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const accountStorePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: accountId,
   });
+  try {
+    if (!isDirect && groupId) {
+      upsertObservedGroupTarget({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: groupId,
+        title: groupName,
+        seenAt: data.createAt,
+      });
+    }
+    if (senderId || senderOriginalId) {
+      upsertObservedUserTarget({
+        storePath: accountStorePath,
+        accountId,
+        senderId: senderOriginalId || senderId,
+        staffId: senderStaffId || undefined,
+        displayName: senderName,
+        conversationId: groupId,
+        seenAt: data.createAt,
+      });
+    }
+  } catch (err) {
+    log?.debug?.(`[DingTalk] Target directory observe failed: ${String(err)}`);
+  }
   const currentSessionSourceKind = isDirect ? "direct" : "group";
   const currentSessionSourceId = isDirect ? senderId : groupId;
   const peerIdOverride = getSessionPeerOverride({

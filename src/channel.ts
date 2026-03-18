@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import type {
+  ChannelDirectoryEntry,
   ChannelMessageActionAdapter,
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
@@ -30,6 +31,7 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
+import { listKnownGroupTargets, listKnownUserTargets } from "./target-directory-store";
 import {
   isFeedbackLearningAutoApplyEnabled,
   isFeedbackLearningEnabled,
@@ -193,6 +195,156 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
     }
   }
   return undefined;
+}
+
+function stripProviderPrefix(raw: string): string {
+  return raw.replace(/^(dingtalk|dd|ding):/i, "");
+}
+
+function normalizeDingTalkTarget(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const providerStripped = stripProviderPrefix(trimmed);
+  const { targetId } = stripTargetPrefix(providerStripped);
+  const normalized = targetId.trim();
+  return normalized || undefined;
+}
+
+function parseDingTalkTargetInput(raw: string): {
+  targetId: string;
+  explicitUser: boolean;
+  explicitGroup: boolean;
+} {
+  const providerStripped = stripProviderPrefix(raw.trim());
+  const explicitGroup = providerStripped.startsWith("group:");
+  const { targetId, isExplicitUser } = stripTargetPrefix(providerStripped);
+  return {
+    targetId: targetId.trim(),
+    explicitUser: isExplicitUser,
+    explicitGroup,
+  };
+}
+
+function looksLikeDingTalkTargetId(raw: string, normalized?: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const parsed = parseDingTalkTargetInput(trimmed);
+  if (parsed.explicitUser || parsed.explicitGroup) {
+    return true;
+  }
+  const candidate = (normalized || parsed.targetId).trim();
+  if (!candidate) {
+    return false;
+  }
+  if (/^cid[\w+\-/=]*$/i.test(candidate)) {
+    return true;
+  }
+  if (/^\+?\d{6,}$/.test(candidate)) {
+    return true;
+  }
+  if (/[+\-/=_]/.test(candidate)) {
+    return true;
+  }
+  if (/^[a-z0-9]{16,}$/i.test(candidate)) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeDirectoryAccountId(accountId?: string | null): string {
+  const resolved = String(accountId || "default").trim();
+  return resolved || "default";
+}
+
+function normalizeDirectoryLimit(limit?: number | null): number | undefined {
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
+    return undefined;
+  }
+  return Math.floor(limit);
+}
+
+type DirectoryListParams = {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  query?: string | null;
+  limit?: number | null;
+  runtime?: unknown;
+};
+
+function resolveDirectoryStorePath(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  runtime?: unknown;
+}): string | undefined {
+  const runtimeSession = (
+    params.runtime as
+      | {
+          channel?: {
+            session?: {
+              resolveStorePath?: (
+                store: unknown,
+                options: { agentId?: string | null | undefined },
+              ) => string;
+            };
+          };
+        }
+      | undefined
+  )?.channel?.session;
+  if (runtimeSession?.resolveStorePath) {
+    return runtimeSession.resolveStorePath(params.cfg.session?.store, {
+      agentId: params.accountId ?? undefined,
+    });
+  }
+  try {
+    const rt = getDingTalkRuntime();
+    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
+      agentId: params.accountId ?? undefined,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function listDingTalkDirectoryGroups(params: DirectoryListParams): ChannelDirectoryEntry[] {
+  const accountId = normalizeDirectoryAccountId(params.accountId);
+  const storePath = resolveDirectoryStorePath(params);
+  const groups = listKnownGroupTargets({
+    storePath,
+    accountId,
+    query: params.query ?? undefined,
+    limit: normalizeDirectoryLimit(params.limit),
+  });
+  return groups.map((entry) => ({
+    kind: "group",
+    id: resolveOriginalPeerId(entry.conversationId),
+    name: entry.currentTitle,
+    handle: entry.conversationId,
+    rank: entry.lastSeenAt,
+    raw: entry,
+  }));
+}
+
+function listDingTalkDirectoryUsers(params: DirectoryListParams): ChannelDirectoryEntry[] {
+  const accountId = normalizeDirectoryAccountId(params.accountId);
+  const storePath = resolveDirectoryStorePath(params);
+  const users = listKnownUserTargets({
+    storePath,
+    accountId,
+    query: params.query ?? undefined,
+    limit: normalizeDirectoryLimit(params.limit),
+  });
+  return users.map((entry) => ({
+    kind: "user",
+    id: entry.canonicalUserId,
+    name: entry.currentDisplayName,
+    handle: entry.staffId || entry.senderId,
+    rank: entry.lastSeenAt,
+    raw: entry,
+  }));
 }
 
 const dingtalkMessageActions: ChannelMessageActionAdapter = {
@@ -382,11 +534,19 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
   },
   messaging: {
-    normalizeTarget: (raw: string) => (raw ? raw.replace(/^(dingtalk|dd|ding):/i, "") : undefined),
+    normalizeTarget: (raw: string) => (raw ? normalizeDingTalkTarget(raw) : undefined),
     targetResolver: {
-      looksLikeId: (id: string): boolean => /^[\w+\-/=]+$/.test(id),
-      hint: "<conversationId>",
+      looksLikeId: (raw: string, normalized?: string): boolean =>
+        looksLikeDingTalkTargetId(raw, normalized),
+      hint: "<displayName|conversationId|user:staffId|user:+861...>",
     },
+  },
+  directory: {
+    self: async () => null,
+    listGroups: async (params) => listDingTalkDirectoryGroups(params),
+    listGroupsLive: async (params) => listDingTalkDirectoryGroups(params),
+    listPeers: async (params) => listDingTalkDirectoryUsers(params),
+    listPeersLive: async (params) => listDingTalkDirectoryUsers(params),
   },
   actions: dingtalkMessageActions,
   outbound: {

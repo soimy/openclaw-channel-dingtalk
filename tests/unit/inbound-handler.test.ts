@@ -100,6 +100,7 @@ import {
 } from '../../src/inbound-handler';
 import * as messageContextStore from '../../src/message-context-store';
 import { recordProactiveRiskObservation } from '../../src/proactive-risk-registry';
+import { listKnownGroupTargets, listKnownUserTargets } from '../../src/target-directory-store';
 
 const mockedAxiosPost = vi.mocked(axios.post);
 const mockedAxiosGet = vi.mocked(axios.get);
@@ -3995,6 +3996,50 @@ describe('inbound-handler', () => {
         const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
         expect(finalizeContent).not.toContain('思考中');
         expect(finalizeContent).not.toContain('send');
+    });
+
+    it('learns group/user targets from inbound displayName metadata', async () => {
+        const runtime = buildRuntime();
+        shared.getRuntimeMock.mockReturnValueOnce(runtime);
+        shared.extractMessageContentMock.mockReturnValueOnce({ text: 'hello', messageType: 'text' });
+
+        await handleDingTalkMessage({
+            cfg: {},
+            accountId: 'default',
+            sessionWebhook: 'https://session.webhook',
+            log: undefined,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
+            data: {
+                msgId: 'mid_learn_target_1',
+                msgtype: 'text',
+                text: { content: 'hello' },
+                conversationType: '2',
+                conversationId: 'cid_group_target_1',
+                conversationTitle: 'Dev Group',
+                senderId: 'union_user_1',
+                senderStaffId: 'staff_user_1',
+                senderNick: 'Alice',
+                chatbotUserId: 'bot_1',
+                sessionWebhook: 'https://session.webhook',
+                createAt: Date.now(),
+            },
+        } as any);
+
+        const groups = listKnownGroupTargets({
+            storePath: '/tmp/store.json',
+            accountId: 'default',
+            query: 'Dev Group',
+        });
+        const users = listKnownUserTargets({
+            storePath: '/tmp/store.json',
+            accountId: 'default',
+            query: 'Alice',
+        });
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.conversationId).toBe('cid_group_target_1');
+        expect(users).toHaveLength(1);
+        expect(users[0]?.canonicalUserId).toBe('staff_user_1');
     });
 
     it('cardAtSender: sends @mention after card finalize in group chat', async () => {
