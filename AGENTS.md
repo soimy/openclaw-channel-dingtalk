@@ -10,6 +10,18 @@ DingTalk (钉钉) enterprise bot channel plugin using Stream mode (WebSocket, no
 Current architecture is modularized by responsibility. `src/channel.ts` is now an assembly layer; heavy logic is split into dedicated modules.
 Recent refactors unified short-lived message persistence into `src/message-context-store.ts` and split reply delivery selection into dedicated `reply-strategy*` modules.
 
+For new code and refactors, the canonical architecture guide is `docs/ARCHITECTURE.md`.
+Chinese version: `docs/ARCHITECTURE.zh-CN.md`.
+Use those documents as the source of truth for logical domain placement, incremental migration rules, and module boundaries.
+Planned domain summary:
+- `gateway/`: stream connection lifecycle, callback registration, inbound entry points
+- `targeting/`: peer identity, session aliasing, target resolution, future group directory
+- `messaging/`: inbound extraction, reply strategies, outbound delivery, message context
+- `card/`: AI card lifecycle, recovery, and caches
+- `command/`: slash commands and related extensions including feedback learning
+- `platform/`: config, auth, runtime, logger, and core types
+- `shared/`: reusable persistence primitives, dedup, and generic helpers
+
 ## STRUCTURE
 
 ```

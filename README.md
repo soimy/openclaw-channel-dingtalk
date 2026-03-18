@@ -39,6 +39,7 @@
 - [使用示例](#使用示例)
 - [故障排除](#故障排除)
 - [开发指南](#开发指南)
+- [架构与职责边界](#架构与职责边界)
 - [测试](#测试)
 - [许可](#许可)
 
@@ -1343,15 +1344,28 @@ await sendProactiveMedia(config, 'cidxxxxxxxx', '/absolute/path/to/photo.png', '
 });
 ```
 
-### 架构
+## 架构与职责边界
 
-插件遵循 Telegram 参考实现的架构模式：
+仓库整体架构、模块职责边界、增量迁移策略和新功能落位建议，以 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 为准。
+中文版本见 [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
 
-- **index.ts**: 最小化插件注册入口
-- **src/channel.ts**: 所有 DingTalk 特定的逻辑（API、消息处理、配置等）
-- **src/runtime.ts**: 运行时管理（getter/setter）
-- **src/types.ts**: 类型定义
-- **utils.ts**: 通用工具函数
+协作时建议优先把握这些总原则：
+
+- 先遵守逻辑功能分区，再做物理目录迁移
+- `src/channel.ts` 保持为装配层，避免继续堆积业务逻辑
+- 新功能应优先落到清晰的业务域，而不是继续平铺到 `src/` 根目录
+- 结构重排尽量与行为改动拆分，降低进行中 PR 的冲突面
+- 对存量代码采用渐进迁移策略，不要求一次性整体搬迁
+
+计划中的目录分区摘要：
+
+- `gateway/`: Stream 连接、回调注册、入站事件入口与启停时序
+- `targeting/`: `conversationId`、peer、session alias、目标解析与群目录能力
+- `messaging/`: 入站内容提取、reply strategy、文本/markdown/media 发送与消息上下文
+- `card/`: AI Card 创建、流式更新、结束态、恢复与缓存
+- `command/`: slash 命令、feedback learning、target rule 与后续扩展命令能力
+- `platform/`: config、auth、runtime、logger、types 等底层平台能力
+- `shared/`: 跨领域复用的持久化原语、dedup 与通用工具
 
 ## 测试
 

@@ -13,6 +13,31 @@ English version: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 这份文档是贡献入口；更深入的钉钉平台细节请继续查看 `README.md` 和 `docs/` 下的文档。
 
+## 架构边界
+
+仓库的整体架构说明、模块职责边界和增量迁移规则以 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 为准。
+中文版本见 [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
+
+新增模块或扩展现有模块前，请先对齐以下规则：
+
+- 保持 `src/channel.ts` 为装配层
+- 先遵守逻辑领域边界，再考虑大规模物理迁移
+- 新代码优先落在清晰的业务域内，而不是继续往 `src/` 根目录平铺
+- 结构重排与行为改动在条件允许时尽量拆分
+- 具体的落位与迁移判断以架构文档为准
+
+计划中的逻辑分区摘要：
+
+- `gateway/`: Stream 连接生命周期、回调注册、入站事件入口
+- `targeting/`: `conversationId`、peer 身份、session alias、目标解析
+- `messaging/`: 入站内容提取、reply strategy、文本与媒体发送
+- `card/`: AI Card 生命周期、恢复与缓存
+- `command/`: slash 命令、feedback learning、目标级命令扩展
+- `platform/`: config、auth、runtime、logger、核心 types
+- `shared/`: 可复用持久化原语、dedup 与跨领域工具
+
+当前仓库仍处于渐进整理阶段；进行中的 PR 不要求为此做全仓文件搬迁，但新代码应尽量沿着文档中的边界收敛。
+
 ## 快速开始
 
 1. Fork 并克隆仓库。

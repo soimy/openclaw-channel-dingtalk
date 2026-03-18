@@ -13,6 +13,31 @@ This repository has a few areas that need extra care when you change them:
 
 Use this guide as the contributor entry point, then follow the deeper links in `README.md` and `docs/` for platform-specific details.
 
+## Architecture Boundaries
+
+The canonical architecture guide lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+For Chinese readers, see [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md).
+
+Before adding a new module or widening an existing one, align with these rules:
+
+- Keep `src/channel.ts` as an assembly layer
+- Prefer logical domain boundaries before large physical file moves
+- Put new code in a clear business domain instead of adding more flat root-level modules
+- Separate behavior changes from broad structural moves when practical
+- Treat the architecture document as the canonical placement and migration reference
+
+Planned domain summary:
+
+- `gateway/`: stream connection lifecycle, callback registration, inbound entry points
+- `targeting/`: `conversationId`, peer identity, session aliasing, target resolution
+- `messaging/`: inbound content extraction, reply strategies, outbound text/media delivery
+- `card/`: AI card lifecycle, recovery, and cache behavior
+- `command/`: slash commands, feedback learning, target-scoped command extensions
+- `platform/`: config, auth, runtime, logger, and core types
+- `shared/`: reusable persistence primitives, dedup, and cross-domain helpers
+
+During the current transition, in-flight PRs are not expected to perform repo-wide moves. New code should still follow the documented boundaries.
+
 ## Quick Start
 
 1. Fork and clone the repository.
