@@ -398,7 +398,7 @@ describe('gateway inbound callback pipeline', () => {
         );
         expect(shared.sendProactiveTextMock).not.toHaveBeenCalled();
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_2', {
-            success: true,
+            cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
             cardData: { cardParamMap: { '运行吗': '运行SQL' } },
         });
     });
@@ -480,7 +480,7 @@ describe('gateway inbound callback pipeline', () => {
             expect.stringContaining('Failed to forward action callback'),
         );
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_5', {
-            success: true,
+            cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
             cardData: { cardParamMap: { action: 'will_fail' } },
         });
     });

@@ -732,11 +732,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               return;
             }
             try {
-              const response: Record<string, unknown> = { success: true };
               if (ackCardData) {
-                response.cardData = { cardParamMap: ackCardData };
+                const stringMap: Record<string, string> = {};
+                for (const [k, v] of Object.entries(ackCardData)) {
+                  stringMap[k] = typeof v === "string" ? v : JSON.stringify(v);
+                }
+                c.socketCallBackResponse(messageId, {
+                  cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
+                  cardData: { cardParamMap: stringMap },
+                });
+              } else {
+                c.socketCallBackResponse(messageId, { success: true });
               }
-              c.socketCallBackResponse(messageId, response);
             } catch (ackError: any) {
               ctx.log?.warn?.(
                 `[${account.accountId}] Failed to acknowledge card callback ${messageId}: ${ackError.message}`,
