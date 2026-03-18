@@ -783,52 +783,58 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
               const spaceId = typeof payload.spaceId === "string" ? payload.spaceId.trim() : "";
 
-              // Update card variables via PUT API (echo params back to card)
-              if (analysis.outTrackId && Object.keys(analysis.params).length > 0) {
+              if (!userId) {
+                ctx.log?.warn?.(
+                  `[${account.accountId}] [DingTalk][CardCallback] skipping card action forward: empty userId`,
+                );
+              } else {
+                // Update card variables via PUT API (echo params back to card)
+                if (analysis.outTrackId && Object.keys(analysis.params).length > 0) {
+                  try {
+                    const token = await getAccessToken(config, ctx.log);
+                    const status = await updateCardVariables(analysis.outTrackId, analysis.params, token, config, ctx.log);
+                    ctx.log?.info?.(
+                      `[${account.accountId}] [DingTalk][CardCallback] card variable update: ${status} outTrackId=${analysis.outTrackId}`,
+                    );
+                  } catch (updateErr: any) {
+                    ctx.log?.warn?.(
+                      `[${account.accountId}] [DingTalk][CardCallback] Failed to update card variables: ${updateErr?.message || String(updateErr)}`,
+                    );
+                  }
+                }
+
+                const syntheticData = {
+                  msgId: `card_action_${messageId || randomUUID()}`,
+                  msgtype: "text" as const,
+                  createAt: Date.now(),
+                  text: { content: messageText },
+                  conversationType: isDirect ? "1" : "2",
+                  conversationId: spaceId,
+                  senderId: userId,
+                  senderNick: "CardAction",
+                  chatbotUserId: "",
+                  sessionWebhook: "",
+                };
+
+                ctx.log?.info?.(
+                  `[${account.accountId}] [DingTalk][CardCallback] forwarding action params to AI: ${messageText}`,
+                );
+
                 try {
-                  const token = await getAccessToken(config, ctx.log);
-                  const status = await updateCardVariables(analysis.outTrackId, analysis.params, token);
-                  ctx.log?.info?.(
-                    `[${account.accountId}] [DingTalk][CardCallback] card variable update: ${status} outTrackId=${analysis.outTrackId}`,
-                  );
-                } catch (updateErr: any) {
+                  await handleDingTalkMessage({
+                    cfg,
+                    accountId: account.accountId,
+                    data: syntheticData,
+                    sessionWebhook: "",
+                    log: ctx.log,
+                    dingtalkConfig: config,
+                    skipAckReaction: true,
+                  });
+                } catch (forwardErr: any) {
                   ctx.log?.warn?.(
-                    `[${account.accountId}] [DingTalk][CardCallback] Failed to update card variables: ${updateErr?.message || String(updateErr)}`,
+                    `[${account.accountId}] [DingTalk][CardCallback] Failed to forward action callback: ${forwardErr?.message || String(forwardErr)}`,
                   );
                 }
-              }
-
-              const syntheticData = {
-                msgId: `card_action_${messageId || randomUUID()}`,
-                msgtype: "text" as const,
-                createAt: Date.now(),
-                text: { content: messageText },
-                conversationType: isDirect ? "1" : "2",
-                conversationId: spaceId,
-                senderId: userId,
-                senderNick: "Card Action",
-                chatbotUserId: "",
-                sessionWebhook: "",
-              };
-
-              ctx.log?.info?.(
-                `[${account.accountId}] [DingTalk][CardCallback] forwarding action params to AI: ${messageText}`,
-              );
-
-              try {
-                await handleDingTalkMessage({
-                  cfg,
-                  accountId: account.accountId,
-                  data: syntheticData,
-                  sessionWebhook: "",
-                  log: ctx.log,
-                  dingtalkConfig: config,
-                  skipAckReaction: true,
-                });
-              } catch (forwardErr: any) {
-                ctx.log?.warn?.(
-                  `[${account.accountId}] [DingTalk][CardCallback] Failed to forward action callback: ${forwardErr?.message || String(forwardErr)}`,
-                );
               }
             }
           } catch (error: any) {

@@ -134,6 +134,8 @@ describe('gateway inbound callback pipeline', () => {
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(false);
         shared.sendProactiveTextMock.mockResolvedValue({});
+        shared.getAccessTokenMock.mockReset().mockResolvedValue('mock-token');
+        shared.updateCardVariablesMock.mockReset().mockResolvedValue(200);
     });
 
     it('acknowledges callback after successful dispatch for non-duplicate message', async () => {

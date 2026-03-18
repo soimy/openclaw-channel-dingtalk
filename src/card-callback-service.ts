@@ -1,3 +1,6 @@
+import axios from "axios";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+
 export interface CardCallbackAnalysis {
   summary: string;
   actionId?: string;
@@ -121,27 +124,36 @@ export function formatCardActionMessage(params: Record<string, unknown>, outTrac
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
+type UpdateCardLogger = {
+  warn?: (msg: string) => void;
+};
+
 export async function updateCardVariables(
   outTrackId: string,
   params: Record<string, unknown>,
   token: string,
+  config?: { bypassProxyForSend?: boolean },
+  log?: UpdateCardLogger,
 ): Promise<number> {
   const stringMap: Record<string, string> = {};
   for (const [k, v] of Object.entries(params)) {
     stringMap[k] = typeof v === "string" ? v : JSON.stringify(v);
   }
-  const resp = await fetch(`${DINGTALK_API}/v1.0/card/instances`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "x-acs-dingtalk-access-token": token,
-    },
-    body: JSON.stringify({
+  const resp = await axios.put(
+    `${DINGTALK_API}/v1.0/card/instances`,
+    {
       outTrackId,
       cardData: { cardParamMap: stringMap },
       cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
-    }),
-  });
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-acs-dingtalk-access-token": token,
+      },
+      ...getProxyBypassOption(config),
+    },
+  );
   return resp.status;
 }
 

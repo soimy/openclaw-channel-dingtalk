@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const axiosPutMock = vi.hoisted(() => vi.fn());
+vi.mock("axios", () => ({ default: { put: axiosPutMock } }));
+
 import {
   analyzeCardCallback,
   extractCardActionId,
@@ -119,20 +123,30 @@ describe("card-callback-service", () => {
   });
 
   describe("updateCardVariables", () => {
-    it("sends PUT request with stringified params", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({ status: 200 } as Response);
+    beforeEach(() => axiosPutMock.mockReset());
+
+    it("sends PUT request with stringified params via axios", async () => {
+      axiosPutMock.mockResolvedValueOnce({ status: 200 });
       const status = await updateCardVariables("card-123", { status: "approved", count: 42 }, "test-token");
       expect(status).toBe(200);
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [url, options] = fetchSpy.mock.calls[0]!;
+      expect(axiosPutMock).toHaveBeenCalledTimes(1);
+      const [url, body, options] = axiosPutMock.mock.calls[0]!;
       expect(url).toBe("https://api.dingtalk.com/v1.0/card/instances");
-      expect(options!.method).toBe("PUT");
-      expect((options!.headers as Record<string, string>)["x-acs-dingtalk-access-token"]).toBe("test-token");
-      const body = JSON.parse(options!.body as string);
+      expect(options.headers["x-acs-dingtalk-access-token"]).toBe("test-token");
       expect(body.outTrackId).toBe("card-123");
       expect(body.cardData.cardParamMap).toEqual({ status: "approved", count: "42" });
       expect(body.cardUpdateOptions.updateCardDataByKey).toBe(true);
-      fetchSpy.mockRestore();
+    });
+
+    it("propagates axios error on non-2xx response", async () => {
+      axiosPutMock.mockRejectedValueOnce(
+        Object.assign(new Error("Request failed with status code 400"), {
+          response: { status: 400, data: { code: "invalid", message: "bad request" } },
+        }),
+      );
+      await expect(
+        updateCardVariables("card-123", { status: "approved" }, "test-token"),
+      ).rejects.toThrow("400");
     });
   });
 
