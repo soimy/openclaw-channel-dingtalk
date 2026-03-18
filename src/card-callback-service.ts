@@ -1,5 +1,5 @@
 import axios from "axios";
-import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+import { getProxyBypassOption } from "./utils";
 
 export interface CardCallbackAnalysis {
   summary: string;
@@ -124,16 +124,11 @@ export function formatCardActionMessage(params: Record<string, unknown>, outTrac
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
-type UpdateCardLogger = {
-  warn?: (msg: string) => void;
-};
-
 export async function updateCardVariables(
   outTrackId: string,
   params: Record<string, unknown>,
   token: string,
   config?: { bypassProxyForSend?: boolean },
-  log?: UpdateCardLogger,
 ): Promise<number> {
   const stringMap: Record<string, string> = {};
   for (const [k, v] of Object.entries(params)) {

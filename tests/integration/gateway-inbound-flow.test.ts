@@ -471,6 +471,63 @@ describe('gateway inbound callback pipeline', () => {
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_4', { success: true });
     });
 
+    it('skips forwarding when userId is empty', async () => {
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_empty_uid' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['btn_1'],
+                        params: { status: 'approved' },
+                    },
+                }),
+                spaceType: 'IM',
+                userId: '',
+                spaceId: 'space_123',
+            }),
+        });
+
+        expect(shared.handleDingTalkMessageMock).not.toHaveBeenCalled();
+        expect(shared.updateCardVariablesMock).not.toHaveBeenCalled();
+        expect(ctx.log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('empty userId'),
+        );
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_empty_uid', { success: true });
+    });
+
+    it('continues forwarding when updateCardVariables fails', async () => {
+        shared.updateCardVariablesMock.mockRejectedValueOnce(new Error('PUT failed'));
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_update_fail' },
+            data: JSON.stringify({
+                value: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['btn_approve'],
+                        params: { status: 'approved' },
+                    },
+                }),
+                outTrackId: 'card-update-fail-test',
+                spaceType: 'IM',
+                userId: 'user_update_fail',
+                spaceId: 'space_456',
+            }),
+        });
+
+        expect(ctx.log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to update card variables'),
+        );
+        expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_update_fail', { success: true });
+    });
+
     it('still acknowledges card callback when forwarding fails', async () => {
         shared.handleDingTalkMessageMock.mockRejectedValueOnce(new Error('downstream failure'));
         const ctx = createStartContext();

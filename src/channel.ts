@@ -792,7 +792,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 if (analysis.outTrackId && Object.keys(analysis.params).length > 0) {
                   try {
                     const token = await getAccessToken(config, ctx.log);
-                    const status = await updateCardVariables(analysis.outTrackId, analysis.params, token, config, ctx.log);
+                    const status = await updateCardVariables(analysis.outTrackId, analysis.params, token, config);
                     ctx.log?.info?.(
                       `[${account.accountId}] [DingTalk][CardCallback] card variable update: ${status} outTrackId=${analysis.outTrackId}`,
                     );
