@@ -376,6 +376,7 @@ describe('gateway inbound callback pipeline', () => {
                         params: { '运行吗': '运行SQL' },
                     },
                 }),
+                outTrackId: 'card-1773752494405',
                 spaceType: 'IM',
                 userId: 'user_action_1',
                 spaceId: 'space_123',
@@ -388,7 +389,7 @@ describe('gateway inbound callback pipeline', () => {
                 accountId: 'main',
                 data: expect.objectContaining({
                     msgtype: 'text',
-                    text: { content: '[Card Action Callback]\n运行吗: 运行SQL' },
+                    text: { content: '[Card Action Callback]\noutTrackId: card-1773752494405\n运行吗: 运行SQL' },
                     conversationType: '1',
                     conversationId: 'space_123',
                     senderId: 'user_action_1',

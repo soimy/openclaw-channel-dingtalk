@@ -105,9 +105,19 @@ describe("card-callback-service", () => {
       const result = formatCardActionMessage({ count: 42, nested: { a: 1 } });
       expect(result).toBe("[Card Action Callback]\ncount: 42\nnested: {\"a\":1}");
     });
+
+    it("includes outTrackId when provided", () => {
+      const result = formatCardActionMessage({ "运行吗": "运行SQL" }, "card-1773752494405");
+      expect(result).toBe("[Card Action Callback]\noutTrackId: card-1773752494405\n运行吗: 运行SQL");
+    });
+
+    it("omits outTrackId when not provided", () => {
+      const result = formatCardActionMessage({ action: "confirm" });
+      expect(result).toBe("[Card Action Callback]\naction: confirm");
+    });
   });
 
-  it("analyzeCardCallback populates params for non-feedback actions", () => {
+  it("analyzeCardCallback populates params and outTrackId for non-feedback actions", () => {
     const analysis = analyzeCardCallback({
       value: JSON.stringify({
         cardPrivateData: {
@@ -115,11 +125,13 @@ describe("card-callback-service", () => {
           params: { "运行吗": "运行SQL" },
         },
       }),
+      outTrackId: "card-12345",
       spaceType: "IM",
       userId: "user_456",
       spaceId: "space_789",
     });
     expect(analysis.params).toEqual({ "运行吗": "运行SQL" });
+    expect(analysis.outTrackId).toBe("card-12345");
     expect(analysis.feedbackTarget).toBeUndefined();
   });
 });

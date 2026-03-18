@@ -6,6 +6,7 @@ export interface CardCallbackAnalysis {
   userId?: string;
   processQueryKey?: string;
   params?: Record<string, unknown>;
+  outTrackId?: string;
 }
 
 function stringifyCandidate(value: unknown): string {
@@ -107,10 +108,14 @@ export function extractCardActionParams(data: unknown): Record<string, unknown> 
   return undefined;
 }
 
-export function formatCardActionMessage(params: Record<string, unknown>): string {
-  const lines = Object.entries(params).map(
-    ([key, value]) => `${key}: ${stringifyCandidate(value)}`,
-  );
+export function formatCardActionMessage(params: Record<string, unknown>, outTrackId?: string): string {
+  const lines: string[] = [];
+  if (outTrackId) {
+    lines.push(`outTrackId: ${outTrackId}`);
+  }
+  for (const [key, value] of Object.entries(params)) {
+    lines.push(`${key}: ${stringifyCandidate(value)}`);
+  }
   return `[Card Action Callback]\n${lines.join("\n")}`;
 }
 
@@ -128,7 +133,8 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
 
   if (actionId !== "feedback_up" && actionId !== "feedback_down") {
     const params = extractCardActionParams(data);
-    return { summary, actionId, processQueryKey, params };
+    const outTrackId = typeof record?.outTrackId === "string" ? record.outTrackId.trim() : undefined;
+    return { summary, actionId, processQueryKey, params, outTrackId: outTrackId || undefined };
   }
 
   const spaceType = typeof record?.spaceType === "string" ? record.spaceType.trim().toLowerCase() : "";

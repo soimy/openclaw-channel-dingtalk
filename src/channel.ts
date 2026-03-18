@@ -777,7 +777,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 );
               }
             } else if (analysis.params) {
-              const messageText = formatCardActionMessage(analysis.params);
+              const messageText = formatCardActionMessage(analysis.params, analysis.outTrackId);
               const spaceType = (typeof payload.spaceType === "string" ? payload.spaceType.trim().toLowerCase() : "");
               const isDirect = spaceType === "im";
               const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
