@@ -20,7 +20,7 @@
   },
   "files": [
     "index.ts",
-    "src/*.ts",
+    "src/**/*.ts",
     "openclaw.plugin.json",
     "clawbot.plugin.json"
   ],

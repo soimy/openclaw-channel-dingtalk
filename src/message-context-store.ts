@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+import type { QuotedRef } from "./types";
 
 const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
 const MESSAGE_CONTEXT_VERSION = 1;
@@ -24,6 +25,7 @@ export interface MessageRecord {
   expiresAt?: number;
   messageType?: string;
   text?: string;
+  quotedRef?: QuotedRef;
   media?: {
     downloadCode?: string;
     spaceId?: string;
@@ -63,6 +65,7 @@ interface BaseUpsertParams {
   topic?: string | null;
   messageType?: string;
   text?: string;
+  quotedRef?: QuotedRef;
   media?: {
     downloadCode?: string;
     spaceId?: string;
@@ -129,6 +132,53 @@ function normalizeMedia(value: unknown): MessageRecord["media"] | undefined {
   return { downloadCode, spaceId, fileId };
 }
 
+function normalizeQuotedRef(value: unknown): QuotedRef | undefined {
+  const candidate = asRecord(value);
+  if (!candidate) {
+    return undefined;
+  }
+  const targetDirection =
+    candidate.targetDirection === "outbound"
+      ? "outbound"
+      : candidate.targetDirection === "inbound"
+        ? "inbound"
+        : undefined;
+  const key =
+    candidate.key === "msgId" ||
+    candidate.key === "messageId" ||
+    candidate.key === "processQueryKey" ||
+    candidate.key === "outTrackId" ||
+    candidate.key === "cardInstanceId"
+      ? candidate.key
+      : undefined;
+  const valueString =
+    typeof candidate.value === "string" && candidate.value.trim() ? candidate.value.trim() : undefined;
+  const fallbackCreatedAt =
+    typeof candidate.fallbackCreatedAt === "number" && Number.isFinite(candidate.fallbackCreatedAt)
+      ? candidate.fallbackCreatedAt
+      : undefined;
+  const fallbackMsgId =
+    typeof candidate.fallbackMsgId === "string" && candidate.fallbackMsgId.trim()
+      ? candidate.fallbackMsgId.trim()
+      : undefined;
+  if (!targetDirection) {
+    return undefined;
+  }
+  if (!key && !fallbackCreatedAt && !fallbackMsgId) {
+    return undefined;
+  }
+  if (key && !valueString) {
+    return undefined;
+  }
+  return {
+    targetDirection,
+    key,
+    value: valueString,
+    fallbackCreatedAt,
+    fallbackMsgId,
+  };
+}
+
 function normalizeDelivery(value: unknown): MessageRecord["delivery"] | undefined {
   const candidate = asRecord(value);
   if (!candidate) {
@@ -191,6 +241,7 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
     expiresAt,
     messageType: typeof candidate.messageType === "string" ? candidate.messageType : undefined,
     text: typeof candidate.text === "string" ? candidate.text : undefined,
+    quotedRef: normalizeQuotedRef(candidate.quotedRef),
     media: normalizeMedia(candidate.media),
     delivery: normalizeDelivery(candidate.delivery),
   };
@@ -324,6 +375,22 @@ function mergeText(existing: string | undefined, next: string | undefined): stri
   return next;
 }
 
+function mergeQuotedRef(existing: QuotedRef | undefined, next: QuotedRef | undefined): QuotedRef | undefined {
+  if (!existing) {
+    return next;
+  }
+  if (!next) {
+    return existing;
+  }
+  return {
+    targetDirection: next.targetDirection,
+    key: next.key || existing.key,
+    value: next.value || existing.value,
+    fallbackCreatedAt: next.fallbackCreatedAt ?? existing.fallbackCreatedAt,
+    fallbackMsgId: next.fallbackMsgId || existing.fallbackMsgId,
+  };
+}
+
 function mergeMedia(
   existing: MessageRecord["media"] | undefined,
   next: MessageRecord["media"] | undefined,
@@ -443,6 +510,7 @@ function upsertRecord(
     ttlReferenceMs?: number;
     messageType?: string;
     text?: string;
+    quotedRef?: QuotedRef;
     media?: MessageRecord["media"];
     delivery?: MessageRecord["delivery"];
     cleanupCreatedAtTtlDays?: number;
@@ -483,6 +551,7 @@ function upsertRecord(
         : Math.max(expiresAt, existing?.expiresAt ?? 0),
     messageType: params.messageType || existing?.messageType,
     text: mergeText(existing?.text, params.text),
+    quotedRef: mergeQuotedRef(existing?.quotedRef, params.quotedRef),
     media: mergeMedia(existing?.media, params.media),
     delivery: mergeDelivery(existing?.delivery, params.delivery),
   };
@@ -543,6 +612,46 @@ export function resolveByAlias(
   }
   const record = state.records[msgId];
   return record && !isRecordExpired(record, nowMs) ? record : null;
+}
+
+export function resolveByQuotedRef(
+  params: ScopeParams & { quotedRef: QuotedRef; nowMs?: number },
+): MessageRecord | null {
+  const nowMs = params.nowMs ?? Date.now();
+  const quotedRef = normalizeQuotedRef(params.quotedRef);
+  if (!quotedRef) {
+    return null;
+  }
+  if (quotedRef.targetDirection === "inbound") {
+    if (quotedRef.key !== "msgId" || !quotedRef.value) {
+      return null;
+    }
+    return resolveByMsgId({
+      ...params,
+      msgId: quotedRef.value,
+      nowMs,
+    });
+  }
+  if (quotedRef.key && quotedRef.value && quotedRef.key !== "msgId") {
+    const aliasRecord = resolveByAlias({
+      ...params,
+      kind: quotedRef.key,
+      value: quotedRef.value,
+      nowMs,
+    });
+    if (aliasRecord) {
+      return aliasRecord;
+    }
+  }
+  if (typeof quotedRef.fallbackCreatedAt === "number" && Number.isFinite(quotedRef.fallbackCreatedAt)) {
+    return resolveByCreatedAtWindow({
+      ...params,
+      createdAt: quotedRef.fallbackCreatedAt,
+      direction: "outbound",
+      nowMs,
+    });
+  }
+  return null;
 }
 
 export function resolveByCreatedAtWindow(
