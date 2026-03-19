@@ -9,13 +9,14 @@ DingTalk (钉钉) enterprise bot channel plugin using Stream mode (WebSocket, no
 
 Current architecture is modularized by responsibility. `src/channel.ts` is now an assembly layer; heavy logic is split into dedicated modules.
 Recent refactors unified short-lived message persistence into `src/message-context-store.ts` and split reply delivery selection into dedicated `reply-strategy*` modules.
+Recent targeting work added a learned target directory under `src/targeting/` and a `displayNameResolution` config gate (`disabled` by default, `all` to enable learned displayName resolution).
 
 For new code and refactors, the canonical architecture guide is `docs/ARCHITECTURE.md`.
 Chinese version: `docs/ARCHITECTURE.zh-CN.md`.
 Use those documents as the source of truth for logical domain placement, incremental migration rules, and module boundaries.
 Planned domain summary:
 - `gateway/`: stream connection lifecycle, callback registration, inbound entry points
-- `targeting/`: peer identity, session aliasing, target resolution, future group directory
+- `targeting/`: peer identity, session aliasing, target resolution, and learned displayName directory
 - `messaging/`: inbound extraction, reply strategies, outbound delivery, message context
 - `card/`: AI card lifecycle, recovery, and caches
 - `command/`: slash commands and related extensions including feedback learning
@@ -46,6 +47,10 @@ Planned domain summary:
 │   ├── media-utils.ts         # media type detect + upload
 │   ├── connection-manager.ts  # robust stream connection lifecycle
 │   ├── peer-id-registry.ts    # preserve case-sensitive conversationId mapping
+│   ├── targeting/
+│   │   ├── target-directory-adapter.ts # learned directory bridge + displayNameResolution gate
+│   │   ├── target-directory-store.ts # learned group/user target persistence under targets.directory
+│   │   └── target-input.ts # DingTalk target normalization + id heuristics
 │   ├── onboarding.ts          # channel onboarding adapter
 │   ├── runtime.ts             # runtime getter/setter
 │   ├── config-schema.ts       # Zod validation schema
@@ -68,6 +73,8 @@ Planned domain summary:
 | Access control | `src/access-control.ts` | DM/group allowlist helpers |
 | Message parsing | `src/message-utils.ts` | quote parsing + richText/media extraction |
 | Config/path helpers | `src/config.ts` | `getConfig`, `resolveRelativePath`, `stripTargetPrefix` |
+| Target directory persistence | `src/targeting/target-directory-store.ts` | learned group/user displayName directory |
+| Target directory adapter | `src/targeting/target-directory-adapter.ts` | directory bridge + `displayNameResolution` gate |
 | Deduplication | `src/dedup.ts` | message retry dedup keys |
 | Type definitions | `src/types.ts` | DingTalk and plugin types/constants |
 
@@ -89,6 +96,10 @@ Planned domain summary:
 | `upsertOutboundMessageContext` | function | `src/message-context-store.ts` | Persist outbound message context + delivery aliases |
 | `resolveByMsgId` | function | `src/message-context-store.ts` | Resolve unified message record by canonical/inbound msgId |
 | `resolveByAlias` | function | `src/message-context-store.ts` | Resolve outbound record by `messageId/processQueryKey/outTrackId/cardInstanceId` |
+| `upsertObservedGroupTarget` | function | `src/targeting/target-directory-store.ts` | Persist observed group `conversationId/displayName` |
+| `upsertObservedUserTarget` | function | `src/targeting/target-directory-store.ts` | Persist observed user `staffId/senderId/displayName` |
+| `listDingTalkDirectoryGroups` | function | `src/targeting/target-directory-adapter.ts` | Expose learned group directory entries |
+| `listDingTalkDirectoryUsers` | function | `src/targeting/target-directory-adapter.ts` | Expose learned user directory entries |
 | `getAccessToken` | function | `src/auth.ts` | Get/cached DingTalk token |
 | `extractMessageContent` | function | `src/message-utils.ts` | Normalize inbound msg payload |
 | `normalizeAllowFrom` | function | `src/access-control.ts` | Normalize allowlist entries |
@@ -128,6 +139,7 @@ Planned domain summary:
 - Access token cache in `src/auth.ts`
 - AI Card caches in `src/card-service.ts` (`aiCardInstances`, `activeCardsByTarget`)
 - Unified short-TTL message contexts in `src/message-context-store.ts` under namespace `messages.context`
+- Learned target directory persistence in `src/targeting/target-directory-store.ts` under namespace `targets.directory`
 - Card createdAt fallback keeps an in-memory-only bucket in `src/card-service.ts` when no `storePath` is available
 - Message dedup state in `src/dedup.ts`
 - Runtime stored via getter/setter in `src/runtime.ts`
@@ -221,6 +233,7 @@ pnpm test:coverage
 - `index.ts` registers `dingtalkPlugin`
 - Runtime set once via `setDingTalkRuntime(api.runtime)`
 - Multi-account config supported via `channels.dingtalk.accounts`
+- `displayNameResolution` defaults to `disabled`; only `all` enables learned group/user displayName resolution
 - Message quote/media recovery is unified through `messages.context`; no backward-compatible read path exists for removed legacy namespaces
 
 **DingTalk API Endpoints Used:**

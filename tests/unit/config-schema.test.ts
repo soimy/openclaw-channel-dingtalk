@@ -69,6 +69,29 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.mediaUrlAllowlist).toEqual(['192.168.1.23', 'files.internal.example']);
     });
 
+    it('defaults displayNameResolution to disabled', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { displayNameResolution?: string };
+
+        expect(parsed.displayNameResolution).toBe('disabled');
+    });
+
+    it('accepts displayNameResolution for account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    displayNameResolution: 'all',
+                },
+            },
+        }) as { accounts: Record<string, { displayNameResolution?: string }> };
+
+        expect(parsed.accounts.main?.displayNameResolution).toBe('all');
+    });
+
     it('keeps keepAlive undefined when omitted', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',

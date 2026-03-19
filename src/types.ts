@@ -41,6 +41,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
+  displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
   ackReaction?: string;
@@ -107,6 +108,7 @@ export interface DingTalkChannelConfig {
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
+  displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
   ackReaction?: string;
@@ -757,6 +759,7 @@ export function resolveDingTalkAccount(
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      displayNameResolution: dingtalk?.displayNameResolution,
       journalTTLDays: dingtalk?.journalTTLDays,
       ackReaction: dingtalk?.ackReaction,
       debug: dingtalk?.debug,

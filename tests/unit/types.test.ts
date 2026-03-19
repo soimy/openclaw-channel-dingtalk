@@ -26,6 +26,7 @@ describe('types helpers', () => {
                     clientSecret: 'sec_default',
                     robotCode: 'robot_default',
                     dmPolicy: 'allowlist',
+                    displayNameResolution: 'all',
                 },
             },
         } as any;
@@ -35,6 +36,7 @@ describe('types helpers', () => {
         expect(account.accountId).toBe('default');
         expect(account.clientId).toBe('cli_default');
         expect(account.robotCode).toBe('robot_default');
+        expect(account.displayNameResolution).toBe('all');
         expect(account.configured).toBe(true);
     });
 

@@ -104,6 +104,9 @@ function applyAccountConfig(params: {
     ...(input.dmPolicy ? { dmPolicy: input.dmPolicy } : {}),
     ...(input.groupPolicy ? { groupPolicy: input.groupPolicy } : {}),
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),
+    ...(input.displayNameResolution
+      ? { displayNameResolution: input.displayNameResolution }
+      : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
     ...(input.cardTemplateId ? { cardTemplateId: input.cardTemplateId } : {}),
     ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {}),
@@ -321,6 +324,32 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       initialValue: resolved.groupPolicy ?? "open",
     });
 
+    await prompter.note(
+      [
+        "Enabling learned displayName target resolution has tradeoffs:",
+        "- learned names come from observed inbound messages and can become stale",
+        "- duplicate display names can resolve to the wrong group or user",
+        "- current upstream target resolution does not provide requester authz, so \"all\" applies to every caller that can reach the send flow",
+        "Use explicit IDs for sensitive or high-risk deliveries.",
+      ].join("\n"),
+      "displayName resolution risk",
+    );
+
+    const displayNameResolutionValue = await prompter.select({
+      message: "Learned displayName target resolution",
+      options: [
+        {
+          label: "Disabled - require explicit IDs",
+          value: "disabled",
+        },
+        {
+          label: "All - learned lookup for all callers (higher risk)",
+          value: "all",
+        },
+      ],
+      initialValue: resolved.displayNameResolution ?? "disabled",
+    });
+
     let maxReconnectCycles: number | undefined;
     const wantsReconnectLimits = await prompter.confirm({
       message: "Configure runtime reconnect cycle limit? (recommended)",
@@ -427,6 +456,7 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         dmPolicy: dmPolicyValue as "open" | "allowlist",
         groupPolicy: groupPolicyValue as "open" | "allowlist",
         allowFrom,
+        displayNameResolution: displayNameResolutionValue as "disabled" | "all",
         mediaUrlAllowlist,
         messageType,
         cardTemplateId,

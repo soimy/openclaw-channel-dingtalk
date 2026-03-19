@@ -423,6 +423,7 @@ openclaw configure --section channels
       "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
+      "displayNameResolution": "disabled", // 或 "all"；启用后可能因重名/旧名称/权限边界限制导致误解析
       "journalTTLDays": 7,
       "ackReaction": "🤔思考中", // 给原消息贴处理中的表情反馈；设为 "" 可关闭
       "debug": false,
@@ -460,6 +461,7 @@ openclaw gateway restart
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
 | `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
 | `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `displayNameResolution` | string   | `"disabled"` | 基于本地通讯录存储的显示名/群名解析开关：disabled/all |
 | `bypassProxyForSend`    | boolean  | `false`      | 发送链路直连，不走全局代理                  |
 | `learningEnabled`       | boolean  | `false`      | 开启学习信号采集与学习提示注入              |
 | `learningAutoApply`     | boolean  | `false`      | 自动将学习笔记注入当前会话                  |
@@ -478,6 +480,16 @@ openclaw gateway restart
 | `initialReconnectDelay` | number   | `1000`       | 初始重连延迟（毫秒）                        |
 | `maxReconnectDelay`     | number   | `60000`      | 最大重连延迟（毫秒）                        |
 | `reconnectJitter`       | number   | `0.3`        | 重连延迟抖动因子（0-1）                     |
+
+关于 `displayNameResolution`：
+
+- `disabled`：默认值。发送目标必须使用显式 ID，例如 `conversationId`、`staffId`、`user:manager8031`
+- `all`：允许插件使用本地通讯录存储做群显示名/用户显示名解析
+- learned directory 数据来自入站消息观测，并按 `accountId` 落盘到 `targets.directory`
+- 当前上游 target resolver 还没有把 requester owner/authz 上下文传到插件，因此暂不提供 owner-only 模式
+- 开启后存在误投风险：显示名可能重名、后来改名，或本地目录还停留在旧观测值
+- 开启后存在权限扩散风险：当前 `all` 会对所有能进入发送链路的调用方生效，不是 owner-only
+- 对敏感通知、不可撤回消息或高风险自动化，建议继续使用显式 ID 而不是显示名
 
 ### 钉钉原生“思考中”表情反馈
 
