@@ -32,7 +32,7 @@ const DingTalkAccountConfigShape = {
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
-  /** Default disabled until upstream target resolution exposes requester owner context for future owner-only mode. */
+  /** Default disabled. Enabling "all" allows learned displayName lookup but may misroute on stale/duplicate names and is available to all callers until upstream exposes requester authz context. */
   displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
 
   mediaUrlAllowlist: z.array(z.string()).optional(),

@@ -44,7 +44,8 @@ describe('dingtalkOnboardingAdapter', () => {
         const select = vi
             .fn()
             .mockResolvedValueOnce('allowlist')
-            .mockResolvedValueOnce('allowlist');
+            .mockResolvedValueOnce('allowlist')
+            .mockResolvedValueOnce('all');
 
         const result = await dingtalkOnboardingAdapter.configure({
             cfg: {} as any,
@@ -67,6 +68,7 @@ describe('dingtalkOnboardingAdapter', () => {
         expect(dingtalkConfig.cardTemplateId).toBe('tmpl.schema');
         expect(dingtalkConfig.cardTemplateKey).toBe('content');
         expect(dingtalkConfig.allowFrom).toEqual(['user_a', 'user_b']);
+        expect(dingtalkConfig.displayNameResolution).toBe('all');
         expect(dingtalkConfig.mediaUrlAllowlist).toBeUndefined();
         expect(dingtalkConfig.maxReconnectCycles).toBe(7);
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
