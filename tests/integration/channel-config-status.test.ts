@@ -21,6 +21,13 @@ vi.mock("dingtalk-stream", () => ({
 import { dingtalkPlugin } from "../../src/channel";
 
 const plugin = dingtalkPlugin as any;
+const displayNameResolutionAllCfg = {
+  channels: {
+    dingtalk: {
+      displayNameResolution: "all",
+    },
+  },
+} as any;
 
 describe("channel config + status helpers", () => {
   const tempDirs: string[] = [];
@@ -196,14 +203,14 @@ describe("channel config + status helpers", () => {
     };
 
     const groups = await plugin.directory.listGroups({
-      cfg: {} as any,
+      cfg: displayNameResolutionAllCfg,
       accountId: "default",
       query: "Dev Team",
       runtime,
       limit: null,
     });
     const peers = await plugin.directory.listPeers({
-      cfg: {} as any,
+      cfg: displayNameResolutionAllCfg,
       accountId: "default",
       query: "Alice",
       runtime,
@@ -266,11 +273,11 @@ describe("channel config + status helpers", () => {
     } as any);
 
     const groups = await plugin.directory.listGroups({
-      cfg: {} as any,
+      cfg: displayNameResolutionAllCfg,
       query: "Not Existing",
     });
     const filteredGroups = await plugin.directory.listGroups({
-      cfg: {} as any,
+      cfg: displayNameResolutionAllCfg,
       query: "Ops Team",
       runtime: {
         channel: {
@@ -303,5 +310,49 @@ describe("channel config + status helpers", () => {
         name: "Ops Team",
       }),
     ]);
+  });
+
+  it("disables learned directory resolution by default", async () => {
+    const storePath = createStorePath();
+    upsertObservedGroupTarget({
+      storePath,
+      accountId: "default",
+      conversationId: "cidDevTeam",
+      title: "Dev Team",
+      seenAt: 1000,
+    });
+    upsertObservedUserTarget({
+      storePath,
+      accountId: "default",
+      senderId: "union_001",
+      staffId: "staff_001",
+      displayName: "Alice",
+      seenAt: 1000,
+    });
+    const runtime = {
+      channel: {
+        session: {
+          resolveStorePath: vi.fn().mockReturnValue(storePath),
+        },
+      },
+    };
+
+    const groups = await plugin.directory.listGroups({
+      cfg: {} as any,
+      accountId: "default",
+      query: "Dev Team",
+      runtime,
+      limit: null,
+    });
+    const peers = await plugin.directory.listPeers({
+      cfg: {} as any,
+      accountId: "default",
+      query: "Alice",
+      runtime,
+      limit: null,
+    });
+
+    expect(groups).toEqual([]);
+    expect(peers).toEqual([]);
   });
 });

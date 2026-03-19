@@ -1,5 +1,5 @@
 import type { ChannelDirectoryEntry, OpenClawConfig } from "openclaw/plugin-sdk";
-import { stripTargetPrefix } from "../config";
+import { getConfig, stripTargetPrefix } from "../config";
 import { resolveOriginalPeerId } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
 import { listKnownGroupTargets, listKnownUserTargets } from "./target-directory-store";
@@ -60,7 +60,23 @@ function shouldFilterDirectoryByQuery(params: DirectoryListParams): boolean {
   return params.limit !== undefined;
 }
 
+function isDisplayNameResolutionEnabled(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+}): boolean {
+  const mode = getConfig(params.cfg, params.accountId ?? undefined).displayNameResolution;
+  // Current upstream target resolution does not pass requester owner/authz context into
+  // plugin targetResolver/directory callbacks, so owner-only resolution is not yet safe.
+  // Keep the config explicit: only "all" enables learned displayName resolution for now.
+  // TODO(upstream target-resolver): add a true owner-only mode once requester authorization
+  // is plumbed into plugin resolver and directory entry points.
+  return mode === "all";
+}
+
 export function listDingTalkDirectoryGroups(params: DirectoryListParams): ChannelDirectoryEntry[] {
+  if (!isDisplayNameResolutionEnabled(params)) {
+    return [];
+  }
   const accountId = normalizeDirectoryAccountId(params.accountId);
   const storePath = resolveDirectoryStorePath(params);
   const filterByQuery = shouldFilterDirectoryByQuery(params);
@@ -108,6 +124,9 @@ export function listDingTalkDirectoryGroups(params: DirectoryListParams): Channe
 }
 
 export function listDingTalkDirectoryUsers(params: DirectoryListParams): ChannelDirectoryEntry[] {
+  if (!isDisplayNameResolutionEnabled(params)) {
+    return [];
+  }
   const accountId = normalizeDirectoryAccountId(params.accountId);
   const storePath = resolveDirectoryStorePath(params);
   const filterByQuery = shouldFilterDirectoryByQuery(params);

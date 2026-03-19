@@ -32,6 +32,9 @@ const DingTalkAccountConfigShape = {
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
+  /** Default disabled until upstream target resolution exposes requester owner context for future owner-only mode. */
+  displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
+
   mediaUrlAllowlist: z.array(z.string()).optional(),
 
   /** Official OpenClaw ackReaction entry for processing feedback; empty string disables it */
