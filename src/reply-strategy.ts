@@ -7,6 +7,7 @@
  */
 
 import type { AICardInstance, DingTalkConfig, Logger } from "./types";
+import type { QuotedRef } from "./types";
 import { createCardReplyStrategy } from "./reply-strategy-card";
 import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 
@@ -53,6 +54,7 @@ export interface ReplyStrategyContext {
   storePath: string;
   groupId?: string;
   log?: Logger;
+  replyQuotedRef?: QuotedRef;
   deliverMedia: (urls: string[]) => Promise<void>;
 }
 

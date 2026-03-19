@@ -148,6 +148,7 @@ export function createCardReplyStrategy(
             accountId: ctx.accountId,
             storePath: ctx.storePath,
             conversationId: ctx.groupId,
+            quotedRef: ctx.replyQuotedRef,
             forceMarkdown: true,
           });
           if (!sendResult.ok) {
@@ -172,7 +173,9 @@ export function createCardReplyStrategy(
           `source=${controller.getLastAnswerContent() ? "lastAnswerContent" : finalTextForFallback ? "finalTextForFallback" : "fallbackDone"} ` +
           `preview="${finalText.slice(0, 120)}"`,
         );
-        await finishAICard(card, finalText, log);
+        await finishAICard(card, finalText, log, {
+          quotedRef: ctx.replyQuotedRef,
+        });
 
         // In group chats, send a lightweight @mention via session webhook
         // so the sender gets a notification — card API doesn't support @mention.

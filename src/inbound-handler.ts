@@ -39,14 +39,11 @@ import {
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {
-  DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
   DEFAULT_MEDIA_CONTEXT_TTL_MS,
   DEFAULT_MESSAGE_CONTEXT_TTL_DAYS,
-  resolveByAlias,
-  resolveByCreatedAtWindow,
-  resolveByMsgId,
   upsertInboundMessageContext,
 } from "./message-context-store";
+import { buildInboundQuotedRef, createReplyQuotedRef, resolveQuotedRecord } from "./messaging/quoted-ref";
 import { extractMessageContent } from "./message-utils";
 import { registerPeerId } from "./peer-id-registry";
 import {
@@ -57,7 +54,7 @@ import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quo
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy";
 import { getDingTalkRuntime } from "./runtime";
-import { sendBySession, sendProactiveMedia } from "./send-service";
+import { sendBySession, sendMessage, sendProactiveMedia } from "./send-service";
 import {
   formatSessionAliasBoundReply,
   formatSessionAliasClearedReply,
@@ -151,13 +148,6 @@ function shouldSendProactivePermissionHint(params: {
 
   proactiveHintLastSentAt.set(key, params.nowMs);
   return true;
-}
-
-function stripQuotedPrefixForJournal(value: string): string {
-  return value
-    .replace(/^\[引用消息: .*?\]\n\n/s, "")
-    .replace(/^\[这是一条引用消息，原消息ID: .*?\]\n\n/s, "")
-    .trim();
 }
 
 function sanitizeGroupPromptName(value?: string): string {
@@ -930,37 +920,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  const hasConcreteQuotedPayload =
-    !!extractedContent.quoted?.mediaDownloadCode ||
-    !!extractedContent.quoted?.isQuotedFile ||
-    !!extractedContent.quoted?.isQuotedCard ||
-    extractedContent.quoted?.prefix.startsWith('[引用消息: "') === true;
   const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
-  let content = extractedContent;
-
-  if (data.text?.isReplyMsg && data.originalMsgId && !hasConcreteQuotedPayload) {
-    try {
-      const quoted = resolveByMsgId({
-        storePath: accountStorePath,
-        accountId,
-        conversationId: groupId,
-        msgId: data.originalMsgId,
-      });
-      const cutoff = Date.now() - journalTTLDays * 24 * 60 * 60 * 1000;
-      if (quoted?.text?.trim() && quoted.createdAt >= cutoff) {
-        const cleanedText = extractedContent.text.replace(
-          /^\[这是一条引用消息，原消息ID: [^\]]+\]\n\n/,
-          "",
-        );
-        content = {
-          ...extractedContent,
-          text: `[引用消息: "${quoted.text.trim()}"]\n\n${cleanedText}`,
-        };
-      }
-    } catch (err) {
-      log?.debug?.(`[DingTalk] Quote journal lookup failed: ${String(err)}`);
-    }
-  }
+  const quotedRef = buildInboundQuotedRef(data, extractedContent);
+  const replyQuotedRef = createReplyQuotedRef(data.msgId);
+  const content = extractedContent;
 
   try {
     upsertInboundMessageContext({
@@ -969,7 +932,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       conversationId: groupId,
       msgId: data.msgId,
       messageType: content.messageType,
-      text: stripQuotedPrefixForJournal(content.text),
+      text: content.text,
+      quotedRef,
       createdAt: data.createAt,
       ttlMs: ttlDaysToMs(journalTTLDays),
       ttlReferenceMs: data.createAt,
@@ -1052,33 +1016,37 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  const quotedRecord = resolveQuotedRecord({
+    storePath: accountStorePath,
+    accountId,
+    conversationId: data.conversationId,
+    quotedRef,
+  });
+
   // Try downloading a quoted file from cached downloadCode/spaceId+fileId.
-  const tryDownloadFromCache = async (
-    quotedMsgId: string | undefined,
+  const tryDownloadFromRecord = async (
+    record: {
+      media?: {
+        downloadCode?: string;
+        spaceId?: string;
+        fileId?: string;
+      };
+    } | null,
   ): Promise<MediaFile | null> => {
-    if (!quotedMsgId) {
-      return null;
-    }
-    const cached = resolveByMsgId({
-      storePath: accountStorePath,
-      accountId,
-      conversationId: data.conversationId,
-      msgId: quotedMsgId,
-    });
-    if (!cached?.media) {
+    if (!record?.media) {
       return null;
     }
     let media: MediaFile | null = null;
-    if (cached.media.downloadCode) {
-      media = await downloadMedia(dingtalkConfig, cached.media.downloadCode, log);
+    if (record.media.downloadCode) {
+      media = await downloadMedia(dingtalkConfig, record.media.downloadCode, log);
     }
-    if (!media && cached.media.spaceId && cached.media.fileId && data.senderStaffId) {
+    if (!media && record.media.spaceId && record.media.fileId && data.senderStaffId) {
       try {
         const unionId = await getUnionIdByStaffId(dingtalkConfig, data.senderStaffId, log);
         media = await downloadGroupFile(
           dingtalkConfig,
-          cached.media.spaceId,
-          cached.media.fileId,
+          record.media.spaceId,
+          record.media.fileId,
           unionId,
           log,
         );
@@ -1091,15 +1059,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   // Quoted picture: download via existing downloadMedia.
   if (!mediaPath && content.quoted?.mediaDownloadCode && dingtalkConfig.robotCode) {
-    const media = await downloadMedia(dingtalkConfig, content.quoted.mediaDownloadCode, log);
+    const media =
+      (await tryDownloadFromRecord(quotedRecord)) ||
+      (await downloadMedia(dingtalkConfig, content.quoted.mediaDownloadCode, log));
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
     } else {
-      content.text = content.text.replace(
-        content.quoted.prefix,
-        "[引用了一张图片，但下载失败]\n\n",
-      );
+      content.text = `[引用了一张图片，但下载失败]\n\n${content.text}`;
     }
   }
 
@@ -1107,8 +1074,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (!mediaPath && content.quoted?.isQuotedFile) {
     let fileResolved = false;
 
-    // Step 1: Try msgId-based cache (works for both DM and group if bot saw the original message).
-    const cachedMedia = await tryDownloadFromCache(content.quoted.msgId);
+    // Step 1: Prefer quotedRef-backed record lookup, then msgId-based cache.
+    const cachedMedia = await tryDownloadFromRecord(quotedRecord);
     if (cachedMedia) {
       mediaPath = cachedMedia.path;
       mediaType = cachedMedia.mimeType;
@@ -1156,7 +1123,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       const hint = isDirect
         ? "[引用了一个文件，内容无法自动获取，请直接发送该文件]\n\n"
         : "[引用了一个文件，但无法获取内容]\n\n";
-      content.text = content.text.replace(content.quoted.prefix, hint);
+      content.text = `${hint}${content.text}`;
     }
   }
 
@@ -1168,12 +1135,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (!mediaPath && content.quoted?.isQuotedDocCard) {
     let docResolved = false;
 
-    const cachedDocMedia = await tryDownloadFromCache(content.quoted.msgId);
+    const cachedDocMedia = await tryDownloadFromRecord(quotedRecord);
     if (cachedDocMedia) {
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
       docResolved = true;
-      content.text = content.text.replace(content.quoted.prefix, "[引用了钉钉文档]\n\n");
     }
 
     if (!docResolved && !isDirect && content.quoted.fileCreatedAt) {
@@ -1190,7 +1156,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
         docResolved = true;
-        content.text = content.text.replace(content.quoted.prefix, "[引用了钉钉文档]\n\n");
         if (content.quoted.msgId) {
           upsertInboundMessageContext({
             storePath: accountStorePath,
@@ -1217,40 +1182,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       const hint = isDirect
         ? "[引用了钉钉文档，内容无法自动获取，请直接发送该文档]\n\n"
         : "[引用了钉钉文档，但无法获取内容]\n\n";
-      content.text = content.text.replace(content.quoted.prefix, hint);
+      content.text = `${hint}${content.text}`;
     }
-  }
-
-  // Quoted AI card: prefer deterministic processQueryKey lookup, and only
-  // fall back to the legacy createdAt matcher when the callback omits that key.
-  if (content.quoted?.isQuotedCard) {
-    const cardRecord = content.quoted.processQueryKey
-      ? resolveByAlias({
-          storePath: accountStorePath,
-          accountId,
-          conversationId: to,
-          kind: "processQueryKey",
-          value: content.quoted.processQueryKey,
-        })
-      : content.quoted.cardCreatedAt
-        ? resolveByCreatedAtWindow({
-            storePath: accountStorePath,
-            accountId,
-            conversationId: to,
-            createdAt: content.quoted.cardCreatedAt,
-            windowMs: DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
-            direction: "outbound",
-          })
-        : null;
-    const cardContent = cardRecord?.text || null;
-    if (cardContent) {
-      const preview = cardContent.length > 50 ? cardContent.slice(0, 50) + "..." : cardContent;
-      content.text = content.text.replace(
-        content.quoted.prefix,
-        `[引用机器人回复: "${preview}"]\n\n`,
-      );
-    }
-    // Card cache miss: prefix already contains "[引用了机器人的回复]", keep as-is.
   }
 
   let attachmentExtractedText: string | undefined;
@@ -1326,6 +1259,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     Body: body,
     RawBody: inboundText,
     CommandBody: inboundText,
+    QuotedRef: quotedRef,
+    QuotedRefJson: quotedRef ? JSON.stringify(quotedRef) : undefined,
     From: to,
     To: to,
     SessionKey: route.sessionKey,
@@ -1406,11 +1341,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           asVoice: false,
         });
         if (sessionWebhook) {
-          await sendBySession(dingtalkConfig, sessionWebhook, "", {
+          const sendResult = await sendMessage(dingtalkConfig, to, "", {
+            sessionWebhook,
             mediaPath: actualMediaPath,
             mediaType: outMediaType,
             log,
+            accountId,
+            storePath: accountStorePath,
+            conversationId: groupId,
+            quotedRef: replyQuotedRef,
           });
+          if (!sendResult.ok) {
+            throw new Error(sendResult.error || "Media reply send failed");
+          }
         } else {
           const sendResult = await sendProactiveMedia(
             dingtalkConfig,
@@ -1421,7 +1364,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               accountId,
               log,
               storePath: accountStorePath,
-              conversationId: to,
+              conversationId: groupId,
+              quotedRef: replyQuotedRef,
             },
           );
           if (!sendResult.ok) {
@@ -1471,6 +1415,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       storePath: accountStorePath,
       groupId,
       log,
+      replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
     });
 

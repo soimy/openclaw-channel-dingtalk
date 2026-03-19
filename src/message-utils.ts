@@ -202,13 +202,8 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       const repliedMsgType = repliedMsg.msgType;
       const content = repliedMsg.content;
 
-      if (repliedMsgType === "text" && content?.text?.trim()) {
-        return { prefix: `[引用消息: "${content.text.trim()}"]\n\n` };
-      }
-
       if (repliedMsgType === "picture" && content?.downloadCode) {
         return {
-          prefix: "[引用图片]\n\n",
           mediaDownloadCode: content.downloadCode,
           mediaType: "image",
         };
@@ -217,13 +212,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       if (repliedMsgType === "richText") {
         const richTextQuote = extractRichTextQuoteParts(content?.richText);
         if (richTextQuote) {
-          const quoteImageCount = richTextQuote.pictureDownloadCodes?.length || 0;
-          const prefix =
-            richTextQuote.summary && richTextQuote.summary !== "[图片]"
-              ? `[引用消息: "${richTextQuote.summary}"]${quoteImageCount > 1 ? ` [含${quoteImageCount}张引用图片]` : ""}\n\n`
-              : "[引用图片]\n\n";
           return {
-            prefix,
             mediaDownloadCode: richTextQuote.pictureDownloadCode,
             mediaType: richTextQuote.pictureDownloadCode ? "image" : undefined,
           };
@@ -232,7 +221,6 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
       if (repliedMsgType === "unknownMsgType") {
         return {
-          prefix: "[引用文件]\n\n",
           isQuotedFile: true,
           fileCreatedAt: repliedMsg.createdAt,
           msgId: repliedMsg.msgId,
@@ -243,7 +231,6 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         const isBotCard = repliedMsg.senderId === data.chatbotUserId;
         if (isBotCard) {
           return {
-            prefix: "[引用了机器人的回复]\n\n",
             isQuotedCard: true,
             cardCreatedAt: repliedMsg.createdAt,
             processQueryKey: data.originalProcessQueryKey,
@@ -252,29 +239,26 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         }
 
         return {
-          prefix: "[引用了钉钉文档]\n\n",
           isQuotedDocCard: true,
           fileCreatedAt: repliedMsg.createdAt,
           msgId: repliedMsg.msgId,
         };
       }
 
-      // Has msgType but not one we handle — generic fallback.
-      if (repliedMsgType) {
-        const idPart = repliedMsg.msgId ? `，原消息ID: ${repliedMsg.msgId}` : "";
-        return { prefix: `[引用消息不可见: msgType=${repliedMsgType}${idPart}]\n\n` };
+      if (repliedMsgType && repliedMsg.msgId) {
+        return { msgId: repliedMsg.msgId };
       }
 
       // No msgType — backward compat: extract text or richText from content.
       if (content?.text?.trim()) {
-        return { prefix: `[引用消息: "${content.text.trim()}"]\n\n` };
+        return repliedMsg.msgId ? { msgId: repliedMsg.msgId } : {};
       }
 
       if (content?.richText && Array.isArray(content.richText)) {
         const richTextQuote = extractRichTextQuoteParts(content.richText);
-        if (richTextQuote?.summary) {
+        if (richTextQuote) {
           return {
-            prefix: `[引用消息: "${richTextQuote.summary}"]\n\n`,
+            msgId: repliedMsg.msgId,
             mediaDownloadCode: richTextQuote.pictureDownloadCode,
             mediaType: richTextQuote.pictureDownloadCode ? "image" : undefined,
           };
@@ -284,30 +268,23 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
     if (textField?.isReplyMsg && !textField?.repliedMsg && data.originalMsgId) {
       return {
-        prefix: `[这是一条引用消息，原消息ID: ${data.originalMsgId}]\n\n`,
         msgId: data.originalMsgId,
       };
     }
 
     if (data.quoteMessage) {
-      const quoteText = data.quoteMessage.text?.content?.trim() || "";
-      if (quoteText) {
-        return { prefix: `[引用消息: "${quoteText}"]\n\n` };
+      if (data.quoteMessage.msgId) {
+        return { msgId: data.quoteMessage.msgId };
       }
-    }
-
-    if (data.content?.quoteContent) {
-      return { prefix: `[引用消息: "${data.content.quoteContent}"]\n\n` };
     }
 
     return null;
   };
 
   const quoted = formatQuotedContent();
-  const quotedPrefix = quoted?.prefix || "";
 
   if (msgtype === "text") {
-    return { text: quotedPrefix + (data.text?.content?.trim() || ""), messageType: "text", quoted: quoted ?? undefined };
+    return { text: data.text?.content?.trim() || "", messageType: "text", quoted: quoted ?? undefined };
   }
 
   if (msgtype === "richText") {
@@ -329,8 +306,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     const uniquePictureDownloadCodes = [...new Set(pictureDownloadCodes)];
     const pictureDownloadCode = uniquePictureDownloadCodes[0];
     return {
-      text:
-        quotedPrefix + (text.trim() || (pictureDownloadCode ? "<media:image>" : "[富文本消息]")),
+      text: text.trim() || (pictureDownloadCode ? "<media:image>" : "[富文本消息]"),
       mediaPath: pictureDownloadCode,
       mediaPaths: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
       mediaType: pictureDownloadCode ? "image" : undefined,

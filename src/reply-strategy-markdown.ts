@@ -32,6 +32,7 @@ export function createMarkdownReplyStrategy(
           accountId: ctx.accountId,
           storePath: ctx.storePath,
           conversationId: ctx.groupId,
+          quotedRef: ctx.replyQuotedRef,
         });
         if (!sendResult.ok) {
           throw new Error(sendResult.error || "Reply send failed");

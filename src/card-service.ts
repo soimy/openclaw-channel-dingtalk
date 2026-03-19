@@ -24,6 +24,7 @@ import type {
   DingTalkConfig,
   DingTalkTrackingMetadata,
   Logger,
+  QuotedRef,
 } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
@@ -840,6 +841,7 @@ export async function finishAICard(
   card: AICardInstance,
   content: string,
   log?: Logger,
+  options: { quotedRef?: QuotedRef } = {},
 ): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
   await streamAICard(card, content, true, log);
@@ -850,6 +852,7 @@ export async function finishAICard(
       card.processQueryKey,
       content,
       card.storePath,
+      options.quotedRef,
     );
   }
 }
@@ -860,6 +863,7 @@ function cacheCardContentByProcessQueryKey(
   processQueryKey: string,
   content: string,
   storePath?: string,
+  quotedRef?: QuotedRef,
 ): void {
   if (!processQueryKey.trim() || !content.trim() || !storePath) {
     return;
@@ -873,6 +877,7 @@ function cacheCardContentByProcessQueryKey(
     messageType: "card",
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
+    quotedRef,
     delivery: {
       processQueryKey,
       kind: "proactive-card",
