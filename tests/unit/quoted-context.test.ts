@@ -1,0 +1,319 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  clearMessageContextCacheForTest,
+  upsertInboundMessageContext,
+  upsertOutboundMessageContext,
+} from "../../src/message-context-store";
+import { resolveQuotedRuntimeContext } from "../../src/messaging/quoted-context";
+
+describe("quoted-context", () => {
+  beforeEach(() => {
+    clearMessageContextCacheForTest();
+  });
+
+  it("builds an inbound -> outbound -> inbound chain in order", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_chain",
+      msgId: "chain_in_0",
+      createdAt: 1000,
+      messageType: "text",
+      text: "third hop",
+      topic: null,
+    });
+    upsertOutboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_chain",
+      createdAt: 2000,
+      messageType: "card",
+      text: "second hop",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_in_0",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "chain_out_1",
+        kind: "session",
+      },
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_chain",
+      msgId: "chain_in_2",
+      createdAt: 3000,
+      messageType: "text",
+      text: "first hop",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "chain_out_1",
+      },
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_chain",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_in_2",
+      },
+    });
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.replyToId).toBe("chain_in_2");
+    expect(resolved?.replyToBody).toBe("first hop");
+    expect(resolved?.replyToSender).toBeUndefined();
+    expect(resolved?.chain).toEqual([
+      {
+        depth: 1,
+        direction: "inbound",
+        messageType: "text",
+        body: "first hop",
+        createdAt: 3000,
+        sender: undefined,
+      },
+      {
+        depth: 2,
+        direction: "outbound",
+        messageType: "card",
+        body: "second hop",
+        createdAt: 2000,
+        sender: "assistant",
+      },
+      {
+        depth: 3,
+        direction: "inbound",
+        messageType: "text",
+        body: "third hop",
+        createdAt: 1000,
+        sender: undefined,
+      },
+    ]);
+    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "card",
+          body: "second hop",
+          createdAt: 2000,
+          sender: "assistant",
+        },
+        {
+          depth: 3,
+          direction: "inbound",
+          messageType: "text",
+          body: "third hop",
+          createdAt: 1000,
+        },
+      ],
+    });
+  });
+
+  it("truncates the chain when maxDepth is exceeded", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_depth",
+      msgId: "depth_0",
+      createdAt: 1000,
+      messageType: "text",
+      text: "depth 0",
+      topic: null,
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_depth",
+      msgId: "depth_1",
+      createdAt: 2000,
+      messageType: "text",
+      text: "depth 1",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "depth_0",
+      },
+      topic: null,
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_depth",
+      msgId: "depth_2",
+      createdAt: 3000,
+      messageType: "text",
+      text: "depth 2",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "depth_1",
+      },
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_depth",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "depth_2",
+      },
+      maxDepth: 2,
+    });
+
+    expect(resolved?.chain.map((entry) => entry.depth)).toEqual([1, 2]);
+    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "inbound",
+          messageType: "text",
+          body: "depth 1",
+          createdAt: 2000,
+        },
+      ],
+    });
+  });
+
+  it("truncates bodies when the total body budget is exceeded", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_budget",
+      msgId: "budget_0",
+      createdAt: 1000,
+      messageType: "text",
+      text: "c".repeat(1000),
+      topic: null,
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_budget",
+      msgId: "budget_1",
+      createdAt: 2000,
+      messageType: "text",
+      text: "b".repeat(1000),
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "budget_0",
+      },
+      topic: null,
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_budget",
+      msgId: "budget_2",
+      createdAt: 3000,
+      messageType: "text",
+      text: "a".repeat(1000),
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "budget_1",
+      },
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_budget",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "budget_2",
+      },
+      totalBodyLimit: 1500,
+    });
+
+    expect(resolved?.replyToBody.length).toBe(1000);
+    expect(resolved?.chain).toHaveLength(2);
+    expect(resolved?.chain[1]?.body.length).toBe(500);
+    expect(JSON.parse(resolved?.untrustedContext || "").quotedChain[0]?.body.length).toBe(500);
+  });
+
+  it("stops cleanly when the current record has no quotedRef", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_single",
+      msgId: "single_0",
+      createdAt: 1000,
+      messageType: "text",
+      text: "single hop",
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_single",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "single_0",
+      },
+    });
+
+    expect(resolved?.chain).toHaveLength(1);
+    expect(resolved?.untrustedContext).toBeUndefined();
+  });
+
+  it("stops safely on cycles without throwing", () => {
+    upsertOutboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_cycle",
+      createdAt: 2000,
+      messageType: "markdown",
+      text: "second hop",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "cycle_0",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "cycle_out_1",
+        kind: "session",
+      },
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_cycle",
+      msgId: "cycle_0",
+      createdAt: 1000,
+      messageType: "text",
+      text: "first hop",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "cycle_out_1",
+      },
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_cycle",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "cycle_0",
+      },
+    });
+
+    expect(resolved?.chain).toHaveLength(2);
+    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "markdown",
+          body: "second hop",
+          createdAt: 2000,
+          sender: "assistant",
+        },
+      ],
+    });
+  });
+});

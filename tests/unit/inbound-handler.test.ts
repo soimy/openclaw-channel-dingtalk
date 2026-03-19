@@ -1545,10 +1545,69 @@ describe("inbound-handler", () => {
           key: "msgId",
           value: "orig_msg_001",
         },
-        QuotedRefJson:
-          '{"targetDirection":"inbound","key":"msgId","value":"orig_msg_001"}',
+        QuotedRefJson: '{"targetDirection":"inbound","key":"msgId","value":"orig_msg_001"}',
       }),
     );
+  });
+
+  it("injects ReplyTo fields for quoted inbound text while keeping RawBody on the current message", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "orig_msg_002",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "原始引用正文",
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "当前回复",
+      messageType: "text",
+      quoted: {
+        msgId: "orig_msg_002",
+      },
+    });
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_reply_2",
+        msgtype: "text",
+        text: { content: "当前回复", isReplyMsg: true },
+        originalMsgId: "orig_msg_002",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.QuotedRef).toEqual({
+      targetDirection: "inbound",
+      key: "msgId",
+      value: "orig_msg_002",
+    });
+    expect(finalized.RawBody).toBe("当前回复");
+    expect(finalized.CommandBody).toBe("当前回复");
+    expect(finalized.ReplyToId).toBe("orig_msg_002");
+    expect(finalized.ReplyToBody).toBe("原始引用正文");
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBe(true);
+    expect(finalized.UntrustedContext).toBeUndefined();
   });
 
   it("logs legacy quoteContent when no resolvable quotedRef can be built", async () => {
@@ -1834,6 +1893,352 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("injects ReplyTo fields for quoted outbound cards via processQueryKey", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "interactiveCard",
+      text: "机器人上一条卡片回复",
+      topic: null,
+      delivery: {
+        processQueryKey: "carrier_quoted_2",
+        messageId: "out_msg_2",
+        kind: "session",
+      },
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续",
+      messageType: "text",
+      quoted: {
+        isQuotedCard: true,
+        processQueryKey: "carrier_quoted_2",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m5_card_quote_2",
+        msgtype: "text",
+        text: { content: "继续", isReplyMsg: true },
+        originalProcessQueryKey: "carrier_quoted_2",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToId).toBe("carrier_quoted_2");
+    expect(finalized.ReplyToBody).toBe("机器人上一条卡片回复");
+    expect(finalized.ReplyToSender).toBe("assistant");
+    expect(finalized.ReplyToIsQuote).toBe(true);
+  });
+
+  it("uses a stable placeholder when the first quoted hop has no text", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "interactiveCardFile",
+      topic: null,
+      delivery: {
+        processQueryKey: "carrier_placeholder_1",
+        kind: "session",
+      },
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "看看这个",
+      messageType: "text",
+      quoted: {
+        isQuotedCard: true,
+        processQueryKey: "carrier_placeholder_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_quote_placeholder",
+        msgtype: "text",
+        text: { content: "看看这个", isReplyMsg: true },
+        originalProcessQueryKey: "carrier_placeholder_1",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("[Quoted interactiveCardFile]");
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("injects a single JSON UntrustedContext block for multi-hop quoted chains starting at hop 2", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "chain_leaf_1",
+      createdAt: baseTs - 3000,
+      messageType: "text",
+      text: "第三跳原文",
+      topic: null,
+    });
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 2000,
+      messageType: "markdown",
+      text: "第二跳原文",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_leaf_1",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "chain_mid_1",
+        kind: "session",
+      },
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "chain_head_1",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "第一跳原文",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "chain_mid_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "当前消息",
+      messageType: "text",
+      quoted: {
+        msgId: "chain_head_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_chain_1",
+        msgtype: "text",
+        text: { content: "当前消息", isReplyMsg: true },
+        originalMsgId: "chain_head_1",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳原文");
+    expect(finalized.UntrustedContext).toHaveLength(1);
+    const untrusted = JSON.parse(finalized.UntrustedContext[0]);
+    expect(untrusted).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "markdown",
+          sender: "assistant",
+          body: "第二跳原文",
+          createdAt: baseTs - 2000,
+        },
+        {
+          depth: 3,
+          direction: "inbound",
+          messageType: "text",
+          body: "第三跳原文",
+          createdAt: baseTs - 3000,
+        },
+      ],
+    });
+  });
+
+  it("does not inject ReplyTo fields or chain context when quotedRef cannot be resolved", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "找不到引用",
+      messageType: "text",
+      quoted: {
+        msgId: "missing_quote_msg",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_missing_1",
+        msgtype: "text",
+        text: { content: "找不到引用", isReplyMsg: true },
+        originalMsgId: "missing_quote_msg",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: 1700000040000,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToId).toBeUndefined();
+    expect(finalized.ReplyToBody).toBeUndefined();
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBeUndefined();
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("stops safely when a quoted chain loops back to an earlier hop", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "markdown",
+      text: "第二跳循环",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "cycle_head_1",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "cycle_mid_1",
+        kind: "session",
+      },
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "cycle_head_1",
+      createdAt: baseTs - 2000,
+      messageType: "text",
+      text: "第一跳循环",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "cycle_mid_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "循环测试",
+      messageType: "text",
+      quoted: {
+        msgId: "cycle_head_1",
+      },
+    });
+
+    await expect(
+      handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+        data: {
+          msgId: "m_quote_cycle_1",
+          msgtype: "text",
+          text: { content: "循环测试", isReplyMsg: true },
+          originalMsgId: "cycle_head_1",
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: baseTs,
+        },
+      } as any),
+    ).resolves.toBeUndefined();
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳循环");
+    expect(JSON.parse(finalized.UntrustedContext[0])).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "markdown",
+          sender: "assistant",
+          body: "第二跳循环",
+          createdAt: baseTs - 1000,
+        },
+      ],
+    });
+  });
+
   it("handleDingTalkMessage records outbound createdAt fallback when quoted card key is missing", async () => {
     const runtime = buildRuntime();
     runtime.channel.session.resolveStorePath = vi
@@ -1878,8 +2283,7 @@ describe("inbound-handler", () => {
           targetDirection: "outbound",
           fallbackCreatedAt: 1772817989679,
         },
-        QuotedRefJson:
-          '{"targetDirection":"outbound","fallbackCreatedAt":1772817989679}',
+        QuotedRefJson: '{"targetDirection":"outbound","fallbackCreatedAt":1772817989679}',
       }),
     );
   });
@@ -2396,18 +2800,13 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "✅ Done",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m6",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m6",
       },
-    );
+    });
   });
 
   it("handleDingTalkMessage falls back to markdown sends when createAICard returns null", async () => {
@@ -2472,18 +2871,13 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "✅ Done",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m6_tool",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m6_tool",
       },
-    );
+    });
     expect(shared.sendMessageMock.mock.calls[0]?.[3]?.quotedRef).toBeUndefined();
     expect(shared.sendMessageMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -2775,18 +3169,13 @@ describe("inbound-handler", () => {
         },
       }),
     );
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "final output",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m_card_media_text",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "final output", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m_card_media_text",
       },
-    );
+    });
   });
 
   it("deliver callback falls back to proactive media send when sessionWebhook is absent", async () => {
