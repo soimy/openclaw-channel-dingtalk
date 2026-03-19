@@ -283,6 +283,7 @@ function resolveDirectoryStorePath(params: {
   accountId?: string | null;
   runtime?: unknown;
 }): string | undefined {
+  const normalizedAccountId = normalizeDirectoryAccountId(params.accountId);
   const runtimeSession = (
     params.runtime as
       | {
@@ -299,29 +300,38 @@ function resolveDirectoryStorePath(params: {
   )?.channel?.session;
   if (runtimeSession?.resolveStorePath) {
     return runtimeSession.resolveStorePath(params.cfg.session?.store, {
-      agentId: params.accountId ?? undefined,
+      agentId: normalizedAccountId,
     });
   }
   try {
     const rt = getDingTalkRuntime();
     return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
-      agentId: params.accountId ?? undefined,
+      agentId: normalizedAccountId,
     });
   } catch {
     return undefined;
   }
 }
 
+function shouldFilterDirectoryByQuery(params: DirectoryListParams): boolean {
+  // OpenClaw target-resolver currently uses a query-insensitive cache key and
+  // always calls directory list APIs with limit=undefined. If we filter by
+  // query at this layer during resolver calls, one miss can poison cache for
+  // later different queries. Keep resolver reads query-agnostic.
+  return params.limit !== undefined;
+}
+
 function listDingTalkDirectoryGroups(params: DirectoryListParams): ChannelDirectoryEntry[] {
   const accountId = normalizeDirectoryAccountId(params.accountId);
   const storePath = resolveDirectoryStorePath(params);
+  const filterByQuery = shouldFilterDirectoryByQuery(params);
   const groups = listKnownGroupTargets({
     storePath,
     accountId,
-    query: params.query ?? undefined,
-    limit: normalizeDirectoryLimit(params.limit),
+    query: filterByQuery ? (params.query ?? undefined) : undefined,
+    limit: filterByQuery ? normalizeDirectoryLimit(params.limit) : undefined,
   });
-  return groups.map((entry) => ({
+  const groupEntries = groups.map((entry) => ({
     kind: "group",
     id: resolveOriginalPeerId(entry.conversationId),
     name: entry.currentTitle,
@@ -329,16 +339,40 @@ function listDingTalkDirectoryGroups(params: DirectoryListParams): ChannelDirect
     rank: entry.lastSeenAt,
     raw: entry,
   }));
+
+  if (filterByQuery) {
+    return groupEntries;
+  }
+
+  // Temporary hack for the current upstream target-resolver flow: bare names
+  // are classified as "group" before directory lookup, so user displayName
+  // targets never reach listPeers(). Merge users into the resolver-only group
+  // lookup set so "displayName -> targetId" can still resolve for DingTalk.
+  const users = listKnownUserTargets({
+    storePath,
+    accountId,
+  });
+  const userEntries = users.map((entry) => ({
+    kind: "user" as const,
+    id: entry.canonicalUserId,
+    name: entry.currentDisplayName,
+    handle: entry.staffId || entry.senderId,
+    rank: entry.lastSeenAt,
+    raw: entry,
+  }));
+
+  return [...groupEntries, ...userEntries].toSorted((left, right) => (right.rank || 0) - (left.rank || 0));
 }
 
 function listDingTalkDirectoryUsers(params: DirectoryListParams): ChannelDirectoryEntry[] {
   const accountId = normalizeDirectoryAccountId(params.accountId);
   const storePath = resolveDirectoryStorePath(params);
+  const filterByQuery = shouldFilterDirectoryByQuery(params);
   const users = listKnownUserTargets({
     storePath,
     accountId,
-    query: params.query ?? undefined,
-    limit: normalizeDirectoryLimit(params.limit),
+    query: filterByQuery ? (params.query ?? undefined) : undefined,
+    limit: filterByQuery ? normalizeDirectoryLimit(params.limit) : undefined,
   });
   return users.map((entry) => ({
     kind: "user",

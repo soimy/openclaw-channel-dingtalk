@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { upsertObservedGroupTarget, upsertObservedUserTarget } from "../../src/targeting/target-directory-store";
+import { setDingTalkRuntime } from "../../src/runtime";
 
 vi.mock("openclaw/plugin-sdk", () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
@@ -177,6 +178,7 @@ describe("channel config + status helpers", () => {
             accountId: "default",
             query: "Dev Team",
             runtime,
+            limit: null,
         });
         const peers = await plugin.directory.listPeers({
             cfg: {} as any,
@@ -197,6 +199,73 @@ describe("channel config + status helpers", () => {
                 kind: "user",
                 id: "staff_001",
                 name: "Alice",
+            }),
+        ]);
+    });
+
+    it("uses default account store path and bypasses query filter when runtime param is missing", async () => {
+        const storePath = createStorePath();
+        upsertObservedGroupTarget({
+            storePath,
+            accountId: "default",
+            conversationId: "cidDevTeam",
+            title: "Dev Team",
+            seenAt: 1000,
+        });
+        upsertObservedGroupTarget({
+            storePath,
+            accountId: "default",
+            conversationId: "cidOpsTeam",
+            title: "Ops Team",
+            seenAt: 1100,
+        });
+        upsertObservedUserTarget({
+            storePath,
+            accountId: "default",
+            senderId: "union_bob",
+            staffId: "staff_bob",
+            displayName: "Bob",
+            seenAt: 1200,
+        });
+        const resolveStorePath = vi.fn().mockImplementation((_store: unknown, options: { agentId?: string }) => {
+            if (options.agentId === "default") {
+                return storePath;
+            }
+            return path.join(os.tmpdir(), `openclaw-dingtalk-wrong-store-${Date.now()}.json`);
+        });
+        setDingTalkRuntime({
+            channel: {
+                session: {
+                    resolveStorePath,
+                },
+            },
+        } as any);
+
+        const groups = await plugin.directory.listGroups({
+            cfg: {} as any,
+            query: "Not Existing",
+        });
+        const filteredGroups = await plugin.directory.listGroups({
+            cfg: {} as any,
+            query: "Ops Team",
+            runtime: {
+                channel: {
+                    session: {
+                        resolveStorePath,
+                    },
+                },
+            },
+            limit: null,
+        });
+
+        expect(resolveStorePath).toHaveBeenCalledWith(undefined, { agentId: "default" });
+        expect(groups).toHaveLength(3);
+        expect(groups.map((entry) => entry.id)).toEqual(expect.arrayContaining(["cidDevTeam", "cidOpsTeam", "staff_bob"]));
+        expect(filteredGroups).toEqual([
+            expect.objectContaining({
+                kind: "group",
+                id: "cidOpsTeam",
+                name: "Ops Team",
             }),
         ]);
     });
