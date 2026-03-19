@@ -1,5 +1,6 @@
 import type { AtMention, DingTalkInboundMessage, MessageContent, QuotedInfo, SendMessageOptions } from "./types";
 
+
 interface DingTalkDocMeta {
   spaceId: string;
   fileId: string;

@@ -83,7 +83,10 @@ export async function resolveSubAgentRoute(params: {
 
   const atMentions = extractedContent.atMentions || [];
   const atUserDingtalkIds = extractedContent.atUserDingtalkIds;
-  const isLearnCommand = parseLearnCommand(extractedContent.text).scope !== "unknown";
+  // Strip quoted prefix before checking /learn to avoid false positives
+  // when the quoted message itself contains a /learn command.
+  const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
+  const isLearnCommand = parseLearnCommand(textForCommandCheck).scope !== "unknown";
 
   if (
     !isGroup ||
