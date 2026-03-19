@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
-import type {
-  ChannelDirectoryEntry,
-  ChannelMessageActionAdapter,
-  OpenClawConfig,
-} from "openclaw/plugin-sdk";
+import type { ChannelMessageActionAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
 import * as pluginSdk from "openclaw/plugin-sdk";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
@@ -25,18 +21,17 @@ import {
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "./dedup";
+import {
+  isFeedbackLearningAutoApplyEnabled,
+  isFeedbackLearningEnabled,
+  recordExplicitFeedbackLearning,
+} from "./feedback-learning-service";
 import { handleDingTalkMessage } from "./inbound-handler";
 import { getLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
-import { listKnownGroupTargets, listKnownUserTargets } from "./targeting/target-directory-store";
-import {
-  isFeedbackLearningAutoApplyEnabled,
-  isFeedbackLearningEnabled,
-  recordExplicitFeedbackLearning,
-} from "./feedback-learning-service";
 import {
   sendMessage,
   sendProactiveMedia,
@@ -44,6 +39,12 @@ import {
   sendBySession,
   uploadMedia,
 } from "./send-service";
+import {
+  listDingTalkDirectoryGroups,
+  listDingTalkDirectoryUsers,
+  normalizeResolvedDingTalkTarget,
+} from "./targeting/target-directory-adapter";
+import { looksLikeDingTalkTargetId, normalizeDingTalkTarget } from "./targeting/target-input";
 import type {
   DingTalkInboundMessage,
   GatewayStartContext,
@@ -95,7 +96,11 @@ function getInstrumentedEndpoint(client: InstrumentedDWClient): string | undefin
   if (typeof endpointConfig === "string") {
     return endpointConfig;
   }
-  if (endpointConfig && typeof endpointConfig === "object" && typeof endpointConfig.endpoint === "string") {
+  if (
+    endpointConfig &&
+    typeof endpointConfig === "object" &&
+    typeof endpointConfig.endpoint === "string"
+  ) {
     return endpointConfig.endpoint;
   }
   return undefined;
@@ -103,7 +108,10 @@ function getInstrumentedEndpoint(client: InstrumentedDWClient): string | undefin
 
 function instrumentConnectionStages(client: DWClient): void {
   const instrumented = client as unknown as InstrumentedDWClient;
-  if (typeof instrumented.getEndpoint !== "function" || typeof instrumented._connect !== "function") {
+  if (
+    typeof instrumented.getEndpoint !== "function" ||
+    typeof instrumented._connect !== "function"
+  ) {
     return;
   }
 
@@ -195,193 +203,6 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
     }
   }
   return undefined;
-}
-
-function stripProviderPrefix(raw: string): string {
-  return raw.replace(/^(dingtalk|dd|ding)\s*:\s*/i, "");
-}
-
-function normalizeDingTalkTarget(raw: string): string | undefined {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const providerStripped = stripProviderPrefix(trimmed).trim();
-  const { targetId } = stripTargetPrefix(providerStripped);
-  const normalized = targetId.trim();
-  return normalized || undefined;
-}
-
-function parseDingTalkTargetInput(raw: string): {
-  targetId: string;
-  explicitUser: boolean;
-  explicitGroup: boolean;
-} {
-  const providerStripped = stripProviderPrefix(raw.trim()).trim();
-  const explicitGroup = providerStripped.startsWith("group:");
-  const { targetId, isExplicitUser } = stripTargetPrefix(providerStripped);
-  return {
-    targetId: targetId.trim(),
-    explicitUser: isExplicitUser,
-    explicitGroup,
-  };
-}
-
-function looksLikeDingTalkTargetId(raw: string, normalized?: string): boolean {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return false;
-  }
-  const parsed = parseDingTalkTargetInput(trimmed);
-  if (parsed.explicitUser || parsed.explicitGroup) {
-    return true;
-  }
-  const candidate = (normalized || parsed.targetId).trim();
-  if (!candidate) {
-    return false;
-  }
-  if (/^cid[\w+\-/=]*$/i.test(candidate)) {
-    return true;
-  }
-  if (/^\+?\d{6,}$/.test(candidate)) {
-    return true;
-  }
-  if (/^[a-z0-9]{16,}$/i.test(candidate)) {
-    return true;
-  }
-  if (/^[A-Za-z0-9+/=]{16,}$/.test(candidate) && /[+/=]/.test(candidate)) {
-    return true;
-  }
-  if (/^[A-Za-z0-9_-]{24,}$/.test(candidate) && /\d/.test(candidate)) {
-    return true;
-  }
-  return false;
-}
-
-function normalizeDirectoryAccountId(accountId?: string | null): string {
-  const resolved = String(accountId || "default").trim();
-  return resolved || "default";
-}
-
-function normalizeDirectoryLimit(limit?: number | null): number | undefined {
-  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
-    return undefined;
-  }
-  return Math.floor(limit);
-}
-
-type DirectoryListParams = {
-  cfg: OpenClawConfig;
-  accountId?: string | null;
-  query?: string | null;
-  limit?: number | null;
-  runtime?: unknown;
-};
-
-function resolveDirectoryStorePath(params: {
-  cfg: OpenClawConfig;
-  accountId?: string | null;
-  runtime?: unknown;
-}): string | undefined {
-  const normalizedAccountId = normalizeDirectoryAccountId(params.accountId);
-  const runtimeSession = (
-    params.runtime as
-      | {
-          channel?: {
-            session?: {
-              resolveStorePath?: (
-                store: unknown,
-                options: { agentId?: string | null | undefined },
-              ) => string;
-            };
-          };
-        }
-      | undefined
-  )?.channel?.session;
-  if (runtimeSession?.resolveStorePath) {
-    return runtimeSession.resolveStorePath(params.cfg.session?.store, {
-      agentId: normalizedAccountId,
-    });
-  }
-  try {
-    const rt = getDingTalkRuntime();
-    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
-      agentId: normalizedAccountId,
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-function shouldFilterDirectoryByQuery(params: DirectoryListParams): boolean {
-  // OpenClaw target-resolver currently uses a query-insensitive cache key and
-  // always calls directory list APIs with limit=undefined. If we filter by
-  // query at this layer during resolver calls, one miss can poison cache for
-  // later different queries. Keep resolver reads query-agnostic.
-  return params.limit !== undefined;
-}
-
-function listDingTalkDirectoryGroups(params: DirectoryListParams): ChannelDirectoryEntry[] {
-  const accountId = normalizeDirectoryAccountId(params.accountId);
-  const storePath = resolveDirectoryStorePath(params);
-  const filterByQuery = shouldFilterDirectoryByQuery(params);
-  const groups = listKnownGroupTargets({
-    storePath,
-    accountId,
-    query: filterByQuery ? (params.query ?? undefined) : undefined,
-    limit: filterByQuery ? normalizeDirectoryLimit(params.limit) : undefined,
-  });
-  const groupEntries: ChannelDirectoryEntry[] = groups.map((entry) => ({
-    kind: "group" as const,
-    id: resolveOriginalPeerId(entry.conversationId),
-    name: entry.currentTitle,
-    handle: entry.conversationId,
-    rank: entry.lastSeenAt,
-    raw: entry,
-  }));
-
-  if (filterByQuery) {
-    return groupEntries;
-  }
-
-  // Temporary hack for the current upstream target-resolver flow: bare names
-  // are classified as "group" before directory lookup, so user displayName
-  // targets never reach listPeers(). Merge users into the resolver-only group
-  // lookup set so "displayName -> targetId" can still resolve for DingTalk.
-  const users = listKnownUserTargets({
-    storePath,
-    accountId,
-  });
-  const userEntries: ChannelDirectoryEntry[] = users.map((entry) => ({
-    kind: "user" as const,
-    id: entry.canonicalUserId,
-    name: entry.currentDisplayName,
-    handle: entry.staffId || entry.senderId,
-    rank: entry.lastSeenAt,
-    raw: entry,
-  }));
-
-  return [...groupEntries, ...userEntries].toSorted((left, right) => (right.rank || 0) - (left.rank || 0));
-}
-
-function listDingTalkDirectoryUsers(params: DirectoryListParams): ChannelDirectoryEntry[] {
-  const accountId = normalizeDirectoryAccountId(params.accountId);
-  const storePath = resolveDirectoryStorePath(params);
-  const filterByQuery = shouldFilterDirectoryByQuery(params);
-  const users = listKnownUserTargets({
-    storePath,
-    accountId,
-    query: filterByQuery ? (params.query ?? undefined) : undefined,
-    limit: filterByQuery ? normalizeDirectoryLimit(params.limit) : undefined,
-  });
-  return users.map((entry) => ({
-    kind: "user",
-    id: entry.canonicalUserId,
-    name: entry.currentDisplayName,
-    handle: entry.staffId || entry.senderId,
-    rank: entry.lastSeenAt,
-    raw: entry,
-  }));
 }
 
 const dingtalkMessageActions: ChannelMessageActionAdapter = {
@@ -528,9 +349,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const config = getConfig(cfg);
       const id = accountId || "default";
       const account = config.accounts?.[id];
-      const resolvedConfig = account
-        ? mergeAccountWithDefaults(config, account)
-        : config;
+      const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
       const configured = Boolean(resolvedConfig.clientId && resolvedConfig.clientSecret);
       return {
         accountId: id,
@@ -596,9 +415,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           error: new Error("DingTalk message requires --to <conversationId>"),
         };
       }
-      const { targetId } = stripTargetPrefix(trimmed);
-      const resolved = resolveOriginalPeerId(targetId);
-      return { ok: true as const, to: resolved };
+      return { ok: true as const, to: normalizeResolvedDingTalkTarget(trimmed) };
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
@@ -687,12 +504,17 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           preparedMedia = await prepareMediaInput(rawMediaPath, log, config.mediaUrlAllowlist);
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
-            log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data));
+            log?.error?.(
+              formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data),
+            );
           }
           const errorCode = typeof err?.code === "string" ? `[${err.code}] ` : "";
-          throw new Error(`remote media preparation failed: ${errorCode}${err?.message || "unknown error"}`, {
-            cause: err,
-          });
+          throw new Error(
+            `remote media preparation failed: ${errorCode}${err?.message || "unknown error"}`,
+            {
+              cause: err,
+            },
+          );
         }
 
         const actualMediaPath = preparedMedia.cleanup
@@ -718,7 +540,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           });
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
-            log?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia.send", err.response.data));
+            log?.error?.(
+              formatDingTalkErrorPayloadLog("outbound.sendMedia.send", err.response.data),
+            );
           }
           throw new Error(`proactive media send failed: ${err?.message || "unknown error"}`, {
             cause: err,
