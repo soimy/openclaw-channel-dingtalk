@@ -1,5 +1,4 @@
 import axios from "axios";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./agent-routing";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
