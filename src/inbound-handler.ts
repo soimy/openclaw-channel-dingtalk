@@ -1061,6 +1061,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     accountId,
     conversationId: data.conversationId,
     quotedRef,
+    firstRecord: quotedRecord,
     log,
   });
 

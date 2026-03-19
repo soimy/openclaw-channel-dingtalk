@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearMessageContextCacheForTest,
+  resolveByMsgId,
   upsertInboundMessageContext,
   upsertOutboundMessageContext,
 } from "../../src/message-context-store";
@@ -108,6 +109,84 @@ describe("quoted-context", () => {
           direction: "inbound",
           messageType: "text",
           body: "third hop",
+          createdAt: 1000,
+        },
+      ],
+    });
+  });
+
+  it("reuses a provided firstRecord without changing the resolved runtime context", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_first_record",
+      msgId: "first_record_leaf",
+      createdAt: 1000,
+      messageType: "text",
+      text: "leaf",
+      topic: null,
+    });
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_first_record",
+      msgId: "first_record_head",
+      createdAt: 2000,
+      messageType: "text",
+      text: "head",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "first_record_leaf",
+      },
+      topic: null,
+    });
+
+    const firstRecord = resolveByMsgId({
+      accountId: "main",
+      conversationId: "cid_first_record",
+      msgId: "first_record_head",
+    });
+
+    expect(firstRecord).not.toBeNull();
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_first_record",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "first_record_head",
+      },
+      firstRecord,
+    });
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.replyToId).toBe("first_record_head");
+    expect(resolved?.replyToBody).toBe("head");
+    expect(resolved?.chain).toEqual([
+      {
+        depth: 1,
+        direction: "inbound",
+        messageType: "text",
+        body: "head",
+        createdAt: 2000,
+        sender: undefined,
+      },
+      {
+        depth: 2,
+        direction: "inbound",
+        messageType: "text",
+        body: "leaf",
+        createdAt: 1000,
+        sender: undefined,
+      },
+    ]);
+    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "inbound",
+          messageType: "text",
+          body: "leaf",
           createdAt: 1000,
         },
       ],
