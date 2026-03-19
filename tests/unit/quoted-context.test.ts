@@ -180,7 +180,7 @@ describe("quoted-context", () => {
         sender: undefined,
       },
     ]);
-    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+  expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
       quotedChain: [
         {
           depth: 2,
