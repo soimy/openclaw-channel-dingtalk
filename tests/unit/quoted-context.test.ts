@@ -180,7 +180,7 @@ describe("quoted-context", () => {
         sender: undefined,
       },
     ]);
-  expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
+    expect(JSON.parse(resolved?.untrustedContext || "")).toEqual({
       quotedChain: [
         {
           depth: 2,
@@ -192,6 +192,7 @@ describe("quoted-context", () => {
       ],
     });
   });
+
   it("truncates the chain when maxDepth is exceeded", () => {
     upsertInboundMessageContext({
       accountId: "main",
@@ -414,6 +415,28 @@ describe("quoted-context", () => {
     expect(resolved?.replyToId).toBe("missing_preview_only");
     expect(resolved?.replyToBody).toBe("preview from inbound event");
     expect(resolved?.replyToSender).toBeUndefined();
+    expect(resolved?.chain).toEqual([]);
+    expect(resolved?.untrustedContext).toBeUndefined();
+  });
+
+  it("keeps preview body for outbound fallbackCreatedAt quotes without a stable reply id", () => {
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_preview_created_at_only",
+      quotedRef: {
+        targetDirection: "outbound",
+        fallbackCreatedAt: 1772817989679,
+      },
+      firstPreview: {
+        text: "preview from outbound fallback",
+        messageType: "interactiveCard",
+      },
+    });
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.replyToId).toBeUndefined();
+    expect(resolved?.replyToBody).toBe("preview from outbound fallback");
+    expect(resolved?.replyToSender).toBe("assistant");
     expect(resolved?.chain).toEqual([]);
     expect(resolved?.untrustedContext).toBeUndefined();
   });

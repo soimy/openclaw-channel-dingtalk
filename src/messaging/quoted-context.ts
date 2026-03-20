@@ -16,7 +16,7 @@ export interface QuotedChainEntry {
 }
 
 export interface ResolvedQuotedRuntimeContext {
-  replyToId: string;
+  replyToId?: string;
   replyToBody: string;
   replyToSender?: string;
   replyToIsQuote: true;
@@ -254,7 +254,7 @@ export function resolveQuotedRuntimeContext(params: {
 
   const previewBody = resolvePreviewBody(params.firstPreview);
   const previewReplyToId = deriveReplyToIdFromQuotedRef(params.quotedRef);
-  if (!previewBody || !previewReplyToId) {
+  if (!previewBody) {
     return null;
   }
 

@@ -2353,6 +2353,9 @@ describe("inbound-handler", () => {
       quoted: {
         isQuotedCard: true,
         cardCreatedAt: 1772817989679,
+        previewText: "机器人上一条卡片回复（预览）",
+        previewMessageType: "interactiveCard",
+        previewSenderId: "bot_1",
       },
     });
 
@@ -2380,6 +2383,9 @@ describe("inbound-handler", () => {
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         RawBody: "hello",
+        ReplyToId: undefined,
+        ReplyToBody: "机器人上一条卡片回复（预览）",
+        ReplyToSender: "assistant",
         QuotedRef: {
           targetDirection: "outbound",
           fallbackCreatedAt: 1772817989679,
@@ -2762,6 +2768,68 @@ describe("inbound-handler", () => {
       mimeType: "application/octet-stream",
       fileName: "quoted-manual.pdf",
     });
+  });
+
+  it("handleDingTalkMessage falls back to resolved group filenames for attachment extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "群聊文件",
+      messageType: "text",
+      quoted: {
+        isQuotedFile: true,
+        msgId: "group_file_msg_name",
+        fileCreatedAt: 1772863284581,
+      },
+    });
+    shared.resolveQuotedFileMock.mockResolvedValueOnce({
+      media: {
+        path: "/tmp/.openclaw/media/inbound/group-file.bin",
+        mimeType: "application/octet-stream",
+      },
+      spaceId: "space_group_2",
+      fileId: "dentry_group_2",
+      name: "fallback-name.sql",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "select * from t;",
+      sourceType: "text",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "m_group_file_name",
+        msgtype: "text",
+        text: { content: "群聊文件", isReplyMsg: true },
+        conversationType: "2",
+        conversationId: "cid_group_name",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/group-file.bin",
+      mimeType: "application/octet-stream",
+      fileName: "fallback-name.sql",
+    });
+    const restored = messageContextStore.resolveByMsgId({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_name",
+      msgId: "group_file_msg_name",
+    });
+    expect(restored?.attachmentFileName).toBe("fallback-name.sql");
   });
 
   it("handleDingTalkMessage keeps recovered attachment excerpts alive for old quoted messages", async () => {
