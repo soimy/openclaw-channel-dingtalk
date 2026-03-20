@@ -3855,6 +3855,121 @@ describe("inbound-handler", () => {
     expect(sentTexts.some((text: string) => text.includes("思考中"))).toBe(false);
   });
 
+  it("does not update the main-session last route for group inbound messages", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_group_1"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_group_last_route",
+        msgtype: "text",
+        text: { content: "hello group" },
+        conversationType: "2",
+        conversationId: "cid_group_1",
+        conversationTitle: "group-title",
+        senderId: "user_1",
+        senderNick: "Alice",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: undefined,
+      }),
+    );
+  });
+
+  it("does not update the main-session last route for non-owner direct messages when a main owner is pinned", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: { session: { dmScope: "main" } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        allowFrom: ["owner_user"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_dm_non_owner_last_route",
+        msgtype: "text",
+        text: { content: "hello direct" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "other_user",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: undefined,
+      }),
+    );
+  });
+
+  it("updates the main-session last route for the pinned owner direct message", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: { session: { dmScope: "main" } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        allowFrom: ["owner_user"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_dm_owner_last_route",
+        msgtype: "text",
+        text: { content: "hello owner" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "owner_user",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: {
+          sessionKey: "s1",
+          channel: "dingtalk",
+          to: "owner_user",
+          accountId: "main",
+        },
+      }),
+    );
+  });
+
   it("handleDingTalkMessage ignores thinking and tool card updates when card is already finalized", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
