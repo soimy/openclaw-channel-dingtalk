@@ -44,8 +44,9 @@ export interface DingTalkConfig extends OpenClawConfig {
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
@@ -54,7 +55,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
   maxConnectionAttempts?: number;
@@ -111,8 +112,9 @@ export interface DingTalkChannelConfig {
   agentId?: string;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
@@ -121,7 +123,7 @@ export interface DingTalkChannelConfig {
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   maxConnectionAttempts?: number;
   initialReconnectDelay?: number;
@@ -772,6 +774,7 @@ export function resolveDingTalkAccount(
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      groupAllowFrom: dingtalk?.groupAllowFrom,
       displayNameResolution: dingtalk?.displayNameResolution,
       journalTTLDays: dingtalk?.journalTTLDays,
       ackReaction: dingtalk?.ackReaction,

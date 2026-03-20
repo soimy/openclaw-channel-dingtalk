@@ -219,6 +219,49 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.ackReaction).toBe('');
     });
 
+    it('accepts groupPolicy "disabled"', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groupPolicy: 'disabled',
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groupPolicy).toBe('disabled');
+    });
+
+    it('accepts top-level groupAllowFrom', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groupAllowFrom: ['user-001', 'user-002'],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groupAllowFrom).toEqual(['user-001', 'user-002']);
+    });
+
+    it('accepts extended groups config with requireMention and groupAllowFrom', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groups: {
+                'cidXXX': {
+                    systemPrompt: 'hello',
+                    requireMention: true,
+                    groupAllowFrom: ['user-003'],
+                },
+                '*': {
+                    requireMention: false,
+                },
+            },
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groups['cidXXX'].requireMention).toBe(true);
+        expect(result.data.groups['cidXXX'].groupAllowFrom).toEqual(['user-003']);
+        expect(result.data.groups['*'].requireMention).toBe(false);
+    });
+
+    it('preserves backward compat — groups with only systemPrompt', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groups: { 'cidXXX': { systemPrompt: 'test' } },
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groups['cidXXX'].systemPrompt).toBe('test');
+    });
+
     it('exports control-ui-compatible JSON schema nodes', () => {
         const jsonSchema = DingTalkConfigSchema.toJSONSchema({
             target: 'draft-07',

@@ -32,11 +32,14 @@ const DingTalkAccountConfigShape = {
   /** Direct message policy: open, pairing, or allowlist */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 
-  /** Group message policy: open or allowlist */
-  groupPolicy: z.enum(["open", "allowlist"]).optional().default("open"),
+  /** Group message policy: open, allowlist, or disabled */
+  groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional().default("open"),
 
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
+
+  /** List of allowed user IDs for group allowlist policy */
+  groupAllowFrom: z.array(z.string()).optional(),
 
   /** Default disabled. Enabling "all" allows learned displayName lookup but may misroute on stale/duplicate names and is available to all callers until upstream exposes requester authz context. */
   displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
@@ -71,6 +74,8 @@ const DingTalkAccountConfigShape = {
       z.string(),
       z.object({
         systemPrompt: z.string().optional(),
+        requireMention: z.boolean().optional(),
+        groupAllowFrom: z.array(z.string()).optional(),
       }),
     )
     .optional(),
