@@ -554,33 +554,66 @@ describe("inbound-handler", () => {
   });
 
   it("handleDingTalkMessage blocks learn control command for non-owner in group", async () => {
+    vi.useFakeTimers();
+    mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
     shared.extractMessageContentMock.mockReturnValueOnce({
       text: "/learn global test",
       messageType: "text",
     });
-
-    await handleDingTalkMessage({
-      cfg: { commands: { ownerAllowFrom: ["dingtalk:owner-test-id"] } },
-      accountId: "main",
-      sessionWebhook: "https://session.webhook",
-      log: undefined,
-      dingtalkConfig: { groupPolicy: "open", allowFrom: ["owner-test-id"] } as any,
-      data: {
-        msgId: "m2_owner_group_deny",
-        msgtype: "text",
-        text: { content: "/learn global test" },
-        conversationType: "2",
-        conversationId: "cid_group_1",
-        senderId: "user_not_owner",
-        chatbotUserId: "bot_1",
+    try {
+      const runPromise = handleDingTalkMessage({
+        cfg: { commands: { ownerAllowFrom: ["dingtalk:owner-test-id"] } },
+        accountId: "main",
         sessionWebhook: "https://session.webhook",
-        createAt: Date.now(),
-      },
-    } as any);
+        log: undefined,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          groupPolicy: "open",
+          allowFrom: ["owner-test-id"],
+          ackReaction: "🤔思考中",
+        } as any,
+        data: {
+          msgId: "m2_owner_group_deny",
+          msgtype: "text",
+          text: { content: "/learn global test" },
+          conversationType: "2",
+          conversationId: "cid_group_1",
+          senderId: "user_not_owner",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+      await vi.advanceTimersByTimeAsync(1200);
+      await runPromise;
 
-    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
-    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("仅允许 owner 使用");
-    expect(shared.sendMessageMock).not.toHaveBeenCalled();
+      expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+      expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("仅允许 owner 使用");
+      expect(shared.sendMessageMock).not.toHaveBeenCalled();
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        1,
+        "https://api.dingtalk.com/v1.0/robot/emotion/reply",
+        expect.objectContaining({
+          openMsgId: "m2_owner_group_deny",
+          openConversationId: "cid_group_1",
+          emotionName: "🤔思考中",
+        }),
+        expect.any(Object),
+      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        2,
+        "https://api.dingtalk.com/v1.0/robot/emotion/recall",
+        expect.objectContaining({
+          openMsgId: "m2_owner_group_deny",
+          openConversationId: "cid_group_1",
+          emotionName: "🤔思考中",
+        }),
+        expect.any(Object),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("handleDingTalkMessage supports whereami command in group", async () => {
