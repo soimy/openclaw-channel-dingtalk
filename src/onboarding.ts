@@ -326,6 +326,19 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       initialValue: resolved.groupPolicy ?? "open",
     });
 
+    if (groupPolicyValue === "allowlist") {
+      await prompter.note(
+        [
+          'groupPolicy=allowlist requires "groups" config to specify allowed group IDs.',
+          "After setup, manually add group conversationIds to your config:",
+          "",
+          '  "groups": { "cidXXX": {}, "cidYYY": { "systemPrompt": "..." } }',
+          "",
+          "Groups not listed will be blocked. Use \"*\" as key to allow all groups.",
+        ].join("\n"),
+      );
+    }
+
     let groupAllowFrom: string[] | undefined;
     if (groupPolicyValue !== "disabled") {
       const groupAllowFromEntry = await prompter.text({
