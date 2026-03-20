@@ -132,6 +132,29 @@ describe('resolveGroupAccess', () => {
         expect(result.allowed).toBe(true);
     });
 
+    it('blocks all senders when groupAllowFrom is empty array (fail-closed)', () => {
+        const result = resolveGroupAccess({
+            groupPolicy: 'open',
+            groupId: 'cidXXX',
+            senderId: 'any_user',
+            groupAllowFrom: [],
+        });
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toBe('sender_not_allowed');
+    });
+
+    it('per-group groupAllowFrom: [] overrides global and blocks all', () => {
+        const result = resolveGroupAccess({
+            groupPolicy: 'allowlist',
+            groupId: 'cidXXX',
+            senderId: 'user_ok',
+            groups: { 'cidXXX': { groupAllowFrom: [] } },
+            groupAllowFrom: ['user_ok'],
+        });
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toBe('sender_not_allowed');
+    });
+
     it('supports dingtalk: prefix in groupAllowFrom', () => {
         const result = resolveGroupAccess({
             groupPolicy: 'open',

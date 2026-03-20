@@ -102,8 +102,13 @@ export function resolveGroupAccess(params: GroupAccessParams): GroupAccessResult
   const wildcardAllowFrom = groups?.["*"]?.groupAllowFrom;
   const effectiveAllowFrom = perGroupAllowFrom ?? wildcardAllowFrom ?? groupAllowFrom;
 
-  if (!effectiveAllowFrom || effectiveAllowFrom.length === 0) {
+  if (effectiveAllowFrom == null) {
     return { allowed: true, legacyFallback: legacyFallback || undefined };
+  }
+
+  // Empty array = block all senders (fail-closed per official design)
+  if (effectiveAllowFrom.length === 0) {
+    return { allowed: false, reason: "sender_not_allowed" };
   }
 
   const normalized = normalizeAllowFrom(effectiveAllowFrom);
