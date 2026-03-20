@@ -94,7 +94,10 @@ describe('card-service', () => {
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
         });
-        expect(body.imGroupOpenDeliverModel).toEqual({ robotCode: 'id' });
+        expect(body.imGroupOpenDeliverModel).toEqual({
+            robotCode: 'id',
+            extension: { dynamicSummary: 'true' },
+        });
     });
 
     it('createAICard uses robot deliver payload for direct chat cards', async () => {
@@ -107,7 +110,11 @@ describe('card-service', () => {
 
         const body = mockedAxios.post.mock.calls[0]?.[1];
         expect(body.openSpaceId).toBe('dtv1.card//IM_ROBOT.manager123');
-        expect(body.imRobotOpenDeliverModel).toEqual({ spaceType: 'IM_ROBOT', robotCode: 'robot_1' });
+        expect(body.imRobotOpenDeliverModel).toEqual({
+            spaceType: 'IM_ROBOT',
+            robotCode: 'robot_1',
+            extension: { dynamicSummary: 'true' },
+        });
     });
 
     it('createAICard bypasses proxy when configured', async () => {

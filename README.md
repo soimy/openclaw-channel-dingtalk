@@ -989,6 +989,10 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 2. 使用 `/v1.0/card/streaming` 实现流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
 4. 内置 300ms 节流 + 单航班（single-flight）保护，避免 API 过载
+5. 默认为 AI Card 投递开启 `dynamicSummary`，改善钉钉会话列表 `lastmsg` 预览随卡片正文更新的表现
+
+> `dynamicSummary` 这项接入思路参考自 `DingTalk-Real-AI/dingtalk-openclaw-connector` 的 MIT 许可实现：
+> <https://github.com/DingTalk-Real-AI/dingtalk-openclaw-connector/commit/7aff25b1f77f4dbd5dd64673d4e726ca938f5498>
 
 **卡片流式模式 (`cardRealTimeStream`)：**
 
