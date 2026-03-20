@@ -833,7 +833,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 }
 ```
 
-`requireMention` 未配置时，默认行为等同于 `groupPolicy !== "open"`（即 allowlist 模式下默认需要 @）。
+> 注意：钉钉群聊中不 @机器人时不会推送消息，因此 `requireMention: false` 在钉钉群聊中实际不生效。
 
 > **迁移提示**：如果你目前使用 `allowFrom` 同时控制私聊用户和群聊群 ID，
 > 建议将群 ID 迁移到 `groups` 配置中，将群聊发送者 ID 迁移到 `groupAllowFrom`。
