@@ -792,7 +792,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 - `open` — 任何群都可以 @机器人
 - `allowlist` — 只有配置的群可以使用（见下方详细说明）
-- `disabled` — 完全禁用群聊消息
+- `disabled` — 完全禁用群聊消息（消息静默丢弃，不会发送拒绝提示）
 
 #### allowlist 模式详解
 
