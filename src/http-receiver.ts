@@ -15,14 +15,18 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { handleDingTalkMessage } from "./inbound-handler";
 import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "./types";
 
+const DEFAULT_WEBHOOK_PATH = "/dingtalk/callback";
+
 export function startHttpReceiver(params: {
   cfg: OpenClawConfig;
   accountId: string;
   dingtalkConfig: DingTalkConfig;
   port: number;
+  webhookPath?: string;
   log?: Logger;
 }): http.Server {
   const { cfg, accountId, dingtalkConfig, port, log } = params;
+  const callbackPath = params.webhookPath || DEFAULT_WEBHOOK_PATH;
 
   const server = http.createServer(async (req, res) => {
     // Health check
@@ -32,8 +36,8 @@ export function startHttpReceiver(params: {
       return;
     }
 
-    // Only accept POST /callback
-    if (req.method !== "POST" || (req.url !== "/callback" && req.url !== "/")) {
+    // Only accept POST on the configured callback path
+    if (req.method !== "POST" || req.url !== callbackPath) {
       res.writeHead(404);
       res.end("Not Found");
       return;

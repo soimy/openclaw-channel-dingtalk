@@ -70,7 +70,7 @@ describe("http-receiver", () => {
       createAt: Date.now(),
     };
 
-    const res = await post(port, "/callback", message);
+    const res = await post(port, "/dingtalk/callback", message);
 
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ success: true });
@@ -113,7 +113,7 @@ describe("http-receiver", () => {
 
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const req = http.request(
-        { hostname: "127.0.0.1", port, path: "/callback", method: "POST", headers: { "Content-Type": "application/json" } },
+        { hostname: "127.0.0.1", port, path: "/dingtalk/callback", method: "POST", headers: { "Content-Type": "application/json" } },
         (r) => {
           const chunks: Buffer[] = [];
           r.on("data", (c) => chunks.push(c));
@@ -142,16 +142,21 @@ describe("http-receiver", () => {
     expect(JSON.parse(res.body)).toEqual({ ok: true, mode: "http", accountId: "test" });
   });
 
-  it("also accepts POST / as callback endpoint", async () => {
+  it("accepts custom webhookPath", async () => {
     server = startHttpReceiver({
       cfg: {} as any,
       accountId: "test",
       dingtalkConfig: { clientId: "id", clientSecret: "secret" } as any,
       port,
+      webhookPath: "/custom/webhook",
     });
     await new Promise((r) => setTimeout(r, 100));
 
-    const res = await post(port, "/", { msgId: "m2", sessionWebhook: "https://x" });
+    const res = await post(port, "/custom/webhook", { msgId: "m2", sessionWebhook: "https://x" });
     expect(res.status).toBe(200);
+
+    // Default path should 404
+    const res2 = await post(port, "/dingtalk/callback", { msgId: "m3", sessionWebhook: "https://x" });
+    expect(res2.status).toBe(404);
   });
 });

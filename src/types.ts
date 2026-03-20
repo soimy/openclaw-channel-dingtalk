@@ -35,6 +35,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   mode?: "stream" | "http";
   /** HTTP 模式监听端口（默认 3000） */
   httpPort?: number;
+  /** HTTP 模式回调路径（默认 /dingtalk/callback） */
+  webhookPath?: string;
   clientId: string;
   clientSecret: string;
   robotCode?: string;

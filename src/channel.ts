@@ -636,6 +636,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           accountId: account.accountId,
           dingtalkConfig: config,
           port,
+          webhookPath: config.webhookPath,
           log: ctx.log,
         });
 
