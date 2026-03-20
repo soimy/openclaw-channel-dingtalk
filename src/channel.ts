@@ -15,6 +15,7 @@ import {
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveGroupConfig,
   resolveRelativePath,
   stripTargetPrefix,
 } from "./config";
@@ -380,7 +381,16 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     }),
   },
   groups: {
-    resolveRequireMention: ({ cfg }: any): boolean => getConfig(cfg).groupPolicy !== "open",
+    resolveRequireMention: ({ cfg, groupId }: any): boolean => {
+      const config = getConfig(cfg);
+      if (groupId) {
+        const groupCfg = resolveGroupConfig(config, groupId);
+        if (groupCfg?.requireMention !== undefined) {
+          return groupCfg.requireMention;
+        }
+      }
+      return config.groupPolicy !== "open";
+    },
     resolveGroupIntroHint: ({ groupId, groupChannel }: any): string | undefined => {
       const parts = [`conversationId=${groupId}`];
       if (groupChannel) {

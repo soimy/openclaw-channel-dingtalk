@@ -145,7 +145,7 @@ export const resolveUserPath = resolveRelativePath;
 export function resolveGroupConfig(
   cfg: DingTalkConfig,
   groupId: string,
-): { systemPrompt?: string } | undefined {
+): { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] } | undefined {
   // Group config supports exact match first, then wildcard fallback.
   const groups = cfg.groups;
   if (!groups) {
