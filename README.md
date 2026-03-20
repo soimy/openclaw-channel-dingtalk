@@ -459,8 +459,10 @@ openclaw gateway restart
 | `corpId`                | string   | -            | 企业 ID                                     |
 | `agentId`               | string   | -            | 应用 ID                                     |
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
-| `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
-| `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist/disabled           |
+| `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表（仅私聊）              |
+| `groupAllowFrom`        | string[] | -            | 群聊发送者白名单（全局）                    |
+| `groups`                | object   | -            | 按 conversationId 的群级配置，详见[群聊策略](#群聊策略-grouppolicy) |
 | `displayNameResolution` | string   | `"disabled"` | 基于本地通讯录存储的显示名/群名解析开关：disabled/all |
 | `bypassProxyForSend`    | boolean  | `false`      | 发送链路直连，不走全局代理                  |
 | `learningEnabled`       | boolean  | `false`      | 开启学习信号采集与学习提示注入              |
@@ -789,7 +791,53 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 ### 群聊策略 (groupPolicy)
 
 - `open` — 任何群都可以 @机器人
-- `allowlist` — 只有配置的群可以使用
+- `allowlist` — 只有配置的群可以使用（见下方详细说明）
+- `disabled` — 完全禁用群聊消息
+
+#### allowlist 模式详解
+
+当 `groupPolicy` 设为 `"allowlist"` 时，群聊准入按以下顺序判定：
+
+1. **群 ID 检查**：`groups` 中存在该 `conversationId` 的配置 → 放行
+2. **通配符**：`groups` 中存在 `"*"` 配置 → 放行
+3. **旧版兜底**：`allowFrom` 中包含该群 ID → 放行（已弃用，会输出迁移提示）
+4. 以上均不匹配 → 拒绝
+
+##### 发送者白名单 (groupAllowFrom)
+
+群准入通过后，还可以限制允许发言的用户。优先级：
+
+1. `groups[conversationId].groupAllowFrom` — 群级白名单（最高优先）
+2. `groups["*"].groupAllowFrom` — 通配符级白名单
+3. 顶层 `groupAllowFrom` — 全局白名单
+4. 以上均未配置 → 不限制发送者
+
+##### 每群 requireMention
+
+可在 `groups` 中为每个群单独配置是否需要 @机器人才响应：
+
+```jsonc
+{
+  "groupPolicy": "allowlist",
+  "groupAllowFrom": ["user-001", "user-002"],  // 全局群聊发送者白名单
+  "groups": {
+    "cidXXX": {
+      "systemPrompt": "你是客服机器人",  // 群级 system prompt
+      "requireMention": false,           // 不需要 @，直接响应
+      "groupAllowFrom": ["user-003"]     // 群级发送者白名单（覆盖全局）
+    },
+    "*": {
+      "requireMention": true             // 其他群默认需要 @
+    }
+  }
+}
+```
+
+`requireMention` 未配置时，默认行为等同于 `groupPolicy !== "open"`（即 allowlist 模式下默认需要 @）。
+
+> **迁移提示**：如果你目前使用 `allowFrom` 同时控制私聊用户和群聊群 ID，
+> 建议将群 ID 迁移到 `groups` 配置中，将群聊发送者 ID 迁移到 `groupAllowFrom`。
+> 旧的 `allowFrom` 群 ID 兜底机制仍可工作，但会在日志中输出弃用警告。
 
 ## 消息类型支持
 
