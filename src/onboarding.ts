@@ -104,6 +104,7 @@ function applyAccountConfig(params: {
     ...(input.dmPolicy ? { dmPolicy: input.dmPolicy } : {}),
     ...(input.groupPolicy ? { groupPolicy: input.groupPolicy } : {}),
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),
+    ...(input.groupAllowFrom && input.groupAllowFrom.length > 0 ? { groupAllowFrom: input.groupAllowFrom } : {}),
     ...(input.displayNameResolution
       ? { displayNameResolution: input.displayNameResolution }
       : {}),
@@ -320,9 +321,21 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
       options: [
         { label: "Open - any group can use bot", value: "open" },
         { label: "Allowlist - only allowed groups", value: "allowlist" },
+        { label: "Disabled - block all group messages", value: "disabled" },
       ],
       initialValue: resolved.groupPolicy ?? "open",
     });
+
+    let groupAllowFrom: string[] | undefined;
+    if (groupPolicyValue !== "disabled") {
+      const groupAllowFromEntry = await prompter.text({
+        message: "Group sender allowlist - user IDs allowed in groups (comma-separated, optional)",
+        placeholder: "user1, user2",
+        initialValue: (resolved.groupAllowFrom || []).join(", ") || undefined,
+      });
+      const parsedGroupAllowFrom = parseList(String(groupAllowFromEntry ?? ""));
+      groupAllowFrom = parsedGroupAllowFrom.length > 0 ? parsedGroupAllowFrom : undefined;
+    }
 
     await prompter.note(
       [
@@ -454,8 +467,9 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         corpId,
         agentId,
         dmPolicy: dmPolicyValue as "open" | "allowlist",
-        groupPolicy: groupPolicyValue as "open" | "allowlist",
+        groupPolicy: groupPolicyValue as "open" | "allowlist" | "disabled",
         allowFrom,
+        groupAllowFrom,
         displayNameResolution: displayNameResolutionValue as "disabled" | "all",
         mediaUrlAllowlist,
         messageType,
