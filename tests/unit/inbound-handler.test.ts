@@ -6270,4 +6270,122 @@ describe("inbound-handler", () => {
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     // Card finalization succeeded despite @mention failure
   });
+
+  it("handleDingTalkMessage drops message when groupPolicy is disabled", async () => {
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "disabled" } as any,
+      data: {
+        msgId: "m_disabled",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_any",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+    expect(shared.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("handleDingTalkMessage allows group listed in groups config (allowlist)", async () => {
+    const rt = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        groups: { cid_allowed: {} },
+      } as any,
+      data: {
+        msgId: "m_group_ok",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_allowed",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should not send deny message
+    const denyCalls = shared.sendBySessionMock.mock.calls.filter(
+      (call: any[]) => typeof call[2] === "string" && call[2].includes("访问受限"),
+    );
+    expect(denyCalls.length).toBe(0);
+  });
+
+  it("handleDingTalkMessage blocks sender not in groupAllowFrom", async () => {
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "open",
+        groupAllowFrom: ["user_ok"],
+      } as any,
+      data: {
+        msgId: "m_sender_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_any",
+        senderId: "user_blocked",
+        senderStaffId: "user_blocked",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("访问受限");
+  });
+
+  it("handleDingTalkMessage legacy fallback: allowFrom with groupId still works (allowlist)", async () => {
+    const rt = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_legacy"],
+      } as any,
+      data: {
+        msgId: "m_legacy",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_legacy",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should NOT be blocked
+    const denyCalls = shared.sendBySessionMock.mock.calls.filter(
+      (call: any[]) => typeof call[2] === "string" && call[2].includes("访问受限"),
+    );
+    expect(denyCalls.length).toBe(0);
+  });
 });

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { normalizeAllowFrom, isSenderAllowed, isSenderGroupAllowed } from "./access-control";
+import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
@@ -429,41 +429,58 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       commandAuthorized = true;
     }
   } else {
-    const groupPolicy = dingtalkConfig.groupPolicy || "open";
-    const allowFrom = dingtalkConfig.allowFrom || [];
+    const groupAccess = resolveGroupAccess({
+      groupPolicy: dingtalkConfig.groupPolicy || "open",
+      groupId,
+      senderId,
+      groups: dingtalkConfig.groups,
+      groupAllowFrom: dingtalkConfig.groupAllowFrom,
+      allowFrom: dingtalkConfig.allowFrom,
+    });
 
-    if (groupPolicy === "allowlist") {
-      const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
-      const isAllowed = isSenderGroupAllowed({ allow: normalizedAllowFrom, groupId });
+    if (groupAccess.legacyFallback) {
+      log?.info?.(
+        `[DingTalk] DEPRECATED: groupPolicy=allowlist is using "allowFrom" for group access control. ` +
+        `Please migrate to "groups" (group ID allowlist) or "groupAllowFrom" (sender allowlist).`,
+      );
+    }
 
-      if (!isAllowed) {
-        log?.debug?.(
-          `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} not in allowlist (groupPolicy=allowlist)`,
-        );
-
-        try {
-          await sendBySession(
-            dingtalkConfig,
-            sessionWebhook,
-            `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
-            { log, atUserId: senderId },
-          );
-        } catch (err: any) {
-          log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
-          if (err?.response?.data !== undefined) {
-            log?.debug?.(
-              formatDingTalkErrorPayloadLog("inbound.groupAccessDeniedReply", err.response.data),
-            );
-          }
-        }
-
+    if (!groupAccess.allowed) {
+      if (groupAccess.reason === "disabled") {
+        log?.debug?.(`[DingTalk] Group disabled: all group messages dropped (groupPolicy=disabled)`);
         return;
       }
 
+      const denyMessage = groupAccess.reason === "sender_not_allowed"
+        ? `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到群聊允许列表中。`
+        : `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`;
+
       log?.debug?.(
-        `[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId} in allowlist`,
+        `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} reason=${groupAccess.reason}`,
       );
+
+      try {
+        await sendBySession(
+          dingtalkConfig,
+          sessionWebhook,
+          denyMessage,
+          { log, atUserId: senderId },
+        );
+      } catch (err: any) {
+        log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
+        if (err?.response?.data !== undefined) {
+          log?.debug?.(
+            formatDingTalkErrorPayloadLog("inbound.groupAccessDeniedReply", err.response.data),
+          );
+        }
+      }
+
+      return;
     }
+
+    log?.debug?.(
+      `[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId}`,
+    );
   }
 
   // Calculate account store path and session peer (for session alias feature)
