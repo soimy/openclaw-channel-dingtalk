@@ -20,7 +20,9 @@ import type {
 import { mergeAccountWithDefaults } from "./config";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
-export type AckReactionConfigValue = AckReactionMode | string;
+// Accept arbitrary strings for backward compatibility; the recommended
+// explicit modes remain: "off" | "emoji" | "kaomoji".
+export type AckReactionConfigValue = string;
 
 export interface DingtalkPluginModule {
   id: string;
