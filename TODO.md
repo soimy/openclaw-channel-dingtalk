@@ -17,6 +17,7 @@
 - [#303 Connection attempt x failed: protocol mismatch](https://github.com/soimy/openclaw-channel-dingtalk/issues/303)（状态：已关闭）
 - [#289 dingtalk connection error 503 & 400](https://github.com/soimy/openclaw-channel-dingtalk/issues/289)（状态：开启）
 - [#345 机器人时不时收不到回复，只能重新发送，几次才能好](https://github.com/soimy/openclaw-channel-dingtalk/issues/345)（状态：已关闭）
+- [#373 长时间不用钉钉机器人，再发送消息，openclaw接收不到](https://github.com/soimy/openclaw-channel-dingtalk/issues/373)（状态：开启）
 
 任务：
 - [ ] 复核现有稳定性问题是否仍可复现
@@ -38,6 +39,7 @@
   - [ ] [#336 fix: avoid idle reconnects on quiet DingTalk stream connections](https://github.com/soimy/openclaw-channel-dingtalk/pull/336)（状态：要求修改，已关闭未合并）
 - [ ] 合并核对 `#345` 新反馈（markdown 模式也出现间歇性丢回复），确认是否与连接层问题同源
 - [ ] 汇总 `#104` 最新反馈中“群聊需 @ 才稳定触发”的现象，区分上游丢消息与群聊触发条件导致的假阳性
+- [ ] 跟进 `#373` 的版本升级回归（3.2 -> 3.3）与日志采样，确认是否与 `#104/#345` 同源
 
 ### 2. AI Card 发送链路一致性
 相关 Issues：
@@ -174,6 +176,10 @@
 - [x] 评估 `#364/#371` 的消息上下文持久化统一方案对 quote/chatRecord 的迁移兼容与回归面
   - [x] [#364 feat: unify message context persistence](https://github.com/soimy/openclaw-channel-dingtalk/pull/364)（状态：合并）
   - [x] [#371 fix: unify message context journaling scope](https://github.com/soimy/openclaw-channel-dingtalk/pull/371)（状态：合并）
+- [x] 落地 `quotedRef` 引用链并对齐 runtime reply context（#375/#377/#378）
+  - [x] [#375 feat: add quotedRef-based reply reference chain](https://github.com/soimy/openclaw-channel-dingtalk/pull/375)（状态：合并）
+  - [x] [#377 feat: translate quotedRef chain into runtime reply context](https://github.com/soimy/openclaw-channel-dingtalk/pull/377)（状态：合并）
+  - [x] [#378 fix: remove undefined quotedPrefix in text message extraction](https://github.com/soimy/openclaw-channel-dingtalk/pull/378)（状态：合并）
 
 ### 6. 建立 Issue 提交标准化
 任务：
@@ -218,23 +224,23 @@
 - [ ] 补齐文档说明
 - [x] 明确 `session-alias` 与框架 routing bindings 的职责边界（#307）
   - [x] [#307 feat(dingtalk): 支持 owner 控制群共享会话别名](https://github.com/soimy/openclaw-channel-dingtalk/pull/307)（状态：合并）
-- [ ] 评估 `@sub-agent` 能力与现有路由模型整合方案（#317）
+- [x] 评估 `@sub-agent` 能力与现有路由模型整合方案（#317）
   - [x] [#132 多账号 schema / ControlUI 兼容相关](https://github.com/soimy/openclaw-channel-dingtalk/pull/132)（状态：合并）
   - [x] [#133 feat(dingtalk): add multi-account schema support](https://github.com/soimy/openclaw-channel-dingtalk/pull/133)（状态：合并）
   - [x] [#137 refactor(dingtalk): modularize channel implementation](https://github.com/soimy/openclaw-channel-dingtalk/pull/137)（状态：合并）
-  - [ ] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：要求修改）
+  - [x] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：合并）
 - [x] 复核 dashboard schema 渲染与 legacy key 归一化行为在 UI/Raw 配置路径的一致性（#304/#324）
   - [x] [#324 fix(config): resolve dashboard Unsupported schema node for #304](https://github.com/soimy/openclaw-channel-dingtalk/pull/324)（状态：合并）
-- [ ] 跟进 `#317` review blocking 项与“先暂缓”结论，冻结范围在基础路由能力并避免再次回归 `#327` 已修复的 inbound 能力
-  - [ ] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：要求修改）
+- [x] 跟进 `#317` review blocking 项与“先暂缓”结论，冻结范围在基础路由能力并避免再次回归 `#327` 已修复的 inbound 能力
+  - [x] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：合并）
   - [x] [#327 fix(dingtalk): restore non-session inbound logic regressed by #307](https://github.com/soimy/openclaw-channel-dingtalk/pull/327)（状态：合并）
 - [ ] 排查并修复 `#185` 反馈的多 agent workspace 绑定异常（疑似默认 `main` 绑定导致配置失效）
 - [ ] 补充 `#185/#267` 的“多账号配置是否生效”快速诊断步骤，减少重复提问
 - [ ] 跟进 `#354` 的 `peer.kind/peer.id` 绑定误配案例，补“peer.id 取值规则”示例与诊断脚本
 - [ ] 复核 `#356` 的 schema 导入路径争议，确认 `buildChannelConfigSchema` 兼容策略后再决定是否合入
-  - [ ] [#356 fix: import buildChannelConfigSchema from plugin-sdk/discord](https://github.com/soimy/openclaw-channel-dingtalk/pull/356)（状态：要求修改）
-- [ ] 评估 `#372` 的 displayName 目标目录学习能力与既有 routing 规则的兼容性（命名冲突、跨群歧义、隐私边界）
-  - [ ] [#372 feat: add displayName-based target learning and resolution](https://github.com/soimy/openclaw-channel-dingtalk/pull/372)（状态：审核中）
+  - [ ] [#356 fix: import buildChannelConfigSchema from plugin-sdk/discord](https://github.com/soimy/openclaw-channel-dingtalk/pull/356)（状态：已关闭未合并）
+- [x] 评估 `#372` 的 displayName 目标目录学习能力与既有 routing 规则的兼容性（命名冲突、跨群歧义、隐私边界）
+  - [x] [#372 feat: add displayName-based target learning and resolution](https://github.com/soimy/openclaw-channel-dingtalk/pull/372)（状态：合并）
 
 ### 9. 支持群聊 @人 / @all
 相关 Issues：
@@ -245,7 +251,7 @@
 
 任务：
 - [ ] 明确 @单人 需求范围
-  - [ ] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：要求修改）
+  - [x] [#317 feat(dingtalk): add @sub-agent basic support for group chat multi-agent scenarios](https://github.com/soimy/openclaw-channel-dingtalk/pull/317)（状态：合并）
 - [ ] 明确 @多人 需求范围
 - [ ] 明确 @all 需求范围
 - [ ] 设计失败降级与兼容行为
@@ -274,6 +280,7 @@
 - [#320 reasoning stream提示 Reasoning stream enabled (Telegram only).（Dup #236）](https://github.com/soimy/openclaw-channel-dingtalk/issues/320)（状态：开启）
 - [#244 能否只是card的宽屏模式？目前电脑端，窄屏太小了](https://github.com/soimy/openclaw-channel-dingtalk/issues/244)（状态：开启）
 - [#359 ackReaction 无配置时缺少默认值，升级后发消息无任何反馈](https://github.com/soimy/openclaw-channel-dingtalk/issues/359)（状态：已修复（关联 PR #362））
+- [#374 升级到新版本以后机器人收到消息没有“正在思考”了](https://github.com/soimy/openclaw-channel-dingtalk/issues/374)（状态：开启（评论指向 PR #362 已修复，待 issue 侧确认关闭））
 
 任务：
 - [ ] 明确 thinking 展示可配置项
@@ -298,6 +305,7 @@
 - [ ] 跟进 `#314` 最新 review 阻塞项（session 隔离、kaomoji 兼容、状态机测试覆盖）
 - [ ] 跟进 `#367` 卡片回调转发方案的 review 阻塞项（模板变量契约、callback 入口边界、synthetic message 生命周期）
   - [ ] [#367 feat: forward card action callbacks to AI with card variable update](https://github.com/soimy/openclaw-channel-dingtalk/pull/367)（状态：要求修改）
+- [ ] 复核 `#374` 的“无思考中反馈”现场是否已被 `#362` 完全覆盖（含用户配置位置错误场景）
 
 ---
 
@@ -330,6 +338,7 @@
 - [#355 如何让机器人主动给某个用户主动发消息](https://github.com/soimy/openclaw-channel-dingtalk/issues/355)（状态：开启）
 - [#192 markdown格式表格不渲染](https://github.com/soimy/openclaw-channel-dingtalk/issues/192)（状态：已关闭）
 - [#370 Response interrupted: Gateway error: 404 - Not Found（gatewayToken 配置）](https://github.com/soimy/openclaw-channel-dingtalk/issues/370)（状态：已关闭）
+- [#376 配置定时任务时，如何让消息发送到钉钉指定的群聊](https://github.com/soimy/openclaw-channel-dingtalk/issues/376)（状态：开启（已确认现可用 conversationId 直发，displayName 直发待下版本））
 
 任务：
 - [ ] 补 README 截图
@@ -348,6 +357,7 @@
   - [ ] [#337 refactor: deprecate legacy dingtalk debug config](https://github.com/soimy/openclaw-channel-dingtalk/pull/337)（状态：要求修改，已关闭未合并）
 - [ ] 增补“钉钉上游能力边界”FAQ：项目管理接口、文档表格编辑、消息输出类型限制（#293/#340/#342）
 - [ ] 增补“主动消息发送”FAQ 与前置条件（`robotCode`、会话预热、机器人类型权限、流式模式差异）（#144/#355）
+- [ ] 增补“定时/主动发送到指定群”说明（`conversationId` 直发 + `displayNameResolution` 能力与版本门槛）（#376/#372）
 - [ ] 增补“Markdown 表格渲染差异”说明（客户端差异 + 自定义机器人 vs 应用机器人）（#192/#358）
 - [ ] 补充 `gatewayToken` 缺失/错误时的配置排障指引与默认回退行为说明（#370）
 
@@ -357,6 +367,7 @@
   - [ ] [#331 feat(dingtalk): add rolling summary history commands](https://github.com/soimy/openclaw-channel-dingtalk/pull/331)（状态：要求修改）
 - [ ] 对齐 `historyLimit` 默认值语义（代码默认关闭 vs 注释默认 50）并补充文档
 - [ ] 在 rebase 后复核 `/summary` 命令边界（owner 鉴权、token 成本、历史窗口与归档段限制）
+- [ ] 跟进 `#331` 最新阻塞项：`conversationId` 归一化冲突导致历史聚合错路由，需统一 canonical key 策略
 
 ---
 
