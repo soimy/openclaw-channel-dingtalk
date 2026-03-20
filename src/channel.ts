@@ -639,7 +639,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           log: ctx.log,
         });
 
-        signal?.addEventListener("abort", () => {
+        abortSignal?.addEventListener("abort", () => {
           ctx.log?.info?.(`[${account.accountId}] Stopping HTTP receiver...`);
           server.close();
         });
