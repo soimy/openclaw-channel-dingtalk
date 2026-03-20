@@ -78,6 +78,9 @@ function persistOutboundMessageContext(params: {
   createdAt?: number;
   quotedRef?: QuotedRef;
   log?: Logger;
+  senderId?: string;
+  senderName?: string;
+  chatType?: "direct" | "group";
   delivery: {
     messageId?: string;
     processQueryKey?: string;
@@ -101,6 +104,9 @@ function persistOutboundMessageContext(params: {
     createdAt: params.createdAt ?? Date.now(),
     text: params.text,
     messageType: params.messageType,
+    senderId: params.senderId,
+    senderName: params.senderName,
+    chatType: params.chatType,
     ttlMs: DEFAULT_MESSAGE_CONTEXT_TTL_DAYS * 24 * 60 * 60 * 1000,
     topic: null,
     quotedRef: params.quotedRef,
@@ -116,6 +122,10 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
     return `[media:${options.mediaType}] ${options.mediaPath}`;
   }
   return text;
+}
+
+function inferConversationChatType(conversationId: string): "direct" | "group" {
+  return conversationId.startsWith("cid") ? "group" : "direct";
 }
 
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
@@ -419,6 +429,9 @@ export async function sendProactiveMedia(
       messageType: "outbound-proactive-media",
       quotedRef: options.quotedRef,
       log,
+      senderId: "bot",
+      senderName: "OpenClaw",
+      chatType: inferConversationChatType(options.conversationId || resolvedTarget),
       delivery: {
         ...delivery,
         kind: "proactive-media",
@@ -622,6 +635,9 @@ export async function sendMessage(
         messageType: options.mediaPath && options.mediaType ? "outbound-media" : "outbound",
         quotedRef: options.quotedRef,
         log,
+        senderId: "bot",
+        senderName: "OpenClaw",
+        chatType: inferConversationChatType(options.conversationId || conversationId),
         delivery: {
           ...delivery,
           kind: "session",
@@ -641,6 +657,9 @@ export async function sendMessage(
       messageType: "outbound-proactive",
       quotedRef: options.quotedRef,
       log,
+      senderId: "bot",
+      senderName: "OpenClaw",
+      chatType: inferConversationChatType(options.conversationId || conversationId),
       delivery: {
         ...delivery,
         kind: isTrackingResult(result) ? "proactive-card" : "proactive-text",

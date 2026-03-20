@@ -107,6 +107,7 @@ import {
   clearTargetDirectoryStateCache,
   listKnownGroupTargets,
   listKnownUserTargets,
+  upsertObservedGroupTarget,
 } from "../../src/targeting/target-directory-store";
 
 const mockedAxiosPost = vi.mocked(axios.post);
@@ -515,6 +516,95 @@ describe("inbound-handler", () => {
     expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
     expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("仅允许 owner 使用");
     expect(shared.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("handleDingTalkMessage blocks summary command for non-owner", async () => {
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "/summary group 1d",
+      messageType: "text",
+    });
+
+    await handleDingTalkMessage({
+      cfg: { commands: { ownerAllowFrom: ["dingtalk:owner-test-id"] } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open" } as any,
+      data: {
+        msgId: "m_summary_deny",
+        msgtype: "text",
+        text: { content: "/summary group 1d" },
+        conversationType: "2",
+        conversationId: "cid_group_summary",
+        senderId: "user_not_owner",
+        senderNick: "访客",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("仅允许 owner 使用");
+  });
+
+  it("handleDingTalkMessage returns summary reply for owner", async () => {
+    const storePath = path.join(fs.mkdtempSync("/tmp/dt-summary-owner-"), "store.json");
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath
+      .mockReturnValueOnce(storePath)
+      .mockReturnValueOnce(storePath);
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    upsertObservedGroupTarget({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_group_summary",
+      title: "研发群",
+      seenAt: Date.now() - 1000,
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_group_summary",
+      msgId: "seed_1",
+      createdAt: Date.now() - 1000,
+      messageType: "text",
+      text: "@小明 今天上线么",
+      senderId: "user_a",
+      senderName: "张三",
+      mentions: ["小明"],
+      chatType: "group",
+      ttlMs: 60_000,
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "/summary group 1d",
+      messageType: "text",
+    });
+
+    await handleDingTalkMessage({
+      cfg: { commands: { ownerAllowFrom: ["dingtalk:owner-test-id"] } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open" } as any,
+      data: {
+        msgId: "m_summary_run",
+        msgtype: "text",
+        text: { content: "/summary group 1d" },
+        conversationType: "2",
+        conversationId: "cid_group_summary",
+        senderId: "owner-test-id",
+        senderNick: "Owner",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toBe("final output");
   });
 
   it("handleDingTalkMessage does not treat owner plain text as learn help", async () => {
@@ -1480,7 +1570,7 @@ describe("inbound-handler", () => {
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
         accountId: "main",
-        conversationId: "cid_ok",
+        conversationId: "user_1",
         msgId: "m_journal_1",
         messageType: "text",
         text: "hello",
@@ -1730,11 +1820,6 @@ describe("inbound-handler", () => {
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
       expect.objectContaining({
         storePath: "/tmp/dm-account-store.json",
-        conversationId: "cid_dm_stable",
-      }),
-    );
-    expect(mockedUpsertInboundMessageContext).not.toHaveBeenCalledWith(
-      expect.objectContaining({
         conversationId: "user_1",
       }),
     );

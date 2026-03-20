@@ -7,6 +7,7 @@ import {
     cleanupExpiredMessageContexts,
     clearMessageContextCacheForTest,
     createSyntheticOutboundMsgId,
+    listMessageContexts,
     resolveByAlias,
     resolveByCreatedAtWindow,
     resolveByMsgId,
@@ -167,6 +168,38 @@ describe('message-context-store', () => {
         })?.text).toBe('final reply');
     });
 
+    it('stores sender and mention fields for summary filters', () => {
+        const now = Date.now();
+
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_sender_1',
+            msgId: 'msg_sender_1',
+            createdAt: now,
+            messageType: 'text',
+            text: '@Alice hello',
+            senderId: 'user_1',
+            senderName: 'Bob',
+            mentions: ['Alice'],
+            chatType: 'group',
+            quotedMessageId: 'quoted_1',
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        expect(listMessageContexts({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_sender_1',
+        })[0]).toEqual(expect.objectContaining({
+            senderId: 'user_1',
+            senderName: 'Bob',
+            mentions: ['alice'],
+            chatType: 'group',
+            quotedMessageId: 'quoted_1',
+        }));
+    });
     it('resolves outbound card content by processQueryKey alias and createdAt fallback', () => {
         upsertOutboundMessageContext({
             storePath,

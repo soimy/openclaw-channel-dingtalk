@@ -7,6 +7,13 @@ import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-r
 import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard } from "./card-service";
+import {
+  formatSummaryCommandHelp,
+  generateSummaryNarrative,
+  isSummaryCommandText,
+  parseSummaryCommand,
+  resolveSummaryMentionNames,
+} from "./commands/summary-command-service";
 import { resolveAckReactionSetting, resolveGroupConfig } from "./config";
 import {
   applyManualTargetLearningRule,
@@ -545,6 +552,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const to = isDirect ? senderId : groupId;
   const parsedLearnCommand = parseLearnCommand(extractedContent.text);
   const parsedSessionCommand = parseSessionCommand(extractedContent.text);
+  const parsedSummaryCommand = parseSummaryCommand(extractedContent.text);
   const isOwner = isLearningOwner({
     cfg,
     config: dingtalkConfig,
@@ -595,6 +603,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     await sendBySession(dingtalkConfig, sessionWebhook, formatLearnCommandHelp(), { log });
     return;
   }
+  if (parsedSummaryCommand.scope === "summary" && !isOwner) {
+    await sendBySession(dingtalkConfig, sessionWebhook, formatOwnerOnlyDeniedReply(), { log });
+    return;
+  }
   if (
     (parsedLearnCommand.scope === "global" ||
       parsedLearnCommand.scope === "session" ||
@@ -617,6 +629,36 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
   if (isOwner) {
+    if (isSummaryCommandText(extractedContent.text) && parsedSummaryCommand.scope === "unknown") {
+      await sendBySession(dingtalkConfig, sessionWebhook, formatSummaryCommandHelp(), { log });
+      return;
+    }
+    if (parsedSummaryCommand.scope === "summary") {
+      const conversationIds = parsedSummaryCommand.useCurrentConversation
+        ? [to]
+        : parsedSummaryCommand.conversationIds;
+      const mentionNames = resolveSummaryMentionNames(parsedSummaryCommand.mentionNames, senderName);
+      const summaryReply = await generateSummaryNarrative({
+        rt,
+        cfg,
+        accountId,
+        senderId,
+        senderName,
+        to,
+        routeSessionKey: route.sessionKey,
+        conversationLabel: isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`,
+        chatType: isDirect ? "direct" : "group",
+        storePath: accountStorePath,
+        chatTypeFilter: parsedSummaryCommand.chatType,
+        conversationIds,
+        senderIds: parsedSummaryCommand.senderIds,
+        mentionNames,
+        sinceTs: parsedSummaryCommand.sinceTs,
+        windowLabel: parsedSummaryCommand.windowLabel,
+      });
+      await sendBySession(dingtalkConfig, sessionWebhook, summaryReply, { log });
+      return;
+    }
     if (parsedSessionCommand.scope === "session-alias-show") {
       await sendBySession(
         dingtalkConfig,
@@ -1030,11 +1072,16 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     upsertInboundMessageContext({
       storePath: accountStorePath,
       accountId,
-      conversationId: groupId,
+      conversationId: to,
       msgId: data.msgId,
       messageType: content.messageType,
       text: content.text,
       quotedRef,
+      senderId,
+      senderName,
+      mentions: content.atMentions?.map((mention) => mention.name),
+      chatType: isDirect ? "direct" : "group",
+      quotedMessageId: content.quoted?.msgId,
       createdAt: data.createAt,
       ttlMs: ttlDaysToMs(journalTTLDays),
       ttlReferenceMs: data.createAt,
