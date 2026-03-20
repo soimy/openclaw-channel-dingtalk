@@ -25,7 +25,7 @@ export function resolveInboundAckReaction(params: {
     : (ackReaction || "");
 }
 
-export async function runWithInboundCommandReaction<T>(params: {
+export async function runWithInboundAckReaction<T>(params: {
   cfg: HandleDingTalkMessageParams["cfg"];
   accountId: string;
   agentId: string;

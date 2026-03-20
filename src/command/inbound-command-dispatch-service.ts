@@ -36,12 +36,12 @@ import {
   validateSessionAlias,
 } from "../session-command-service";
 import type { SessionPeerSourceKind } from "../session-peer-store";
-import type { MessageContent } from "../types";
+import type { DingTalkConfig, HandleDingTalkMessageParams, MessageContent } from "../types";
 
 type InboundCommandDispatchParams = {
-  cfg: any;
+  cfg: HandleDingTalkMessageParams["cfg"];
   accountId: string;
-  dingtalkConfig: any;
+  dingtalkConfig: DingTalkConfig;
   senderId: string;
   senderName: string;
   isDirect: boolean;

@@ -8,8 +8,8 @@ import { createAICard } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import {
   resolveInboundAckReaction,
-  runWithInboundCommandReaction,
-} from "./command/inbound-command-reaction";
+  runWithInboundAckReaction,
+} from "./messaging/inbound-ack-reaction";
 import { resolveGroupConfig } from "./config";
 import {
   buildLearningContextBlock,
@@ -497,7 +497,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const to = isDirect ? senderId : groupId;
-  const commandHandled = await runWithInboundCommandReaction({
+  const commandHandled = await runWithInboundAckReaction({
     cfg,
     accountId,
     agentId: route.agentId,
