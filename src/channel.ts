@@ -638,6 +638,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             if (!dedupKey) {
               ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
               stats.noMessageId += 1;
+              acknowledge();
               await handleDingTalkMessage({
                 cfg,
                 accountId: account.accountId,
@@ -647,7 +648,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 dingtalkConfig: config,
               });
               stats.processed += 1;
-              acknowledge();
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(ctx.log, account.accountId, "periodic");
               }
@@ -674,11 +674,13 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
                 );
                 stats.inflightSkipped += 1;
+                acknowledge();
                 logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
                 return;
               }
             }
 
+            acknowledge();
             processingDedupKeys.set(dedupKey, Date.now());
             try {
               await handleDingTalkMessage({
@@ -691,7 +693,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               });
               stats.processed += 1;
               markMessageProcessed(dedupKey);
-              acknowledge();
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(ctx.log, account.accountId, "periodic");
               }
