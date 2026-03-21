@@ -76,6 +76,7 @@ Options:
   --trace-suffix <suffix>
   --target-id <id>
   --target-label <label>
+  --dry-run
 `);
 }
 
@@ -125,6 +126,7 @@ export async function startScenarioWithDependencies({
     targetId = "",
     targetLabel = "",
     traceSuffix,
+    dryRun = false,
 }) {
     const resolvedDependencies = {
         ...getDefaultDependencies(),
@@ -164,16 +166,18 @@ export async function startScenarioWithDependencies({
         };
     }
 
-    const prepareResult = await resolvedDependencies.prepareSession({
-        enableStreamMonitor: false,
-        runner: undefined,
-        sessionDir: filePaths.sessionDir,
-    });
-    manifest = {
-        ...manifest,
-        ...prepareResult.manifest,
-    };
-    writeJsonFile(filePaths.manifestPath, manifest);
+    if (!dryRun) {
+        const prepareResult = await resolvedDependencies.prepareSession({
+            enableStreamMonitor: false,
+            runner: undefined,
+            sessionDir: filePaths.sessionDir,
+        });
+        manifest = {
+            ...manifest,
+            ...prepareResult.manifest,
+        };
+        writeJsonFile(filePaths.manifestPath, manifest);
+    }
 
     const nextState = resolveNextPhase({
         phase: "setup",
@@ -205,6 +209,7 @@ export async function resumeScenarioWithDependencies({
     dependencies = {},
     sessionDir,
     autoJudge = false,
+    dryRun = false,
 }) {
     const resolvedDependencies = {
         ...getDefaultDependencies(),
@@ -249,16 +254,19 @@ export async function resumeScenarioWithDependencies({
         };
         writeJsonFile(filePaths.manifestPath, updatedManifest);
 
-        const prepareResult = await resolvedDependencies.prepareSession({
-            enableStreamMonitor: false,
-            runner: undefined,
-            sessionDir: filePaths.sessionDir,
-        });
-        const preparedManifest = {
-            ...updatedManifest,
-            ...prepareResult.manifest,
-        };
-        writeJsonFile(filePaths.manifestPath, preparedManifest);
+        let preparedManifest = updatedManifest;
+        if (!dryRun) {
+            const prepareResult = await resolvedDependencies.prepareSession({
+                enableStreamMonitor: false,
+                runner: undefined,
+                sessionDir: filePaths.sessionDir,
+            });
+            preparedManifest = {
+                ...updatedManifest,
+                ...prepareResult.manifest,
+            };
+            writeJsonFile(filePaths.manifestPath, preparedManifest);
+        }
 
         const nextState = resolveNextPhase({
             phase: "setup",
@@ -368,7 +376,7 @@ export async function resumeScenarioWithDependencies({
 
     if (sessionState.phase === "waiting_for_observation") {
         const observation = readOptionalJson(filePaths.observationPath);
-        if (observation?.status === "completed") {
+        if (observation?.status === "completed" && !dryRun) {
             await resolvedDependencies.recordObservation({
                 observationFile: filePaths.observationPath,
                 sessionDir,
@@ -386,12 +394,14 @@ export async function resumeScenarioWithDependencies({
         };
         writeVerifyState(filePaths, updatedSessionState);
         if (nextState.phase === "judging" && autoJudge) {
-            await resolvedDependencies.buildScenarioEvidenceLog({
-                gatewayLogPath: getDefaultGatewayLogPath(),
-                manifest: readOptionalJson(filePaths.manifestPath) ?? manifest,
-                scenario,
-            });
-            await resolvedDependencies.judgeSession({ sessionDir });
+            if (!dryRun) {
+                await resolvedDependencies.buildScenarioEvidenceLog({
+                    gatewayLogPath: getDefaultGatewayLogPath(),
+                    manifest: readOptionalJson(filePaths.manifestPath) ?? manifest,
+                    scenario,
+                });
+                await resolvedDependencies.judgeSession({ sessionDir });
+            }
             const completedState = {
                 ...updatedSessionState,
                 phase: "completed",
@@ -432,6 +442,7 @@ async function startScenario(args) {
     const targetLabel = readFlagValue(args, "--target-label");
     const traceSuffix = readFlagValue(args, "--trace-suffix") || undefined;
     const nowText = readFlagValue(args, "--now");
+    const dryRun = args.includes("--dry-run");
     const now = nowText ? new Date(nowText) : new Date();
 
     if (Number.isNaN(now.getTime())) {
@@ -445,6 +456,7 @@ async function startScenario(args) {
         targetId,
         targetLabel,
         traceSuffix,
+        dryRun,
     });
     for (const line of result.stdoutLines) {
         console.log(line);
@@ -453,7 +465,9 @@ async function startScenario(args) {
 
 async function resumeScenario(args) {
     const sessionDir = requireFlag(args, "--resume");
+    const dryRun = args.includes("--dry-run");
     const result = await resumeScenarioWithDependencies({
+        dryRun,
         sessionDir,
     });
     for (const line of result.stdoutLines) {

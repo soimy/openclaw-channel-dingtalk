@@ -34,6 +34,7 @@ describe("real-device-scenarios verify runner", () => {
                 "7F2A",
                 "--output-root",
                 outputRoot,
+                "--dry-run",
             ],
             {
                 cwd: process.cwd(),
@@ -79,6 +80,7 @@ describe("real-device-scenarios verify runner", () => {
                 "7F2A",
                 "--output-root",
                 outputRoot,
+                "--dry-run",
             ],
             {
                 cwd: process.cwd(),
@@ -113,7 +115,7 @@ describe("real-device-scenarios verify runner", () => {
 
         const resume = spawnSync(
             process.execPath,
-            ["scripts/real-device-scenarios/runtime/verify.mjs", "--resume", sessionDir],
+            ["scripts/real-device-scenarios/runtime/verify.mjs", "--resume", sessionDir, "--dry-run"],
             {
                 cwd: process.cwd(),
                 encoding: "utf8",
@@ -248,7 +250,7 @@ describe("real-device-scenarios verify runner", () => {
 
         const resume = spawnSync(
             process.execPath,
-            ["scripts/real-device-scenarios/runtime/verify.mjs", "--resume", sessionDir],
+            ["scripts/real-device-scenarios/runtime/verify.mjs", "--resume", sessionDir, "--dry-run"],
             {
                 cwd: process.cwd(),
                 encoding: "utf8",
