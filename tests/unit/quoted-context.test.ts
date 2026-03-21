@@ -395,4 +395,85 @@ describe("quoted-context", () => {
       ],
     });
   });
+
+  it("falls back to the event preview when the first quoted record is missing", () => {
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_preview_only",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "missing_preview_only",
+      },
+      firstPreview: {
+        text: "preview from inbound event",
+        messageType: "text",
+      },
+    });
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.replyToId).toBe("missing_preview_only");
+    expect(resolved?.replyToBody).toBe("preview from inbound event");
+    expect(resolved?.replyToSender).toBeUndefined();
+    expect(resolved?.chain).toEqual([]);
+    expect(resolved?.untrustedContext).toBeUndefined();
+  });
+
+  it("keeps preview body for outbound fallbackCreatedAt quotes without a stable reply id", () => {
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_preview_created_at_only",
+      quotedRef: {
+        targetDirection: "outbound",
+        fallbackCreatedAt: 1772817989679,
+      },
+      firstPreview: {
+        text: "preview from outbound fallback",
+        messageType: "interactiveCard",
+      },
+    });
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.replyToId).toBeUndefined();
+    expect(resolved?.replyToBody).toBe("preview from outbound fallback");
+    expect(resolved?.replyToSender).toBe("assistant");
+    expect(resolved?.chain).toEqual([]);
+    expect(resolved?.untrustedContext).toBeUndefined();
+  });
+
+  it("prefers attachment excerpts over generic stored text for document hops", () => {
+    upsertInboundMessageContext({
+      accountId: "main",
+      conversationId: "cid_attachment_chain",
+      msgId: "doc_0",
+      createdAt: 1000,
+      messageType: "interactiveCardFile",
+      text: "[钉钉文档]",
+      attachmentText: "文档第一段\n文档第二段",
+      attachmentTextSource: "pdf",
+      topic: null,
+    });
+
+    const resolved = resolveQuotedRuntimeContext({
+      accountId: "main",
+      conversationId: "cid_attachment_chain",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "doc_0",
+      },
+    });
+
+    expect(resolved?.replyToBody).toBe("文档第一段\n文档第二段");
+    expect(resolved?.chain).toEqual([
+      {
+        depth: 1,
+        direction: "inbound",
+        messageType: "interactiveCardFile",
+        body: "文档第一段\n文档第二段",
+        createdAt: 1000,
+        sender: undefined,
+      },
+    ]);
+  });
 });

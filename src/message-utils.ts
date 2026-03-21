@@ -98,6 +98,136 @@ function extractRichTextQuoteParts(
   };
 }
 
+function trimString(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildQuotedMessageTypePlaceholder(messageType: string | undefined, fileName?: string): string | undefined {
+  switch (messageType) {
+    case "text":
+      return undefined;
+    case "picture":
+      return "<media:image>";
+    case "audio":
+      return "<media:voice>";
+    case "video":
+      return "<media:video>";
+    case "file":
+    case "unknownMsgType":
+      return fileName ? `<media:file> (${fileName})` : "<media:file>";
+    case "interactiveCardFile":
+      return "[钉钉文档]";
+    case "interactiveCard":
+      return "[interactiveCard消息]";
+    case "richText":
+      return "[富文本消息]";
+    default:
+      return messageType ? `[Quoted ${messageType}]` : undefined;
+  }
+}
+
+function buildLegacyQuoteMessagePreview(message: DingTalkInboundMessage["quoteMessage"]): {
+  previewText?: string;
+  previewMessageType?: string;
+  previewSenderId?: string;
+} {
+  const previewMessageType = trimString(message?.msgtype);
+  return {
+    previewText:
+      trimString(message?.text?.content) ||
+      buildQuotedMessageTypePlaceholder(previewMessageType),
+    previewMessageType,
+    previewSenderId: trimString(message?.senderId),
+  };
+}
+
+function buildRepliedMessagePreview(params: {
+  data: DingTalkInboundMessage;
+  repliedMsg: NonNullable<NonNullable<DingTalkInboundMessage["text"]>["repliedMsg"]>;
+}): Partial<QuotedInfo> {
+  const { data, repliedMsg } = params;
+  const repliedMsgType = trimString(repliedMsg.msgType);
+  const content = repliedMsg.content;
+  const fileName = trimString(content?.fileName);
+  const richTextQuote = extractRichTextQuoteParts(content?.richText);
+  const docMeta = parseBizCustomActionUrl(content?.biz_custom_action_url);
+
+  if (repliedMsgType === "picture") {
+    return {
+      mediaDownloadCode: trimString(content?.downloadCode),
+      mediaType: trimString(content?.downloadCode) ? "image" : undefined,
+      previewText: buildQuotedMessageTypePlaceholder("picture"),
+      previewMessageType: "picture",
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
+  if (repliedMsgType === "richText") {
+    return {
+      mediaDownloadCode: richTextQuote?.pictureDownloadCode,
+      mediaType: richTextQuote?.pictureDownloadCode ? "image" : undefined,
+      previewText:
+        trimString(richTextQuote?.summary) || buildQuotedMessageTypePlaceholder("richText"),
+      previewMessageType: "richText",
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
+  if (repliedMsgType === "unknownMsgType") {
+    return {
+      isQuotedFile: true,
+      fileCreatedAt: repliedMsg.createdAt,
+      previewText: buildQuotedMessageTypePlaceholder("unknownMsgType", fileName),
+      previewMessageType: "unknownMsgType",
+      previewFileName: fileName,
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
+  if (repliedMsgType === "interactiveCard") {
+    const isBotCard = repliedMsg.senderId === data.chatbotUserId;
+    if (isBotCard) {
+      return {
+        isQuotedCard: true,
+        cardCreatedAt: repliedMsg.createdAt,
+        processQueryKey: trimString(data.originalProcessQueryKey),
+        previewText:
+          trimString(content?.text) || buildQuotedMessageTypePlaceholder("interactiveCard"),
+        previewMessageType: "interactiveCard",
+        previewSenderId: trimString(repliedMsg.senderId),
+      };
+    }
+
+    return {
+      isQuotedDocCard: true,
+      fileCreatedAt: repliedMsg.createdAt,
+      previewText:
+        trimString(content?.text) ||
+        buildQuotedMessageTypePlaceholder(docMeta ? "interactiveCardFile" : "interactiveCard"),
+      previewMessageType: docMeta ? "interactiveCardFile" : "interactiveCard",
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
+  const textPreview =
+    trimString(content?.text) ||
+    trimString(richTextQuote?.summary) ||
+    buildQuotedMessageTypePlaceholder(repliedMsgType, fileName);
+
+  return {
+    mediaDownloadCode: richTextQuote?.pictureDownloadCode,
+    mediaType: richTextQuote?.pictureDownloadCode ? "image" : undefined,
+    previewText: textPreview,
+    previewMessageType: repliedMsgType,
+    previewFileName: fileName,
+    previewSenderId: trimString(repliedMsg.senderId),
+  };
+}
+
 /**
  * Auto-detect markdown usage and derive message title.
  * Title extraction follows DingTalk markdown card title constraints.
@@ -205,13 +335,16 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
     if (textField?.isReplyMsg && textField?.repliedMsg) {
       const repliedMsg = textField.repliedMsg;
-      const repliedMsgType = repliedMsg.msgType;
+      const repliedMsgType = trimString(repliedMsg.msgType);
       const content = repliedMsg.content;
+      const repliedMsgId = trimString(repliedMsg.msgId) || trimString(data.originalMsgId);
+      const repliedPreview = buildRepliedMessagePreview({ data, repliedMsg });
 
       if (repliedMsgType === "picture" && content?.downloadCode) {
         return {
           mediaDownloadCode: content.downloadCode,
           mediaType: "image",
+          ...repliedPreview,
         };
       }
 
@@ -219,8 +352,10 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         const richTextQuote = extractRichTextQuoteParts(content?.richText);
         if (richTextQuote) {
           return {
+            msgId: repliedMsgId,
             mediaDownloadCode: richTextQuote.pictureDownloadCode,
             mediaType: richTextQuote.pictureDownloadCode ? "image" : undefined,
+            ...repliedPreview,
           };
         }
       }
@@ -229,7 +364,8 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         return {
           isQuotedFile: true,
           fileCreatedAt: repliedMsg.createdAt,
-          msgId: repliedMsg.msgId,
+          msgId: repliedMsgId,
+          ...repliedPreview,
         };
       }
 
@@ -240,33 +376,36 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
             isQuotedCard: true,
             cardCreatedAt: repliedMsg.createdAt,
             processQueryKey: data.originalProcessQueryKey,
-            msgId: repliedMsg.msgId,
+            msgId: repliedMsgId,
+            ...repliedPreview,
           };
         }
 
         return {
           isQuotedDocCard: true,
           fileCreatedAt: repliedMsg.createdAt,
-          msgId: repliedMsg.msgId,
+          msgId: repliedMsgId,
+          ...repliedPreview,
         };
       }
 
-      if (repliedMsgType && repliedMsg.msgId) {
-        return { msgId: repliedMsg.msgId };
+      if (repliedMsgType && repliedMsgId) {
+        return { msgId: repliedMsgId, ...repliedPreview };
       }
 
       // No msgType — backward compat: extract text or richText from content.
       if (content?.text?.trim()) {
-        return repliedMsg.msgId ? { msgId: repliedMsg.msgId } : null;
+        return repliedMsgId ? { msgId: repliedMsgId, ...repliedPreview } : null;
       }
 
       if (content?.richText && Array.isArray(content.richText)) {
         const richTextQuote = extractRichTextQuoteParts(content.richText);
         if (richTextQuote) {
           return {
-            msgId: repliedMsg.msgId,
+            msgId: repliedMsgId,
             mediaDownloadCode: richTextQuote.pictureDownloadCode,
             mediaType: richTextQuote.pictureDownloadCode ? "image" : undefined,
+            ...repliedPreview,
           };
         }
       }
@@ -280,7 +419,10 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
     if (data.quoteMessage) {
       if (data.quoteMessage.msgId) {
-        return { msgId: data.quoteMessage.msgId };
+        return {
+          msgId: data.quoteMessage.msgId,
+          ...buildLegacyQuoteMessagePreview(data.quoteMessage),
+        };
       }
     }
 

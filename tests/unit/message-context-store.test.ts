@@ -81,6 +81,38 @@ describe('message-context-store', () => {
         });
     });
 
+    it('stores attachment excerpts for later quoted/history recovery', () => {
+        const now = Date.now();
+
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_attachment',
+            msgId: 'msg_attachment_1',
+            createdAt: now,
+            messageType: 'interactiveCardFile',
+            text: '[钉钉文档]',
+            attachmentText: '第一段\n第二段',
+            attachmentTextSource: 'pdf',
+            attachmentTextTruncated: true,
+            attachmentFileName: 'manual.pdf',
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        const record = resolveByMsgId({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_attachment',
+            msgId: 'msg_attachment_1',
+        });
+
+        expect(record?.attachmentText).toBe('第一段\n第二段');
+        expect(record?.attachmentTextSource).toBe('pdf');
+        expect(record?.attachmentTextTruncated).toBe(true);
+        expect(record?.attachmentFileName).toBe('manual.pdf');
+    });
+
     it('persists quotedRef on records and resolves inbound/outbound references', () => {
         const now = Date.now();
 

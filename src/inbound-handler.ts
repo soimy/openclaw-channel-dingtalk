@@ -89,7 +89,6 @@ import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, m
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
 const MAX_DYNAMIC_ACK_DISPOSE_WAIT_MS = 500;
-const ATTACHMENT_TEXT_PREFIX = "[附件内容摘录]";
 const proactiveHintLastSentAt = new Map<string, number>();
 
 function resolvePinnedMainDmOwner(params: {
@@ -1101,6 +1100,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
+  let attachmentContextMsgId = data.msgId;
+  let attachmentContextCreatedAt = data.createAt;
+  let attachmentContextMessageType = content.messageType;
+  let attachmentContextFileName = data.content?.fileName;
 
   // Use pre-downloaded media if available (from sub-agent outer call)
   if (preDownloadedMedia?.mediaPath) {
@@ -1190,6 +1193,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     conversationId: data.conversationId,
     quotedRef,
     firstRecord: quotedRecord,
+    firstPreview:
+      content.quoted?.previewText ||
+      content.quoted?.previewMessageType
+        ? {
+            text: content.quoted.previewText,
+            messageType: content.quoted.previewMessageType,
+            senderId: content.quoted.previewSenderId,
+          }
+        : undefined,
     log,
   });
 
@@ -1253,6 +1265,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       }
       mediaPath = media.path;
       mediaType = media.mimeType;
+      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+      attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
+      attachmentContextMessageType = quotedRecord?.messageType || content.quoted.previewMessageType || "picture";
+      attachmentContextFileName = content.quoted.previewFileName;
     } else {
       content.text = `[引用了一张图片，但下载失败]\n\n${content.text}`;
     }
@@ -1267,6 +1283,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cachedMedia) {
       mediaPath = cachedMedia.path;
       mediaType = cachedMedia.mimeType;
+      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+      attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+      attachmentContextMessageType = quotedRecord?.messageType || "file";
+      attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
       fileResolved = true;
     }
 
@@ -1284,6 +1304,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
+        attachmentContextMsgId = content.quoted.msgId || data.msgId;
+        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextMessageType = "file";
+        attachmentContextFileName = resolved.name || content.quoted.previewFileName;
         fileResolved = true;
         log?.debug?.(
           `[DingTalk][QuotedRef] Recovered quoted file from group file fallback ` +
@@ -1301,6 +1325,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               spaceId: resolved.spaceId,
               fileId: resolved.fileId,
             },
+            attachmentFileName: resolved.name,
             ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
             topic: null,
           });
@@ -1331,6 +1356,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cachedDocMedia) {
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
+      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+      attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+      attachmentContextMessageType =
+        quotedRecord?.messageType || content.quoted.previewMessageType || "interactiveCardFile";
+      attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
       docResolved = true;
     }
 
@@ -1347,6 +1377,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
+        attachmentContextMsgId = content.quoted.msgId || data.msgId;
+        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextMessageType = "interactiveCardFile";
+        attachmentContextFileName = resolved.name || content.quoted.previewFileName;
         docResolved = true;
         log?.debug?.(
           `[DingTalk][QuotedRef] Recovered quoted doc card from group file fallback ` +
@@ -1364,6 +1398,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               spaceId: resolved.spaceId,
               fileId: resolved.fileId,
             },
+            attachmentFileName: resolved.name,
             ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
             topic: null,
           });
@@ -1382,16 +1417,28 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  let attachmentExtractedText: string | undefined;
   if (mediaPath) {
     try {
       const extracted = await extractAttachmentText({
         path: mediaPath,
         mimeType: mediaType,
-        fileName: data.content?.fileName,
+        fileName: attachmentContextFileName || data.content?.fileName,
       });
       if (extracted?.text) {
-        attachmentExtractedText = `${ATTACHMENT_TEXT_PREFIX}\n${extracted.text}`;
+        upsertInboundMessageContext({
+          storePath: accountStorePath,
+          accountId,
+          conversationId: data.conversationId,
+          msgId: attachmentContextMsgId,
+          createdAt: attachmentContextCreatedAt,
+          messageType: attachmentContextMessageType,
+          attachmentText: extracted.text,
+          attachmentTextSource: extracted.sourceType,
+          attachmentTextTruncated: extracted.truncated,
+          attachmentFileName: attachmentContextFileName,
+          ttlMs: ttlDaysToMs(journalTTLDays),
+          topic: null,
+        });
       }
     } catch (err: any) {
       log?.warn?.(`[DingTalk] Failed to extract attachment text: ${err.message}`);
@@ -1402,9 +1449,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     mediaPath && /<media:[^>]+>/.test(content.text)
       ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
       : content.text;
-  const inboundText = attachmentExtractedText
-    ? `${inboundBody}\n\n${attachmentExtractedText}`
-    : inboundBody;
+  const inboundText = inboundBody;
   const learningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
   const learningContextBlock = buildLearningContextBlock({
     enabled: learningEnabled,

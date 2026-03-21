@@ -243,6 +243,7 @@ export interface DingTalkInboundMessage {
       content?: {
         text?: string;
         downloadCode?: string;
+        fileName?: string;
         biz_custom_action_url?: string;
         richText?: Array<{
           msgType?: string;
@@ -295,6 +296,8 @@ export interface DingTalkInboundMessage {
 
 export type QuotedRefKey = "msgId" | "processQueryKey" | "messageId" | "outTrackId" | "cardInstanceId";
 
+export type AttachmentTextSource = "text" | "html" | "pdf" | "docx";
+
 export interface QuotedRef {
   targetDirection: "inbound" | "outbound";
   key?: QuotedRefKey;
@@ -317,6 +320,10 @@ export interface QuotedInfo {
   processQueryKey?: string;
   fileCreatedAt?: number;
   msgId?: string;
+  previewText?: string;
+  previewMessageType?: string;
+  previewFileName?: string;
+  previewSenderId?: string;
 }
 
 /**
