@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import path from "node:path";
 import {
     createInitialManifest,
@@ -10,6 +11,7 @@ import { writeJsonFile } from "../../real-device-debug/session-fs.mjs";
 import { prepareSession } from "../../real-device-debug/prepare-session.mjs";
 import { judgeSession } from "../../real-device-debug/judge-session.mjs";
 import { recordObservation } from "../../real-device-debug/record-observation.mjs";
+import { buildScenarioEvidenceLog } from "./log-evidence.mjs";
 import { loadScenario, validateScenario } from "./scenario-loader.mjs";
 import {
     ensureVerifyDirectories,
@@ -26,17 +28,21 @@ import {
     renderObservationTemplate,
     renderOperatorInput,
     renderOperatorPrompt,
+    renderOperatorResponseTemplate,
     renderResolveTargetInput,
     renderResolveTargetPrompt,
     renderResolveTargetResponseTemplate,
 } from "./prompt-renderer.mjs";
 import { createInitialPhaseState, resolveNextPhase } from "./phase-machine.mjs";
 import { resolveTarget } from "./target-resolver.mjs";
+import { executeHarnessStep } from "./harness-actions.mjs";
 
 const DEFAULT_VERIFY_OUTPUT_ROOT = ".local/real-device-runs";
 
 function getDefaultDependencies() {
     return {
+        buildScenarioEvidenceLog,
+        executeHarnessStep,
         judgeSession,
         prepareSession,
         recordObservation,
@@ -90,6 +96,10 @@ function buildSessionState({ manifest, phaseState, scenario }) {
     };
 }
 
+function getDefaultGatewayLogPath() {
+    return path.join(process.env.HOME || "", ".openclaw", "logs", "gateway.log");
+}
+
 function renderResolveTargetPackage({ filePaths, manifest, scenario }) {
     writeResolveTargetPackage(filePaths, {
         prompt: renderResolveTargetPrompt({ manifest, scenario }),
@@ -102,6 +112,7 @@ function renderOperatorActionPackage({ filePaths, manifest, scenario }) {
     writeOperatorPackage(filePaths, {
         prompt: renderOperatorPrompt({ manifest, scenario }),
         input: renderOperatorInput({ manifest, scenario }),
+        responseTemplate: renderOperatorResponseTemplate({ manifest, scenario }),
         template: renderObservationTemplate({ manifest, scenario }),
     });
 }
@@ -269,6 +280,92 @@ export async function resumeScenarioWithDependencies({
         };
     }
 
+    if (sessionState.phase === "operator_action") {
+        const operatorResponse = readOptionalJson(filePaths.operatorResponsePath);
+        if (operatorResponse?.status !== "completed" || !operatorResponse.completedStepId) {
+            return {
+                filePaths,
+                manifest,
+                sessionState,
+                stdoutLines: ["WAITING_FOR_OPERATOR", `sessionDir=${filePaths.sessionDir}`],
+            };
+        }
+
+        const completedSteps = [
+            ...new Set([...(sessionState.completedSteps || []), operatorResponse.completedStepId]),
+        ];
+        try {
+            fs.rmSync(filePaths.operatorResponsePath, { force: true });
+        } catch {
+            // best-effort cleanup; stale response files are tolerated
+        }
+
+        let nextState = resolveNextPhase({
+            phase: "operator_action",
+            scenario,
+            completedSteps: sessionState.completedSteps || [],
+            operatorStepCompleted: operatorResponse.completedStepId,
+        });
+
+        let nextCompletedSteps = completedSteps;
+        while (nextState.phase === "harness_action" && nextState.nextHarnessStepId) {
+            const harnessStep = scenario.steps.find((step) => step.id === nextState.nextHarnessStepId);
+            if (!harnessStep) {
+                throw new Error(`Unable to find harness step ${nextState.nextHarnessStepId}`);
+            }
+            await resolvedDependencies.executeHarnessStep({
+                sessionDir,
+                scenario,
+                sessionState: {
+                    ...sessionState,
+                    completedSteps: nextCompletedSteps,
+                },
+                step: harnessStep,
+            });
+            nextCompletedSteps = [...new Set([...nextCompletedSteps, harnessStep.id])];
+            nextState = resolveNextPhase({
+                phase: "harness_action",
+                scenario,
+                completedSteps: nextCompletedSteps,
+                harnessStepCompleted: harnessStep.id,
+            });
+        }
+
+        const updatedSessionState = {
+            ...sessionState,
+            completedSteps: nextCompletedSteps,
+            phase: nextState.phase,
+            status: nextState.status,
+        };
+        writeVerifyState(filePaths, updatedSessionState);
+
+        if (nextState.phase === "operator_action") {
+            renderOperatorActionPackage({ filePaths, manifest, scenario });
+            return {
+                filePaths,
+                manifest,
+                sessionState: updatedSessionState,
+                stdoutLines: ["WAITING_FOR_OPERATOR", `sessionDir=${filePaths.sessionDir}`],
+            };
+        }
+
+        if (nextState.phase === "waiting_for_observation") {
+            return {
+                filePaths,
+                manifest,
+                sessionState: updatedSessionState,
+                stdoutLines: ["WAITING_FOR_OBSERVATION", `sessionDir=${filePaths.sessionDir}`],
+            };
+        }
+
+        return {
+            filePaths,
+            manifest,
+            sessionState: updatedSessionState,
+            stdoutLines: [`NO_OP phase=${updatedSessionState.phase}`, `sessionDir=${filePaths.sessionDir}`],
+        };
+    }
+
     if (sessionState.phase === "waiting_for_observation") {
         const observation = readOptionalJson(filePaths.observationPath);
         if (observation?.status === "completed") {
@@ -289,6 +386,11 @@ export async function resumeScenarioWithDependencies({
         };
         writeVerifyState(filePaths, updatedSessionState);
         if (nextState.phase === "judging" && autoJudge) {
+            await resolvedDependencies.buildScenarioEvidenceLog({
+                gatewayLogPath: getDefaultGatewayLogPath(),
+                manifest: readOptionalJson(filePaths.manifestPath) ?? manifest,
+                scenario,
+            });
             await resolvedDependencies.judgeSession({ sessionDir });
             const completedState = {
                 ...updatedSessionState,

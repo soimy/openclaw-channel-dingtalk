@@ -207,6 +207,126 @@ describe("real-device-scenarios debug-session bridge", () => {
         expect(judgeSession).toHaveBeenCalledTimes(1);
     });
 
+    it("builds scenario log evidence before auto judging", async () => {
+        const outputRoot = createTempDir();
+        const sessionDir = path.join(outputRoot, "2026-03-21", "dtdbg-20260321-081530-pr389-preview-store-miss");
+        fs.mkdirSync(sessionDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(sessionDir, "session.json"),
+            JSON.stringify(
+                {
+                    phase: "waiting_for_observation",
+                    status: "blocked_on_observation",
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    scenarioId: "pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    completedSteps: ["send_seed", "delete_record", "quote_seed"],
+                    target: {
+                        conversationId: "cid-dm-002",
+                        id: "manager8031",
+                        label: "Manual User",
+                        mode: "dm",
+                    },
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "scenario.snapshot.json"),
+            JSON.stringify(loadScenario("pr389-preview-store-miss"), null, 2),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "manifest.json"),
+            JSON.stringify(
+                {
+                    version: 1,
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    createdAt: "2026-03-21T08:15:30.000Z",
+                    status: "reply_observed",
+                    scenario: "pr389-preview-store-miss",
+                    target: {
+                        id: "manager8031",
+                        label: "Manual User",
+                    },
+                    operator: {
+                        mode: "external",
+                        observationStatus: "reply_observed",
+                    },
+                    probes: {
+                        connectionCheck: "ok",
+                        streamMonitor: "skipped",
+                        gatewayRestart: "ok",
+                        openclawLogs: "running",
+                    },
+                    artifacts: {
+                        rootDir: sessionDir,
+                        logsDir: path.join(sessionDir, "logs"),
+                        screenshotsDir: path.join(sessionDir, "screenshots"),
+                    },
+                    timeline: [],
+                    observations: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.mkdirSync(path.join(sessionDir, "logs"), { recursive: true });
+        fs.writeFileSync(path.join(sessionDir, "timeline.json"), "[]\n", "utf8");
+        fs.writeFileSync(
+            path.join(sessionDir, "observation.json"),
+            JSON.stringify(
+                {
+                    status: "completed",
+                    sentAt: "2026-03-21T08:16:00.000Z",
+                    replyObservedAt: "2026-03-21T08:16:10.000Z",
+                    sendStatus: "sent",
+                    replyStatus: "visible",
+                    replyPreview: "ok",
+                    notes: "",
+                    screenshots: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+
+        const buildScenarioEvidenceLog = vi.fn().mockReturnValue(path.join(sessionDir, "logs", "filtered.log"));
+        const recordObservation = vi.fn().mockResolvedValue({
+            status: "reply_observed",
+        });
+        const judgeSession = vi.fn().mockResolvedValue({
+            judgment: {
+                outcome: "end_to_end_success",
+            },
+        });
+
+        await resumeScenarioWithDependencies({
+            sessionDir,
+            autoJudge: true,
+            dependencies: {
+                buildScenarioEvidenceLog,
+                judgeSession,
+                recordObservation,
+            },
+        });
+
+        expect(buildScenarioEvidenceLog).toHaveBeenCalledTimes(1);
+        expect(buildScenarioEvidenceLog).toHaveBeenCalledWith(
+            expect.objectContaining({
+                gatewayLogPath: expect.any(String),
+                scenario: expect.objectContaining({ id: "pr389-preview-store-miss" }),
+            }),
+        );
+        expect(judgeSession).toHaveBeenCalledTimes(1);
+    });
+
     it("uses prepareSession after target resolution when resuming from resolve_target", async () => {
         const outputRoot = createTempDir();
         const scenario = loadScenario("pr389-preview-store-miss");
@@ -260,5 +380,207 @@ describe("real-device-scenarios debug-session bridge", () => {
         });
         expect(result.sessionState.phase).toBe("operator_action");
         expect(result.sessionState.status).toBe("blocked_on_operator");
+    });
+
+    it("consumes an operator step completion, runs the harness action, and returns to operator waiting", async () => {
+        const outputRoot = createTempDir();
+        const sessionDir = path.join(outputRoot, "2026-03-21", "dtdbg-20260321-081530-pr389-preview-store-miss");
+        fs.mkdirSync(sessionDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(sessionDir, "session.json"),
+            JSON.stringify(
+                {
+                    phase: "operator_action",
+                    status: "blocked_on_operator",
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    scenarioId: "pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    completedSteps: [],
+                    target: {
+                        conversationId: "cid-dm-002",
+                        id: "manager8031",
+                        label: "Manual User",
+                        mode: "dm",
+                    },
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "scenario.snapshot.json"),
+            JSON.stringify(loadScenario("pr389-preview-store-miss"), null, 2),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "manifest.json"),
+            JSON.stringify(
+                {
+                    version: 1,
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    createdAt: "2026-03-21T08:15:30.000Z",
+                    status: "probes_running",
+                    scenario: "pr389-preview-store-miss",
+                    target: {
+                        id: "manager8031",
+                        label: "Manual User",
+                    },
+                    operator: {
+                        mode: "external",
+                        observationStatus: "pending",
+                    },
+                    probes: {
+                        connectionCheck: "ok",
+                        streamMonitor: "skipped",
+                        gatewayRestart: "ok",
+                        openclawLogs: "running",
+                    },
+                    artifacts: {
+                        rootDir: sessionDir,
+                        logsDir: path.join(sessionDir, "logs"),
+                        screenshotsDir: path.join(sessionDir, "screenshots"),
+                    },
+                    timeline: [],
+                    observations: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(path.join(sessionDir, "timeline.json"), "[]\n", "utf8");
+        fs.writeFileSync(
+            path.join(sessionDir, "operator-response.json"),
+            JSON.stringify(
+                {
+                    status: "completed",
+                    completedStepId: "send_seed",
+                    notes: "",
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+
+        const executeHarnessStep = vi.fn().mockResolvedValue({
+            recordId: "msg-seed",
+        });
+
+        const result = await resumeScenarioWithDependencies({
+            sessionDir,
+            dependencies: {
+                executeHarnessStep,
+            },
+        });
+
+        expect(executeHarnessStep).toHaveBeenCalledTimes(1);
+        expect(executeHarnessStep).toHaveBeenCalledWith(
+            expect.objectContaining({
+                sessionDir,
+            }),
+        );
+        expect(result.sessionState.completedSteps).toEqual(["send_seed", "delete_record"]);
+        expect(result.sessionState.phase).toBe("operator_action");
+        expect(result.sessionState.status).toBe("blocked_on_operator");
+    });
+
+    it("consumes the final operator step completion and advances to waiting_for_observation", async () => {
+        const outputRoot = createTempDir();
+        const sessionDir = path.join(outputRoot, "2026-03-21", "dtdbg-20260321-081530-pr389-preview-store-miss");
+        fs.mkdirSync(sessionDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(sessionDir, "session.json"),
+            JSON.stringify(
+                {
+                    phase: "operator_action",
+                    status: "blocked_on_operator",
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    scenarioId: "pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    completedSteps: ["send_seed", "delete_record"],
+                    target: {
+                        conversationId: "cid-dm-002",
+                        id: "manager8031",
+                        label: "Manual User",
+                        mode: "dm",
+                    },
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "scenario.snapshot.json"),
+            JSON.stringify(loadScenario("pr389-preview-store-miss"), null, 2),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "manifest.json"),
+            JSON.stringify(
+                {
+                    version: 1,
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    createdAt: "2026-03-21T08:15:30.000Z",
+                    status: "probes_running",
+                    scenario: "pr389-preview-store-miss",
+                    target: {
+                        id: "manager8031",
+                        label: "Manual User",
+                    },
+                    operator: {
+                        mode: "external",
+                        observationStatus: "pending",
+                    },
+                    probes: {
+                        connectionCheck: "ok",
+                        streamMonitor: "skipped",
+                        gatewayRestart: "ok",
+                        openclawLogs: "running",
+                    },
+                    artifacts: {
+                        rootDir: sessionDir,
+                        logsDir: path.join(sessionDir, "logs"),
+                        screenshotsDir: path.join(sessionDir, "screenshots"),
+                    },
+                    timeline: [],
+                    observations: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(path.join(sessionDir, "timeline.json"), "[]\n", "utf8");
+        fs.writeFileSync(
+            path.join(sessionDir, "operator-response.json"),
+            JSON.stringify(
+                {
+                    status: "completed",
+                    completedStepId: "quote_seed",
+                    notes: "",
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+
+        const result = await resumeScenarioWithDependencies({
+            sessionDir,
+            dependencies: {
+                executeHarnessStep: vi.fn(),
+            },
+        });
+
+        expect(result.sessionState.completedSteps).toEqual(["send_seed", "delete_record", "quote_seed"]);
+        expect(result.sessionState.phase).toBe("waiting_for_observation");
+        expect(result.sessionState.status).toBe("blocked_on_observation");
     });
 });

@@ -14,7 +14,12 @@ function readOptionalText(filePath) {
 }
 
 function inferLogEvidence(logText) {
-    const inboundSeen = ["[inbound]", "handleDingTalkMessage"].some((token) => logText.includes(token));
+    const inboundSeen = [
+        "[inbound]",
+        "handleDingTalkMessage",
+        "Full Inbound Data",
+        "Inbound:",
+    ].some((token) => logText.includes(token));
     const outboundSeen = ["[outbound]", "sendMessage", "sendBySession"].some((token) =>
         logText.includes(token),
     );

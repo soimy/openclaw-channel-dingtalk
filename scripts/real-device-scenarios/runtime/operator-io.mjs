@@ -17,6 +17,8 @@ export function resolveVerifyFilePaths(sessionDir) {
         resolveTargetResponsePath: path.join(sessionDir, "resolve-target.response.json"),
         operatorPromptPath: path.join(sessionDir, "operator-prompt.md"),
         operatorInputPath: path.join(sessionDir, "operator-input.json"),
+        operatorResponseTemplatePath: path.join(sessionDir, "operator-response.template.json"),
+        operatorResponsePath: path.join(sessionDir, "operator-response.json"),
         observationTemplatePath: path.join(sessionDir, "observation.template.json"),
         observationPath: path.join(sessionDir, "observation.json"),
         manifestPath: path.join(sessionDir, "manifest.json"),
@@ -47,6 +49,7 @@ export function writeResolveTargetPackage(filePaths, rendered) {
 export function writeOperatorPackage(filePaths, rendered) {
     writeTextFile(filePaths.operatorPromptPath, rendered.prompt);
     writeJsonFile(filePaths.operatorInputPath, rendered.input);
+    writeJsonFile(filePaths.operatorResponseTemplatePath, rendered.responseTemplate);
     writeJsonFile(filePaths.observationTemplatePath, rendered.template);
 }
 

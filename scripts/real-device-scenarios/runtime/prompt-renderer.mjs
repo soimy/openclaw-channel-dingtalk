@@ -93,7 +93,8 @@ ${stepLines}
 
 注意：
 - 将消息中的 \`{{traceToken}}\` 替换为实际 trace token：\`${manifest.traceToken}\`
-- 完成后把结果写入 \`observation.json\`
+- 每完成一个 operator 步骤后，将完成结果写入 \`operator-response.json\`
+- 当最后一步完成并且你已经看到了客户端回复，再把结果写入 \`observation.json\`
 `;
 }
 
@@ -115,6 +116,14 @@ export function renderOperatorInput({ manifest, scenario }) {
             message: step.message,
             sourceRef: step.sourceRef,
         })),
+    };
+}
+
+export function renderOperatorResponseTemplate() {
+    return {
+        status: "completed",
+        completedStepId: "",
+        notes: "",
     };
 }
 

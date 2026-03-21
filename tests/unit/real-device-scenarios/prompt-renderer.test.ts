@@ -5,6 +5,7 @@ import {
     renderObservationTemplate,
     renderOperatorInput,
     renderOperatorPrompt,
+    renderOperatorResponseTemplate,
     renderResolveTargetInput,
     renderResolveTargetPrompt,
     renderResolveTargetResponseTemplate,
@@ -68,6 +69,8 @@ describe("real-device-scenarios prompt renderer", () => {
         expect(prompt).toContain("pr389-quoted-attachment.txt");
         expect(prompt).toContain("{{traceToken}}");
         expect(prompt).toContain("请只复述被引用文件的第一行，不要输出占位文案。");
+        expect(prompt).toContain("operator-response.json");
+        expect(prompt).toContain("observation.json");
         expect(input).toMatchObject({
             phase: "operator_action",
             scenarioId: "pr389-quoted-attachment",
@@ -79,6 +82,11 @@ describe("real-device-scenarios prompt renderer", () => {
             },
         });
         expect(input.steps).toHaveLength(2);
+        expect(renderOperatorResponseTemplate({ manifest, scenario })).toEqual({
+            completedStepId: "",
+            notes: "",
+            status: "completed",
+        });
         expect(template).toEqual({
             notes: "",
             replyObservedAt: "",

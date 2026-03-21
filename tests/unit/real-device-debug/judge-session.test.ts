@@ -173,4 +173,37 @@ describe("judgeSession", () => {
         expect(result.judgment.outcome).toBe("outbound_not_visible_in_client");
         expect(fs.existsSync(path.join(filePaths.sessionDir, "logs", "filtered.log"))).toBe(true);
     });
+
+    it("treats DingTalk gateway inbound log phrases as inbound evidence", async () => {
+        const outputRoot = createTempDir();
+        const { filePaths } = startSession({
+            now: new Date("2026-03-21T08:15:30.000Z"),
+            outputRoot,
+            scenario: "dm-text-reply",
+            targetId: "cid-test",
+            traceSuffix: "7F2A",
+        });
+        writeFilteredLog(
+            filePaths.sessionDir,
+            [
+                "2026-03-21T08:16:00.000Z [dingtalk] Full Inbound Data: {...}",
+                "2026-03-21T08:16:01.000Z [dingtalk] Inbound: from=User text=\"hello\"",
+                "2026-03-21T08:16:02.000Z [outbound] sendMessage ok",
+                "2026-03-21T08:16:03.000Z [outbound] sendBySession ok",
+            ].join("\n"),
+        );
+        appendOperatorObservation(filePaths.sessionDir, {
+            sentAt: "2026-03-21T08:16:00.000Z",
+            replyObservedAt: "2026-03-21T08:16:04.000Z",
+            sendStatus: "sent",
+            replyStatus: "visible",
+            replyPreview: "ok",
+            screenshots: [],
+        });
+
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
+
+        expect(result.judgment.outcome).toBe("end_to_end_success");
+        expect(result.judgment.inboundSeen).toBe(true);
+    });
 });
