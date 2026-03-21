@@ -111,19 +111,100 @@ describe("real-device-scenarios debug-session bridge", () => {
                 outcome: "end_to_end_success",
             },
         });
+        const recordObservation = vi.fn().mockResolvedValue({
+            status: "reply_observed",
+        });
 
         const result = await resumeScenarioWithDependencies({
             sessionDir,
             autoJudge: true,
             dependencies: {
                 judgeSession,
+                recordObservation,
             },
         });
 
+        expect(recordObservation).toHaveBeenCalledTimes(1);
         expect(judgeSession).toHaveBeenCalledTimes(1);
         expect(judgeSession).toHaveBeenCalledWith({ sessionDir });
         expect(result.sessionState.phase).toBe("completed");
         expect(result.sessionState.status).toBe("completed");
+    });
+
+    it("uses recordObservation before judging when observation.json exists", async () => {
+        const outputRoot = createTempDir();
+        const sessionDir = path.join(outputRoot, "2026-03-21", "dtdbg-20260321-081530-pr389-preview-store-miss");
+        fs.mkdirSync(sessionDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(sessionDir, "session.json"),
+            JSON.stringify(
+                {
+                    phase: "waiting_for_observation",
+                    status: "blocked_on_observation",
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    scenarioId: "pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    completedSteps: [],
+                    target: {
+                        id: "manager8031",
+                        label: "Manual User",
+                        mode: "dm",
+                    },
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "scenario.snapshot.json"),
+            JSON.stringify(loadScenario("pr389-preview-store-miss"), null, 2),
+            "utf8",
+        );
+        fs.writeFileSync(
+            path.join(sessionDir, "observation.json"),
+            JSON.stringify(
+                {
+                    status: "completed",
+                    sentAt: "2026-03-21T08:16:00.000Z",
+                    replyObservedAt: "2026-03-21T08:16:10.000Z",
+                    sendStatus: "sent",
+                    replyStatus: "visible",
+                    replyPreview: "ok",
+                    notes: "",
+                    screenshots: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+
+        const recordObservation = vi.fn().mockResolvedValue({
+            status: "reply_observed",
+        });
+        const judgeSession = vi.fn().mockResolvedValue({
+            judgment: {
+                outcome: "end_to_end_success",
+            },
+        });
+
+        await resumeScenarioWithDependencies({
+            sessionDir,
+            autoJudge: true,
+            dependencies: {
+                judgeSession,
+                recordObservation,
+            },
+        });
+
+        expect(recordObservation).toHaveBeenCalledTimes(1);
+        expect(recordObservation).toHaveBeenCalledWith({
+            observationFile: path.join(sessionDir, "observation.json"),
+            sessionDir,
+        });
+        expect(judgeSession).toHaveBeenCalledTimes(1);
     });
 
     it("uses prepareSession after target resolution when resuming from resolve_target", async () => {

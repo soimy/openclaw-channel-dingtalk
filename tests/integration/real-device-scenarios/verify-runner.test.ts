@@ -190,6 +190,44 @@ describe("real-device-scenarios verify runner", () => {
             "utf8",
         );
         fs.writeFileSync(
+            path.join(sessionDir, "manifest.json"),
+            JSON.stringify(
+                {
+                    version: 1,
+                    sessionId: "dtdbg-20260321-081530-pr389-preview-store-miss",
+                    traceToken: "DTDBG-20260321-081530-7F2A",
+                    createdAt: "2026-03-21T08:15:30.000Z",
+                    status: "probes_running",
+                    scenario: "pr389-preview-store-miss",
+                    target: {
+                        id: "manager8031",
+                        label: "Manual User",
+                    },
+                    operator: {
+                        mode: "external",
+                        observationStatus: "pending",
+                    },
+                    probes: {
+                        connectionCheck: "ok",
+                        streamMonitor: "skipped",
+                        gatewayRestart: "ok",
+                        openclawLogs: "running",
+                    },
+                    artifacts: {
+                        rootDir: sessionDir,
+                        logsDir: path.join(sessionDir, "logs"),
+                        screenshotsDir: path.join(sessionDir, "screenshots"),
+                    },
+                    timeline: [],
+                    observations: [],
+                },
+                null,
+                2,
+            ),
+            "utf8",
+        );
+        fs.writeFileSync(path.join(sessionDir, "timeline.json"), "[]\n", "utf8");
+        fs.writeFileSync(
             path.join(sessionDir, "observation.json"),
             JSON.stringify(
                 {

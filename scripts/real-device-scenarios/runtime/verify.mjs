@@ -9,6 +9,7 @@ import { createInitialTimeline } from "../../real-device-debug/timeline.mjs";
 import { writeJsonFile } from "../../real-device-debug/session-fs.mjs";
 import { prepareSession } from "../../real-device-debug/prepare-session.mjs";
 import { judgeSession } from "../../real-device-debug/judge-session.mjs";
+import { recordObservation } from "../../real-device-debug/record-observation.mjs";
 import { loadScenario, validateScenario } from "./scenario-loader.mjs";
 import {
     ensureVerifyDirectories,
@@ -38,6 +39,7 @@ function getDefaultDependencies() {
     return {
         judgeSession,
         prepareSession,
+        recordObservation,
     };
 }
 
@@ -269,6 +271,12 @@ export async function resumeScenarioWithDependencies({
 
     if (sessionState.phase === "waiting_for_observation") {
         const observation = readOptionalJson(filePaths.observationPath);
+        if (observation?.status === "completed") {
+            await resolvedDependencies.recordObservation({
+                observationFile: filePaths.observationPath,
+                sessionDir,
+            });
+        }
         const nextState = resolveNextPhase({
             phase: "waiting_for_observation",
             scenario,
