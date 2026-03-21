@@ -147,6 +147,30 @@ pnpm test:coverage
 - `tests/integration/`
 - `scripts/dingtalk-stream-monitor.mjs`
 
+如果你的改动必须依赖真实钉钉客户端才能观察到结果，优先使用仓库内的结构化 debug session，而不是临时看日志：
+
+```bash
+pnpm debug:session run --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat" --no-stream-monitor
+```
+
+如果你希望把流程拆得更明确，可以按阶段执行：
+
+```bash
+pnpm debug:session start --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat"
+pnpm debug:session prepare --session-dir <sessionDir>
+pnpm debug:session observe --session-dir <sessionDir> --observation-file /path/to/observation.json
+pnpm debug:session judge --session-dir <sessionDir>
+```
+
+使用这套流程时，建议在 PR 中附上或摘要说明这些产物：
+
+- `manifest.json`
+- `summary.md`
+- `judgment.json`
+- `screenshots/` 下的关键截图
+
+完整工作流、session 目录结构和 operator/桌面 agent 边界说明见 [`docs/real-device-debugging.zh-CN.md`](docs/real-device-debugging.zh-CN.md)。
+
 ## 按问题类型补充验证
 
 ### 消息丢失或 Stream 投递语义改动（#104）

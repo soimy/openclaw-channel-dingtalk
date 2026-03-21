@@ -147,6 +147,30 @@ Useful repo entry points while testing:
 - `tests/integration/`
 - `scripts/dingtalk-stream-monitor.mjs`
 
+For runtime changes that need a real DingTalk client, prefer the repository's structured debug session workflow instead of ad-hoc logs:
+
+```bash
+pnpm debug:session run --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat" --no-stream-monitor
+```
+
+If you need a more explicit staged flow:
+
+```bash
+pnpm debug:session start --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat"
+pnpm debug:session prepare --session-dir <sessionDir>
+pnpm debug:session observe --session-dir <sessionDir> --observation-file /path/to/observation.json
+pnpm debug:session judge --session-dir <sessionDir>
+```
+
+When you use this flow, attach or summarize these artifacts in the PR when relevant:
+
+- `manifest.json`
+- `summary.md`
+- `judgment.json`
+- key screenshots from `screenshots/`
+
+The full workflow and session artifact model are documented in [`docs/real-device-debugging.md`](docs/real-device-debugging.md).
+
 ## Special Validation By Issue Type
 
 ### Message loss or stream delivery changes (#104)
