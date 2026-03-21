@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readJsonFile, resolveSessionFilePaths, writeJsonFile, writeTextFile } from "./session-fs.mjs";
 import { filterSessionLog } from "./log-filter.mjs";
+import { withSessionLock } from "./session-lock.mjs";
 
 const HIGH_LATENCY_THRESHOLD_MS = 30_000;
 
@@ -105,51 +106,53 @@ ${judgment.nextAction}
 `;
 }
 
-export function judgeSession({ sessionDir }) {
-    const filePaths = resolveSessionFilePaths(sessionDir);
-    const manifest = readJsonFile(filePaths.manifestPath);
-    const timeline = readJsonFile(filePaths.timelinePath);
-    const filteredLogPath = path.join(sessionDir, "logs", "filtered.log");
-    const openclawLogPath = path.join(sessionDir, "logs", "openclaw.log");
-    if (!fs.existsSync(filteredLogPath) && fs.existsSync(openclawLogPath)) {
-        filterSessionLog({
-            sessionDir,
-            traceToken: manifest.traceToken,
+export async function judgeSession({ sessionDir }) {
+    return withSessionLock(sessionDir, "judge", async () => {
+        const filePaths = resolveSessionFilePaths(sessionDir);
+        const manifest = readJsonFile(filePaths.manifestPath);
+        const timeline = readJsonFile(filePaths.timelinePath);
+        const filteredLogPath = path.join(sessionDir, "logs", "filtered.log");
+        const openclawLogPath = path.join(sessionDir, "logs", "openclaw.log");
+        if (!fs.existsSync(filteredLogPath) && fs.existsSync(openclawLogPath)) {
+            filterSessionLog({
+                sessionDir,
+                traceToken: manifest.traceToken,
+            });
+        }
+        const filteredLog = readOptionalText(filteredLogPath);
+        const logEvidence = inferLogEvidence(filteredLog);
+        const latestObservation = manifest.observations.at(-1) ?? null;
+        const replyObserved = latestObservation?.replyStatus === "visible";
+        const latencyMs = computeLatencyMs(latestObservation);
+        const outcome = classifyOutcome({
+            inboundSeen: logEvidence.inboundSeen,
+            outboundSeen: logEvidence.outboundSeen,
+            replyObserved,
+            latencyMs,
         });
-    }
-    const filteredLog = readOptionalText(filteredLogPath);
-    const logEvidence = inferLogEvidence(filteredLog);
-    const latestObservation = manifest.observations.at(-1) ?? null;
-    const replyObserved = latestObservation?.replyStatus === "visible";
-    const latencyMs = computeLatencyMs(latestObservation);
-    const outcome = classifyOutcome({
-        inboundSeen: logEvidence.inboundSeen,
-        outboundSeen: logEvidence.outboundSeen,
-        replyObserved,
-        latencyMs,
-    });
-    const judgment = {
-        outcome,
-        inboundSeen: logEvidence.inboundSeen,
-        outboundSeen: logEvidence.outboundSeen,
-        replyObserved,
-        latencyMs,
-        nextAction: buildNextAction(outcome),
-    };
-    const summary = buildSummary({
-        judgment,
-        manifest,
-        timeline,
-        logEvidence,
-    });
+        const judgment = {
+            outcome,
+            inboundSeen: logEvidence.inboundSeen,
+            outboundSeen: logEvidence.outboundSeen,
+            replyObserved,
+            latencyMs,
+            nextAction: buildNextAction(outcome),
+        };
+        const summary = buildSummary({
+            judgment,
+            manifest,
+            timeline,
+            logEvidence,
+        });
 
-    writeJsonFile(path.join(sessionDir, "judgment.json"), judgment);
-    writeTextFile(path.join(sessionDir, "summary.md"), summary);
+        writeJsonFile(path.join(sessionDir, "judgment.json"), judgment);
+        writeTextFile(path.join(sessionDir, "summary.md"), summary);
 
-    return {
-        judgment,
-        summary,
-    };
+        return {
+            judgment,
+            summary,
+        };
+    });
 }
 
 export { HIGH_LATENCY_THRESHOLD_MS };

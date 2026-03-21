@@ -34,7 +34,7 @@ describe("judgeSession", () => {
         fs.writeFileSync(logPath, content, "utf8");
     }
 
-    it("marks missing inbound as no inbound evidence", () => {
+    it("marks missing inbound as no inbound evidence", async () => {
         const outputRoot = createTempDir();
         const { filePaths } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -45,13 +45,13 @@ describe("judgeSession", () => {
         });
         writeFilteredLog(filePaths.sessionDir, "trace seen but no lifecycle markers");
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("no_inbound_evidence");
         expect(result.summary).toContain("no_inbound_evidence");
     });
 
-    it("marks inbound without outbound as runtime processing issue", () => {
+    it("marks inbound without outbound as runtime processing issue", async () => {
         const outputRoot = createTempDir();
         const { filePaths } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -62,12 +62,12 @@ describe("judgeSession", () => {
         });
         writeFilteredLog(filePaths.sessionDir, "[inbound] handleDingTalkMessage");
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("inbound_without_outbound");
     });
 
-    it("marks outbound without desktop visibility as client visibility issue", () => {
+    it("marks outbound without desktop visibility as client visibility issue", async () => {
         const outputRoot = createTempDir();
         const { filePaths } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -89,12 +89,12 @@ describe("judgeSession", () => {
             screenshots: [],
         });
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("outbound_not_visible_in_client");
     });
 
-    it("marks visible reply as end-to-end success", () => {
+    it("marks visible reply as end-to-end success", async () => {
         const outputRoot = createTempDir();
         const { filePaths } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -116,13 +116,13 @@ describe("judgeSession", () => {
             screenshots: [],
         });
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("end_to_end_success");
         expect(result.summary).toContain("end_to_end_success");
     });
 
-    it("marks high latency success separately", () => {
+    it("marks high latency success separately", async () => {
         const outputRoot = createTempDir();
         const { filePaths } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -144,13 +144,13 @@ describe("judgeSession", () => {
             screenshots: [],
         });
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("success_high_latency");
         expect(result.judgment.latencyMs).toBe(70000);
     });
 
-    it("builds filtered log from openclaw.log when needed", () => {
+    it("builds filtered log from openclaw.log when needed", async () => {
         const outputRoot = createTempDir();
         const { filePaths, manifest } = startSession({
             now: new Date("2026-03-21T08:15:30.000Z"),
@@ -168,7 +168,7 @@ describe("judgeSession", () => {
             ].join("\n"),
         );
 
-        const result = judgeSession({ sessionDir: filePaths.sessionDir });
+        const result = await judgeSession({ sessionDir: filePaths.sessionDir });
 
         expect(result.judgment.outcome).toBe("outbound_not_visible_in_client");
         expect(fs.existsSync(path.join(filePaths.sessionDir, "logs", "filtered.log"))).toBe(true);

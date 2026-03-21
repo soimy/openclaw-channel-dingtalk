@@ -87,10 +87,10 @@ async function runPrepare(args) {
     console.log(`nextAction=${result.nextAction}`);
 }
 
-function runObserve(args) {
+async function runObserve(args) {
     const sessionDir = requireFlag(args, "--session-dir");
     const observationFile = requireFlag(args, "--observation-file");
-    const result = recordObservation({
+    const result = await recordObservation({
         observationFile,
         sessionDir,
     });
@@ -99,9 +99,9 @@ function runObserve(args) {
     console.log(`observations=${result.manifest.observations.length}`);
 }
 
-function runJudge(args) {
+async function runJudge(args) {
     const sessionDir = requireFlag(args, "--session-dir");
-    const result = judgeSession({ sessionDir });
+    const result = await judgeSession({ sessionDir });
 
     console.log(`outcome=${result.judgment.outcome}`);
     console.log(`nextAction=${result.judgment.nextAction}`);
@@ -160,12 +160,12 @@ async function main() {
     }
 
     if (command === "observe") {
-        runObserve(args.slice(1));
+        await runObserve(args.slice(1));
         return;
     }
 
     if (command === "judge") {
-        runJudge(args.slice(1));
+        await runJudge(args.slice(1));
         return;
     }
 

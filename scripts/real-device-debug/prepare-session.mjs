@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readJsonFile, resolveSessionFilePaths, writeJsonFile } from "./session-fs.mjs";
 import { runPreflightAndCapture } from "./runtime-probe.mjs";
+import { withSessionLock } from "./session-lock.mjs";
 
 function buildNextAction(manifest) {
     const screenshotPath = path.posix.join(manifest.artifacts.screenshotsDir, "reply-visible.png");
@@ -12,20 +13,22 @@ function buildNextAction(manifest) {
 }
 
 export async function prepareSession({ sessionDir, runner, enableStreamMonitor = true }) {
-    const filePaths = resolveSessionFilePaths(sessionDir);
-    const manifest = readJsonFile(filePaths.manifestPath);
-    const result = await runPreflightAndCapture({
-        manifest,
-        runner,
-        sessionDir,
-        enableStreamMonitor,
+    return withSessionLock(sessionDir, "prepare", async () => {
+        const filePaths = resolveSessionFilePaths(sessionDir);
+        const manifest = readJsonFile(filePaths.manifestPath);
+        const result = await runPreflightAndCapture({
+            manifest,
+            runner,
+            sessionDir,
+            enableStreamMonitor,
+        });
+
+        writeJsonFile(filePaths.manifestPath, result.manifest);
+        writeJsonFile(filePaths.timelinePath, result.timeline);
+
+        return {
+            ...result,
+            nextAction: buildNextAction(result.manifest),
+        };
     });
-
-    writeJsonFile(filePaths.manifestPath, result.manifest);
-    writeJsonFile(filePaths.timelinePath, result.timeline);
-
-    return {
-        ...result,
-        nextAction: buildNextAction(result.manifest),
-    };
 }
