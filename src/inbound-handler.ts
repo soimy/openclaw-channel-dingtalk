@@ -1047,7 +1047,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     upsertInboundMessageContext({
       storePath: accountStorePath,
       accountId,
-      conversationId: to,
+      conversationId: groupId,
       msgId: data.msgId,
       messageType: content.messageType,
       text: content.text,
@@ -1338,7 +1338,38 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       const hint = isDirect
         ? "[引用了钉钉文档，内容无法自动获取，请直接发送该文档]\n\n"
         : "[引用了钉钉文档，但无法获取内容]\n\n";
-      content.text = `${hint}${content.text}`;
+      content.text = content.text.replace(content.quoted.prefix, hint);
+    }
+  }
+
+  // Quoted AI card: prefer deterministic processQueryKey lookup, and only
+  // fall back to the legacy createdAt matcher when the callback omits that key.
+  if (content.quoted?.isQuotedCard) {
+    const cardRecord = content.quoted.processQueryKey
+      ? resolveByAlias({
+          storePath: accountStorePath,
+          accountId,
+          conversationId: groupId,
+          kind: "processQueryKey",
+          value: content.quoted.processQueryKey,
+        })
+      : content.quoted.cardCreatedAt
+        ? resolveByCreatedAtWindow({
+            storePath: accountStorePath,
+            accountId,
+            conversationId: groupId,
+            createdAt: content.quoted.cardCreatedAt,
+            windowMs: DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
+            direction: "outbound",
+          })
+        : null;
+    const cardContent = cardRecord?.text || null;
+    if (cardContent) {
+      const preview = cardContent.length > 50 ? cardContent.slice(0, 50) + "..." : cardContent;
+      content.text = content.text.replace(
+        content.quoted.prefix,
+        `[引用机器人回复: "${preview}"]\n\n`,
+      );
     }
   }
 
@@ -1521,6 +1552,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               log,
               storePath: accountStorePath,
               conversationId: groupId,
+              quotedRef: replyQuotedRef,
+              chatType: isDirect ? "direct" : "group",
               quotedRef: replyQuotedRef,
             },
           );

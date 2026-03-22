@@ -1570,7 +1570,7 @@ describe("inbound-handler", () => {
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
         accountId: "main",
-        conversationId: "user_1",
+        conversationId: "cid_ok",
         msgId: "m_journal_1",
         messageType: "text",
         text: "hello",
@@ -1761,7 +1761,7 @@ describe("inbound-handler", () => {
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
       expect.objectContaining({
         storePath: "/tmp/dm-account-store.json",
-        conversationId: "user_1",
+        conversationId: "cid_dm_stable",
       }),
     );
   });
@@ -1904,6 +1904,7 @@ describe("inbound-handler", () => {
           key: "processQueryKey",
           value: "carrier_quoted_1",
         },
+        conversationId: "cid_ok",
       }),
     );
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
@@ -1956,7 +1957,15 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(mockedResolveByAlias).not.toHaveBeenCalled();
-    expect(mockedResolveByCreatedAtWindow).not.toHaveBeenCalled();
+    expect(mockedResolveByCreatedAtWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath: "/tmp/account-store.json",
+        accountId: "main",
+        conversationId: "cid_ok",
+        createdAt: 1772817989679,
+        direction: "outbound",
+      }),
+    );
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         RawBody: "hello",
@@ -2922,6 +2931,7 @@ describe("inbound-handler", () => {
           key: "msgId",
           value: "m_media_proactive",
         },
+        chatType: "direct",
       },
     );
   });
