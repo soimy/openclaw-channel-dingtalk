@@ -1,5 +1,4 @@
-import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { readStringParam } from "openclaw/plugin-sdk/telegram-core";
+import { defineChannelPluginEntry, readStringParam, type OpenClawPluginApi } from "./src/sdk-compat";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig } from "./src/config";
 import { appendToDoc, createDoc, DocCreateAppendError, listDocs, searchDocs } from "./src/docs-service";

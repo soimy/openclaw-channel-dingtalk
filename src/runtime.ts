@@ -1,11 +1,14 @@
-import { createPluginRuntimeStore, type PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
+import type { PluginRuntime } from "./sdk-compat";
 
-const runtimeStore = createPluginRuntimeStore<PluginRuntime>("DingTalk runtime not initialized");
+let runtime: PluginRuntime | null = null;
 
 export function setDingTalkRuntime(next: PluginRuntime): void {
-  runtimeStore.setRuntime(next);
+  runtime = next;
 }
 
 export function getDingTalkRuntime(): PluginRuntime {
-  return runtimeStore.getRuntime();
+  if (!runtime) {
+    throw new Error("DingTalk runtime not initialized");
+  }
+  return runtime;
 }

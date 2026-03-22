@@ -68,8 +68,20 @@ vi.mock("openclaw/plugin-sdk/core", () => ({
     defineChannelPluginEntry: shared.defineChannelPluginEntryMock,
 }));
 
-vi.mock("openclaw/plugin-sdk/telegram-core", () => ({
+vi.mock("openclaw/plugin-sdk/matrix", () => ({
     readStringParam: shared.readStringParamMock,
+    DEFAULT_ACCOUNT_ID: "default",
+    normalizeAccountId: (value: string) => value.trim() || "default",
+    formatDocsLink: (path: string) => `https://docs.example${path}`,
+    buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
+    jsonResult: vi.fn((payload: unknown) => payload),
+}));
+
+vi.mock("openclaw/plugin-sdk/googlechat", () => ({
+    extractToolSend: vi.fn((args: Record<string, unknown>) => {
+        const to = typeof args.to === "string" ? args.to.trim() : "";
+        return to ? { to } : null;
+    }),
 }));
 
 vi.mock("../../src/channel", () => ({

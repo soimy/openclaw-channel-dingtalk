@@ -1,16 +1,65 @@
-import type {
-  ChannelSetupAdapter,
-  ChannelSetupInput,
-  ChannelSetupWizard,
-  OpenClawConfig,
-  WizardPrompter,
-} from "openclaw/plugin-sdk/setup";
-import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw/plugin-sdk/setup";
+import type { OpenClawConfig, WizardPrompter } from "./sdk-compat";
+import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "./sdk-compat";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./types.js";
 
 const channel = "dingtalk" as const;
+
+type ChannelSetupInput = {
+  name?: string;
+  token?: string;
+  password?: string;
+  code?: string;
+};
+
+type ChannelSetupAdapter = {
+  resolveAccountId?: (params: {
+    cfg: OpenClawConfig;
+    accountId?: string;
+    input?: ChannelSetupInput;
+  }) => string;
+  applyAccountName?: (params: {
+    cfg: OpenClawConfig;
+    accountId: string;
+    name?: string;
+  }) => OpenClawConfig;
+  applyAccountConfig: (params: {
+    cfg: OpenClawConfig;
+    accountId: string;
+    input: ChannelSetupInput;
+  }) => OpenClawConfig;
+};
+
+type ChannelSetupWizard = {
+  channel: string;
+  credentials: unknown[];
+  status: {
+    configuredLabel: string;
+    unconfiguredLabel: string;
+    configuredHint?: string;
+    unconfiguredHint?: string;
+    configuredScore?: number;
+    unconfiguredScore?: number;
+    resolveConfigured: (params: { cfg: OpenClawConfig }) => boolean | Promise<boolean>;
+    resolveStatusLines?: (params: { configured: boolean; cfg: OpenClawConfig }) => string[];
+    resolveSelectionHint?: (params: { configured: boolean; cfg: OpenClawConfig }) => string | undefined;
+    resolveQuickstartScore?: (params: { configured: boolean; cfg: OpenClawConfig }) => number | undefined;
+  };
+  resolveAccountIdForConfigure?: (params: {
+    cfg: OpenClawConfig;
+    prompter: WizardPrompter;
+    accountOverride?: string;
+    shouldPromptAccountIds: boolean;
+    listAccountIds: (cfg: OpenClawConfig) => string[];
+    defaultAccountId: string;
+  }) => string | Promise<string>;
+  finalize?: (params: {
+    cfg: OpenClawConfig;
+    accountId: string;
+    prompter: WizardPrompter;
+  }) => Promise<{ cfg?: OpenClawConfig } | void> | { cfg?: OpenClawConfig } | void;
+};
 
 function isConfigured(account: DingTalkConfig): boolean {
   return Boolean(account.clientId && account.clientSecret);

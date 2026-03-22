@@ -1,5 +1,4 @@
-import type { ChannelDirectoryEntry } from "openclaw/plugin-sdk/directory-runtime";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { ChannelDirectoryEntry, OpenClawConfig } from "../sdk-compat";
 import { getConfig, stripTargetPrefix } from "../config";
 import { resolveOriginalPeerId } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";

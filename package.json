@@ -51,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^25.2.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "openclaw": "2026.3.13",
     "oxfmt": "0.34.0",
     "oxlint": "^1.49.0",
     "oxlint-tsgolint": "^0.15.0",

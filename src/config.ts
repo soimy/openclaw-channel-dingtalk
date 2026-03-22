@@ -1,6 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { OpenClawConfig } from "./sdk-compat";
 import type { DingTalkConfig } from "./types";
 
 const WINDOWS_ROOT_DIRECTORIES = new Set([

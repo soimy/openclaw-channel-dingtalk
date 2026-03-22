@@ -5,7 +5,7 @@ import {
     type WizardPrompter,
 } from "../../../openclaw/test/helpers/extensions/setup-wizard";
 
-vi.mock("openclaw/plugin-sdk/setup", () => ({
+vi.mock("openclaw/plugin-sdk/matrix", () => ({
     DEFAULT_ACCOUNT_ID: "default",
     normalizeAccountId: (value: string) => value.trim() || "default",
     formatDocsLink: (path: string) => `https://docs.example${path}`,
