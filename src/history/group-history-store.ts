@@ -5,6 +5,7 @@ import {
 import {
   listKnownGroupTargets,
   listKnownUserTargets,
+  resolveKnownConversationChatType,
 } from "../targeting/target-directory-store";
 
 const MAX_HISTORY_ENTRIES = 200;
@@ -229,7 +230,12 @@ export function queryConversationHistory(params: ConversationHistoryQuery): Conv
         .filter((conversationId) => !candidates.some((entry) => entry.conversationId === conversationId))
         .map((conversationId) => ({
           conversationId,
-          chatType: conversationId.startsWith("cid") ? "group" as const : "direct" as const,
+          chatType:
+            resolveKnownConversationChatType({
+              storePath: params.storePath,
+              accountId: params.accountId,
+              conversationId,
+            }) || (conversationId.startsWith("cid") ? "group" as const : "direct" as const),
           title: conversationId,
           updatedAt: 0,
         }))

@@ -1341,7 +1341,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       const hint = isDirect
         ? "[引用了钉钉文档，内容无法自动获取，请直接发送该文档]\n\n"
         : "[引用了钉钉文档，但无法获取内容]\n\n";
-      content.text = content.text.replace(content.quoted.prefix, hint);
+      content.text = `${hint}${content.text}`;
     }
   }
 
@@ -1369,10 +1369,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const cardContent = cardRecord?.text || null;
     if (cardContent) {
       const preview = cardContent.length > 50 ? cardContent.slice(0, 50) + "..." : cardContent;
-      content.text = content.text.replace(
-        content.quoted.prefix,
-        `[引用机器人回复: "${preview}"]\n\n`,
-      );
+      content.text = `[引用机器人回复: "${preview}"]\n\n${content.text}`;
     }
   }
 

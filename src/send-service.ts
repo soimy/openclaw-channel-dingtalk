@@ -17,6 +17,7 @@ import {
   getProactiveRiskObservation,
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
+import { resolveKnownConversationChatType } from "./targeting/target-directory-store";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type {
   AICardInstance,
@@ -130,6 +131,30 @@ function resolveBotIdentity(config: DingTalkConfig): { senderId: string; senderN
   return { senderId, senderName };
 }
 
+function resolveConversationChatType(params: {
+  storePath?: string;
+  accountId?: string;
+  conversationId: string;
+  explicitChatType?: "direct" | "group";
+  explicitUserTarget?: boolean;
+}): "direct" | "group" {
+  if (params.explicitChatType) {
+    return params.explicitChatType;
+  }
+  if (params.explicitUserTarget) {
+    return "direct";
+  }
+  const knownChatType =
+    params.storePath && params.accountId
+      ? resolveKnownConversationChatType({
+          storePath: params.storePath,
+          accountId: params.accountId,
+          conversationId: params.conversationId,
+        })
+      : undefined;
+  return knownChatType || (params.conversationId.startsWith("cid") ? "group" : "direct");
+}
+
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
   const prev = previous ?? "";
   if (!prev) {
@@ -232,12 +257,18 @@ export async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {},
 ): Promise<ProactiveTextSendResult> {
   const log = options.log || getLogger();
-  const botIdentity = resolveBotIdentity(config);
 
   // Support group:/user: prefix and restore original case-sensitive conversationId.
   const { targetId, isExplicitUser } = stripTargetPrefix(target);
   const resolvedTarget = resolveOriginalPeerId(targetId);
-  const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+  const chatType = resolveConversationChatType({
+    storePath: options.storePath,
+    accountId: options.accountId,
+    conversationId: options.conversationId || resolvedTarget,
+    explicitChatType: options.chatType,
+    explicitUserTarget: isExplicitUser,
+  });
+  const isGroup = chatType === "group";
   const proactiveRisk = options.accountId
     ? getProactiveRiskObservation(options.accountId, resolvedTarget)
     : null;
@@ -369,7 +400,14 @@ export async function sendProactiveMedia(
     const token = await getAccessToken(config, log);
     const { targetId, isExplicitUser } = stripTargetPrefix(target);
     const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+    const chatType = resolveConversationChatType({
+      storePath: options.storePath,
+      accountId: options.accountId,
+      conversationId: options.conversationId || resolvedTarget,
+      explicitChatType: options.chatType,
+      explicitUserTarget: isExplicitUser,
+    });
+    const isGroup = chatType === "group";
 
     const dingtalkApi = "https://api.dingtalk.com";
     const url = isGroup
@@ -435,7 +473,7 @@ export async function sendProactiveMedia(
       log,
       senderId: botIdentity.senderId,
       senderName: botIdentity.senderName,
-      chatType: options.chatType,
+      chatType,
       delivery: {
         ...delivery,
         kind: "proactive-media",
@@ -590,6 +628,12 @@ export async function sendMessage(
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
     const botIdentity = resolveBotIdentity(config);
+    const chatType = resolveConversationChatType({
+      storePath: options.storePath,
+      accountId: options.accountId,
+      conversationId: options.conversationId || conversationId,
+      explicitChatType: options.chatType,
+    });
 
     if (messageType === "card" && options.card && !options.forceMarkdown) {
       const card = options.card;
@@ -642,7 +686,7 @@ export async function sendMessage(
         log,
         senderId: botIdentity.senderId,
         senderName: botIdentity.senderName,
-        chatType: options.chatType,
+        chatType,
         delivery: {
           ...delivery,
           kind: "session",
@@ -664,7 +708,7 @@ export async function sendMessage(
       log,
       senderId: botIdentity.senderId,
       senderName: botIdentity.senderName,
-      chatType: options.chatType,
+      chatType,
       delivery: {
         ...delivery,
         kind: isTrackingResult(result) ? "proactive-card" : "proactive-text",

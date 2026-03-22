@@ -2324,7 +2324,7 @@ describe("inbound-handler", () => {
     expect(shared.resolveQuotedFileMock).not.toHaveBeenCalled();
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        RawBody: "1",
+        RawBody: "[引用了钉钉文档，但无法获取内容]\n\n1",
         QuotedRef: {
           targetDirection: "inbound",
           key: "msgId",

@@ -394,3 +394,28 @@ export function listKnownUserTargets(params: {
   }
   return entries;
 }
+
+export function resolveKnownConversationChatType(params: {
+  storePath?: string;
+  accountId: string;
+  conversationId: string;
+}): "direct" | "group" | undefined {
+  const conversationId = trimValue(params.conversationId);
+  if (!conversationId) {
+    return undefined;
+  }
+
+  const state = readState({ storePath: params.storePath, accountId: params.accountId });
+  if (state.groups[conversationId]) {
+    return "group";
+  }
+
+  const normalizedConversationId = normalizeLookup(conversationId);
+  for (const entry of Object.values(state.users)) {
+    if (entry.lastSeenInConversationIds.some((value) => normalizeLookup(value) === normalizedConversationId)) {
+      return "direct";
+    }
+  }
+
+  return undefined;
+}

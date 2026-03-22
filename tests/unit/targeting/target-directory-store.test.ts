@@ -6,6 +6,7 @@ import {
   clearTargetDirectoryStateCache,
   listKnownGroupTargets,
   listKnownUserTargets,
+  resolveKnownConversationChatType,
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "../../../src/targeting/target-directory-store";
@@ -237,5 +238,40 @@ describe("target-directory-store", () => {
 
     expect(groupsA).toHaveLength(1);
     expect(groupsB).toHaveLength(0);
+  });
+
+  it("resolves known conversation chatType from target directory", () => {
+    const storePath = createStorePath();
+    upsertObservedGroupTarget({
+      storePath,
+      accountId: "default",
+      conversationId: "cid_group_known",
+      title: "Known Group",
+      seenAt: 1000,
+    });
+    upsertObservedUserTarget({
+      storePath,
+      accountId: "default",
+      senderId: "user_1",
+      displayName: "Alice",
+      conversationId: "dm_conv_1",
+      seenAt: 1000,
+    });
+
+    expect(resolveKnownConversationChatType({
+      storePath,
+      accountId: "default",
+      conversationId: "cid_group_known",
+    })).toBe("group");
+    expect(resolveKnownConversationChatType({
+      storePath,
+      accountId: "default",
+      conversationId: "dm_conv_1",
+    })).toBe("direct");
+    expect(resolveKnownConversationChatType({
+      storePath,
+      accountId: "default",
+      conversationId: "unknown_conv",
+    })).toBeUndefined();
   });
 });

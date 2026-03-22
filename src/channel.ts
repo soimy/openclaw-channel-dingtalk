@@ -44,6 +44,7 @@ import {
   listDingTalkDirectoryUsers,
   normalizeResolvedDingTalkTarget,
 } from "./targeting/target-directory-adapter";
+import { resolveKnownConversationChatType } from "./targeting/target-directory-store";
 import { looksLikeDingTalkTargetId, normalizeDingTalkTarget } from "./targeting/target-input";
 import type {
   DingTalkInboundMessage,
@@ -70,10 +71,26 @@ type InstrumentedDWClient = {
   dw_url?: string;
 };
 
-function inferTargetChatType(target: string): "direct" | "group" {
+function inferTargetChatType(params: {
+  target: string;
+  storePath?: string;
+  accountId?: string;
+}): "direct" | "group" {
+  const { target, storePath, accountId } = params;
   const { targetId, isExplicitUser } = stripTargetPrefix(target);
   const resolvedTarget = resolveOriginalPeerId(targetId);
-  return !isExplicitUser && resolvedTarget.startsWith("cid") ? "group" : "direct";
+  if (isExplicitUser) {
+    return "direct";
+  }
+  const knownChatType =
+    storePath && accountId
+      ? resolveKnownConversationChatType({
+          storePath,
+          accountId,
+          conversationId: resolvedTarget,
+        })
+      : undefined;
+  return knownChatType || (resolvedTarget.startsWith("cid") ? "group" : "direct");
 }
 
 function attachConnectionErrorContext(
@@ -272,7 +289,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
         const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
           log,
           accountId: accountId ?? undefined,
-          chatType: inferTargetChatType(target),
+          chatType: inferTargetChatType({ target, accountId: accountId ?? undefined }),
         });
 
         if (!result.ok) {
@@ -304,7 +321,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const result = await sendMessage(config, target, message, {
       log,
       accountId: accountId ?? undefined,
-      chatType: inferTargetChatType(target),
+      chatType: inferTargetChatType({ target, accountId: accountId ?? undefined }),
     });
 
     if (!result.ok) {
@@ -437,7 +454,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           accountId,
           storePath,
           conversationId: to,
-          chatType: inferTargetChatType(to),
+          chatType: inferTargetChatType({ target: to, storePath, accountId }),
         });
         getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         if (!result.ok) {
@@ -546,7 +563,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             accountId,
             storePath,
             conversationId: to,
-            chatType: inferTargetChatType(to),
+            chatType: inferTargetChatType({ target: to, storePath, accountId }),
           });
         } catch (err: any) {
           if (err?.response?.data !== undefined) {

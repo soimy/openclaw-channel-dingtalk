@@ -190,4 +190,40 @@ describe("group-history-store", () => {
     expect(slices[0]?.summarySegments.length).toBeGreaterThan(0);
     expect(slices[0]?.summarySegments[0]?.messageCount).toBeGreaterThan(0);
   });
+
+  it("uses known direct conversation type for fallback conversation filters", () => {
+    upsertObservedUserTarget({
+      storePath,
+      accountId: "main",
+      senderId: "user_fallback",
+      displayName: "私聊用户",
+      conversationId: "dm_fallback_1",
+      seenAt: 5000,
+    });
+
+    upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "dm_fallback_1",
+      msgId: "dm_1",
+      createdAt: 4000,
+      messageType: "text",
+      text: "直接会话消息",
+      senderId: "user_fallback",
+      senderName: "私聊用户",
+      chatType: "direct",
+      ttlMs: 60_000,
+      topic: null,
+    });
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      chatType: "direct",
+      conversationIds: ["dm_fallback_1"],
+    });
+
+    expect(slices).toHaveLength(1);
+    expect(slices[0]?.conversation.chatType).toBe("direct");
+  });
 });
