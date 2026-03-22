@@ -4,7 +4,7 @@
 
 **Goal:** Align this plugin with the latest upstream `openclaw` channel-plugin entry and scoped `plugin-sdk` surfaces, while fixing the `rootDir` type-check failures.
 
-**Architecture:** Keep [src/channel.ts](/Users/sym/Repo/openclaw-channel-dingtalk/src/channel.ts) as the assembly root per [docs/ARCHITECTURE.md](/Users/sym/Repo/openclaw-channel-dingtalk/docs/ARCHITECTURE.md), but migrate the public plugin entry to `defineChannelPluginEntry`, move onboarding onto standard `setup` / `setupWizard` surfaces, and replace broad `openclaw/plugin-sdk` root imports with focused subpaths. Fix TypeScript path resolution so this repo consumes upstream declarations without pulling the whole `../openclaw` source tree under the local `rootDir`.
+**Architecture:** Keep `src/channel.ts` as the assembly root per `docs/ARCHITECTURE.md`, but migrate the public plugin entry to `defineChannelPluginEntry`, move onboarding onto standard `setup` / `setupWizard` surfaces, and replace broad `openclaw/plugin-sdk` root imports with focused subpaths. Fix TypeScript path resolution so this repo consumes upstream declarations without pulling the whole `../openclaw` source tree under the local `rootDir`.
 
 **Tech Stack:** TypeScript, Vitest, OpenClaw channel plugin SDK, `apply_patch`, `npm` / `pnpm`
 

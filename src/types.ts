@@ -15,7 +15,6 @@ import type {
   ChannelLogSink as SDKChannelLogSink,
   DingTalkChannelPluginBase as SDKChannelPlugin,
   OpenClawConfig,
-  OpenClawPluginApi,
 } from "./sdk-compat";
 import { mergeAccountWithDefaults } from "./config";
 
@@ -23,14 +22,6 @@ export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
 // explicit modes remain: "off" | "emoji" | "kaomoji".
 export type AckReactionConfigValue = string;
-
-export interface DingtalkPluginModule {
-  id: string;
-  name: string;
-  description?: string;
-  configSchema?: unknown;
-  register?: (api: OpenClawPluginApi) => void | Promise<void>;
-}
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
