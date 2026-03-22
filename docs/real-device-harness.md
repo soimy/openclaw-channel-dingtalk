@@ -69,7 +69,7 @@ The current implementation is intentionally narrow:
 - prompt and template generation
 - resumable phase machine
 - target resolution for DM / group scenarios
-- bridge into existing `prepareSession` and `judgeSession`
+- bridge into existing `prepareSession`, `recordObservation`, and `judgeSession`
 
 It is not yet a full end-to-end harness for every scenario, and it does not drive DingTalk UI directly.
 
@@ -145,6 +145,7 @@ or:
 
 - `operator-prompt.md`
 - `operator-input.json`
+- `operator-response.template.json`
 - `observation.template.json`
 
 ### Resume A Scenario
@@ -154,6 +155,15 @@ pnpm real-device:verify --resume <sessionDir>
 ```
 
 This command reads the current `session.json` phase and advances the scenario when enough input is available.
+
+In the current public CLI, `--resume` may stop at:
+
+- `WAITING_FOR_TARGET`
+- `WAITING_FOR_OPERATOR`
+- `WAITING_FOR_OBSERVATION`
+- `READY_FOR_JUDGING`
+
+Programmatic flows also support an internal `autoJudge` bridge after observation is recorded.
 
 ## Standardized Run Package
 
@@ -169,6 +179,8 @@ Common files:
 - `resolve-target.response.json`
 - `operator-prompt.md`
 - `operator-input.json`
+- `operator-response.template.json`
+- `operator-response.json`
 - `observation.template.json`
 - `observation.json`
 
@@ -177,6 +189,12 @@ This package is intended to be handed to:
 - a human operator
 - a desktop-capable agent
 - future automation adapters
+
+Current handoff meanings:
+
+- `resolve-target.response.json`: manual target resolution result when auto resolution is insufficient
+- `operator-response.json`: per-step completion signal for operator actions
+- `observation.json`: final observation handoff that advances the run into judging
 
 ## Target Resolution
 

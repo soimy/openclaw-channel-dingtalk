@@ -183,9 +183,26 @@ Recommended division of responsibilities:
 - `pnpm debug:session ...`: low-level ad-hoc debugging primitive
 - `pnpm real-device:verify ...`: scenario-driven, versioned real-device verification
 
+The current `real-device:verify` workflow is file-driven and resumable:
+
+- `resolve-target.response.json` is used when the target cannot be resolved automatically
+- `operator-response.json` is the completion signal for each operator step
+- `observation.json` is the final observation handoff for the judging stage
+
+When you update a reusable real-device scenario, avoid hardcoding one specific user or group. Prefer target resolution that can be derived from inbound context, operator input, or learned local directory state.
+
 If your PR introduces or changes a real-device behavior that should be repeatable, prefer adding or updating a scenario under `scripts/real-device-scenarios/scenarios/` instead of leaving the procedure only in the PR description.
 
 The scenario-driven harness guide lives in [`docs/real-device-harness.md`](docs/real-device-harness.md).
+
+For PR notes, prefer attaching or summarizing these scenario artifacts when relevant:
+
+- `session.json`
+- `operator-prompt.md`
+- `resolve-target.response.json` when manual target resolution was needed
+- `operator-response.json` / `observation.json` when they explain the execution path
+- `judgment.json`
+- `summary.md`
 
 ## Special Validation By Issue Type
 

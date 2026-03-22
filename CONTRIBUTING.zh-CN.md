@@ -183,9 +183,26 @@ pnpm real-device:verify --resume <sessionDir>
 - `pnpm debug:session ...`：低层、临时性的真机调试原语
 - `pnpm real-device:verify ...`：高层、可版本化的场景驱动真机验证
 
+当前 `real-device:verify` 是一套基于文件产物推进、可恢复的流程：
+
+- 自动无法解析 target 时，使用 `resolve-target.response.json` 回填目标信息
+- 每完成一个 operator 步骤后，使用 `operator-response.json` 作为完成信号
+- 最终观察完成后，使用 `observation.json` 把流程推进到判定阶段
+
+如果你在更新一个可复用的真机场景，不要把 target 硬编码成某个固定用户或某个固定群。优先使用能从 inbound 上下文、operator 输入或本地学习目录动态解析出的目标。
+
 如果你的 PR 引入或修改了一个应该被重复验证的真机行为，优先在 `scripts/real-device-scenarios/scenarios/` 下新增或更新 scenario，而不是只把手工步骤写在 PR 描述里。
 
 scenario-driven harness 的说明文档见 [`docs/real-device-harness.zh-CN.md`](docs/real-device-harness.zh-CN.md)。
+
+如果场景执行结果对 PR 结论有帮助，优先附上或摘要说明这些产物：
+
+- `session.json`
+- `operator-prompt.md`
+- 如做过人工 target 解析，则附上 `resolve-target.response.json`
+- 能说明执行路径时，附上 `operator-response.json` / `observation.json`
+- `judgment.json`
+- `summary.md`
 
 ## 按问题类型补充验证
 

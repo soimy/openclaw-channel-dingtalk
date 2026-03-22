@@ -83,7 +83,9 @@ runner 的职责是：
 人或桌面 Agent 的职责则被限制在：
 
 - 按 prompt 执行客户端侧动作
-- 回填 `resolve-target.response.json` 或 `observation.json`
+- 在 target 未解析时回填 `resolve-target.response.json`
+- 每完成一个 operator 步骤后回填 `operator-response.json`
+- 在最终观察完成后回填 `observation.json`
 
 ### 3. 复用现有 debug-session 能力
 
@@ -149,6 +151,7 @@ runner 的职责是：
 
 - `operator-prompt.md`
 - `operator-input.json`
+- `operator-response.template.json`
 - `resolve-target.response.template.json`
 - `observation.template.json`
 
@@ -312,6 +315,8 @@ type RealDeviceScenario = {
 
   operator-prompt.md
   operator-input.json
+  operator-response.template.json
+  operator-response.json
   observation.template.json
   observation.json
 
@@ -337,21 +342,28 @@ type RealDeviceScenario = {
 
 必须是独立、完整、可执行的说明，不依赖聊天上下文。
 
+### `operator-response.json`
+
+作为每个 operator 步骤的完成信号。只要该文件存在且带有
+`status=completed` 与 `completedStepId`，runner 就可以推进到下一步，
+并在消费后清理该文件。
+
 ### `observation.template.json`
 
 给 operator / 桌面 Agent 一个固定结构的回填模板。
 
 ### `observation.json`
 
-作为“完成信号”的一部分。只要该文件存在且 `status=completed`，runner 就可以继续推进。
+作为最终观察阶段的完成信号。只要该文件存在且 `status=completed`，
+runner 就可以把 session 从 `waiting_for_observation` 推进到 `judging`。
 
 ## Runner 命令面
 
 第一阶段建议只暴露两个命令：
 
 ```bash
-pnpm real-device verify --scenario <id>
-pnpm real-device verify --resume <sessionDir>
+pnpm real-device:verify --scenario <id>
+pnpm real-device:verify --resume <sessionDir>
 ```
 
 其中：
@@ -373,25 +385,30 @@ pnpm real-device verify --resume <sessionDir>
 
 - 读取 `session.json`
 - 判断当前 phase
-- 消费 `resolve-target.response.json` 或 `observation.json`
+- 消费 `resolve-target.response.json`、`operator-response.json` 或 `observation.json`
 - 继续执行后续步骤
-- 最后调用 `judge`
+- 在 observation 完成后推进到 `READY_FOR_JUDGING`
+
+补充说明：
+
+- 当前公开 CLI 默认是 staged flow，`--resume` 会把状态推进到下一等待点或 `READY_FOR_JUDGING`
+- `judgeSession` 的自动触发目前走内部 `autoJudge` 路径，供 runner 级桥接和测试使用
 
 ## 与现有 `debug:session` 的关系
 
 新体系不替代现有能力，而是包一层：
 
 - `debug:session` 继续作为底层 primitive
-- `real-device verify` 作为高层 scenario orchestrator
+- `real-device:verify` 作为高层 scenario orchestrator
 
 建议的内部复用关系：
 
 - `verify --scenario`
-  - 调现有 `start`
-  - 调现有 `prepare`
+  - 复用现有 session contract / manifest 产物模型
+  - 调现有 `prepareSession`
 - `verify --resume`
-  - 调现有 `observe`
-  - 调现有 `judge`
+  - 调现有 `recordObservation`
+  - 调现有 `judgeSession`（内部 `autoJudge` 路径）
 
 这样可以最大化复用现有代码和测试。
 
@@ -437,7 +454,7 @@ pnpm real-device verify --resume <sessionDir>
 ### 阶段 A：并行存在
 
 - 保留 `pnpm debug:session ...`
-- 新增 `pnpm real-device verify ...`
+- 新增 `pnpm real-device:verify ...`
 - 先让少数场景通过 harness 跑通
 
 ### 阶段 B：场景成为默认入口
@@ -475,6 +492,8 @@ pnpm real-device verify --resume <sessionDir>
 
 应对：
 - 继续复用并扩展现有 session 锁机制
+- 在 debug-session 层串行化 `prepare`、`observe`、`judge`
+- 扩展 judge 对 `Full Inbound Data` / `Inbound:` 证据格式的识别
 
 ### 4. target 解析不稳定
 
@@ -490,7 +509,7 @@ pnpm real-device verify --resume <sessionDir>
 第一阶段完成后，应满足：
 
 1. 两个 PR389 场景都能被固化为 scenario 文件
-2. `pnpm real-device verify --scenario <id>` 能生成完整操作包
+2. `pnpm real-device:verify --scenario <id>` 能生成完整操作包
 3. 无需额外聊天说明，也能让人或桌面 Agent 完成操作
 4. `Vitest` 能验证 scenario schema、phase machine、prompt 渲染和判定逻辑
 
@@ -502,4 +521,4 @@ pnpm real-device verify --resume <sessionDir>
 
 开发计划：
 
-- `docs/plans/2026-03-21-scenario-driven-real-device-harness-implementation.md`
+- `docs/implementation-plans/2026-03-21-scenario-driven-real-device-harness-implementation.md`

@@ -69,7 +69,7 @@ English version: [`real-device-harness.md`](real-device-harness.md)
 - 已支持 prompt / template 生成
 - 已支持 phase machine
 - 已支持 DM / group 的 target 动态解析
-- 已能桥接到现有 `prepareSession` 和 `judgeSession`
+- 已能桥接到现有 `prepareSession`、`recordObservation` 和 `judgeSession`
 
 它还不是一套覆盖所有真机场景的完整 harness，也不会直接控制钉钉 UI。
 
@@ -152,6 +152,7 @@ pnpm real-device:verify --scenario pr389-preview-store-miss
 
 - `operator-prompt.md`
 - `operator-input.json`
+- `operator-response.template.json`
 - `observation.template.json`
 
 ### 恢复一个 scenario
@@ -161,6 +162,15 @@ pnpm real-device:verify --resume <sessionDir>
 ```
 
 这条命令会读取当前 `session.json.phase`，并在输入文件齐备时继续推进流程。
+
+当前公开 CLI 下，`--resume` 可能停在这些状态之一：
+
+- `WAITING_FOR_TARGET`
+- `WAITING_FOR_OPERATOR`
+- `WAITING_FOR_OBSERVATION`
+- `READY_FOR_JUDGING`
+
+程序化调用时还支持内部 `autoJudge` 路径，用于 observation 记录后的自动判定桥接。
 
 ## 标准化运行包
 
@@ -176,6 +186,8 @@ harness 会在 session 目录中生成一个标准化操作包。
 - `resolve-target.response.json`
 - `operator-prompt.md`
 - `operator-input.json`
+- `operator-response.template.json`
+- `operator-response.json`
 - `observation.template.json`
 - `observation.json`
 
@@ -184,6 +196,12 @@ harness 会在 session 目录中生成一个标准化操作包。
 - 人工 operator
 - 有桌面交互能力的智能体
 - 后续自动化 adapter
+
+当前这些关键文件的含义分别是：
+
+- `resolve-target.response.json`：自动解析 target 不足时的人工回填结果
+- `operator-response.json`：每个 operator 步骤的完成信号
+- `observation.json`：最终观察结果，用来把流程推进到判定阶段
 
 ## Target 动态解析
 
