@@ -419,6 +419,8 @@ function mergeStringField(existing: string | undefined, next: string | undefined
 }
 
 function mergeMentions(existing: string[] | undefined, next: string[] | undefined): string[] | undefined {
+  // Mentions use "next, if present" semantics after normalization.
+  // When the caller has no fresh mention set, retain the previous persisted one.
   if (!next) {
     return existing;
   }

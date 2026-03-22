@@ -103,6 +103,7 @@ export function createCardReplyStrategy(
             accountId: ctx.accountId,
             storePath: ctx.storePath,
             conversationId: ctx.groupId,
+            chatType: ctx.isDirect ? "direct" : "group",
             cardUpdateMode: "append",
           });
           if (!sendResult.ok) {
@@ -149,6 +150,7 @@ export function createCardReplyStrategy(
             storePath: ctx.storePath,
             conversationId: ctx.groupId,
             quotedRef: ctx.replyQuotedRef,
+            chatType: ctx.isDirect ? "direct" : "group",
             forceMarkdown: true,
           });
           if (!sendResult.ok) {

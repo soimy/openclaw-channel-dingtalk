@@ -25,6 +25,9 @@ vi.mock('../../src/media-utils', () => ({
 
 vi.mock('axios', () => {
     const mockAxios = vi.fn();
+    (mockAxios as typeof mockAxios & { isAxiosError?: (err: unknown) => boolean }).isAxiosError = (
+        err: unknown,
+    ) => Boolean((err as { isAxiosError?: boolean })?.isAxiosError);
     return {
         default: mockAxios,
         isAxiosError: (err: unknown) => Boolean((err as { isAxiosError?: boolean })?.isAxiosError),
@@ -162,6 +165,7 @@ describe('send-service media branches', () => {
                     key: 'msgId',
                     value: 'msg_in_media_1',
                 },
+                chatType: 'direct',
             } as any,
         );
 
@@ -170,6 +174,9 @@ describe('send-service media branches', () => {
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'user_123',
+                senderId: 'id',
+                senderName: 'OpenClaw',
+                chatType: 'direct',
                 createdAt: expect.any(Number),
                 messageType: 'outbound-proactive-media',
                 quotedRef: {
@@ -221,6 +228,26 @@ describe('send-service media branches', () => {
         );
     });
 
+    it('uses configured bot identity for proactive media journaling', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_voice_named');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_named' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_media', name: 'Media Bot' } as any,
+            'user_123',
+            '/tmp/a.amr',
+            'voice',
+            { accountId: 'main', storePath: '/tmp/sessions.json', chatType: 'direct' } as any,
+        );
+
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                senderId: 'robot_media',
+                senderName: 'Media Bot',
+                chatType: 'direct',
+            }),
+        );
+    });
     it('sendProactiveMedia bypasses proxy when configured', async () => {
         mockedUploadMedia.mockResolvedValueOnce('media_voice_proxy');
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_proxy' } } as any);

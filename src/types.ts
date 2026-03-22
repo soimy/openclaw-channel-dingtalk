@@ -368,6 +368,7 @@ export interface SendMessageOptions {
   atUserId?: string | null;
   log?: Logger;
   conversationId?: string;
+  chatType?: "direct" | "group";
   mediaPath?: string;
   filePath?: string;
   mediaUrl?: string;

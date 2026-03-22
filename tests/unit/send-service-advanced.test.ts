@@ -121,6 +121,7 @@ describe('send-service advanced branches', () => {
                     key: 'msgId',
                     value: 'msg_in_1',
                 },
+                chatType: 'direct',
             } as any,
         );
 
@@ -129,6 +130,9 @@ describe('send-service advanced branches', () => {
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cid_dm_stable',
+                senderId: 'id',
+                senderName: 'OpenClaw',
+                chatType: 'direct',
                 createdAt: expect.any(Number),
                 messageType: 'outbound-proactive',
                 text: 'card proactive text',
@@ -238,6 +242,7 @@ describe('send-service advanced branches', () => {
                     key: 'msgId',
                     value: 'msg_in_2',
                 },
+                chatType: 'group',
             } as any,
         );
 
@@ -246,6 +251,9 @@ describe('send-service advanced branches', () => {
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cidA1B2C3',
+                senderId: 'id',
+                senderName: 'OpenClaw',
+                chatType: 'group',
                 createdAt: expect.any(Number),
                 messageType: 'outbound',
                 text: 'hello session',
@@ -272,6 +280,7 @@ describe('send-service advanced branches', () => {
             {
                 accountId: 'main',
                 storePath: '/tmp/sessions.json',
+                chatType: 'group',
             } as any,
         );
 
@@ -280,6 +289,9 @@ describe('send-service advanced branches', () => {
                 storePath: '/tmp/sessions.json',
                 accountId: 'main',
                 conversationId: 'cidA1B2C3',
+                senderId: 'id',
+                senderName: 'OpenClaw',
+                chatType: 'group',
                 createdAt: expect.any(Number),
                 messageType: 'outbound-proactive',
                 text: 'hello proactive',
@@ -302,6 +314,7 @@ describe('send-service advanced branches', () => {
                 accountId: 'main',
                 storePath: '/tmp/sessions.json',
                 conversationId: 'cid_dm_stable',
+                chatType: 'direct',
             } as any,
         );
 
@@ -313,6 +326,30 @@ describe('send-service advanced branches', () => {
         expect(messageContextMocks.upsertOutboundMessageContextMock).not.toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: 'user_target_123',
+            }),
+        );
+    });
+
+    it('uses configured bot identity for outbound journaling', async () => {
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'proactive_q_named_1' } } as any);
+
+        await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_42', name: 'Ding Helper' } as any,
+            'manager123',
+            'hello proactive',
+            {
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+                conversationId: 'cid_dm_named',
+                chatType: 'direct',
+            } as any,
+        );
+
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                senderId: 'robot_42',
+                senderName: 'Ding Helper',
+                chatType: 'direct',
             }),
         );
     });

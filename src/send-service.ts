@@ -124,8 +124,10 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
   return text;
 }
 
-function inferConversationChatType(conversationId: string): "direct" | "group" {
-  return conversationId.startsWith("cid") ? "group" : "direct";
+function resolveBotIdentity(config: DingTalkConfig): { senderId: string; senderName: string } {
+  const senderId = firstTrimmedString(config.robotCode) || "bot";
+  const senderName = firstTrimmedString(config.name) || "OpenClaw";
+  return { senderId, senderName };
 }
 
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
@@ -230,6 +232,7 @@ export async function sendProactiveTextOrMarkdown(
   options: SendMessageOptions = {},
 ): Promise<ProactiveTextSendResult> {
   const log = options.log || getLogger();
+  const botIdentity = resolveBotIdentity(config);
 
   // Support group:/user: prefix and restore original case-sensitive conversationId.
   const { targetId, isExplicitUser } = stripTargetPrefix(target);
@@ -354,6 +357,8 @@ export async function sendProactiveMedia(
   options: SendMessageOptions & { accountId?: string } = {},
 ): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string }> {
   const log = options.log || getLogger();
+  const botIdentity = resolveBotIdentity(config);
+  const botIdentity = resolveBotIdentity(config);
 
   try {
     // Upload first, then send by media_id.
@@ -429,9 +434,9 @@ export async function sendProactiveMedia(
       messageType: "outbound-proactive-media",
       quotedRef: options.quotedRef,
       log,
-      senderId: "bot",
-      senderName: "OpenClaw",
-      chatType: inferConversationChatType(options.conversationId || resolvedTarget),
+      senderId: botIdentity.senderId,
+      senderName: botIdentity.senderName,
+      chatType: options.chatType,
       delivery: {
         ...delivery,
         kind: "proactive-media",
@@ -585,6 +590,8 @@ export async function sendMessage(
   try {
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
+    const botIdentity = resolveBotIdentity(config);
+    const botIdentity = resolveBotIdentity(config);
 
     if (messageType === "card" && options.card && !options.forceMarkdown) {
       const card = options.card;
@@ -635,9 +642,9 @@ export async function sendMessage(
         messageType: options.mediaPath && options.mediaType ? "outbound-media" : "outbound",
         quotedRef: options.quotedRef,
         log,
-        senderId: "bot",
-        senderName: "OpenClaw",
-        chatType: inferConversationChatType(options.conversationId || conversationId),
+        senderId: botIdentity.senderId,
+        senderName: botIdentity.senderName,
+        chatType: options.chatType,
         delivery: {
           ...delivery,
           kind: "session",
@@ -657,9 +664,9 @@ export async function sendMessage(
       messageType: "outbound-proactive",
       quotedRef: options.quotedRef,
       log,
-      senderId: "bot",
-      senderName: "OpenClaw",
-      chatType: inferConversationChatType(options.conversationId || conversationId),
+      senderId: botIdentity.senderId,
+      senderName: botIdentity.senderName,
+      chatType: options.chatType,
       delivery: {
         ...delivery,
         kind: isTrackingResult(result) ? "proactive-card" : "proactive-text",

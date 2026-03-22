@@ -3,6 +3,7 @@ import {
   queryConversationHistory,
 } from "../history/group-history-store";
 import { getDingTalkRuntime } from "../runtime";
+import { acquireSessionLock } from "../session-lock";
 import type { HandleDingTalkMessageParams } from "../types";
 
 export interface ParsedSummaryCommand {
@@ -289,6 +290,9 @@ export function buildSummaryNarrativePrompt(params: SummaryQueryParams & { slice
     "",
   ].filter(isDefinedString);
 
+  // Keep the prompt material bounded even without a token estimator:
+  // conversation count, segment count, recent-entry count, and per-segment
+  // char caps are all limited upstream so this v1 path cannot grow without bound.
   for (const slice of slices.slice(0, 12)) {
     materialLines.push(`## 会话 ${formatConversationLabel(slice)}`);
     for (const segment of slice.summarySegments.slice(-3)) {
@@ -370,6 +374,8 @@ export async function generateSummaryNarrative(
   });
 
   let finalText = "";
+  const summarySessionKey = `${params.routeSessionKey}::summary`;
+  const releaseSessionLock = await acquireSessionLock(summarySessionKey);
   try {
     const dispatchResult = await params.rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx,
@@ -395,6 +401,8 @@ export async function generateSummaryNarrative(
     }
   } catch {
     return prompt.fallbackReply;
+  } finally {
+    releaseSessionLock();
   }
 
   return finalText || prompt.fallbackReply;

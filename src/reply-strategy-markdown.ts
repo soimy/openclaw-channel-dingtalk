@@ -33,6 +33,7 @@ export function createMarkdownReplyStrategy(
           storePath: ctx.storePath,
           conversationId: ctx.groupId,
           quotedRef: ctx.replyQuotedRef,
+          chatType: ctx.isDirect ? "direct" : "group",
         });
         if (!sendResult.ok) {
           throw new Error(sendResult.error || "Reply send failed");

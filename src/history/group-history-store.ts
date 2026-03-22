@@ -153,7 +153,7 @@ function listConversationCandidates(params: {
   ).toSorted((left, right) => right.updatedAt - left.updatedAt);
 }
 
-function summarizeEntries(entries: GroupHistoryEntry[]): GroupHistorySummarySegment | null {
+function formatEntriesAsSegment(entries: GroupHistoryEntry[]): GroupHistorySummarySegment | null {
   if (entries.length === 0) {
     return null;
   }
@@ -188,12 +188,15 @@ function summarizeEntries(entries: GroupHistoryEntry[]): GroupHistorySummarySegm
 }
 
 function rollupEntriesToLimit(entries: GroupHistoryEntry[], retainLimit: number): GroupHistorySummarySegment[] {
+  // TODO: This is still a full in-memory rollup pass. If summary/history usage
+  // grows on high-traffic conversations, switch to incremental rollup so append
+  // paths do not repeatedly rescan the whole retained conversation slice.
   let remainingEntries = entries.slice();
   const nextSegments: GroupHistorySummarySegment[] = [];
   while (remainingEntries.length > retainLimit) {
     const chunk = remainingEntries.slice(0, ROLLUP_CHUNK_SIZE);
     remainingEntries = remainingEntries.slice(ROLLUP_CHUNK_SIZE);
-    const segment = summarizeEntries(chunk);
+    const segment = formatEntriesAsSegment(chunk);
     if (segment) {
       nextSegments.push(segment);
     }
