@@ -1894,7 +1894,15 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(mockedResolveByAlias).not.toHaveBeenCalled();
+    expect(mockedResolveByAlias).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath: "/tmp/account-store.json",
+        accountId: "main",
+        conversationId: "cid_ok",
+        kind: "processQueryKey",
+        value: "carrier_quoted_1",
+      }),
+    );
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
       expect.objectContaining({
         msgId: "m5_card_quote",
@@ -2316,7 +2324,7 @@ describe("inbound-handler", () => {
     expect(shared.resolveQuotedFileMock).not.toHaveBeenCalled();
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        RawBody: "[引用了钉钉文档，但无法获取内容]\n\n1",
+        RawBody: "1",
         QuotedRef: {
           targetDirection: "inbound",
           key: "msgId",

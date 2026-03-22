@@ -358,7 +358,6 @@ export async function sendProactiveMedia(
 ): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string }> {
   const log = options.log || getLogger();
   const botIdentity = resolveBotIdentity(config);
-  const botIdentity = resolveBotIdentity(config);
 
   try {
     // Upload first, then send by media_id.
@@ -590,7 +589,6 @@ export async function sendMessage(
   try {
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
-    const botIdentity = resolveBotIdentity(config);
     const botIdentity = resolveBotIdentity(config);
 
     if (messageType === "card" && options.card && !options.forceMarkdown) {

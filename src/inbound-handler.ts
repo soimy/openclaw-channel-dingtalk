@@ -47,8 +47,11 @@ import {
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {
+  DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
   DEFAULT_MEDIA_CONTEXT_TTL_MS,
   DEFAULT_MESSAGE_CONTEXT_TTL_DAYS,
+  resolveByAlias,
+  resolveByCreatedAtWindow,
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { buildInboundQuotedRef, createReplyQuotedRef, resolveQuotedRecord } from "./messaging/quoted-ref";
@@ -1552,7 +1555,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               log,
               storePath: accountStorePath,
               conversationId: groupId,
-              quotedRef: replyQuotedRef,
               chatType: isDirect ? "direct" : "group",
               quotedRef: replyQuotedRef,
             },
