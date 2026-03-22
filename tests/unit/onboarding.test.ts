@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-    createSetupWizardAdapter,
-    runSetupWizardConfigure,
-    type WizardPrompter,
-} from "../../../openclaw/test/helpers/extensions/setup-wizard";
+import type { OpenClawConfig, WizardPrompter } from "../../src/sdk-compat";
 
 vi.mock("openclaw/plugin-sdk/matrix", () => ({
     DEFAULT_ACCOUNT_ID: "default",
@@ -11,21 +7,39 @@ vi.mock("openclaw/plugin-sdk/matrix", () => ({
     formatDocsLink: (path: string) => `https://docs.example${path}`,
 }));
 
-import { dingtalkSetupAdapter, dingtalkSetupWizard } from "../../src/onboarding";
+import { dingtalkSetupWizard } from "../../src/onboarding";
 
-const configureDingTalk = createSetupWizardAdapter({
-    plugin: {
-        id: "dingtalk",
-        meta: { label: "DingTalk" },
-        config: {
-            listAccountIds: () => [],
-            defaultAccountId: () => "default",
-        },
-        setup: dingtalkSetupAdapter,
-        setupWizard: dingtalkSetupWizard,
-    } as any,
-    wizard: dingtalkSetupWizard,
-}).configure;
+function listAccountIds(cfg: OpenClawConfig): string[] {
+    const dingtalk = cfg.channels?.dingtalk as { accounts?: Record<string, unknown> } | undefined;
+    return Object.keys(dingtalk?.accounts ?? {});
+}
+
+async function runSetupWizardConfigure(params: {
+    cfg?: OpenClawConfig;
+    prompter: WizardPrompter;
+    shouldPromptAccountIds?: boolean;
+}): Promise<{ cfg: OpenClawConfig; accountId: string }> {
+    const cfg = (params.cfg ?? {}) as OpenClawConfig;
+    const accountId =
+        (await dingtalkSetupWizard.resolveAccountIdForConfigure?.({
+            cfg,
+            prompter: params.prompter,
+            shouldPromptAccountIds: params.shouldPromptAccountIds ?? false,
+            listAccountIds,
+            defaultAccountId: "default",
+        })) ?? "default";
+
+    const finalized = await dingtalkSetupWizard.finalize?.({
+        cfg,
+        accountId,
+        prompter: params.prompter,
+    });
+
+    return {
+        cfg: finalized?.cfg ?? cfg,
+        accountId,
+    };
+}
 
 describe("dingtalk setup wizard", () => {
     it("status returns configured=false for empty config", async () => {
@@ -95,10 +109,8 @@ describe("dingtalk setup wizard", () => {
             .mockResolvedValueOnce("all");
 
         const result = await runSetupWizardConfigure({
-            configure: configureDingTalk,
             cfg: {} as any,
             prompter: { note, text, confirm, select } as unknown as WizardPrompter,
-            options: {},
         });
 
         const dingtalkConfig = result.cfg.channels?.dingtalk;
@@ -150,10 +162,8 @@ describe("dingtalk setup wizard", () => {
             .mockResolvedValueOnce("disabled");
 
         const result = await runSetupWizardConfigure({
-            configure: configureDingTalk,
             cfg: {} as any,
             prompter: { note, text, confirm, select } as unknown as WizardPrompter,
-            options: {},
         });
 
         const dingtalkConfig = result.cfg.channels?.dingtalk;
