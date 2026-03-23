@@ -6,6 +6,14 @@ import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, uploadMedia } from '../../src/media-utils';
 
+const mockLoadWebMedia = vi.fn();
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: () => ({
+        media: { loadWebMedia: mockLoadWebMedia },
+        channel: { media: { saveMediaBuffer: vi.fn() } },
+    }),
+}));
+
 vi.mock('axios', () => {
     const mockAxios = {
         get: vi.fn(),
@@ -303,5 +311,54 @@ describe('media-utils', () => {
         ).toBe(true);
 
         fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+    });
+
+    it('falls back to runtime media bridge for sandbox paths (ENOENT on host)', async () => {
+        const sandboxPath = '/workspace/generated-image.png';
+        const fileContent = Buffer.from('sandbox-image-data');
+
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: fileContent,
+            fileName: 'generated-image.png',
+            contentType: 'image/png',
+        });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_1' } } as any);
+
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+        );
+
+        expect(mediaId).toBe('media_sandbox_1');
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: undefined });
+        expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes mediaLocalRoots to runtime media bridge', async () => {
+        const sandboxPath = '/workspace/output.pdf';
+        const fileContent = Buffer.from('pdf-data');
+        const localRoots = ['/workspace', '/tmp'];
+
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: fileContent,
+            fileName: 'output.pdf',
+            contentType: 'application/pdf',
+        });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_2' } } as any);
+
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'file',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+            { mediaLocalRoots: localRoots },
+        );
+
+        expect(mediaId).toBe('media_sandbox_2');
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: localRoots });
     });
 });

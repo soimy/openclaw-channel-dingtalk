@@ -203,14 +203,16 @@ function isProactivePermissionOrScopeError(code: string | null): boolean {
 
 /**
  * Wrapper to upload media with shared getAccessToken binding.
+ * Supports sandbox/container paths via mediaLocalRoots option.
  */
 export async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
 ): Promise<string | null> {
-  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log, options);
 }
 
 export async function sendProactiveTextOrMarkdown(
@@ -341,13 +343,15 @@ export async function sendProactiveMedia(
   target: string,
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
-  options: SendMessageOptions & { accountId?: string } = {},
+  options: SendMessageOptions & { accountId?: string; mediaLocalRoots?: string[] } = {},
 ): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string }> {
   const log = options.log || getLogger();
 
   try {
     // Upload first, then send by media_id.
-    const mediaId = await uploadMedia(config, mediaPath, mediaType, log);
+    const mediaId = await uploadMedia(config, mediaPath, mediaType, log, {
+      mediaLocalRoots: options.mediaLocalRoots,
+    });
     if (!mediaId) {
       return { ok: false, error: "Failed to upload media" };
     }
@@ -497,7 +501,9 @@ export async function sendBySession(
 
   // Session webhook supports native media messages; prefer that when media info is available.
   if (options.mediaPath && options.mediaType) {
-    const mediaId = await uploadMedia(config, options.mediaPath, options.mediaType, log);
+    const mediaId = await uploadMedia(config, options.mediaPath, options.mediaType, log, {
+      mediaLocalRoots: options.mediaLocalRoots,
+    });
     if (mediaId) {
       let body: any;
 

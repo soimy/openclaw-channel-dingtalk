@@ -16,6 +16,7 @@ import axios from "axios";
 import FormData from "form-data";
 import type { DingTalkConfig, Logger } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+import { getDingTalkRuntime } from "./runtime";
 
 /**
  * Calculate MP3 duration in seconds by parsing MPEG frame headers
@@ -620,23 +621,61 @@ const FILE_SIZE_LIMITS: Record<DingTalkMediaType, number> = {
  * @param log Optional logger
  * @returns media_id on success, null on failure
  */
+/**
+ * Read a media file, resolving sandbox/container paths via the runtime bridge
+ * when direct host filesystem access fails.
+ *
+ * Precedence:
+ *   1. Direct fs.readFile (works for host-local paths)
+ *   2. rt.media.loadWebMedia (resolves sandbox workspace paths via bridge)
+ */
+async function readMediaBuffer(
+  mediaPath: string,
+  options?: { mediaLocalRoots?: string[] },
+  log?: Logger,
+): Promise<{ buffer: Buffer; size: number }> {
+  // Try direct host filesystem first
+  try {
+    const buffer = await fsPromises.readFile(mediaPath);
+    return { buffer, size: buffer.length };
+  } catch (err: unknown) {
+    const errno = err as NodeJS.ErrnoException;
+    if (errno.code !== "ENOENT") {
+      throw err; // Permission errors etc. should propagate immediately
+    }
+  }
+
+  // File not found on host — try runtime media bridge (sandbox/container paths)
+  log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
+  const rt = getDingTalkRuntime();
+  const media = await (rt as any).media.loadWebMedia(mediaPath, {
+    mediaLocalRoots: options?.mediaLocalRoots,
+  });
+
+  const buffer = Buffer.isBuffer(media.buffer)
+    ? media.buffer
+    : Buffer.from(media.buffer as ArrayBuffer);
+  return { buffer, size: buffer.length };
+}
+
 export async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: DingTalkMediaType,
   getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
   log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
 ): Promise<string | null> {
-  let fileStream: fs.ReadStream | null = null;
-
   try {
     const token = await getAccessToken(config, log);
 
-    // Check file size (stat will throw if file doesn't exist)
-    const stats = await fsPromises.stat(mediaPath);
+    // Read file via sandbox-aware bridge (falls back to direct fs for host paths)
+    const { buffer, size } = await readMediaBuffer(mediaPath, options, log);
+
+    // Check file size
     const sizeLimit = FILE_SIZE_LIMITS[mediaType];
-    if (stats.size > sizeLimit) {
-      const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+    if (size > sizeLimit) {
+      const sizeMB = (size / (1024 * 1024)).toFixed(2);
       const limitMB = (sizeLimit / (1024 * 1024)).toFixed(2);
       log?.error?.(
         `[DingTalk] Media file too large: ${sizeMB}MB exceeds ${limitMB}MB limit for ${mediaType}`,
@@ -644,17 +683,15 @@ export async function uploadMedia(
       return null;
     }
 
-    // Read file as a stream for better memory efficiency
-    fileStream = fs.createReadStream(mediaPath);
     const filename = path.basename(mediaPath);
 
     // Upload to DingTalk's media server using form-data
     const form = new FormData();
-    form.append("media", fileStream, { filename });
+    form.append("media", buffer, { filename });
 
     const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${mediaType}`;
 
-    log?.debug?.(`[DingTalk] Uploading media: ${filename} (${stats.size} bytes) as ${mediaType}`);
+    log?.debug?.(`[DingTalk] Uploading media: ${filename} (${size} bytes) as ${mediaType}`);
 
     const response = await axios.post(uploadUrl, form, {
       headers: form.getHeaders(),
@@ -665,7 +702,7 @@ export async function uploadMedia(
 
     if (response.data?.errcode === 0 && response.data?.media_id) {
       log?.debug?.(
-        `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${stats.size} bytes)`,
+        `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${size} bytes)`,
       );
       return response.data.media_id;
     } else {
@@ -676,7 +713,7 @@ export async function uploadMedia(
     // Handle file system errors (e.g., file not found, permission denied)
     const errno = err as NodeJS.ErrnoException;
     if (errno.code === "ENOENT") {
-      log?.error?.(`[DingTalk] Media file not found: ${mediaPath}`);
+      log?.error?.(`[DingTalk] Media file not found (host and sandbox): ${mediaPath}`);
     } else if (errno.code === "EACCES") {
       log?.error?.(`[DingTalk] Permission denied accessing media file: ${mediaPath}`);
     } else {
@@ -690,10 +727,5 @@ export async function uploadMedia(
       }
     }
     return null;
-  } finally {
-    // Ensure file stream is closed even on error
-    if (fileStream) {
-      fileStream.destroy();
-    }
   }
 }

@@ -393,6 +393,8 @@ export interface SendMessageOptions {
   /** Force markdown/text delivery even when messageType is "card". Bypasses card
    *  creation while preserving journal writes and other side-effects. */
   forceMarkdown?: boolean;
+  /** Allowed local roots for sandbox/container media path resolution. */
+  mediaLocalRoots?: string[];
 }
 
 export interface DingTalkTrackingMetadata {
