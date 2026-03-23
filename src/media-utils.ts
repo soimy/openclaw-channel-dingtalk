@@ -682,7 +682,7 @@ async function readMediaBuffer(
 
   const buffer = Buffer.isBuffer(media.buffer)
     ? media.buffer
-    : Buffer.from(media.buffer as ArrayBuffer);
+    : Buffer.from(media.buffer);
   return { buffer, size: buffer.length };
 }
 
