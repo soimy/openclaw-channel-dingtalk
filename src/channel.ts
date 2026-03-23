@@ -289,7 +289,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
         const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
           log,
           accountId: accountId ?? undefined,
-          mediaLocalRoots,
+          mediaLocalRoots: mediaLocalRoots ? [...mediaLocalRoots] : undefined,
         });
 
         if (!result.ok) {
