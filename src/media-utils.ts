@@ -5,7 +5,6 @@
  * Provides functions for media type detection and file upload to DingTalk media servers.
  */
 
-import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,6 +16,21 @@ import FormData from "form-data";
 import type { DingTalkConfig, Logger } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import { getDingTalkRuntime } from "./runtime";
+
+/**
+ * Extended PluginRuntime with media bridge support.
+ * The `media.loadWebMedia` method resolves sandbox/container paths
+ * through the runtime bridge when direct host filesystem access fails.
+ */
+interface PluginRuntimeWithMedia {
+  media?: {
+    loadWebMedia(
+      mediaPath: string,
+      options?: { mediaLocalRoots?: string[] },
+    ): Promise<{ buffer: Buffer | ArrayBuffer; fileName?: string; contentType?: string } | null>;
+  };
+  [key: string]: unknown;
+}
 
 /**
  * Calculate MP3 duration in seconds by parsing MPEG frame headers
@@ -647,10 +661,24 @@ async function readMediaBuffer(
 
   // File not found on host — try runtime media bridge (sandbox/container paths)
   log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
-  const rt = getDingTalkRuntime();
-  const media = await (rt as any).media.loadWebMedia(mediaPath, {
+  const rt = getDingTalkRuntime() as PluginRuntimeWithMedia;
+  if (!rt.media?.loadWebMedia) {
+    throw Object.assign(
+      new Error(`File not found and runtime media bridge unavailable: ${mediaPath}`),
+      { code: "ENOENT" },
+    );
+  }
+
+  const media = await rt.media.loadWebMedia(mediaPath, {
     mediaLocalRoots: options?.mediaLocalRoots,
   });
+
+  if (!media || !media.buffer) {
+    throw Object.assign(
+      new Error(`Runtime media bridge returned no data for: ${mediaPath}`),
+      { code: "ENOENT" },
+    );
+  }
 
   const buffer = Buffer.isBuffer(media.buffer)
     ? media.buffer
