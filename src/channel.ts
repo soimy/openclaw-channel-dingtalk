@@ -94,6 +94,23 @@ function inferTargetChatType(params: {
   return knownChatType || (resolvedTarget.startsWith("cid") ? "group" : "direct");
 }
 
+function resolveActionStorePath(params: {
+  cfg: OpenClawConfig;
+  accountId?: string;
+}): string | undefined {
+  if (!params.accountId) {
+    return undefined;
+  }
+  try {
+    const rt = getDingTalkRuntime();
+    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
+      agentId: params.accountId,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function attachConnectionErrorContext(
   err: unknown,
   stage: "connect.open" | "connect.websocket",
@@ -274,12 +291,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
 
     const log = getLogger();
     const config = getConfig(cfg, accountId ?? undefined);
-    const rt = getDingTalkRuntime();
-    const storePath = accountId
-      ? rt.channel.session.resolveStorePath(cfg.session?.store, {
-          agentId: accountId,
-        })
-      : undefined;
+    const storePath = resolveActionStorePath({ cfg, accountId: accountId ?? undefined });
 
     if (hasMedia && mediaInput) {
       let preparedMedia;
