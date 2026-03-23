@@ -434,6 +434,29 @@ describe('message-utils', () => {
         expect(content.text).toContain('钉钉文档');
     });
 
+    it('引用消息正文为空时使用 quoted previewText 兜底', () => {
+        const message = {
+            msgtype: 'text',
+            text: {
+                content: ' ',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'text',
+                    msgId: 'msgbVA2Abf4IB/d2lvXE1utZg==',
+                    content: { text: '如果你能看到这条消息，请回复"我看到了"' },
+                },
+            },
+            isInAtList: true,
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.text).toBeTruthy();
+        expect(content.text).toContain('如果你能看到这条消息');
+        expect(content.quoted?.msgId).toBe('msgbVA2Abf4IB/d2lvXE1utZg==');
+        expect(content.quoted?.previewText).toBe('如果你能看到这条消息，请回复"我看到了"');
+    });
+
     it('原始钉钉文档消息 URL 缺少必需参数时安全降级', () => {
         const message = {
             msgId: 'doc_msg',
