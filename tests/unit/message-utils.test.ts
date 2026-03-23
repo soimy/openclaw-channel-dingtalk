@@ -48,6 +48,8 @@ describe('message-utils', () => {
 
         expect(content.text).toBe('当前消息');
         expect(content.quoted?.msgId).toBe('quoted_text_1');
+        expect(content.quoted?.previewText).toBe('被引用内容');
+        expect(content.quoted?.previewMessageType).toBeUndefined();
     });
 
     it('引用文字（text msgType）— quoted prefix and current text', () => {
@@ -101,6 +103,8 @@ describe('message-utils', () => {
 
         expect(content.quoted?.mediaDownloadCode).toBe('dl_pic_123');
         expect(content.quoted?.mediaType).toBe('image');
+        expect(content.quoted?.previewText).toBe('<media:image>');
+        expect(content.quoted?.previewMessageType).toBe('picture');
     });
 
     it('引用文件/视频/语音（unknownMsgType）— isQuotedFile, fileCreatedAt, msgId', () => {
@@ -156,6 +160,9 @@ describe('message-utils', () => {
 
         expect(content.quoted?.isQuotedCard).toBe(true);
         expect(content.quoted?.processQueryKey).toBe('carrier_123');
+        expect(content.quoted?.previewText).toBe('[interactiveCard消息]');
+        expect(content.quoted?.previewMessageType).toBe('interactiveCard');
+        expect(content.quoted?.previewSenderId).toBe('bot');
     });
 
     it('引用钉钉文档卡片（interactiveCard from user）— isQuotedDocCard and msgId', () => {
@@ -381,6 +388,7 @@ describe('message-utils', () => {
         const content = extractMessageContent(message);
 
         expect(content.quoted?.msgId).toBe('legacy_quote_message_1');
+        expect(content.quoted?.previewText).toBe('旧引用');
     });
 
     it('content.quoteContent 旧格式 — no longer injects legacy quote text', () => {

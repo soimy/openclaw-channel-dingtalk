@@ -19,6 +19,11 @@ import type {
 } from "openclaw/plugin-sdk";
 import { mergeAccountWithDefaults } from "./config";
 
+export type AckReactionMode = "off" | "emoji" | "kaomoji";
+// Accept arbitrary strings for backward compatibility; the recommended
+// explicit modes remain: "off" | "emoji" | "kaomoji".
+export type AckReactionConfigValue = string;
+
 export interface DingtalkPluginModule {
   id: string;
   name: string;
@@ -39,17 +44,18 @@ export interface DingTalkConfig extends OpenClawConfig {
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
-  ackReaction?: string;
+  ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
   maxConnectionAttempts?: number;
@@ -106,17 +112,18 @@ export interface DingTalkChannelConfig {
   agentId?: string;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
-  ackReaction?: string;
+  ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   maxConnectionAttempts?: number;
   initialReconnectDelay?: number;
@@ -236,6 +243,7 @@ export interface DingTalkInboundMessage {
       content?: {
         text?: string;
         downloadCode?: string;
+        fileName?: string;
         biz_custom_action_url?: string;
         richText?: Array<{
           msgType?: string;
@@ -288,6 +296,8 @@ export interface DingTalkInboundMessage {
 
 export type QuotedRefKey = "msgId" | "processQueryKey" | "messageId" | "outTrackId" | "cardInstanceId";
 
+export type AttachmentTextSource = "text" | "html" | "pdf" | "docx";
+
 export interface QuotedRef {
   targetDirection: "inbound" | "outbound";
   key?: QuotedRefKey;
@@ -310,6 +320,10 @@ export interface QuotedInfo {
   processQueryKey?: string;
   fileCreatedAt?: number;
   msgId?: string;
+  previewText?: string;
+  previewMessageType?: string;
+  previewFileName?: string;
+  previewSenderId?: string;
 }
 
 /**
@@ -768,6 +782,7 @@ export function resolveDingTalkAccount(
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      groupAllowFrom: dingtalk?.groupAllowFrom,
       displayNameResolution: dingtalk?.displayNameResolution,
       journalTTLDays: dingtalk?.journalTTLDays,
       ackReaction: dingtalk?.ackReaction,

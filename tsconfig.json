@@ -30,20 +30,20 @@
     "types": ["node", "vitest/globals"],
     "paths": {
       "openclaw/plugin-sdk": [
-        "../../src/plugin-sdk/index.ts",
-        "../openclaw/src/plugin-sdk/index.ts",
-        "../../dist/plugin-sdk/plugin-sdk/index.d.ts",
+        "../openclaw/dist/plugin-sdk/index.d.ts",
         "../../dist/plugin-sdk/index.d.ts",
         "../openclaw/dist/plugin-sdk/plugin-sdk/index.d.ts",
-        "../openclaw/dist/plugin-sdk/index.d.ts"
+        "../../dist/plugin-sdk/plugin-sdk/index.d.ts",
+        "../openclaw/src/plugin-sdk/index.ts",
+        "../../src/plugin-sdk/index.ts"
       ],
       "openclaw/plugin-sdk/*": [
-        "../../src/plugin-sdk/*.ts",
-        "../openclaw/src/plugin-sdk/*.ts",
-        "../../dist/plugin-sdk/plugin-sdk/*.d.ts",
+        "../openclaw/dist/plugin-sdk/*.d.ts",
         "../../dist/plugin-sdk/*.d.ts",
         "../openclaw/dist/plugin-sdk/plugin-sdk/*.d.ts",
-        "../openclaw/dist/plugin-sdk/*.d.ts"
+        "../../dist/plugin-sdk/plugin-sdk/*.d.ts",
+        "../openclaw/src/plugin-sdk/*.ts",
+        "../../src/plugin-sdk/*.ts"
       ]
     }
   },

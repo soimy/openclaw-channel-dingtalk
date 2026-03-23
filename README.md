@@ -459,8 +459,10 @@ openclaw gateway restart
 | `corpId`                | string   | -            | 企业 ID                                     |
 | `agentId`               | string   | -            | 应用 ID                                     |
 | `dmPolicy`              | string   | `"open"`     | 私聊策略：open/pairing/allowlist            |
-| `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist                    |
-| `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表                        |
+| `groupPolicy`           | string   | `"open"`     | 群聊策略：open/allowlist/disabled           |
+| `allowFrom`             | string[] | `[]`         | 允许的发送者 ID 列表（仅私聊）              |
+| `groupAllowFrom`        | string[] | -            | 群聊发送者白名单（全局）                    |
+| `groups`                | object   | -            | 按 conversationId 的群级配置，详见[群聊策略](#群聊策略-grouppolicy) |
 | `displayNameResolution` | string   | `"disabled"` | 基于本地通讯录存储的显示名/群名解析开关：disabled/all |
 | `bypassProxyForSend`    | boolean  | `false`      | 发送链路直连，不走全局代理                  |
 | `learningEnabled`       | boolean  | `false`      | 开启学习信号采集与学习提示注入              |
@@ -504,9 +506,12 @@ openclaw gateway restart
 - 该反馈作用于用户原消息，不会额外发送一条“思考中”消息
 - 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji`
 - 若上述路径都未配置，则不发送 ack reaction
-- 当最终解析值为 `emoji` 时，钉钉插件会按当前输入语气自动选择一条颜文字 reaction
+- 当最终解析值为 `emoji` 时，钉钉插件会贴固定的 `🤔思考中` 原生 reaction，并允许后续 tool-progress 流程动态切换
+- 当最终解析值为 `kaomoji` 时，钉钉插件会先按输入语气选一条颜文字作为初始 reaction；若后续进入 `read/search/bash/write` 等工具阶段，仍会临时切换到对应的 tool-progress reaction
+- 为兼容历史配置，`ackReaction: ""` 仍然表示关闭该能力；若你此前把 `ackReaction: "emoji"` 当作“按语气选颜文字”，升级后请改成 `ackReaction: "kaomoji"`
 - 当前钉钉实现底层走 `emotion/reply` / `emotion/recall`，会把解析出的 `ackReaction` 文本原样写入 `emotionName` / `textEmotion.emotionName`
 - 若配置值为 `🤔思考中`，效果与钉钉原生“思考中”反馈一致；配置为其他文本时，会按该文本发送对应的 ack reaction
+- 钉钉 `emotion/reply` 对部分 kaomoji 存在兼容性限制。当前候选集已按真实 API 多轮复测做过筛选，并移除了会稳定触发 `500 system.err` 的字符串，例如 `٩(๑>◡<๑)۶`、`(•̀へ •́ ╮ )`、`(´• ω •`)`、`(づ｡◕‿‿◕｡)づ`、`(⁄ ⁄•⁄ω⁄•⁄ ⁄)`、`┌（┌ *｀д´）┐`
 
 示例：
 
@@ -514,7 +519,7 @@ openclaw gateway restart
 {
   "channels": {
     "dingtalk": {
-      "ackReaction": "emoji"
+      "ackReaction": "kaomoji"
     }
   }
 }
@@ -786,7 +791,53 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 ### 群聊策略 (groupPolicy)
 
 - `open` — 任何群都可以 @机器人
-- `allowlist` — 只有配置的群可以使用
+- `allowlist` — 只有配置的群可以使用（见下方详细说明）
+- `disabled` — 完全禁用群聊消息（消息静默丢弃，不会发送拒绝提示）
+
+#### allowlist 模式详解
+
+当 `groupPolicy` 设为 `"allowlist"` 时，群聊准入按以下顺序判定：
+
+1. **群 ID 检查**：`groups` 中存在该 `conversationId` 的配置 → 放行
+2. **通配符**：`groups` 中存在 `"*"` 配置 → 放行
+3. **旧版兜底**：`allowFrom` 中包含该群 ID → 放行（已弃用，会输出迁移提示）
+4. 以上均不匹配 → 拒绝
+
+##### 发送者白名单 (groupAllowFrom)
+
+群准入通过后，还可以限制允许发言的用户。优先级：
+
+1. `groups[conversationId].groupAllowFrom` — 群级白名单（最高优先）
+2. `groups["*"].groupAllowFrom` — 通配符级白名单
+3. 顶层 `groupAllowFrom` — 全局白名单
+4. 以上均未配置 → 不限制发送者
+
+##### 每群 requireMention
+
+可在 `groups` 中为每个群单独配置是否需要 @机器人才响应：
+
+```jsonc
+{
+  "groupPolicy": "allowlist",
+  "groupAllowFrom": ["user-001", "user-002"],  // 全局群聊发送者白名单
+  "groups": {
+    "cidXXX": {
+      "systemPrompt": "你是客服机器人",  // 群级 system prompt
+      "requireMention": false,           // 不需要 @，直接响应
+      "groupAllowFrom": ["user-003"]     // 群级发送者白名单（覆盖全局）
+    },
+    "*": {
+      "requireMention": true             // 其他群默认需要 @
+    }
+  }
+}
+```
+
+> 注意：钉钉群聊中不 @机器人时不会推送消息，因此 `requireMention: false` 在钉钉群聊中实际不生效。
+
+> **迁移提示**：如果你目前使用 `allowFrom` 同时控制私聊用户和群聊群 ID，
+> 建议将群 ID 迁移到 `groups` 配置中，将群聊发送者 ID 迁移到 `groupAllowFrom`。
+> 旧的 `allowFrom` 群 ID 兜底机制仍可工作，但会在日志中输出弃用警告。
 
 ## 消息类型支持
 
@@ -989,6 +1040,10 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 2. 使用 `/v1.0/card/streaming` 实现流式更新
 3. 自动状态管理（PROCESSING → INPUTING → FINISHED）
 4. 内置 300ms 节流 + 单航班（single-flight）保护，避免 API 过载
+5. 默认为 AI Card 投递开启 `dynamicSummary`，改善钉钉会话列表 `lastmsg` 预览随卡片正文更新的表现
+
+> `dynamicSummary` 这项接入思路参考自 `DingTalk-Real-AI/dingtalk-openclaw-connector` 的 MIT 许可实现：
+> <https://github.com/DingTalk-Real-AI/dingtalk-openclaw-connector/commit/7aff25b1f77f4dbd5dd64673d4e726ca938f5498>
 
 **卡片流式模式 (`cardRealTimeStream`)：**
 

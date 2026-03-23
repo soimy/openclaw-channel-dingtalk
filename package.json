@@ -1,6 +1,6 @@
 {
   "name": "@soimy/dingtalk",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "keywords": [
     "bot",
@@ -72,8 +72,8 @@
       "id": "dingtalk",
       "label": "DingTalk",
       "selectionLabel": "DingTalk (钉钉)",
-      "docsPath": "/channels/dingtalk",
-      "docsLabel": "dingtalk",
+      "docsPath": "https://github.com/soimy/openclaw-channel-dingtalk",
+      "docsLabel": "plugin docs",
       "blurb": "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
       "order": 70,
       "aliases": [

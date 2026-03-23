@@ -166,14 +166,14 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
     });
 
-    it('accepts ackReaction config without injecting a schema default', () => {
+    it('accepts enum ackReaction config without injecting a schema default', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
-            ackReaction: '✅',
+            ackReaction: 'kaomoji',
         }) as { ackReaction?: string };
 
-        expect(parsed.ackReaction).toBe('✅');
+        expect(parsed.ackReaction).toBe('kaomoji');
 
         const defaults = DingTalkConfigSchema.parse({
             clientId: 'id',
@@ -181,6 +181,85 @@ describe('DingTalkConfigSchema', () => {
         }) as { ackReaction?: string };
 
         expect(defaults.ackReaction).toBeUndefined();
+    });
+
+    it('accepts legacy string ackReaction config for backward compatibility', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            ackReaction: '👀',
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    ackReaction: '🤔思考中',
+                },
+            },
+        }) as { ackReaction?: string; accounts: Record<string, { ackReaction?: string }> };
+
+        expect(parsed.ackReaction).toBe('👀');
+        expect(parsed.accounts.main?.ackReaction).toBe('🤔思考中');
+    });
+
+    it('accepts empty-string ackReaction config for backward compatibility', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            ackReaction: '',
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    ackReaction: '',
+                },
+            },
+        }) as { ackReaction?: string; accounts: Record<string, { ackReaction?: string }> };
+
+        expect(parsed.ackReaction).toBe('');
+        expect(parsed.accounts.main?.ackReaction).toBe('');
+    });
+
+    it('accepts groupPolicy "disabled"', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groupPolicy: 'disabled',
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groupPolicy).toBe('disabled');
+    });
+
+    it('accepts top-level groupAllowFrom', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groupAllowFrom: ['user-001', 'user-002'],
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groupAllowFrom).toEqual(['user-001', 'user-002']);
+    });
+
+    it('accepts extended groups config with requireMention and groupAllowFrom', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groups: {
+                'cidXXX': {
+                    systemPrompt: 'hello',
+                    requireMention: true,
+                    groupAllowFrom: ['user-003'],
+                },
+                '*': {
+                    requireMention: false,
+                },
+            },
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groups['cidXXX'].requireMention).toBe(true);
+        expect(result.data.groups['cidXXX'].groupAllowFrom).toEqual(['user-003']);
+        expect(result.data.groups['*'].requireMention).toBe(false);
+    });
+
+    it('preserves backward compat — groups with only systemPrompt', () => {
+        const result = DingTalkConfigSchema.safeParse({
+            groups: { 'cidXXX': { systemPrompt: 'test' } },
+        });
+        expect(result.success).toBe(true);
+        expect(result.data.groups['cidXXX'].systemPrompt).toBe('test');
     });
 
     it('exports control-ui-compatible JSON schema nodes', () => {

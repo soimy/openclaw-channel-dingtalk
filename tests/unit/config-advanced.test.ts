@@ -164,13 +164,13 @@ describe('config advanced', () => {
             cfg: {
                 channels: {
                     dingtalk: {
-                        ackReaction: 'channel',
+                        ackReaction: 'emoji',
                         accounts: {
                             main: { ackReaction: '' },
                         },
                     },
                 },
-                messages: { ackReaction: 'message' },
+                messages: { ackReaction: 'kaomoji' },
                 agents: { list: [{ id: 'main', identity: { emoji: '👀' } }] },
             } as any,
             accountId: 'main',
@@ -181,24 +181,24 @@ describe('config advanced', () => {
             cfg: {
                 channels: {
                     dingtalk: {
-                        ackReaction: 'channel',
+                        ackReaction: 'emoji',
                     },
                 },
-                messages: { ackReaction: 'message' },
+                messages: { ackReaction: 'kaomoji' },
                 agents: { list: [{ id: 'main', identity: { emoji: '👀' } }] },
             } as any,
             accountId: 'main',
             agentId: 'main',
-        })).toBe('channel');
+        })).toBe('emoji');
 
         expect(resolveAckReactionSetting({
             cfg: {
-                messages: { ackReaction: 'message' },
+                messages: { ackReaction: 'kaomoji' },
                 agents: { list: [{ id: 'main', identity: { emoji: '👀' } }] },
             } as any,
             accountId: 'main',
             agentId: 'main',
-        })).toBe('message');
+        })).toBe('kaomoji');
 
         expect(resolveAckReactionSetting({
             cfg: {
@@ -207,6 +207,18 @@ describe('config advanced', () => {
             accountId: 'main',
             agentId: 'main',
         })).toBe('👀');
+
+        expect(resolveAckReactionSetting({
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        ackReaction: 'invalid',
+                    },
+                },
+            } as any,
+            accountId: 'main',
+            agentId: 'main',
+        })).toBe('invalid');
 
         expect(resolveAckReactionSetting({
             cfg: {} as any,

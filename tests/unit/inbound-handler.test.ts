@@ -1636,10 +1636,69 @@ describe("inbound-handler", () => {
           key: "msgId",
           value: "orig_msg_001",
         },
-        QuotedRefJson:
-          '{"targetDirection":"inbound","key":"msgId","value":"orig_msg_001"}',
+        QuotedRefJson: '{"targetDirection":"inbound","key":"msgId","value":"orig_msg_001"}',
       }),
     );
+  });
+
+  it("injects ReplyTo fields for quoted inbound text while keeping RawBody on the current message", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "orig_msg_002",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "原始引用正文",
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "当前回复",
+      messageType: "text",
+      quoted: {
+        msgId: "orig_msg_002",
+      },
+    });
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_reply_2",
+        msgtype: "text",
+        text: { content: "当前回复", isReplyMsg: true },
+        originalMsgId: "orig_msg_002",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.QuotedRef).toEqual({
+      targetDirection: "inbound",
+      key: "msgId",
+      value: "orig_msg_002",
+    });
+    expect(finalized.RawBody).toBe("当前回复");
+    expect(finalized.CommandBody).toBe("当前回复");
+    expect(finalized.ReplyToId).toBe("orig_msg_002");
+    expect(finalized.ReplyToBody).toBe("原始引用正文");
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBe(true);
+    expect(finalized.UntrustedContext).toBeUndefined();
   });
 
   it("logs legacy quoteContent when no resolvable quotedRef can be built", async () => {
@@ -1894,15 +1953,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(mockedResolveByAlias).toHaveBeenCalledWith(
-      expect.objectContaining({
-        storePath: "/tmp/account-store.json",
-        accountId: "main",
-        conversationId: "cid_ok",
-        kind: "processQueryKey",
-        value: "carrier_quoted_1",
-      }),
-    );
+    expect(mockedResolveByAlias).not.toHaveBeenCalled();
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalledWith(
       expect.objectContaining({
         msgId: "m5_card_quote",
@@ -1929,6 +1980,462 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("injects ReplyTo fields for quoted outbound cards via processQueryKey", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "interactiveCard",
+      text: "机器人上一条卡片回复",
+      topic: null,
+      delivery: {
+        processQueryKey: "carrier_quoted_2",
+        messageId: "out_msg_2",
+        kind: "session",
+      },
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续",
+      messageType: "text",
+      quoted: {
+        isQuotedCard: true,
+        processQueryKey: "carrier_quoted_2",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m5_card_quote_2",
+        msgtype: "text",
+        text: { content: "继续", isReplyMsg: true },
+        originalProcessQueryKey: "carrier_quoted_2",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    expect(mockedResolveByAlias).not.toHaveBeenCalled();
+    expect(mockedResolveByCreatedAtWindow).not.toHaveBeenCalled();
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.QuotedRef).toEqual({
+      targetDirection: "outbound",
+      key: "processQueryKey",
+      value: "carrier_quoted_2",
+    });
+    expect(finalized.QuotedRefJson).toBe(
+      '{"targetDirection":"outbound","key":"processQueryKey","value":"carrier_quoted_2"}',
+    );
+    expect(finalized.ReplyToId).toBe("carrier_quoted_2");
+    expect(finalized.ReplyToBody).toBe("机器人上一条卡片回复");
+    expect(finalized.ReplyToSender).toBe("assistant");
+    expect(finalized.ReplyToIsQuote).toBe(true);
+  });
+
+  it("uses a stable placeholder when the first quoted hop has no text", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "interactiveCardFile",
+      topic: null,
+      delivery: {
+        processQueryKey: "carrier_placeholder_1",
+        kind: "session",
+      },
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "看看这个",
+      messageType: "text",
+      quoted: {
+        isQuotedCard: true,
+        processQueryKey: "carrier_placeholder_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_quote_placeholder",
+        msgtype: "text",
+        text: { content: "看看这个", isReplyMsg: true },
+        originalProcessQueryKey: "carrier_placeholder_1",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("[Quoted interactiveCardFile]");
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("uses cached attachment excerpts as ReplyToBody for quoted document messages", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "quoted_doc_1",
+      createdAt: baseTs - 1000,
+      messageType: "interactiveCardFile",
+      text: "[钉钉文档]",
+      attachmentText: "这是从 PDF 抽出的首段正文",
+      attachmentTextSource: "pdf",
+      attachmentFileName: "manual.pdf",
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续读这个文档",
+      messageType: "text",
+      quoted: {
+        msgId: "quoted_doc_1",
+        previewText: "[钉钉文档]",
+        previewMessageType: "interactiveCardFile",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_doc_excerpt_1",
+        msgtype: "text",
+        text: { content: "继续读这个文档", isReplyMsg: true },
+        originalMsgId: "quoted_doc_1",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("这是从 PDF 抽出的首段正文");
+  });
+
+  it("injects single-hop ReplyTo fields from quoted preview when the store misses", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续这个话题",
+      messageType: "text",
+      quoted: {
+        msgId: "missing_preview_msg",
+        previewText: "这是事件里自带的一跳引用预览",
+        previewMessageType: "text",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_preview_only_1",
+        msgtype: "text",
+        text: { content: "继续这个话题", isReplyMsg: true },
+        originalMsgId: "missing_preview_msg",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToId).toBe("missing_preview_msg");
+    expect(finalized.ReplyToBody).toBe("这是事件里自带的一跳引用预览");
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBe(true);
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("injects a single JSON UntrustedContext block for multi-hop quoted chains starting at hop 2", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "chain_leaf_1",
+      createdAt: baseTs - 3000,
+      messageType: "text",
+      text: "第三跳原文",
+      topic: null,
+    });
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 2000,
+      messageType: "markdown",
+      text: "第二跳原文",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_leaf_1",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "chain_mid_1",
+        kind: "session",
+      },
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "chain_head_1",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "第一跳原文",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "chain_mid_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "当前消息",
+      messageType: "text",
+      quoted: {
+        msgId: "chain_head_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_chain_1",
+        msgtype: "text",
+        text: { content: "当前消息", isReplyMsg: true },
+        originalMsgId: "chain_head_1",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳原文");
+    expect(finalized.UntrustedContext).toHaveLength(1);
+    const untrusted = JSON.parse(finalized.UntrustedContext[0]);
+    expect(untrusted).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "markdown",
+          sender: "assistant",
+          body: "第二跳原文",
+          createdAt: baseTs - 2000,
+        },
+        {
+          depth: 3,
+          direction: "inbound",
+          messageType: "text",
+          body: "第三跳原文",
+          createdAt: baseTs - 3000,
+        },
+      ],
+    });
+  });
+
+  it("does not inject ReplyTo fields or chain context when quotedRef cannot be resolved", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "找不到引用",
+      messageType: "text",
+      quoted: {
+        msgId: "missing_quote_msg",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+      data: {
+        msgId: "m_quote_missing_1",
+        msgtype: "text",
+        text: { content: "找不到引用", isReplyMsg: true },
+        originalMsgId: "missing_quote_msg",
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: 1700000040000,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToId).toBeUndefined();
+    expect(finalized.ReplyToBody).toBeUndefined();
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBeUndefined();
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("stops safely when a quoted chain loops back to an earlier hop", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertOutboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      createdAt: baseTs - 1000,
+      messageType: "markdown",
+      text: "第二跳循环",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "cycle_head_1",
+      },
+      topic: null,
+      delivery: {
+        processQueryKey: "cycle_mid_1",
+        kind: "session",
+      },
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_ok",
+      msgId: "cycle_head_1",
+      createdAt: baseTs - 2000,
+      messageType: "text",
+      text: "第一跳循环",
+      quotedRef: {
+        targetDirection: "outbound",
+        key: "processQueryKey",
+        value: "cycle_mid_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "循环测试",
+      messageType: "text",
+      quoted: {
+        msgId: "cycle_head_1",
+      },
+    });
+
+    await expect(
+      handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as any,
+        data: {
+          msgId: "m_quote_cycle_1",
+          msgtype: "text",
+          text: { content: "循环测试", isReplyMsg: true },
+          originalMsgId: "cycle_head_1",
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: baseTs,
+        },
+      } as any),
+    ).resolves.toBeUndefined();
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳循环");
+    expect(JSON.parse(finalized.UntrustedContext[0])).toEqual({
+      quotedChain: [
+        {
+          depth: 2,
+          direction: "outbound",
+          messageType: "markdown",
+          sender: "assistant",
+          body: "第二跳循环",
+          createdAt: baseTs - 1000,
+        },
+      ],
+    });
+  });
+
   it("handleDingTalkMessage records outbound createdAt fallback when quoted card key is missing", async () => {
     const runtime = buildRuntime();
     runtime.channel.session.resolveStorePath = vi
@@ -1942,6 +2449,9 @@ describe("inbound-handler", () => {
       quoted: {
         isQuotedCard: true,
         cardCreatedAt: 1772817989679,
+        previewText: "机器人上一条卡片回复（预览）",
+        previewMessageType: "interactiveCard",
+        previewSenderId: "bot_1",
       },
     });
 
@@ -1965,24 +2475,18 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(mockedResolveByAlias).not.toHaveBeenCalled();
-    expect(mockedResolveByCreatedAtWindow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        storePath: "/tmp/account-store.json",
-        accountId: "main",
-        conversationId: "cid_ok",
-        createdAt: 1772817989679,
-        direction: "outbound",
-      }),
-    );
+    expect(mockedResolveByCreatedAtWindow).not.toHaveBeenCalled();
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         RawBody: "hello",
+        ReplyToId: undefined,
+        ReplyToBody: "机器人上一条卡片回复（预览）",
+        ReplyToSender: "assistant",
         QuotedRef: {
           targetDirection: "outbound",
           fallbackCreatedAt: 1772817989679,
         },
-        QuotedRefJson:
-          '{"targetDirection":"outbound","fallbackCreatedAt":1772817989679}',
+        QuotedRefJson: '{"targetDirection":"outbound","fallbackCreatedAt":1772817989679}',
       }),
     );
   });
@@ -2104,7 +2608,7 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage injects extracted attachment text into inbound context", async () => {
+  it("handleDingTalkMessage stores extracted attachment text without injecting it into the current inbound context", async () => {
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
     shared.extractMessageContentMock.mockReturnValueOnce({
@@ -2154,10 +2658,20 @@ describe("inbound-handler", () => {
     });
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        RawBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
-        CommandBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
+        RawBody: "[钉钉文档]\n\n",
+        CommandBody: "[钉钉文档]\n\n",
       }),
     );
+    const restored = messageContextStore.resolveByMsgId({
+      accountId: "main",
+      storePath: "/tmp/store.json",
+      conversationId: "cid_dm_extract",
+      msgId: "doc_origin_msg_extract",
+    });
+    expect(restored?.attachmentText).toBe("第一段\n第二段");
+    expect(restored?.attachmentTextSource).toBe("pdf");
+    expect(restored?.attachmentTextTruncated).toBeUndefined();
+    expect(restored?.attachmentFileName).toBe("manual.pdf");
   });
 
   it("handleDingTalkMessage keeps processing when attachment extraction fails", async () => {
@@ -2285,6 +2799,398 @@ describe("inbound-handler", () => {
         },
       }),
     );
+  });
+
+  it("handleDingTalkMessage passes the recovered quoted filename into attachment extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_dm_quoted_doc_name",
+      msgId: "doc_origin_msg_quoted_name",
+      createdAt: Date.now(),
+      messageType: "interactiveCardFile",
+      media: {
+        spaceId: "space_doc_name",
+        fileId: "file_doc_name",
+      },
+      ttlMs: messageContextStore.DEFAULT_MEDIA_CONTEXT_TTL_MS,
+      topic: null,
+    });
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续看这个文档",
+      messageType: "text",
+      quoted: {
+        isQuotedDocCard: true,
+        msgId: "doc_origin_msg_quoted_name",
+        previewFileName: "quoted-manual.pdf",
+      },
+    });
+    shared.downloadGroupFileMock.mockResolvedValueOnce({
+      path: "/tmp/.openclaw/media/inbound/doc-card-quoted.bin",
+      mimeType: "application/octet-stream",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "摘录首段",
+      sourceType: "pdf",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "doc_quote_msg_filename",
+        msgtype: "text",
+        text: { content: "继续看这个文档", isReplyMsg: true },
+        originalMsgId: "doc_origin_msg_quoted_name",
+        conversationType: "1",
+        conversationId: "cid_dm_quoted_doc_name",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/doc-card-quoted.bin",
+      mimeType: "application/octet-stream",
+      fileName: "quoted-manual.pdf",
+    });
+  });
+
+  it("handleDingTalkMessage prefers stored quoted filenames over preview filenames during cached doc extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_dm_cached_doc_name",
+      msgId: "doc_origin_msg_cached_name",
+      createdAt: Date.now(),
+      messageType: "interactiveCardFile",
+      media: {
+        spaceId: "space_doc_cached_name",
+        fileId: "file_doc_cached_name",
+      },
+      attachmentFileName: "stored-manual.pdf",
+      ttlMs: messageContextStore.DEFAULT_MEDIA_CONTEXT_TTL_MS,
+      topic: null,
+    });
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续看这个文档",
+      messageType: "text",
+      quoted: {
+        isQuotedDocCard: true,
+        msgId: "doc_origin_msg_cached_name",
+        previewFileName: "preview-manual.tmp",
+      },
+    });
+    shared.downloadGroupFileMock.mockResolvedValueOnce({
+      path: "/tmp/.openclaw/media/inbound/doc-card-cached.bin",
+      mimeType: "application/octet-stream",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "摘录首段",
+      sourceType: "pdf",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "doc_quote_msg_cached_filename",
+        msgtype: "text",
+        text: { content: "继续看这个文档", isReplyMsg: true },
+        originalMsgId: "doc_origin_msg_cached_name",
+        conversationType: "1",
+        conversationId: "cid_dm_cached_doc_name",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/doc-card-cached.bin",
+      mimeType: "application/octet-stream",
+      fileName: "stored-manual.pdf",
+    });
+  });
+
+  it("handleDingTalkMessage falls back to resolved group filenames for attachment extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "群聊文件",
+      messageType: "text",
+      quoted: {
+        isQuotedFile: true,
+        msgId: "group_file_msg_name",
+        fileCreatedAt: 1772863284581,
+      },
+    });
+    shared.resolveQuotedFileMock.mockResolvedValueOnce({
+      media: {
+        path: "/tmp/.openclaw/media/inbound/group-file.bin",
+        mimeType: "application/octet-stream",
+      },
+      spaceId: "space_group_2",
+      fileId: "dentry_group_2",
+      name: "fallback-name.sql",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "select * from t;",
+      sourceType: "text",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "m_group_file_name",
+        msgtype: "text",
+        text: { content: "群聊文件", isReplyMsg: true },
+        conversationType: "2",
+        conversationId: "cid_group_name",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/group-file.bin",
+      mimeType: "application/octet-stream",
+      fileName: "fallback-name.sql",
+    });
+    const restored = messageContextStore.resolveByMsgId({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_name",
+      msgId: "group_file_msg_name",
+    });
+    expect(restored?.attachmentFileName).toBe("fallback-name.sql");
+  });
+
+  it("handleDingTalkMessage prefers resolved group filenames over preview filenames for quoted file extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "群聊文件",
+      messageType: "text",
+      quoted: {
+        isQuotedFile: true,
+        msgId: "group_file_msg_name_conflict",
+        fileCreatedAt: 1772863284581,
+        previewFileName: "preview-name.tmp",
+      },
+    });
+    shared.resolveQuotedFileMock.mockResolvedValueOnce({
+      media: {
+        path: "/tmp/.openclaw/media/inbound/group-file-conflict.bin",
+        mimeType: "application/octet-stream",
+      },
+      spaceId: "space_group_3",
+      fileId: "dentry_group_3",
+      name: "resolved-name.sql",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "select 1;",
+      sourceType: "text",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "m_group_file_name_conflict",
+        msgtype: "text",
+        text: { content: "群聊文件", isReplyMsg: true },
+        conversationType: "2",
+        conversationId: "cid_group_name_conflict",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/group-file-conflict.bin",
+      mimeType: "application/octet-stream",
+      fileName: "resolved-name.sql",
+    });
+    const restored = messageContextStore.resolveByMsgId({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_name_conflict",
+      msgId: "group_file_msg_name_conflict",
+    });
+    expect(restored?.attachmentFileName).toBe("resolved-name.sql");
+  });
+
+  it("handleDingTalkMessage keeps recovered attachment excerpts alive for old quoted messages", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-20T00:00:00.000Z"));
+    try {
+      const runtime = buildRuntime();
+      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      messageContextStore.clearMessageContextCacheForTest();
+      const oldFileCreatedAt = Date.now() - 40 * 24 * 60 * 60 * 1000;
+      shared.extractMessageContentMock.mockReturnValueOnce({
+        text: "继续这份老文档",
+        messageType: "text",
+        quoted: {
+          isQuotedDocCard: true,
+          msgId: "old_doc_origin_msg",
+          fileCreatedAt: oldFileCreatedAt,
+          previewFileName: "history.pdf",
+        },
+      });
+      shared.resolveQuotedFileMock.mockResolvedValueOnce({
+        media: {
+          path: "/tmp/.openclaw/media/inbound/doc-card-old.bin",
+          mimeType: "application/pdf",
+        },
+        spaceId: "space_old_doc",
+        fileId: "file_old_doc",
+        name: "history.pdf",
+      });
+      shared.extractAttachmentTextMock.mockResolvedValueOnce({
+        text: "老文档首段",
+        sourceType: "pdf",
+        truncated: false,
+      });
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          groupPolicy: "open",
+          messageType: "markdown",
+          robotCode: "robot_1",
+          journalTTLDays: 30,
+        } as any,
+        data: {
+          msgId: "doc_quote_msg_old",
+          msgtype: "text",
+          text: { content: "继续这份老文档", isReplyMsg: true },
+          originalMsgId: "old_doc_origin_msg",
+          conversationType: "2",
+          conversationId: "cid_old_quote_doc",
+          senderId: "user_1",
+          senderStaffId: "staff_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+
+      const restored = messageContextStore.resolveByMsgId({
+        accountId: "main",
+        storePath: "/tmp/store.json",
+        conversationId: "cid_old_quote_doc",
+        msgId: "old_doc_origin_msg",
+        nowMs: Date.now() + 1_000,
+      });
+      expect(restored?.attachmentText).toBe("老文档首段");
+      expect(restored?.attachmentFileName).toBe("history.pdf");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("handleDingTalkMessage prefers resolved group filenames over preview filenames for quoted doc extraction", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.clearMessageContextCacheForTest();
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "群聊文档",
+      messageType: "text",
+      quoted: {
+        isQuotedDocCard: true,
+        msgId: "group_doc_msg_name_conflict",
+        fileCreatedAt: 1772863284581,
+        previewFileName: "preview-doc.tmp",
+      },
+    });
+    shared.resolveQuotedFileMock.mockResolvedValueOnce({
+      media: {
+        path: "/tmp/.openclaw/media/inbound/group-doc-conflict.bin",
+        mimeType: "application/octet-stream",
+      },
+      spaceId: "space_group_doc_3",
+      fileId: "dentry_group_doc_3",
+      name: "resolved-doc.pdf",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "doc body",
+      sourceType: "pdf",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "m_group_doc_name_conflict",
+        msgtype: "text",
+        text: { content: "群聊文档", isReplyMsg: true },
+        conversationType: "2",
+        conversationId: "cid_group_doc_name_conflict",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.extractAttachmentTextMock).toHaveBeenCalledWith({
+      path: "/tmp/.openclaw/media/inbound/group-doc-conflict.bin",
+      mimeType: "application/octet-stream",
+      fileName: "resolved-doc.pdf",
+    });
+    const restored = messageContextStore.resolveByMsgId({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_doc_name_conflict",
+      msgId: "group_doc_msg_name_conflict",
+    });
+    expect(restored?.attachmentFileName).toBe("resolved-doc.pdf");
   });
 
   it("handleDingTalkMessage degrades quoted doc card when cached metadata is unavailable", async () => {
@@ -2499,18 +3405,13 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "✅ Done",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m6",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m6",
       },
-    );
+    });
   });
 
   it("handleDingTalkMessage falls back to markdown sends when createAICard returns null", async () => {
@@ -2575,18 +3476,13 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "✅ Done",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m6_tool",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m6_tool",
       },
-    );
+    });
     expect(shared.sendMessageMock.mock.calls[0]?.[3]?.quotedRef).toBeUndefined();
     expect(shared.sendMessageMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -2878,18 +3774,13 @@ describe("inbound-handler", () => {
         },
       }),
     );
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
-      card,
-      "final output",
-      undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m_card_media_text",
-        },
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "final output", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m_card_media_text",
       },
-    );
+    });
   });
 
   it("deliver callback falls back to proactive media send when sessionWebhook is absent", async () => {
@@ -3049,9 +3940,67 @@ describe("inbound-handler", () => {
       expect(mockedAxiosPost.mock.invocationCallOrder[0]).toBeLessThan(
         shared.acquireSessionLockMock.mock.invocationCallOrder[0],
       );
-      expect(releaseFn.mock.invocationCallOrder[0]).toBeLessThan(
-        mockedAxiosPost.mock.invocationCallOrder[1],
+      expect(mockedAxiosPost.mock.invocationCallOrder[1]).toBeLessThan(
+        releaseFn.mock.invocationCallOrder[0],
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases session lock after a bounded wait when dynamic ack cleanup stalls", async () => {
+    vi.useFakeTimers();
+    const releaseFn = vi.fn();
+    const debugLog = vi.fn();
+    let resolveRecall: (() => void) | undefined;
+    shared.acquireSessionLockMock.mockResolvedValueOnce(releaseFn);
+    mockedAxiosPost
+      .mockResolvedValueOnce({ data: { success: true } } as any)
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => {
+          resolveRecall = resolve;
+        }),
+      );
+
+    try {
+      const handlePromise = handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: { debug: debugLog, warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          dmPolicy: "open",
+          messageType: "markdown",
+          ackReaction: "🤔思考中",
+        } as any,
+        data: {
+          msgId: "m5_cleanup_timeout",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+
+      await vi.advanceTimersByTimeAsync(1700);
+      await handlePromise;
+
+      expect(releaseFn).toHaveBeenCalledTimes(1);
+      expect(
+        debugLog.mock.calls.some(([message]) =>
+          typeof message === "string"
+          && message.includes("Dynamic ack reaction cleanup timed out after 500ms"),
+        ),
+      ).toBe(true);
+
+      resolveRecall?.();
+      await vi.runOnlyPendingTimersAsync();
     } finally {
       vi.useRealTimers();
     }
@@ -3213,7 +4162,7 @@ describe("inbound-handler", () => {
     }
   });
 
-  it("handleDingTalkMessage classifies emoji reaction when ackReaction=emoji", async () => {
+  it("handleDingTalkMessage attaches the fixed thinking reaction when ackReaction=emoji", async () => {
     vi.useFakeTimers();
     mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
@@ -3254,11 +4203,11 @@ describe("inbound-handler", () => {
         expect.objectContaining({
           openMsgId: "m5_emoji_ackreaction",
           openConversationId: "cid_ok",
-          emotionName: "叽 (๑•̀ㅂ•́)و✧",
+          emotionName: "🤔思考中",
           textEmotion: expect.objectContaining({
             emotionId: "2659900",
-            emotionName: "叽 (๑•̀ㅂ•́)و✧",
-            text: "叽 (๑•̀ㅂ•́)و✧",
+            emotionName: "🤔思考中",
+            text: "🤔思考中",
           }),
         }),
         expect.any(Object),
@@ -3269,10 +4218,137 @@ describe("inbound-handler", () => {
         expect.objectContaining({
           openMsgId: "m5_emoji_ackreaction",
           openConversationId: "cid_ok",
+          emotionName: "🤔思考中",
+        }),
+        expect.any(Object),
+      );
+    } finally {
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("handleDingTalkMessage lets kaomoji seed the initial reaction and still switch on tool events", async () => {
+    vi.useFakeTimers();
+    mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    const runtime = buildRuntime();
+    let agentEventListener: ((event: unknown) => void) | undefined;
+    runtime.events = {
+      onAgentEvent: vi.fn((listener: (event: unknown) => void) => {
+        agentEventListener = listener;
+        return () => {
+          agentEventListener = undefined;
+        };
+      }),
+    } as any;
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        agentEventListener?.({
+          stream: "lifecycle",
+          data: {
+            phase: "start",
+            runId: "run_kaomoji",
+          },
+        });
+        agentEventListener?.({
+          stream: "tool",
+          data: {
+            phase: "start",
+            name: "exec",
+            args: { cmd: "pwd" },
+            runId: "run_kaomoji",
+            toolCallId: "tool_1",
+          },
+        });
+        await replyOptions?.onReasoningStream?.({ text: "thinking" });
+        await dispatcherOptions.deliver({ text: "final output" }, { kind: "final" });
+        return { queuedFinal: "queued final" };
+      });
+    shared.getRuntimeMock.mockReturnValue(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "你真棒，快夸夸我",
+      messageType: "text",
+    });
+
+    try {
+      const handlePromise = handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          dmPolicy: "open",
+          messageType: "markdown",
+          ackReaction: "kaomoji",
+        } as any,
+        data: {
+          msgId: "m5_kaomoji_ackreaction",
+          msgtype: "text",
+          text: { content: "你真棒，快夸夸我" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+      await vi.advanceTimersByTimeAsync(1200);
+      await handlePromise;
+
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        1,
+        "https://api.dingtalk.com/v1.0/robot/emotion/reply",
+        expect.objectContaining({
+          openMsgId: "m5_kaomoji_ackreaction",
+          openConversationId: "cid_ok",
+          emotionName: "叽 (๑•̀ㅂ•́)و✧",
+          textEmotion: expect.objectContaining({
+            emotionName: "叽 (๑•̀ㅂ•́)و✧",
+            text: "叽 (๑•̀ㅂ•́)و✧",
+          }),
+        }),
+        expect.any(Object),
+      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        2,
+        "https://api.dingtalk.com/v1.0/robot/emotion/recall",
+        expect.objectContaining({
+          openMsgId: "m5_kaomoji_ackreaction",
+          openConversationId: "cid_ok",
           emotionName: "叽 (๑•̀ㅂ•́)و✧",
         }),
         expect.any(Object),
       );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        3,
+        "https://api.dingtalk.com/v1.0/robot/emotion/reply",
+        expect.objectContaining({
+          openMsgId: "m5_kaomoji_ackreaction",
+          openConversationId: "cid_ok",
+          emotionName: "🛠️",
+          textEmotion: expect.objectContaining({
+            emotionName: "🛠️",
+            text: "🛠️",
+          }),
+        }),
+        expect.any(Object),
+      );
+      expect(mockedAxiosPost).toHaveBeenNthCalledWith(
+        4,
+        "https://api.dingtalk.com/v1.0/robot/emotion/recall",
+        expect.objectContaining({
+          openMsgId: "m5_kaomoji_ackreaction",
+          openConversationId: "cid_ok",
+          emotionName: "🛠️",
+        }),
+        expect.any(Object),
+      );
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(4);
     } finally {
       randomSpy.mockRestore();
       vi.useRealTimers();
@@ -3455,10 +4531,11 @@ describe("inbound-handler", () => {
   });
 
   it("handleDingTalkMessage continues when native ack reaction attach fails", async () => {
-    mockedAxiosPost.mockRejectedValueOnce(new Error("reaction failed"));
+    vi.useFakeTimers();
+    mockedAxiosPost.mockRejectedValue(new Error("reaction failed"));
 
-    await expect(
-      handleDingTalkMessage({
+    try {
+      const handlePromise = handleDingTalkMessage({
         cfg: {},
         accountId: "main",
         sessionWebhook: "https://session.webhook",
@@ -3481,64 +4558,74 @@ describe("inbound-handler", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as any),
-    ).resolves.toBeUndefined();
+      } as any);
 
-    expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
-    const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ""));
-    expect(sentTexts.some((text: string) => text.includes("思考中"))).toBe(false);
+      await vi.runAllTimersAsync();
+      await expect(handlePromise).resolves.toBeUndefined();
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      expect(
+        mockedAxiosPost.mock.calls.every((call) =>
+          String(call[0] || "").includes("/robot/emotion/reply"),
+        ),
+      ).toBe(true);
+      const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ""));
+      expect(sentTexts.some((text: string) => text.includes("思考中"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("handleDingTalkMessage does not recall when native ack reaction attach fails", async () => {
     vi.useFakeTimers();
-    mockedAxiosPost.mockRejectedValueOnce(new Error("reaction failed"));
+    mockedAxiosPost.mockRejectedValue(new Error("reaction failed"));
 
     try {
-      await expect(
-        handleDingTalkMessage({
-          cfg: {},
-          accountId: "main",
+      const handlePromise = handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          dmPolicy: "open",
+          messageType: "markdown",
+          ackReaction: "🤔思考中",
+        } as any,
+        data: {
+          msgId: "m5_reaction_fail_no_recall",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
           sessionWebhook: "https://session.webhook",
-          log: undefined,
-          dingtalkConfig: {
-            clientId: "ding_client",
-            clientSecret: "secret",
-            dmPolicy: "open",
-            messageType: "markdown",
-            ackReaction: "🤔思考中",
-          } as any,
-          data: {
-            msgId: "m5_reaction_fail_no_recall",
-            msgtype: "text",
-            text: { content: "hello" },
-            conversationType: "1",
-            conversationId: "cid_ok",
-            senderId: "user_1",
-            chatbotUserId: "bot_1",
-            sessionWebhook: "https://session.webhook",
-            createAt: Date.now(),
-          },
-        } as any),
-      ).resolves.toBeUndefined();
+          createAt: Date.now(),
+        },
+      } as any);
 
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.runAllTimersAsync();
+      await expect(handlePromise).resolves.toBeUndefined();
 
-      expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
-      expect(mockedAxiosPost).toHaveBeenCalledWith(
-        "https://api.dingtalk.com/v1.0/robot/emotion/reply",
-        expect.any(Object),
-        expect.any(Object),
-      );
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      expect(
+        mockedAxiosPost.mock.calls.every((call) =>
+          String(call[0] || "").includes("/robot/emotion/reply"),
+        ),
+      ).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("handleDingTalkMessage does not fall back to standalone thinking message when reaction attach fails", async () => {
-    mockedAxiosPost.mockRejectedValueOnce(new Error("reaction failed"));
+    vi.useFakeTimers();
+    mockedAxiosPost.mockRejectedValue(new Error("reaction failed"));
 
-    await expect(
-      handleDingTalkMessage({
+    try {
+      const handlePromise = handleDingTalkMessage({
         cfg: {},
         accountId: "main",
         sessionWebhook: "https://session.webhook",
@@ -3561,12 +4648,132 @@ describe("inbound-handler", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as any),
-    ).resolves.toBeUndefined();
+      } as any);
 
-    expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
-    const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ""));
-    expect(sentTexts.some((text: string) => text.includes("思考中"))).toBe(false);
+      await vi.runAllTimersAsync();
+      await expect(handlePromise).resolves.toBeUndefined();
+
+      expect(mockedAxiosPost).toHaveBeenCalledTimes(3);
+      const sentTexts = shared.sendMessageMock.mock.calls.map((call: any[]) => String(call[2] ?? ""));
+      expect(sentTexts.some((text: string) => text.includes("思考中"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not update the main-session last route for group inbound messages", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_group_1"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_group_last_route",
+        msgtype: "text",
+        text: { content: "hello group" },
+        conversationType: "2",
+        conversationId: "cid_group_1",
+        conversationTitle: "group-title",
+        senderId: "user_1",
+        senderNick: "Alice",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: undefined,
+      }),
+    );
+  });
+
+  it("does not update the main-session last route for non-owner direct messages when a main owner is pinned", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: { session: { dmScope: "main" } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        allowFrom: ["owner_user"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_dm_non_owner_last_route",
+        msgtype: "text",
+        text: { content: "hello direct" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "other_user",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: undefined,
+      }),
+    );
+  });
+
+  it("updates the main-session last route for the pinned owner direct message", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: { session: { dmScope: "main" } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        allowFrom: ["owner_user"],
+        messageType: "markdown",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_dm_owner_last_route",
+        msgtype: "text",
+        text: { content: "hello owner" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "owner_user",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.session.recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "s1",
+        updateLastRoute: {
+          sessionKey: "s1",
+          channel: "dingtalk",
+          to: "owner_user",
+          accountId: "main",
+        },
+      }),
+    );
   });
 
   it("handleDingTalkMessage ignores thinking and tool card updates when card is already finalized", async () => {
@@ -5782,5 +6989,123 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     // Card finalization succeeded despite @mention failure
+  });
+
+  it("handleDingTalkMessage drops message when groupPolicy is disabled", async () => {
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "disabled" } as any,
+      data: {
+        msgId: "m_disabled",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_any",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+    expect(shared.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("handleDingTalkMessage allows group listed in groups config (allowlist)", async () => {
+    const rt = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        groups: { cid_allowed: {} },
+      } as any,
+      data: {
+        msgId: "m_group_ok",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_allowed",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should not send deny message
+    const denyCalls = shared.sendBySessionMock.mock.calls.filter(
+      (call: any[]) => typeof call[2] === "string" && call[2].includes("访问受限"),
+    );
+    expect(denyCalls.length).toBe(0);
+  });
+
+  it("handleDingTalkMessage blocks sender not in groupAllowFrom", async () => {
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "open",
+        groupAllowFrom: ["user_ok"],
+      } as any,
+      data: {
+        msgId: "m_sender_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_any",
+        senderId: "user_blocked",
+        senderStaffId: "user_blocked",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("访问受限");
+  });
+
+  it("handleDingTalkMessage legacy fallback: allowFrom with groupId still works (allowlist)", async () => {
+    const rt = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_legacy"],
+      } as any,
+      data: {
+        msgId: "m_legacy",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "2",
+        conversationId: "cid_legacy",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should NOT be blocked
+    const denyCalls = shared.sendBySessionMock.mock.calls.filter(
+      (call: any[]) => typeof call[2] === "string" && call[2].includes("访问受限"),
+    );
+    expect(denyCalls.length).toBe(0);
   });
 });

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store";
 
+const AckReactionSchema = z.union([
+  z.literal(""),
+  z.enum(["off", "emoji", "kaomoji"]),
+  z.string().min(1),
+]);
+
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
   name: z.string().optional(),
@@ -26,19 +32,22 @@ const DingTalkAccountConfigShape = {
   /** Direct message policy: open, pairing, or allowlist */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 
-  /** Group message policy: open or allowlist */
-  groupPolicy: z.enum(["open", "allowlist"]).optional().default("open"),
+  /** Group message policy: open, allowlist, or disabled */
+  groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional().default("open"),
 
   /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
+
+  /** List of allowed user IDs for group allowlist policy */
+  groupAllowFrom: z.array(z.string()).optional(),
 
   /** Default disabled. Enabling "all" allows learned displayName lookup but may misroute on stale/duplicate names and is available to all callers until upstream exposes requester authz context. */
   displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
 
   mediaUrlAllowlist: z.array(z.string()).optional(),
 
-  /** Official OpenClaw ackReaction entry for processing feedback; empty string disables it */
-  ackReaction: z.string().optional(),
+  /** Native ack reaction mode: off, emoji, or kaomoji */
+  ackReaction: AckReactionSchema.optional(),
 
   journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
   /** Enable debug logging */
@@ -65,6 +74,8 @@ const DingTalkAccountConfigShape = {
       z.string(),
       z.object({
         systemPrompt: z.string().optional(),
+        requireMention: z.boolean().optional(),
+        groupAllowFrom: z.array(z.string()).optional(),
       }),
     )
     .optional(),

@@ -15,6 +15,7 @@ import {
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveGroupConfig,
   resolveRelativePath,
   stripTargetPrefix,
 } from "./config";
@@ -346,7 +347,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     id: "dingtalk",
     label: "DingTalk",
     selectionLabel: "DingTalk (钉钉)",
-    docsPath: "/channels/dingtalk",
+    docsPath: "https://github.com/soimy/openclaw-channel-dingtalk",
     blurb: "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
     aliases: ["dd", "ding"],
   },
@@ -405,7 +406,16 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     }),
   },
   groups: {
-    resolveRequireMention: ({ cfg }: any): boolean => getConfig(cfg).groupPolicy !== "open",
+    resolveRequireMention: ({ cfg, groupId }: any): boolean => {
+      const config = getConfig(cfg);
+      if (groupId) {
+        const groupCfg = resolveGroupConfig(config, groupId);
+        if (groupCfg?.requireMention !== undefined) {
+          return groupCfg.requireMention;
+        }
+      }
+      return config.groupPolicy !== "open";
+    },
     resolveGroupIntroHint: ({ groupId, groupChannel }: any): string | undefined => {
       const parts = [`conversationId=${groupId}`];
       if (groupChannel) {
@@ -705,6 +715,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             if (!dedupKey) {
               ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
               stats.noMessageId += 1;
+              acknowledge();
               await handleDingTalkMessage({
                 cfg,
                 accountId: account.accountId,
@@ -714,7 +725,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 dingtalkConfig: config,
               });
               stats.processed += 1;
-              acknowledge();
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(ctx.log, account.accountId, "periodic");
               }
@@ -741,11 +751,13 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
                 );
                 stats.inflightSkipped += 1;
+                acknowledge();
                 logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
                 return;
               }
             }
 
+            acknowledge();
             processingDedupKeys.set(dedupKey, Date.now());
             try {
               await handleDingTalkMessage({
@@ -758,7 +770,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               });
               stats.processed += 1;
               markMessageProcessed(dedupKey);
-              acknowledge();
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(ctx.log, account.accountId, "periodic");
               }

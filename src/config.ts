@@ -145,7 +145,7 @@ export const resolveUserPath = resolveRelativePath;
 export function resolveGroupConfig(
   cfg: DingTalkConfig,
   groupId: string,
-): { systemPrompt?: string } | undefined {
+): { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] } | undefined {
   // Group config supports exact match first, then wildcard fallback.
   const groups = cfg.groups;
   if (!groups) {
@@ -169,6 +169,30 @@ function resolveAgentIdentityEmoji(cfg: OpenClawConfig, agentId?: string | null)
   return emoji || undefined;
 }
 
+function normalizeAckReactionValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "off") {
+    return "off";
+  }
+  if (normalized === "emoji") {
+    return "emoji";
+  }
+  if (normalized === "kaomoji") {
+    return "kaomoji";
+  }
+  if (trimmed === "🤔思考中") {
+    return "emoji";
+  }
+  return trimmed;
+}
+
 export function resolveAckReactionSetting(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
@@ -182,15 +206,15 @@ export function resolveAckReactionSetting(params: {
       : undefined;
 
   if (hasOwn(accountConfig, "ackReaction")) {
-    return typeof accountConfig.ackReaction === "string" ? accountConfig.ackReaction.trim() : "";
+    return normalizeAckReactionValue(accountConfig.ackReaction);
   }
   if (hasOwn(dingtalk, "ackReaction")) {
-    return typeof dingtalk.ackReaction === "string" ? dingtalk.ackReaction.trim() : "";
+    return normalizeAckReactionValue(dingtalk.ackReaction);
   }
 
   const messages = (params.cfg as any)?.messages;
   if (hasOwn(messages, "ackReaction")) {
-    return typeof messages.ackReaction === "string" ? messages.ackReaction.trim() : "";
+    return normalizeAckReactionValue(messages.ackReaction);
   }
 
   return resolveAgentIdentityEmoji(params.cfg, params.agentId) || "👀";

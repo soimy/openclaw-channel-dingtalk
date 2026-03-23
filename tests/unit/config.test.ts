@@ -29,6 +29,35 @@ describe('config helpers', () => {
             const cfg = {} as any;
             expect(resolveGroupConfig(cfg, 'cid_any')).toBeUndefined();
         });
+
+        it('returns requireMention from specific group', () => {
+            const cfg = {
+                groups: {
+                    'cidXXX': { requireMention: false },
+                    '*': { requireMention: true },
+                },
+            } as any;
+            expect(resolveGroupConfig(cfg, 'cidXXX')?.requireMention).toBe(false);
+        });
+
+        it('falls back to wildcard when group not found', () => {
+            const cfg = {
+                groups: { '*': { requireMention: true } },
+            } as any;
+            expect(resolveGroupConfig(cfg as any, 'cidOTHER')?.requireMention).toBe(true);
+        });
+
+        it('preserves systemPrompt alongside new fields', () => {
+            const cfg = {
+                groups: {
+                    'cidXXX': { systemPrompt: 'hello', requireMention: true, groupAllowFrom: ['u1'] },
+                },
+            } as any;
+            const result = resolveGroupConfig(cfg, 'cidXXX');
+            expect(result?.systemPrompt).toBe('hello');
+            expect(result?.requireMention).toBe(true);
+            expect(result?.groupAllowFrom).toEqual(['u1']);
+        });
     });
 
     describe('resolveRelativePath', () => {

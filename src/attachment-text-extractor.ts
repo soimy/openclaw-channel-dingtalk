@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { AttachmentTextSource } from "./types";
 
 const MAX_EXTRACTED_TEXT_CHARS = 6000;
 const MAX_ATTACHMENT_EXTRACT_BYTES = 2 * 1024 * 1024;
@@ -13,7 +14,7 @@ export interface AttachmentTextExtractionInput {
 export interface AttachmentTextExtractionResult {
   text: string;
   truncated: boolean;
-  sourceType: "text" | "html" | "pdf" | "docx";
+  sourceType: AttachmentTextSource;
 }
 
 async function isFileTooLarge(filePath: string): Promise<boolean> {

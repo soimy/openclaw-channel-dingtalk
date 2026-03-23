@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
-import type { Logger, QuotedRef } from "./types";
+import type { AttachmentTextSource, Logger, QuotedRef } from "./types";
 
 const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
 const MESSAGE_CONTEXT_VERSION = 1;
@@ -25,6 +25,10 @@ export interface MessageRecord {
   expiresAt?: number;
   messageType?: string;
   text?: string;
+  attachmentText?: string;
+  attachmentTextSource?: AttachmentTextSource;
+  attachmentTextTruncated?: boolean;
+  attachmentFileName?: string;
   quotedRef?: QuotedRef;
   senderId?: string;
   senderName?: string;
@@ -70,6 +74,10 @@ interface BaseUpsertParams {
   topic?: string | null;
   messageType?: string;
   text?: string;
+  attachmentText?: string;
+  attachmentTextSource?: AttachmentTextSource;
+  attachmentTextTruncated?: boolean;
+  attachmentFileName?: string;
   quotedRef?: QuotedRef;
   senderId?: string;
   senderName?: string;
@@ -184,6 +192,12 @@ function normalizeQuotedRef(value: unknown): QuotedRef | undefined {
   };
 }
 
+function normalizeAttachmentTextSource(value: unknown): AttachmentTextSource | undefined {
+  return value === "text" || value === "html" || value === "pdf" || value === "docx"
+    ? value
+    : undefined;
+}
+
 function normalizeDelivery(value: unknown): MessageRecord["delivery"] | undefined {
   const candidate = asRecord(value);
   if (!candidate) {
@@ -254,6 +268,11 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
     expiresAt,
     messageType: typeof candidate.messageType === "string" ? candidate.messageType : undefined,
     text: typeof candidate.text === "string" ? candidate.text : undefined,
+    attachmentText: typeof candidate.attachmentText === "string" ? candidate.attachmentText : undefined,
+    attachmentTextSource: normalizeAttachmentTextSource(candidate.attachmentTextSource),
+    attachmentTextTruncated: candidate.attachmentTextTruncated === true ? true : undefined,
+    attachmentFileName:
+      typeof candidate.attachmentFileName === "string" ? candidate.attachmentFileName : undefined,
     quotedRef: normalizeQuotedRef(candidate.quotedRef),
     senderId: typeof candidate.senderId === "string" && candidate.senderId.trim() ? candidate.senderId.trim() : undefined,
     senderName: typeof candidate.senderName === "string" && candidate.senderName.trim() ? candidate.senderName.trim() : undefined,
@@ -396,6 +415,13 @@ function mergeText(existing: string | undefined, next: string | undefined): stri
   return next;
 }
 
+function mergeAttachmentText(existing: string | undefined, next: string | undefined): string | undefined {
+  if (typeof next !== "string") {
+    return existing;
+  }
+  return next;
+}
+
 function mergeQuotedRef(existing: QuotedRef | undefined, next: QuotedRef | undefined): QuotedRef | undefined {
   if (!existing) {
     return next;
@@ -460,6 +486,27 @@ function mergeDelivery(
     cardInstanceId: next.cardInstanceId || existing.cardInstanceId,
     kind: next.kind || existing.kind,
   };
+}
+
+function mergeAttachmentTextSource(
+  existing: AttachmentTextSource | undefined,
+  next: AttachmentTextSource | undefined,
+): AttachmentTextSource | undefined {
+  return next ?? existing;
+}
+
+function mergeAttachmentTextTruncated(
+  existing: boolean | undefined,
+  next: boolean | undefined,
+): boolean | undefined {
+  return next === undefined ? existing : next;
+}
+
+function mergeAttachmentFileName(existing: string | undefined, next: string | undefined): string | undefined {
+  if (typeof next !== "string") {
+    return existing;
+  }
+  return next;
 }
 
 function resolveExistingMsgId(
@@ -545,6 +592,10 @@ function upsertRecord(
     ttlReferenceMs?: number;
     messageType?: string;
     text?: string;
+    attachmentText?: string;
+    attachmentTextSource?: AttachmentTextSource;
+    attachmentTextTruncated?: boolean;
+    attachmentFileName?: string;
     quotedRef?: QuotedRef;
     senderId?: string;
     senderName?: string;
@@ -592,6 +643,19 @@ function upsertRecord(
         : Math.max(expiresAt, existing?.expiresAt ?? 0),
     messageType: params.messageType || existing?.messageType,
     text: mergeText(existing?.text, params.text),
+    attachmentText: mergeAttachmentText(existing?.attachmentText, params.attachmentText),
+    attachmentTextSource: mergeAttachmentTextSource(
+      existing?.attachmentTextSource,
+      params.attachmentTextSource,
+    ),
+    attachmentTextTruncated: mergeAttachmentTextTruncated(
+      existing?.attachmentTextTruncated,
+      params.attachmentTextTruncated,
+    ),
+    attachmentFileName: mergeAttachmentFileName(
+      existing?.attachmentFileName,
+      params.attachmentFileName,
+    ),
     quotedRef: mergeQuotedRef(existing?.quotedRef, normalizedQuotedRef),
     senderId: mergeStringField(existing?.senderId, params.senderId),
     senderName: mergeStringField(existing?.senderName, params.senderName),

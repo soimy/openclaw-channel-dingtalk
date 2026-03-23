@@ -2,6 +2,10 @@
 node_modules/
 package-lock.json
 
+# worktree
+.worktrees
+.worktree
+
 # Build files
 dist/
 coverage/

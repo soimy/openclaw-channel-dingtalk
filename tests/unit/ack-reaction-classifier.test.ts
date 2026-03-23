@@ -38,6 +38,15 @@ describe('ack-reaction-classifier', () => {
         }
     });
 
+    it('does not return the known unsupported kaomoji for command content', () => {
+        const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.7);
+        try {
+            expect(classifyAckReactionEmoji('马上去处理').emoji).not.toBe('叽 ┌（┌ *｀д´）┐');
+        } finally {
+            randomSpy.mockRestore();
+        }
+    });
+
     it('classifies request content into request emoji set', () => {
         const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
         try {
