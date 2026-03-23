@@ -7,6 +7,7 @@ import {
     cleanupExpiredMessageContexts,
     clearMessageContextCacheForTest,
     createSyntheticOutboundMsgId,
+    listKnownMessageContextScopes,
     listMessageContexts,
     resolveByAlias,
     resolveByCreatedAtWindow,
@@ -231,6 +232,34 @@ describe('message-context-store', () => {
             chatType: 'group',
             quotedMessageId: 'quoted_1',
         }));
+    });
+
+    it('lists known conversation scopes from persisted message contexts', () => {
+        const now = Date.now();
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_scope_1',
+            msgId: 'msg_scope_1',
+            createdAt: now - 2_000,
+            updatedAt: now - 1_000,
+            messageType: 'text',
+            text: 'hello',
+            chatType: 'group',
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        expect(listKnownMessageContextScopes({
+            storePath,
+            accountId: 'main',
+        })).toEqual([
+            {
+                conversationId: 'cid_scope_1',
+                chatType: 'group',
+                updatedAt: now - 1_000,
+            },
+        ]);
     });
     it('resolves outbound card content by processQueryKey alias and createdAt fallback', () => {
         upsertOutboundMessageContext({

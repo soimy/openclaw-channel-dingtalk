@@ -1,8 +1,11 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
 import type { AttachmentTextSource, Logger, QuotedRef } from "./types";
 
 const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
+const PERSISTENCE_ROOT_DIR = "dingtalk-state";
 const MESSAGE_CONTEXT_VERSION = 1;
 export const DEFAULT_MESSAGE_CONTEXT_TTL_DAYS = 7;
 export const DEFAULT_CARD_CONTENT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -111,6 +114,14 @@ const stateCache = new Map<string, MessageContextState>();
 
 function getScopeKey(params: ScopeParams): string {
   return JSON.stringify([params.storePath || "__memory__", params.accountId, params.conversationId || null]);
+}
+
+function decodeScopeValue(value: string): string | undefined {
+  try {
+    return Buffer.from(value, "base64url").toString("utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 function fallbackState(): MessageContextState {
@@ -846,4 +857,80 @@ export function listMessageContexts(
   return state.recentByCreatedAt
     .map((msgId) => state.records[msgId])
     .filter((record): record is MessageRecord => Boolean(record) && !isRecordExpired(record, nowMs));
+}
+
+export function listKnownMessageContextScopes(params: {
+  storePath?: string;
+  accountId: string;
+  nowMs?: number;
+}): Array<{ conversationId: string; chatType?: "direct" | "group"; updatedAt: number }> {
+  const nowMs = params.nowMs ?? Date.now();
+  const results = new Map<string, { conversationId: string; chatType?: "direct" | "group"; updatedAt: number }>();
+  const addScope = (conversationId: string, chatType: "direct" | "group" | undefined, updatedAt: number) => {
+    const normalizedConversationId = conversationId.trim();
+    if (!normalizedConversationId) {
+      return;
+    }
+    const existing = results.get(normalizedConversationId);
+    if (!existing || existing.updatedAt < updatedAt) {
+      results.set(normalizedConversationId, {
+        conversationId: normalizedConversationId,
+        chatType,
+        updatedAt,
+      });
+    }
+  };
+
+  for (const [scopeKey, state] of stateCache.entries()) {
+    const [storeKey, accountId, conversationId] = JSON.parse(scopeKey) as [string, string, string | null];
+    if (accountId !== params.accountId || !conversationId) {
+      continue;
+    }
+    if ((params.storePath || "__memory__") !== storeKey) {
+      continue;
+    }
+    const records = state.recentByCreatedAt
+      .map((msgId) => state.records[msgId])
+      .filter((record): record is MessageRecord => Boolean(record) && !isRecordExpired(record, nowMs));
+    const latestRecord = records.at(-1);
+    addScope(conversationId, latestRecord?.chatType, latestRecord?.updatedAt ?? state.updatedAt ?? nowMs);
+  }
+
+  if (!params.storePath) {
+    return [...results.values()].toSorted((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  const persistenceDir = path.join(path.dirname(params.storePath), PERSISTENCE_ROOT_DIR);
+  if (!fs.existsSync(persistenceDir)) {
+    return [...results.values()].toSorted((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  const accountToken = Buffer.from(params.accountId, "utf8").toString("base64url");
+  const prefix = `${MESSAGE_CONTEXT_NAMESPACE}.account-${accountToken}.conversation-`;
+  for (const fileName of fs.readdirSync(persistenceDir)) {
+    if (!fileName.startsWith(prefix) || !fileName.endsWith(".json")) {
+      continue;
+    }
+    const encodedConversationId = fileName.slice(prefix.length, -".json".length);
+    const conversationId = decodeScopeValue(encodedConversationId);
+    if (!conversationId) {
+      continue;
+    }
+    if (results.has(conversationId)) {
+      continue;
+    }
+    const records = listMessageContexts({
+      storePath: params.storePath,
+      accountId: params.accountId,
+      conversationId,
+      nowMs,
+    });
+    if (records.length === 0) {
+      continue;
+    }
+    const latestRecord = records.at(-1);
+    addScope(conversationId, latestRecord?.chatType, latestRecord?.updatedAt ?? nowMs);
+  }
+
+  return [...results.values()].toSorted((left, right) => right.updatedAt - left.updatedAt);
 }

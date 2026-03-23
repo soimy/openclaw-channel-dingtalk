@@ -226,4 +226,60 @@ describe("group-history-store", () => {
     expect(slices).toHaveLength(1);
     expect(slices[0]?.conversation.chatType).toBe("direct");
   });
+
+  it("includes message-context conversations even when target directory has no entry", () => {
+    const now = Date.now();
+    upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_orphan_group",
+      msgId: "orphan_1",
+      createdAt: now - 2_000,
+      updatedAt: now - 1_000,
+      messageType: "text",
+      text: "历史群消息",
+      senderId: "user_orphan",
+      senderName: "旧成员",
+      chatType: "group",
+      ttlMs: 60_000,
+      topic: null,
+    });
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      chatType: "group",
+    });
+
+    expect(slices).toHaveLength(1);
+    expect(slices[0]?.conversation.conversationId).toBe("cid_orphan_group");
+    expect(slices[0]?.conversation.chatType).toBe("group");
+  });
+
+  it("prefers record-backed direct chatType for unknown cid-prefixed conversation filters", () => {
+    const now = Date.now();
+    upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_dm_unknown",
+      msgId: "dm_unknown_1",
+      createdAt: now - 1_000,
+      messageType: "text",
+      text: "未知 direct 会话",
+      senderId: "user_dm",
+      senderName: "私聊用户",
+      chatType: "direct",
+      ttlMs: 60_000,
+      topic: null,
+    });
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      conversationIds: ["cid_dm_unknown"],
+    });
+
+    expect(slices).toHaveLength(1);
+    expect(slices[0]?.conversation.chatType).toBe("direct");
+  });
 });

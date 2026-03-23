@@ -1,4 +1,5 @@
 import {
+  listKnownMessageContextScopes,
   listMessageContexts,
   type MessageRecord,
 } from "../message-context-store";
@@ -143,11 +144,30 @@ function listConversationCandidates(params: {
       }
     }
   }
+  for (const scope of listKnownMessageContextScopes({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  })) {
+    if (params.chatType && scope.chatType && params.chatType !== scope.chatType) {
+      continue;
+    }
+    results.push({
+      conversationId: scope.conversationId,
+      chatType: scope.chatType || "direct",
+      title: scope.conversationId,
+      updatedAt: scope.updatedAt,
+    });
+  }
   return Object.values(
     results.reduce<Record<string, ConversationHistoryIndexEntry>>((acc, entry) => {
       const existing = acc[entry.conversationId];
       if (!existing || existing.updatedAt < entry.updatedAt) {
         acc[entry.conversationId] = entry;
+      } else if (!existing.title && entry.title) {
+        acc[entry.conversationId] = {
+          ...existing,
+          title: entry.title,
+        };
       }
       return acc;
     }, {}),
@@ -228,17 +248,30 @@ export function queryConversationHistory(params: ConversationHistoryQuery): Conv
   const fallbackCandidates = conversationIdSet
     ? [...conversationIdSet]
         .filter((conversationId) => !candidates.some((entry) => entry.conversationId === conversationId))
-        .map((conversationId) => ({
-          conversationId,
-          chatType:
-            resolveKnownConversationChatType({
-              storePath: params.storePath,
-              accountId: params.accountId,
-              conversationId,
-            }) || (conversationId.startsWith("cid") ? "group" as const : "direct" as const),
-          title: conversationId,
-          updatedAt: 0,
-        }))
+        .map((conversationId) => {
+          const sourceEntries = listMessageContexts({
+            storePath: params.storePath,
+            accountId: params.accountId,
+            conversationId,
+          });
+          const recordBackedChatType = sourceEntries
+            .map((record) => record.chatType)
+            .find((value): value is "direct" | "group" => value === "direct" || value === "group");
+          return {
+            conversationId,
+            chatType:
+              recordBackedChatType
+              || resolveKnownConversationChatType({
+                storePath: params.storePath,
+                accountId: params.accountId,
+                conversationId,
+              })
+              || params.chatType
+              || "direct" as const,
+            title: conversationId,
+            updatedAt: sourceEntries.at(-1)?.updatedAt ?? 0,
+          };
+        })
     : [];
 
   return [...candidates, ...fallbackCandidates]
