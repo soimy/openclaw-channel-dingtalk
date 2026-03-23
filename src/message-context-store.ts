@@ -452,6 +452,7 @@ function mergeMentions(existing: string[] | undefined, next: string[] | undefine
   }
   return normalizeMentions(next) || existing;
 }
+
 function mergeMedia(
   existing: MessageRecord["media"] | undefined,
   next: MessageRecord["media"] | undefined,
