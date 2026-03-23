@@ -384,6 +384,7 @@ export interface SendMessageOptions {
   conversationId?: string;
   chatType?: "direct" | "group";
   mediaPath?: string;
+  mediaLocalRoots?: string[];
   filePath?: string;
   mediaUrl?: string;
   mediaType?: "image" | "voice" | "video" | "file";
