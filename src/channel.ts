@@ -76,6 +76,7 @@ function inferTargetChatType(params: {
   target: string;
   storePath?: string;
   accountId?: string;
+  log?: { warn?: (message: string) => void };
 }): "direct" | "group" {
   const { target, storePath, accountId } = params;
   const { targetId, isExplicitUser } = stripTargetPrefix(target);
@@ -91,7 +92,14 @@ function inferTargetChatType(params: {
           conversationId: resolvedTarget,
         })
       : undefined;
-  return knownChatType || (resolvedTarget.startsWith("cid") ? "group" : "direct");
+  if (knownChatType) {
+    return knownChatType;
+  }
+  const inferred = resolvedTarget.startsWith("cid") ? "group" : "direct";
+  (params.log || getLogger())?.warn?.(
+    `[DingTalk] Falling back to heuristic chatType inference for action target ${resolvedTarget}; inferred=${inferred}`,
+  );
+  return inferred;
 }
 
 function resolveActionStorePath(params: {
@@ -312,7 +320,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
           log,
           accountId: accountId ?? undefined,
           storePath,
-          chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined }),
+          chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined, log }),
           mediaLocalRoots,
         });
 
@@ -346,7 +354,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       log,
       accountId: accountId ?? undefined,
       storePath,
-      chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined }),
+      chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined, log }),
     });
 
     if (!result.ok) {
@@ -488,7 +496,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           accountId,
           storePath,
           conversationId: to,
-          chatType: inferTargetChatType({ target: to, storePath, accountId }),
+          chatType: inferTargetChatType({ target: to, storePath, accountId, log }),
         });
         getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         if (!result.ok) {
@@ -598,7 +606,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             accountId,
             storePath,
             conversationId: to,
-            chatType: inferTargetChatType({ target: to, storePath, accountId }),
+            chatType: inferTargetChatType({ target: to, storePath, accountId, log }),
             mediaLocalRoots,
           });
         } catch (err: any) {

@@ -202,6 +202,23 @@ describe('send-service advanced branches', () => {
         expect(logs.some((entry) => entry.includes('proactiveRisk=high:numeric-user-id'))).toBe(true);
     });
 
+    it('warns when chatType falls back to heuristic inference', async () => {
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_warn_1' } } as any);
+        const log = { warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+
+        const result = await sendMessage(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cid_dm_heuristic',
+            'text',
+            { log: log as any, accountId: 'main' } as any,
+        );
+
+        expect(result.ok).toBe(true);
+        expect(log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('Falling back to heuristic chatType inference')
+        );
+    });
+
     it('records proactive API risk observation when permission denied is returned', async () => {
         mockedAxios.mockRejectedValueOnce({
             message: 'forbidden',

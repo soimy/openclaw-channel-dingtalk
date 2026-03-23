@@ -137,6 +137,7 @@ function resolveConversationChatType(params: {
   conversationId: string;
   explicitChatType?: "direct" | "group";
   explicitUserTarget?: boolean;
+  log?: Logger;
 }): "direct" | "group" {
   if (params.explicitChatType) {
     return params.explicitChatType;
@@ -152,7 +153,14 @@ function resolveConversationChatType(params: {
           conversationId: params.conversationId,
         })
       : undefined;
-  return knownChatType || (params.conversationId.startsWith("cid") ? "group" : "direct");
+  if (knownChatType) {
+    return knownChatType;
+  }
+  const inferred = params.conversationId.startsWith("cid") ? "group" : "direct";
+  params.log?.warn?.(
+    `[DingTalk] Falling back to heuristic chatType inference for conversation ${params.conversationId}; inferred=${inferred}`,
+  );
+  return inferred;
 }
 
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
@@ -248,6 +256,9 @@ export async function uploadMedia(
   log?: Logger,
 ): Promise<string | null> {
   const uploaded = await uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  if (typeof uploaded === "string") {
+    return uploaded;
+  }
   return uploaded?.mediaId ?? null;
 }
 
@@ -268,6 +279,7 @@ export async function sendProactiveTextOrMarkdown(
     conversationId: options.conversationId || resolvedTarget,
     explicitChatType: options.chatType,
     explicitUserTarget: isExplicitUser,
+    log,
   });
   const isGroup = chatType === "group";
   const proactiveRisk = options.accountId
@@ -407,6 +419,7 @@ export async function sendProactiveMedia(
       conversationId: options.conversationId || resolvedTarget,
       explicitChatType: options.chatType,
       explicitUserTarget: isExplicitUser,
+      log,
     });
     const isGroup = chatType === "group";
 
@@ -634,6 +647,7 @@ export async function sendMessage(
       accountId: options.accountId,
       conversationId: options.conversationId || conversationId,
       explicitChatType: options.chatType,
+      log,
     });
 
     if (messageType === "card" && options.card && !options.forceMarkdown) {
