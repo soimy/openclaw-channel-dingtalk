@@ -361,4 +361,42 @@ describe('media-utils', () => {
         expect(mediaId).toBe('media_sandbox_2');
         expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: localRoots });
     });
+
+    it('returns null when loadWebMedia returns null (sandbox bridge failure)', async () => {
+        const sandboxPath = '/workspace/missing.png';
+
+        mockLoadWebMedia.mockResolvedValueOnce(null);
+
+        const log = { error: vi.fn(), debug: vi.fn() };
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            log as any,
+        );
+
+        expect(mediaId).toBeNull();
+        expect(log.error).toHaveBeenCalled();
+        const errorMsg = String(log.error.mock.calls[0]?.[0] ?? '');
+        expect(errorMsg).toContain('not found');
+    });
+
+    it('returns null when loadWebMedia returns object without buffer', async () => {
+        const sandboxPath = '/workspace/empty.png';
+
+        mockLoadWebMedia.mockResolvedValueOnce({ fileName: 'empty.png' });
+
+        const log = { error: vi.fn(), debug: vi.fn() };
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            log as any,
+        );
+
+        expect(mediaId).toBeNull();
+        expect(log.error).toHaveBeenCalled();
+    });
 });

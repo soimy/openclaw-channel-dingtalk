@@ -35,13 +35,15 @@ interface PluginRuntimeWithMedia {
 /**
  * Calculate MP3 duration in seconds by parsing MPEG frame headers
  * Supports CBR and VBR MP3 files
- * @param filePath Path to the MP3 file
+ * @param filePathOrBuffer Path to the MP3 file, or a pre-read Buffer
  * @param log Optional logger
  * @returns Duration in seconds (0 if parsing fails)
  */
-export async function getMp3DurationSeconds(filePath: string, log?: Logger): Promise<number> {
+export async function getMp3DurationSeconds(filePathOrBuffer: string | Buffer, log?: Logger): Promise<number> {
   try {
-    const buffer = await fsPromises.readFile(filePath);
+    const buffer = typeof filePathOrBuffer === "string"
+      ? await fsPromises.readFile(filePathOrBuffer)
+      : filePathOrBuffer;
     let offset = 0;
 
     // Skip ID3v2 tag if present
@@ -196,7 +198,7 @@ export async function getMp3DurationSeconds(filePath: string, log?: Logger): Pro
       return Math.floor(duration);
     }
 
-    log?.warn?.(`[DingTalk] Could not parse MP3 duration from ${filePath} (found ${frameCount} frames)`);
+    log?.warn?.(`[DingTalk] Could not parse MP3 duration from ${filePathOrBuffer} (found ${frameCount} frames)`);
     return 0;
   } catch (err: unknown) {
     log?.error?.(`[DingTalk] Failed to get MP3 duration: ${err instanceof Error ? err.message : String(err)}`);
@@ -210,6 +212,7 @@ export async function getVoiceDurationMs(
   filePath: string,
   mediaType: DingTalkMediaType,
   log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
 ): Promise<number> {
   if (mediaType !== "voice") {
     return DEFAULT_VOICE_DURATION_MS;
@@ -218,7 +221,14 @@ export async function getVoiceDurationMs(
   const ext = path.extname(filePath).toLowerCase();
 
   if (ext === ".mp3") {
-    const durationSec = await getMp3DurationSeconds(filePath, log);
+    let durationSec: number;
+    try {
+      // Read via sandbox-aware bridge so container paths resolve correctly
+      const { buffer } = await readMediaBuffer(filePath, options, log);
+      durationSec = await getMp3DurationSeconds(buffer, log);
+    } catch {
+      durationSec = 0;
+    }
     if (durationSec > 0) {
       return Math.max(1, Math.round(durationSec * 1000));
     }
@@ -621,20 +631,6 @@ const FILE_SIZE_LIMITS: Record<DingTalkMediaType, number> = {
   file: 20 * 1024 * 1024, // 20MB
 };
 
-/**
- * Upload media file to DingTalk and get media_id
- * Uses DingTalk's media upload API: https://oapi.dingtalk.com/media/upload
- *
- * Note: Media files are stored temporarily by DingTalk (not in permanent storage).
- * The media_id can be used in subsequent message sends.
- *
- * @param config DingTalk configuration
- * @param mediaPath Local path to the media file
- * @param mediaType Type of media: 'image' | 'voice' | 'video' | 'file'
- * @param getAccessToken Function to get DingTalk access token
- * @param log Optional logger
- * @returns media_id on success, null on failure
- */
 /**
  * Read a media file, resolving sandbox/container paths via the runtime bridge
  * when direct host filesystem access fails.

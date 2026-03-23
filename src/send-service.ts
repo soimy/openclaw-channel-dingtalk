@@ -375,7 +375,9 @@ export async function sendProactiveMedia(
       msgParam = JSON.stringify({ photoURL: mediaId });
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
-      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log);
+      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log, {
+        mediaLocalRoots: options.mediaLocalRoots,
+      });
       msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
@@ -510,7 +512,9 @@ export async function sendBySession(
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
-        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log);
+        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log, {
+          mediaLocalRoots: options.mediaLocalRoots,
+        });
         body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
       } else if (options.mediaType === "video") {
         body = { msgtype: "video", video: { media_id: mediaId } };
