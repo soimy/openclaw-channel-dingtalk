@@ -212,7 +212,7 @@ export async function getVoiceDurationMs(
   filePath: string,
   mediaType: DingTalkMediaType,
   log?: Logger,
-  options?: { mediaLocalRoots?: string[] },
+  options?: { mediaLocalRoots?: string[]; preReadBuffer?: Buffer },
 ): Promise<number> {
   if (mediaType !== "voice") {
     return DEFAULT_VOICE_DURATION_MS;
@@ -223,8 +223,9 @@ export async function getVoiceDurationMs(
   if (ext === ".mp3") {
     let durationSec: number;
     try {
-      // Read via sandbox-aware bridge so container paths resolve correctly
-      const { buffer } = await readMediaBuffer(filePath, options, log);
+      // Reuse pre-read buffer from uploadMedia when available to avoid double read
+      const buffer = options?.preReadBuffer
+        ?? (await readMediaBuffer(filePath, options, log)).buffer;
       durationSec = await getMp3DurationSeconds(buffer, log);
     } catch {
       durationSec = 0;
@@ -682,6 +683,12 @@ async function readMediaBuffer(
   return { buffer, size: buffer.length };
 }
 
+export interface UploadMediaResult {
+  mediaId: string;
+  /** The file buffer read during upload, reusable for voice duration parsing etc. */
+  buffer: Buffer;
+}
+
 export async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
@@ -689,7 +696,7 @@ export async function uploadMedia(
   getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
   log?: Logger,
   options?: { mediaLocalRoots?: string[] },
-): Promise<string | null> {
+): Promise<UploadMediaResult | null> {
   try {
     const token = await getAccessToken(config, log);
 
@@ -728,7 +735,7 @@ export async function uploadMedia(
       log?.debug?.(
         `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${size} bytes)`,
       );
-      return response.data.media_id;
+      return { mediaId: response.data.media_id, buffer };
     } else {
       log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
       return null;

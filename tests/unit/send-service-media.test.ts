@@ -49,7 +49,7 @@ describe('send-service media branches', () => {
     });
 
     it('sendBySession uses native image body when upload succeeds', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_1');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_1', buffer: Buffer.from('img') });
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
@@ -82,7 +82,7 @@ describe('send-service media branches', () => {
     });
 
     it('sendBySession bypasses proxy when configured', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_proxy');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_proxy', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
@@ -111,7 +111,7 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps image payload to sampleImageMsg template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_2');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_2', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
 
         const result = await sendProactiveMedia(
@@ -128,7 +128,7 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_1');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_1', buffer: Buffer.from('data') });
         mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
@@ -146,7 +146,7 @@ describe('send-service media branches', () => {
     });
 
     it('delegates proactive media journaling when storePath is provided', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_2');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_2', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_2' } } as any);
 
         await sendProactiveMedia(
@@ -186,7 +186,7 @@ describe('send-service media branches', () => {
     });
 
     it('persists proactive media fallback text without emoji prefix', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_file_fallback');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_file_fallback', buffer: Buffer.from('data') });
         mockedAxios
             .mockRejectedValueOnce({
                 message: 'upload send failed',
@@ -222,7 +222,7 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia bypasses proxy when configured', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_proxy');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_proxy', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_proxy' } } as any);
 
         await sendProactiveMedia(

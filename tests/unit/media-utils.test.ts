@@ -87,14 +87,15 @@ describe('media-utils', () => {
         const mediaPath = createTempFile(Buffer.from('hello world'));
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_123' } } as any);
 
-        const mediaId = await uploadMedia(
+        const result = await uploadMedia(
             { clientId: 'id', clientSecret: 'sec' } as any,
             mediaPath,
             'file',
             vi.fn().mockResolvedValue('token_abc')
         );
 
-        expect(mediaId).toBe('media_123');
+        expect(result?.mediaId).toBe('media_123');
+        expect(result?.buffer).toEqual(Buffer.from('hello world'));
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
         expect(mockedAxiosPost.mock.calls[0]?.[0]).toContain('access_token=token_abc&type=file');
 
@@ -324,7 +325,7 @@ describe('media-utils', () => {
         });
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_1' } } as any);
 
-        const mediaId = await uploadMedia(
+        const result = await uploadMedia(
             { clientId: 'id', clientSecret: 'sec' } as any,
             sandboxPath,
             'image',
@@ -332,7 +333,7 @@ describe('media-utils', () => {
             { debug: vi.fn() } as any,
         );
 
-        expect(mediaId).toBe('media_sandbox_1');
+        expect(result?.mediaId).toBe('media_sandbox_1');
         expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: undefined });
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
     });
@@ -349,7 +350,7 @@ describe('media-utils', () => {
         });
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_2' } } as any);
 
-        const mediaId = await uploadMedia(
+        const result = await uploadMedia(
             { clientId: 'id', clientSecret: 'sec' } as any,
             sandboxPath,
             'file',
@@ -358,7 +359,7 @@ describe('media-utils', () => {
             { mediaLocalRoots: localRoots },
         );
 
-        expect(mediaId).toBe('media_sandbox_2');
+        expect(result?.mediaId).toBe('media_sandbox_2');
         expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: localRoots });
     });
 
