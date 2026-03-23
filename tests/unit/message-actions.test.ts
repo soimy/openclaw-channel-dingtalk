@@ -228,6 +228,36 @@ describe('dingtalkPlugin.actions.send', () => {
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
+    it('falls back when runtime has not been initialized yet', async () => {
+        getRuntimeMock.mockImplementationOnce(() => {
+            throw new Error('DingTalk runtime not initialized');
+        });
+        sendMessageMock.mockResolvedValueOnce({ ok: true, data: { processQueryKey: 'text_group_1' } });
+
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                message: 'hello group',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            'hello group',
+            expect.objectContaining({
+                accountId: 'default',
+                storePath: undefined,
+                chatType: 'group',
+            })
+        );
+    });
+
     it('rejects asVoice without media path', async () => {
         await expect(
             dingtalkPlugin.actions?.handleAction?.({

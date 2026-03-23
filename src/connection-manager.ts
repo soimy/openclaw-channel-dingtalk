@@ -112,6 +112,18 @@ export class ConnectionManager {
     }
   }
 
+  /**
+   * Resolve all pending waitForStop() callers without performing full stop().
+   * Called by stop() and terminal FAILED states where the manager will never
+   * reconnect again, so startAccount must be allowed to exit.
+   */
+  private resolveStopWaiters(): void {
+    for (const resolve of this.stopPromiseResolvers) {
+      resolve();
+    }
+    this.stopPromiseResolvers = [];
+  }
+
   private logRuntimeCounters(reason: string): void {
     const c = this.runtimeCounters;
     this.log?.info?.(
@@ -722,6 +734,7 @@ export class ConnectionManager {
           this.notifyStateChange(
             `Max consecutive deadline timeouts (${ConnectionManager.MAX_CONSECUTIVE_DEADLINE_TIMEOUTS}) reached`,
           );
+          this.resolveStopWaiters();
           return;
         }
 
@@ -755,6 +768,7 @@ export class ConnectionManager {
         this.consecutiveUnhealthyChecks = 0;
         this.reconnectDeadline = undefined;
         this.notifyStateChange(`Max runtime reconnect cycles (${maxCycles}) reached`);
+        this.resolveStopWaiters();
         return;
       }
 
@@ -822,10 +836,7 @@ export class ConnectionManager {
     this.log?.info?.(`[${this.accountId}] Connection manager stopped`);
 
     // Resolve all pending waitForStop() promises
-    for (const resolve of this.stopPromiseResolvers) {
-      resolve();
-    }
-    this.stopPromiseResolvers = [];
+    this.resolveStopWaiters();
   }
 
   /**
@@ -835,7 +846,7 @@ export class ConnectionManager {
    * Safe to call concurrently; all pending callers are resolved when stop() is called.
    */
   public waitForStop(): Promise<void> {
-    if (this.stopped) {
+    if (this.stopped || this.state === ConnectionStateEnum.FAILED) {
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {

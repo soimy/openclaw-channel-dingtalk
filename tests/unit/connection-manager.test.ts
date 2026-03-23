@@ -1044,4 +1044,134 @@ describe('ConnectionManager', () => {
         expect((firstSocket as any).ping.mock.calls.length).toBe(firstSocketPingCount);
     });
 
+    // ── Fix: waitForStop must resolve on terminal FAILED ────────────────
+
+    it('waitForStop resolves after terminal FAILED from deadline timeout exhaustion', async () => {
+        const { client, socket } = createMockClient();
+
+        let connectCount = 0;
+        client.connect = vi.fn().mockImplementation(async () => {
+            connectCount++;
+            if (connectCount === 1) {
+                client.socket = socket;
+                queueMicrotask(() => {
+                    (socket as any).readyState = 1;
+                    client.connected = true;
+                    socket.emit('open');
+                });
+            } else {
+                throw new Error('connect failed');
+            }
+        });
+
+        const manager = new ConnectionManager(client, 'main', baseConfig({
+            maxAttempts: 1,
+            reconnectDeadlineMs: 100,
+            maxReconnectCycles: 100,
+        }));
+
+        await manager.connect();
+
+        let waitResolved = false;
+        manager.waitForStop().then(() => { waitResolved = true; });
+
+        client.connected = false;
+        client.registered = false;
+
+        // Health check: 2x 60s intervals to trigger disconnect
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
+
+        // Advance enough time to exhaust 5 consecutive deadline timeouts (with backoff)
+        for (let i = 0; i < 10; i++) {
+            await vi.advanceTimersByTimeAsync(5000);
+        }
+
+        expect(manager.getState()).toBe(ConnectionState.FAILED);
+        expect(waitResolved).toBe(true);
+    });
+
+    it('waitForStop resolves after terminal FAILED from max reconnect cycles', async () => {
+        const { client, socket } = createMockClient();
+        const onStateChange = vi.fn();
+
+        client.connect = vi.fn()
+            .mockImplementationOnce(async () => {
+                client.socket = socket;
+                queueMicrotask(() => {
+                    (socket as any).readyState = 1;
+                    client.connected = true;
+                    socket.emit('open');
+                });
+            })
+            .mockRejectedValue(new Error('reconnect failed'));
+
+        const manager = new ConnectionManager(client, 'main', baseConfig({
+            maxAttempts: 1,
+            maxReconnectCycles: 2,
+            onStateChange,
+        }));
+
+        await manager.connect();
+
+        let waitResolved = false;
+        manager.waitForStop().then(() => { waitResolved = true; });
+
+        client.connected = false;
+        client.registered = false;
+
+        // Health check: 2x 60s to trigger disconnect, then enough time for 2 cycles
+        await vi.advanceTimersByTimeAsync(90000);
+        await vi.advanceTimersByTimeAsync(60100);
+        await vi.advanceTimersByTimeAsync(60100);
+
+        expect(manager.getState()).toBe(ConnectionState.FAILED);
+        expect(onStateChange).toHaveBeenCalledWith(
+            ConnectionState.FAILED,
+            'Max runtime reconnect cycles (2) reached',
+        );
+        expect(waitResolved).toBe(true);
+    });
+
+    it('waitForStop resolves immediately when called after terminal FAILED', async () => {
+        const { client, socket } = createMockClient();
+
+        let connectCount = 0;
+        client.connect = vi.fn().mockImplementation(async () => {
+            connectCount++;
+            if (connectCount === 1) {
+                client.socket = socket;
+                queueMicrotask(() => {
+                    (socket as any).readyState = 1;
+                    client.connected = true;
+                    socket.emit('open');
+                });
+            } else {
+                throw new Error('connect failed');
+            }
+        });
+
+        const manager = new ConnectionManager(client, 'main', baseConfig({
+            maxAttempts: 1,
+            reconnectDeadlineMs: 100,
+            maxReconnectCycles: 100,
+        }));
+
+        await manager.connect();
+        client.connected = false;
+        client.registered = false;
+
+        // Trigger terminal FAILED via deadline timeout exhaustion
+        await vi.advanceTimersByTimeAsync(60000);
+        await vi.advanceTimersByTimeAsync(60000);
+        for (let i = 0; i < 10; i++) {
+            await vi.advanceTimersByTimeAsync(5000);
+        }
+
+        expect(manager.getState()).toBe(ConnectionState.FAILED);
+
+        // Calling waitForStop AFTER terminal FAILED should resolve immediately
+        await expect(manager.waitForStop()).resolves.toBeUndefined();
+    });
+
 });

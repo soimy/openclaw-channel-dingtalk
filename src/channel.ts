@@ -101,10 +101,17 @@ function resolveActionStorePath(params: {
   if (!params.accountId) {
     return undefined;
   }
-  const rt = getDingTalkRuntime();
-  return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
-    agentId: params.accountId,
-  });
+  try {
+    const rt = getDingTalkRuntime();
+    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
+      agentId: params.accountId,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "DingTalk runtime not initialized") {
+      return undefined;
+    }
+    throw err;
+  }
 }
 
 function attachConnectionErrorContext(

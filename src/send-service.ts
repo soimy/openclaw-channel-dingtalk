@@ -247,7 +247,8 @@ export async function uploadMedia(
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
 ): Promise<string | null> {
-  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  const uploaded = await uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  return uploaded?.mediaId ?? null;
 }
 
 export async function sendProactiveTextOrMarkdown(
