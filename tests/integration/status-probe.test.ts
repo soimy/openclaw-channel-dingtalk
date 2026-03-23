@@ -1,11 +1,11 @@
-import type { OpenClawConfig } from 'openclaw/plugin-sdk';
+import type { OpenClawConfig } from 'openclaw/plugin-sdk/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { getAccessTokenMock } = vi.hoisted(() => ({
     getAccessTokenMock: vi.fn(),
 }));
 
-vi.mock('openclaw/plugin-sdk', () => ({
+vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 

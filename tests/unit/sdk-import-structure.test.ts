@@ -16,6 +16,11 @@ const directSdkFiles = [
     "src/targeting/target-directory-adapter.ts",
 ];
 
+const scopedSdkTestFiles = [
+    "tests/integration/status-probe.test.ts",
+    "tests/unit/agent-name-matcher.test.ts",
+];
+
 describe("plugin-sdk import structure", () => {
     it("does not keep the local sdk-compat bridge once minimum openclaw is 2026.3.14+", () => {
         expect(existsSync(resolve(repoRoot, "src/sdk-compat.ts"))).toBe(false);
@@ -26,5 +31,19 @@ describe("plugin-sdk import structure", () => {
             const content = readFileSync(resolve(repoRoot, relativePath), "utf8");
             expect(content).not.toMatch(/from\s+["'](?:\.\.\/|\.\/)*sdk-compat["']/);
         }
+    });
+
+    it("keeps tests on scoped plugin-sdk subpaths instead of the root barrel", () => {
+        for (const relativePath of scopedSdkTestFiles) {
+            const content = readFileSync(resolve(repoRoot, relativePath), "utf8");
+            expect(content).not.toMatch(/from\s+["']openclaw\/plugin-sdk["']/);
+        }
+    });
+
+    it("pins the local dev dependency to the stable openclaw 2026.3.22 release", () => {
+        const packageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
+            devDependencies?: Record<string, string>;
+        };
+        expect(packageJson.devDependencies?.openclaw).toBe("2026.3.22");
     });
 });

@@ -34,8 +34,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(vitest@3.2.4(@types/node@25.2.0)(jiti@2.6.1)(yaml@2.8.3))
       openclaw:
-        specifier: 2026.3.22-beta.1
-        version: 2026.3.22-beta.1(@napi-rs/canvas@0.1.97)
+        specifier: 2026.3.22
+        version: 2026.3.22(@napi-rs/canvas@0.1.97)
       oxfmt:
         specifier: 0.34.0
         version: 0.34.0
@@ -2523,8 +2523,8 @@ packages:
       zod:
         optional: true
 
-  openclaw@2026.3.22-beta.1:
-    resolution: {integrity: sha512-YCWOFACU97tjR1Cpj9urYpuQ3sahHX/5AkGod40//EOpmt0zGGIuLJibotWlK6LE+s2ajWj9GzLooHq/Okwc/A==}
+  openclaw@2026.3.22:
+    resolution: {integrity: sha512-jQqQjRbgTiYf41PKPAIqNAPVmf0WyK4OpRhMCKP5NrC61lNqRXj4n13FMmt8l/pwNQtajtZTXEJEFfQqTKrWLA==}
     engines: {node: '>=22.16.0'}
     hasBin: true
     peerDependencies:
@@ -5814,7 +5814,7 @@ snapshots:
       ws: 8.20.0
       zod: 4.3.6
 
-  openclaw@2026.3.22-beta.1(@napi-rs/canvas@0.1.97):
+  openclaw@2026.3.22(@napi-rs/canvas@0.1.97):
     dependencies:
       '@agentclientprotocol/sdk': 0.16.1(zod@4.3.6)
       '@anthropic-ai/vertex-sdk': 0.14.4(zod@4.3.6)
