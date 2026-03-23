@@ -602,7 +602,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     agentId: route.agentId,
   });
 
-  const to = isDirect ? senderId : groupId;
+  const replyTarget = isDirect ? senderId : groupId;
   const parsedLearnCommand = parseLearnCommand(extractedContent.text);
   const parsedSessionCommand = parseSessionCommand(extractedContent.text);
   const parsedSummaryCommand = parseSummaryCommand(extractedContent.text);
@@ -697,7 +697,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         accountId,
         senderId,
         senderName,
-        to,
+        replyTarget,
         routeSessionKey: route.sessionKey,
         conversationLabel: isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`,
         chatType: isDirect ? "direct" : "group",
@@ -1066,9 +1066,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (useCardMode) {
     try {
       log?.debug?.(
-        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
+        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${replyTarget}`,
       );
-      const aiCard = await createAICard(dingtalkConfig, to, log, {
+      const aiCard = await createAICard(dingtalkConfig, replyTarget, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
@@ -1556,8 +1556,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     UntrustedContext: quotedRuntimeContext?.untrustedContext
       ? [quotedRuntimeContext.untrustedContext]
       : undefined,
-    From: to,
-    To: to,
+    From: replyTarget,
+    To: replyTarget,
     SessionKey: route.sessionKey,
     AccountId: accountId,
     ChatType: isDirect ? "direct" : "group",
@@ -1577,7 +1577,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     GroupChannel: isDirect ? undefined : route.sessionKey,
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: "dingtalk",
-    OriginatingTo: to,
+    OriginatingTo: replyTarget,
   });
 
   await rt.channel.session.recordInboundSession({
@@ -1603,7 +1603,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         );
         return undefined;
       }
-      return { sessionKey: route.mainSessionKey, channel: "dingtalk", to, accountId };
+      return { sessionKey: route.mainSessionKey, channel: "dingtalk", to: replyTarget, accountId };
     })(),
     onRecordError: (err: unknown) => {
       log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
@@ -1664,7 +1664,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           asVoice: false,
         });
         if (sessionWebhook) {
-          const sendResult = await sendMessage(dingtalkConfig, to, "", {
+          const sendResult = await sendMessage(dingtalkConfig, replyTarget, "", {
             sessionWebhook,
             mediaPath: actualMediaPath,
             mediaType: outMediaType,
@@ -1680,7 +1680,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         } else {
           const sendResult = await sendProactiveMedia(
             dingtalkConfig,
-            to,
+            replyTarget,
             actualMediaPath,
             outMediaType,
             {
@@ -1756,7 +1756,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       config: dingtalkConfig,
       card: currentAICard,
       useCardMode: useCardMode && !!currentAICard,
-      to,
+      to: replyTarget,
       sessionWebhook,
       senderId,
       isDirect,

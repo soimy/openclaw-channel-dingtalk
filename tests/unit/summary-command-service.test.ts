@@ -66,7 +66,7 @@ describe("summary-command-service", () => {
       accountId: "main",
       senderId: "owner_1",
       senderName: "Owner",
-      to: "cid_group_1",
+      replyTarget: "cid_group_1",
       routeSessionKey: "s1",
       conversationLabel: "研发群 - Owner",
       chatType: "group",

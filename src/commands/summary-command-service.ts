@@ -35,7 +35,7 @@ export interface GenerateSummaryNarrativeParams {
   accountId: string;
   senderId: string;
   senderName: string;
-  to: string;
+  replyTarget: string;
   routeSessionKey: string;
   conversationLabel: string;
   chatType: "direct" | "group";
@@ -356,8 +356,8 @@ export async function generateSummaryNarrative(
     RawBody: prompt.userPrompt,
     CommandBody: prompt.userPrompt,
     BodyForCommands: prompt.userPrompt,
-    From: params.to,
-    To: params.to,
+    From: params.replyTarget,
+    To: params.replyTarget,
     SessionKey: `${params.routeSessionKey}::summary`,
     AccountId: params.accountId,
     ChatType: params.chatType,
@@ -370,7 +370,7 @@ export async function generateSummaryNarrative(
     GroupSystemPrompt: prompt.systemPrompt,
     CommandAuthorized: true,
     OriginatingChannel: "dingtalk",
-    OriginatingTo: params.to,
+    OriginatingTo: params.replyTarget,
   });
 
   let finalText = "";
