@@ -114,6 +114,7 @@ See `README.md` for the full setup details:
 Run these commands before you open or update a PR:
 
 ```bash
+pnpm run ci:preflight
 npm run type-check
 npm run lint
 pnpm test
@@ -126,6 +127,12 @@ What each command covers:
 - `npm run lint` checks style and type-aware lint rules
 - `pnpm test` runs the Vitest unit and integration suites
 - `pnpm test:coverage` helps confirm you did not leave the changed path untested
+- `pnpm run ci:preflight` is the repo's CI parity harness and should be treated as the minimum gate before pushing a PR update
+
+CI parity rule:
+
+- If you change `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, session/store-path wiring, or any integration path under `tests/integration/`, targeted test runs are not sufficient.
+- For those changes, pass the full local `pnpm test` run before you push or update the PR.
 
 The test suite uses mocks for network calls. Do not depend on real DingTalk API access in automated tests.
 

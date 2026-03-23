@@ -208,6 +208,9 @@ Planned domain summary:
 ## COMMANDS
 
 ```bash
+# CI parity preflight before updating a PR
+pnpm run ci:preflight
+
 # Type check
 npm run type-check
 
@@ -250,3 +253,5 @@ pnpm test:coverage
 - Network calls are mocked in tests (`vi.mock`), no real DingTalk API requests are made
 - CI should run `pnpm test` on every push and pull request
 - Coverage can be generated with `pnpm test:coverage`
+- Harness contract: before any PR update, run `pnpm run ci:preflight`
+- If a change touches `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, session wiring, or any `tests/integration/*` path, do not treat targeted tests as sufficient; require full `pnpm test` parity locally

@@ -31,6 +31,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
+    "ci:preflight": "node scripts/ci-preflight.mjs",
     "format": "oxfmt --write package.json tsconfig.json index.ts src/*.ts",
     "format:check": "oxfmt --check package.json tsconfig.json index.ts src/*.ts",
     "lint": "oxlint --type-aware index.ts src",

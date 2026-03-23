@@ -27,6 +27,9 @@ pnpm run format
 # Run all tests
 pnpm test
 
+# CI parity preflight before updating a PR
+pnpm run ci:preflight
+
 # Run a single test file
 pnpm vitest run tests/unit/config.test.ts
 
@@ -97,6 +100,8 @@ New code should align with these logical boundaries (physical moves are incremen
 - Unit tests for parser, config, auth, dedup, and service logic
 - Integration tests when behavior crosses module boundaries (gateway start, inbound dispatch, send lifecycle, persistence migration)
 - `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
+- CI parity contract: before pushing a PR update, run `pnpm run ci:preflight`
+- Targeted tests are not enough when touching `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, `tests/integration/*`, or session/runtime wiring; those changes must pass full `pnpm test`
 
 ## Important Anti-Patterns
 
