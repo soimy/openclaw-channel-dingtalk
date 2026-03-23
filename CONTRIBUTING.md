@@ -131,8 +131,16 @@ What each command covers:
 
 CI parity rule:
 
+- `pnpm run ci:preflight` must fetch the latest `origin/main` and confirm the branch is mergeable before it proceeds to type-check, lint, and tests.
 - If you change `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, session/store-path wiring, or any integration path under `tests/integration/`, targeted test runs are not sufficient.
 - For those changes, pass the full local `pnpm test` run before you push or update the PR.
+
+PR scope rule:
+
+- Keep each PR update as small and single-purpose as possible. Prefer the smallest reviewable atomic commit or follow-up that fully resolves one issue.
+- Do not combine feature work, refactors, docs cleanup, and CI/harness changes in the same update unless they are inseparable for correctness.
+- When syncing with `main`, resolve conflicts without rolling back branch behavior, and avoid opportunistic cleanup unrelated to the conflict itself.
+- A validated fix is not complete until the code is committed to the PR branch and paired with a clear Chinese commit message or PR explanation. Code-only or explanation-only updates are both incomplete.
 
 The test suite uses mocks for network calls. Do not depend on real DingTalk API access in automated tests.
 

@@ -101,7 +101,11 @@ New code should align with these logical boundaries (physical moves are incremen
 - Integration tests when behavior crosses module boundaries (gateway start, inbound dispatch, send lifecycle, persistence migration)
 - `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
 - CI parity contract: before pushing a PR update, run `pnpm run ci:preflight`
+- `pnpm run ci:preflight` must verify mergeability against the latest `origin/main` before type-check/lint/test; do not update a PR from a stale branch
 - Targeted tests are not enough when touching `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, `tests/integration/*`, or session/runtime wiring; those changes must pass full `pnpm test`
+- PR contract: keep PR updates minimal and single-purpose; prefer the smallest atomic follow-up that resolves one concrete issue
+- Conflict-resolution contract: sync with `main` without rolling back branch features, and avoid unrelated cleanup or refactors while resolving conflicts
+- Delivery contract: a fix is only complete when the code is committed to the PR branch and paired with a clear Chinese commit description or PR note
 
 ## Important Anti-Patterns
 

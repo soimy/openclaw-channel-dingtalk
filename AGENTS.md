@@ -254,4 +254,8 @@ pnpm test:coverage
 - CI should run `pnpm test` on every push and pull request
 - Coverage can be generated with `pnpm test:coverage`
 - Harness contract: before any PR update, run `pnpm run ci:preflight`
+- `pnpm run ci:preflight` must fetch the latest `origin/main` and fail early if the branch is not mergeable; stale conflict checks are release-blocking
 - If a change touches `src/channel.ts`, `src/inbound-handler.ts`, `src/send-service*`, `src/runtime*`, session wiring, or any `tests/integration/*` path, do not treat targeted tests as sufficient; require full `pnpm test` parity locally
+- PR contract: keep changes minimal, single-purpose, and reviewable; prefer the smallest atomic PR or follow-up commit that fully solves one problem
+- Conflict-resolution contract: when syncing with `main`, preserve branch behavior, do not roll back features, and do not mix in opportunistic refactors unless they are required to resolve the conflict safely
+- Delivery contract: validated fixes are not complete until the code is committed to the PR branch and accompanied by a clear Chinese commit description or PR explanation; code-only or explanation-only updates are both insufficient
