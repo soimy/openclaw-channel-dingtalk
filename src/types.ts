@@ -18,6 +18,7 @@ import type {
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelLogSink as SDKChannelLogSink,
 } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
 import { mergeAccountWithDefaults } from "./config";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
@@ -574,7 +575,9 @@ export interface GatewayStopResult {
 /**
  * DingTalk channel plugin definition
  */
-export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }>;
+export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }> & {
+  setupWizard?: ChannelSetupWizard;
+};
 
 /**
  * Result of target resolution validation

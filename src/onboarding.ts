@@ -508,10 +508,6 @@ export const dingtalkSetupWizard: ChannelSetupWizard = {
   status: {
     configuredLabel: "configured",
     unconfiguredLabel: "needs setup",
-    configuredHint: "configured",
-    unconfiguredHint: "钉钉企业机器人",
-    configuredScore: 1,
-    unconfiguredScore: 4,
     resolveConfigured: ({ cfg }) => {
       const accountIds = listDingTalkAccountIds(cfg);
       return accountIds.length > 0

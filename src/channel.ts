@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
 import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk/telegram-core";
+import { jsonResult } from "openclaw/plugin-sdk/telegram-core";
+import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
@@ -351,7 +352,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
   },
   configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
   setup: dingtalkSetupAdapter,
-  setupWizard: dingtalkSetupWizard as never,
+  setupWizard: dingtalkSetupWizard,
   capabilities: {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
     reactions: false,
