@@ -9,6 +9,14 @@ const { prepareMediaInputMock } = vi.hoisted(() => ({
     prepareMediaInputMock: vi.fn(),
 }));
 
+const { getRuntimeMock } = vi.hoisted(() => ({
+    getRuntimeMock: vi.fn(),
+}));
+
+const { resolveKnownConversationChatTypeMock } = vi.hoisted(() => ({
+    resolveKnownConversationChatTypeMock: vi.fn(),
+}));
+
 vi.mock('openclaw/plugin-sdk', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
     extractToolSend: vi.fn((args: Record<string, unknown>) => {
@@ -65,6 +73,18 @@ vi.mock('../../src/media-utils', async () => {
     };
 });
 
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: getRuntimeMock,
+}));
+
+vi.mock('../../src/targeting/target-directory-store', async () => {
+    const actual = await vi.importActual<typeof import('../../src/targeting/target-directory-store')>('../../src/targeting/target-directory-store');
+    return {
+        ...actual,
+        resolveKnownConversationChatType: resolveKnownConversationChatTypeMock,
+    };
+});
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('dingtalkPlugin.actions.send', () => {
@@ -74,7 +94,17 @@ describe('dingtalkPlugin.actions.send', () => {
         sendMessageMock.mockReset();
         sendProactiveMediaMock.mockReset();
         prepareMediaInputMock.mockReset();
+        getRuntimeMock.mockReset();
+        resolveKnownConversationChatTypeMock.mockReset();
         prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
+        getRuntimeMock.mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/message-actions-store.json'),
+                },
+            },
+        });
+        resolveKnownConversationChatTypeMock.mockReturnValue(undefined);
     });
 
     it('forces voice mediaType when asVoice=true with media input', async () => {
@@ -145,6 +175,34 @@ describe('dingtalkPlugin.actions.send', () => {
             expect.objectContaining({ accountId: 'default' })
         );
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('uses store-backed chatType inference for cid-prefixed direct conversations', async () => {
+        sendMessageMock.mockResolvedValueOnce({ ok: true, data: { processQueryKey: 'text_dm_1' } });
+        resolveKnownConversationChatTypeMock.mockReturnValueOnce('direct');
+
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cfg as any,
+            params: {
+                to: 'cid_dm_123',
+                message: 'hello dm',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cid_dm_123',
+            'hello dm',
+            expect.objectContaining({
+                accountId: 'default',
+                storePath: '/tmp/message-actions-store.json',
+                chatType: 'direct',
+            })
+        );
     });
 
     it('rejects asVoice without media path', async () => {

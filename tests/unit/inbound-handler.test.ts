@@ -107,6 +107,7 @@ import {
   clearTargetDirectoryStateCache,
   listKnownGroupTargets,
   listKnownUserTargets,
+  upsertObservedUserTarget,
   upsertObservedGroupTarget,
 } from "../../src/targeting/target-directory-store";
 
@@ -595,6 +596,65 @@ describe("inbound-handler", () => {
         text: { content: "/summary group 1d" },
         conversationType: "2",
         conversationId: "cid_group_summary",
+        senderId: "owner-test-id",
+        senderNick: "Owner",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toBe("final output");
+  });
+
+  it("handleDingTalkMessage resolves /summary here against the direct-message conversationId", async () => {
+    const storePath = path.join(fs.mkdtempSync("/tmp/dt-summary-here-dm-"), "store.json");
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath
+      .mockReturnValueOnce(storePath)
+      .mockReturnValueOnce(storePath);
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    upsertObservedUserTarget({
+      storePath,
+      accountId: "main",
+      senderId: "owner-test-id",
+      displayName: "Owner",
+      conversationId: "cid_dm_summary_here",
+      seenAt: Date.now() - 1000,
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_dm_summary_here",
+      msgId: "seed_dm_here_1",
+      createdAt: Date.now() - 1000,
+      messageType: "text",
+      text: "直接会话历史消息",
+      senderId: "owner-test-id",
+      senderName: "Owner",
+      chatType: "direct",
+      ttlMs: 60_000,
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "/summary here 1d",
+      messageType: "text",
+    });
+
+    await handleDingTalkMessage({
+      cfg: { commands: { ownerAllowFrom: ["dingtalk:owner-test-id"] } },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m_summary_here_dm",
+        msgtype: "text",
+        text: { content: "/summary here 1d" },
+        conversationType: "1",
+        conversationId: "cid_dm_summary_here",
         senderId: "owner-test-id",
         senderNick: "Owner",
         chatbotUserId: "bot_1",

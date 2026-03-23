@@ -688,7 +688,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
     if (parsedSummaryCommand.scope === "summary") {
       const conversationIds = parsedSummaryCommand.useCurrentConversation
-        ? [to]
+        ? [groupId]
         : parsedSummaryCommand.conversationIds;
       const mentionNames = resolveSummaryMentionNames(parsedSummaryCommand.mentionNames, senderName);
       const summaryReply = await generateSummaryNarrative({

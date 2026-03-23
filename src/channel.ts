@@ -274,6 +274,12 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
 
     const log = getLogger();
     const config = getConfig(cfg, accountId ?? undefined);
+    const rt = getDingTalkRuntime();
+    const storePath = accountId
+      ? rt.channel.session.resolveStorePath(cfg.session?.store, {
+          agentId: accountId,
+        })
+      : undefined;
 
     if (hasMedia && mediaInput) {
       let preparedMedia;
@@ -290,7 +296,8 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
         const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
           log,
           accountId: accountId ?? undefined,
-          chatType: inferTargetChatType({ target, accountId: accountId ?? undefined }),
+          storePath,
+          chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined }),
         });
 
         if (!result.ok) {
@@ -322,7 +329,8 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const result = await sendMessage(config, target, message, {
       log,
       accountId: accountId ?? undefined,
-      chatType: inferTargetChatType({ target, accountId: accountId ?? undefined }),
+      storePath,
+      chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined }),
     });
 
     if (!result.ok) {
