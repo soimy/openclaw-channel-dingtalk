@@ -25,9 +25,6 @@ Focus on these repository-specific checks:
 - Flag code that sends DingTalk requests without token retrieval, hardcodes credentials, uses `console.log`, logs raw access tokens, or suppresses type errors with `@ts-ignore`.
 - Call out missing tests when risky paths change. Expect focused unit tests for parser/config/auth/dedup/service logic and integration tests when behavior crosses module boundaries.
 - If runtime behavior changes, prefer review comments that ask for explicit validation evidence for direct chat, group chat, quoted replies, media handling, AI card fallback, and duplicate/retry behavior when relevant.
-- Prefer asking for smaller, atomic PR updates when a change mixes feature behavior, conflict resolution, refactors, docs, and CI contract changes without a hard dependency.
-- When reviewing merge-from-main conflict fixes, flag any resolution that appears to drop branch behavior or that bundles unrelated cleanup beyond what is required to keep the branch mergeable.
-- If a PR update claims a fix but does not include both the code commit and a clear Chinese explanation of what changed, ask for both before considering the issue closed.
 - If a PR touches known sensitive areas, ask for issue-specific evidence:
   - inbound callback / stream delivery changes: timestamps, message IDs, reconciliation notes, and monitor output when possible
   - `dingtalk-stream` integration or startup behavior: Node.js version, install method, package version, and reconnect verification

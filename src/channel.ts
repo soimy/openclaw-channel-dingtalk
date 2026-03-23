@@ -101,14 +101,10 @@ function resolveActionStorePath(params: {
   if (!params.accountId) {
     return undefined;
   }
-  try {
-    const rt = getDingTalkRuntime();
-    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
-      agentId: params.accountId,
-    });
-  } catch {
-    return undefined;
-  }
+  const rt = getDingTalkRuntime();
+  return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
+    agentId: params.accountId,
+  });
 }
 
 function attachConnectionErrorContext(

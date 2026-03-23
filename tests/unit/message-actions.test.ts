@@ -205,6 +205,29 @@ describe('dingtalkPlugin.actions.send', () => {
         );
     });
 
+    it('fails fast when runtime store path is unavailable for account-scoped sends', async () => {
+        getRuntimeMock.mockImplementationOnce(() => {
+            throw new Error('runtime unavailable');
+        });
+
+        await expect(
+            dingtalkPlugin.actions?.handleAction?.({
+                channel: 'dingtalk',
+                action: 'send',
+                cfg: cfg as any,
+                params: {
+                    to: 'cid_dm_123',
+                    message: 'hello dm',
+                },
+                accountId: 'default',
+                dryRun: false,
+            } as any),
+        ).rejects.toThrow(/runtime unavailable/);
+
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
     it('rejects asVoice without media path', async () => {
         await expect(
             dingtalkPlugin.actions?.handleAction?.({
