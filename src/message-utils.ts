@@ -443,7 +443,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     }
 
     return {
-      text: textContent,
+      text: textContent || quoted?.previewText || "",
       messageType: "text",
       quoted: quoted ?? undefined,
       atMentions,

@@ -2,19 +2,6 @@
 
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
-> [!IMPORTANT]
-> **重要声明（上游消息丢失问题进展更新）**
->
-> 根据 issue [#104](https://github.com/soimy/openclaw-channel-dingtalk/issues/104) 今日最新反馈，钉钉侧服务扩容后，`dingtalk-stream` 模式下的消息丢失情况已有明显改善。
-> 当前我们将继续保持观测与验证：若你在生产或测试环境使用本插件，欢迎重点关注“消息到达率、延迟、缺失 ID 对账”等指标，并在 #104 持续回报测试结果与样本日志，帮助社区共同确认改善效果是否稳定收敛。
->
-> 相关信息：
-> - issue 讨论：[#104](https://github.com/soimy/openclaw-channel-dingtalk/issues/104)
-> - 最小可复现说明（SDK 侧）：<https://github.com/soimy/dingtalk-stream-sdk-nodejs/blob/main/docs/inbound-msg-missing-repro.zh-CN.md>
-> - 插件侧测试分支：[`test/inbound-msg-missing`](https://github.com/soimy/openclaw-channel-dingtalk/tree/test/inbound-msg-missing)
->
-> 在问题完全确认收敛前，关键业务场景仍建议保持重试与可观测性（trace 前缀、计数日志、缺失 ID 对账）。
-
 ## 目录
 
 - [功能特性](#功能特性)

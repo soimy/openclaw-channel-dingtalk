@@ -10,27 +10,21 @@
  */
 
 import type {
+  ChannelPlugin as SDKChannelPlugin,
   OpenClawConfig,
-  OpenClawPluginApi,
-  ChannelLogSink as SDKChannelLogSink,
+} from "openclaw/plugin-sdk/core";
+import type {
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
-  ChannelPlugin as SDKChannelPlugin,
-} from "openclaw/plugin-sdk";
+  ChannelLogSink as SDKChannelLogSink,
+} from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
 import { mergeAccountWithDefaults } from "./config";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
 // explicit modes remain: "off" | "emoji" | "kaomoji".
 export type AckReactionConfigValue = string;
-
-export interface DingtalkPluginModule {
-  id: string;
-  name: string;
-  description?: string;
-  configSchema?: unknown;
-  register?: (api: OpenClawPluginApi) => void | Promise<void>;
-}
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -581,7 +575,9 @@ export interface GatewayStopResult {
 /**
  * DingTalk channel plugin definition
  */
-export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }>;
+export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }> & {
+  setupWizard?: ChannelSetupWizard;
+};
 
 /**
  * Result of target resolution validation

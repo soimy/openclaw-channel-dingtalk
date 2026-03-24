@@ -7,7 +7,7 @@
  * (channel + accountId + peer), not content-based dynamic routing.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { resolveAtAgents } from "./agent-name-matcher";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";

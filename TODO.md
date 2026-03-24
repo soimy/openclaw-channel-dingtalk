@@ -19,6 +19,7 @@
 - [#345 机器人时不时收不到回复，只能重新发送，几次才能好](https://github.com/soimy/openclaw-channel-dingtalk/issues/345)（状态：已关闭）
 - [#373 长时间不用钉钉机器人，再发送消息，openclaw接收不到](https://github.com/soimy/openclaw-channel-dingtalk/issues/373)（状态：开启）
 - [#390 Delayed callback ack causes DingTalk to redeliver messages, resulting in duplicate processing](https://github.com/soimy/openclaw-channel-dingtalk/issues/390)（状态：已关闭（关联 PR #392））
+- [#400 WebSocket was closed before the connection was established：偶尔重启之后会连续报错好多个这个](https://github.com/soimy/openclaw-channel-dingtalk/issues/400)（状态：开启）
 
 任务：
 - [ ] 复核现有稳定性问题是否仍可复现
@@ -40,9 +41,12 @@
   - [ ] [#336 fix: avoid idle reconnects on quiet DingTalk stream connections](https://github.com/soimy/openclaw-channel-dingtalk/pull/336)（状态：要求修改，已关闭未合并）
 - [ ] 合并核对 `#345` 新反馈（markdown 模式也出现间歇性丢回复），确认是否与连接层问题同源
 - [ ] 汇总 `#104` 最新反馈中“群聊需 @ 才稳定触发”的现象，区分上游丢消息与群聊触发条件导致的假阳性
-- [ ] 跟进 `#373` 的版本升级回归（3.2 -> 3.3）与日志采样，确认是否与 `#104/#345` 同源
+- [ ] 跟进 `#373` 的版本升级回归（3.2 -> 3.4.0）与日志采样，新增“连接到内网地址”证据，确认是否与 `#104/#345` 同源
 - [x] 跟进 `#390` 的 callback ack 时序修复方案，补齐 `no-dedupKey` 与 in-flight 分支 ACK 行为一致性回归
   - [x] [#392 fix: acknowledge DingTalk callback immediately to prevent redelivery](https://github.com/soimy/openclaw-channel-dingtalk/pull/392)（状态：合并）
+- [x] 跟进终态 FAILED 后 `waitForStop` 卡死导致无法自动恢复的问题，并确认修复已落地
+  - [x] [#399 fix: resolve waitForStop on terminal FAILED state](https://github.com/soimy/openclaw-channel-dingtalk/pull/399)（状态：合并）
+- [ ] 继续跟进 `#400` 在旧版本（3.2.0）下的频繁 `WebSocket was closed before the connection was established` 告警，确认与 `#399` 修复范围的关系
 
 ### 2. AI Card 发送链路一致性
 相关 Issues：
@@ -117,7 +121,7 @@
 - [#366 无法发送本机文件到我的钉钉问题](https://github.com/soimy/openclaw-channel-dingtalk/issues/366)（状态：开启）
 - [#270 钉钉收不到文件，回复只收到占位符，图片、语音都没有问题](https://github.com/soimy/openclaw-channel-dingtalk/issues/270)（状态：开启）
 - [#391 能否做到帮我从钉盘找图片/文件并发给我](https://github.com/soimy/openclaw-channel-dingtalk/issues/391)（状态：开启）
-- [#397 [Bug] Sandbox mode: sendMedia fails for workspace files - not using loadWebMedia](https://github.com/soimy/openclaw-channel-dingtalk/issues/397)（状态：开启）
+- [#397 [Bug] Sandbox mode: sendMedia fails for workspace files - not using loadWebMedia](https://github.com/soimy/openclaw-channel-dingtalk/issues/397)（状态：已关闭（关联 PR #398））
 
 任务：
 - [ ] 核对基础文件发送能力的当前边界
@@ -132,7 +136,8 @@
 - [ ] 将 `#366` 的“文本正常但文件发送失败”场景补充到文件链路最小复现矩阵，并对齐与 `#207/#315` 的同源性判断
 - [ ] 合并 `#270` 的“仅文件占位符”现场日志，补齐“下载成功但提取失败”与“未落盘”两类分流排障步骤
 - [ ] 跟进 `#391` 的钉盘自然语言检索诉求，明确“仅引用直发/文件名模糊搜索/全量语义搜索”分级能力与前置权限
-- [ ] 跟进 `#397` 的 sandbox 路径兼容缺口，评估 `sendMedia -> uploadMedia` 是否应统一走 `loadWebMedia` 桥接能力
+- [x] 跟进 `#397` 的 sandbox 路径兼容缺口，`sendMedia -> uploadMedia` 已补齐 `loadWebMedia` 桥接能力
+  - [x] [#398 fix: sandbox sendMedia fails for workspace files](https://github.com/soimy/openclaw-channel-dingtalk/pull/398)（状态：合并）
 
 ### 4. 图片 / 语音 / 媒体链路补强
 相关 Issues：
@@ -198,6 +203,8 @@
   - [x] [#378 fix: remove undefined quotedPrefix in text message extraction](https://github.com/soimy/openclaw-channel-dingtalk/pull/378)（状态：合并）
 - [x] 跟进 `#389` 对 `#377` 的后续补丁（preview fallback/attachment excerpt/TTL），确认与现有 `message-context-store` 语义一致并已合入
   - [x] [#389 feat: inject quoted reply context for agent runtime](https://github.com/soimy/openclaw-channel-dingtalk/pull/389)（状态：合并）
+- [ ] 跟进 `#401` quoted-only 回归修复的后续项：补 handler 层回归测试，并评估 QuotedRef-first 输入策略
+  - [ ] [#401 fix: fallback to quoted previewText when reply text is empty](https://github.com/soimy/openclaw-channel-dingtalk/pull/401)（状态：通过）
 
 ### 6. 建立 Issue 提交标准化
 任务：
@@ -255,7 +262,7 @@
   - [x] [#327 fix(dingtalk): restore non-session inbound logic regressed by #307](https://github.com/soimy/openclaw-channel-dingtalk/pull/327)（状态：合并）
 - [ ] 排查并修复 `#185` 反馈的多 agent workspace 绑定异常（疑似默认 `main` 绑定导致配置失效）
 - [ ] 补充 `#185/#267` 的“多账号配置是否生效”快速诊断步骤，减少重复提问
-- [ ] 跟进 `#354` 的 `peer.kind/peer.id` 绑定误配案例，补“peer.id 取值规则”示例与诊断脚本
+- [ ] 跟进 `#354` 的 `peer.kind/peer.id` 绑定案例：新增“staffId 配置正确仍不生效”反馈，补最小复现与 `peerId/senderStaffId` 对照日志诊断
 - [ ] 复核 `#356` 的 schema 导入路径争议，确认 `buildChannelConfigSchema` 兼容策略后再决定是否合入
   - [ ] [#356 fix: import buildChannelConfigSchema from plugin-sdk/discord](https://github.com/soimy/openclaw-channel-dingtalk/pull/356)（状态：已关闭未合并）
 - [x] 评估 `#372` 的 displayName 目标目录学习能力与既有 routing 规则的兼容性（命名冲突、跨群歧义、隐私边界）
@@ -268,8 +275,8 @@
   - [ ] [#380 feat(dingtalk): add HTTP callback mode for multi-instance deployment](https://github.com/soimy/openclaw-channel-dingtalk/pull/380)（状态：要求修改）
 - [ ] 跟进 `#383` 入站命令分发抽离重构，确认 command 域边界与现有 owner/session 命令回归覆盖
   - [ ] [#383 refactor(dingtalk): 抽离入站命令分发逻辑](https://github.com/soimy/openclaw-channel-dingtalk/pull/383)（状态：审核中）
-- [ ] 跟进 `#395` plugin-sdk API 对齐分支的冲突收敛与兼容层回归（入口/类型导出/onboarding）
-  - [ ] [#395 refactor(dingtalk): Sync upstream plugin-sdk new API](https://github.com/soimy/openclaw-channel-dingtalk/pull/395)（状态：审核中（草稿，冲突））
+- [x] 跟进 `#395` plugin-sdk API 对齐分支并完成兼容层回归（入口/类型导出/onboarding）
+  - [x] [#395 refactor(dingtalk): Sync upstream plugin-sdk new API](https://github.com/soimy/openclaw-channel-dingtalk/pull/395)（状态：合并）
 
 ### 9. 支持群聊 @人 / @all
 相关 Issues：
@@ -375,6 +382,7 @@
 - [#192 markdown格式表格不渲染](https://github.com/soimy/openclaw-channel-dingtalk/issues/192)（状态：已关闭）
 - [#370 Response interrupted: Gateway error: 404 - Not Found（gatewayToken 配置）](https://github.com/soimy/openclaw-channel-dingtalk/issues/370)（状态：已关闭）
 - [#376 配置定时任务时，如何让消息发送到钉钉指定的群聊](https://github.com/soimy/openclaw-channel-dingtalk/issues/376)（状态：开启（已确认可用 conversationId 直发 + `openclaw message send --target session_key`，displayName 直发待下版本））
+- [#402 Failed to install plugin (v3.4.1) in OpenClaw-2026.3.22 (4dcc39c)](https://github.com/soimy/openclaw-channel-dingtalk/issues/402)（状态：开启）
 
 任务：
 - [ ] 补 README 截图
@@ -396,6 +404,7 @@
 - [ ] 增补“定时/主动发送到指定群”说明（`conversationId` 直发 + `displayNameResolution` 能力与版本门槛）（#376/#372）
 - [ ] 增补“Markdown 表格渲染差异”说明（客户端差异 + 自定义机器人 vs 应用机器人）（#192/#358）
 - [ ] 补充 `gatewayToken` 缺失/错误时的配置排障指引与默认回退行为说明（#370）
+- [ ] 跟进 `#402` 的安装失败（`Cannot find module 'openclaw/plugin-sdk/core'`），补版本兼容矩阵与升级指引（关联 `#395` 已合并）
 - [ ] 评估 `#393` 的 structured real-device debug sessions 文档/脚本方案，决定合并范围与最小维护面
   - [ ] [#393 feat: add structured real-device debug sessions](https://github.com/soimy/openclaw-channel-dingtalk/pull/393)（状态：新（草稿））
 

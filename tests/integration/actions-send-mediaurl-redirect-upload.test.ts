@@ -8,8 +8,7 @@ const { axiosRequestMock, axiosGetMock, axiosPostMock, getAccessTokenMock, dnsLo
     dnsLookupMock: vi.fn(),
 }));
 
-vi.mock('openclaw/plugin-sdk', () => ({
-    buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
+vi.mock('openclaw/plugin-sdk/tool-send', () => ({
     extractToolSend: vi.fn((args: Record<string, unknown>) => {
         const target = args.to;
         if (typeof target !== 'string' || !target.trim()) {
@@ -17,6 +16,13 @@ vi.mock('openclaw/plugin-sdk', () => ({
         }
         return { to: target.trim() };
     }),
+}));
+
+vi.mock('openclaw/plugin-sdk/core', () => ({
+    buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
+}));
+
+vi.mock('openclaw/plugin-sdk/telegram-core', () => ({
     jsonResult: vi.fn((payload: unknown) => payload),
     readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
         const raw = params[key];
