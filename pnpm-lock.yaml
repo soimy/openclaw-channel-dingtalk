@@ -20,6 +20,9 @@ importers:
       mammoth:
         specifier: ^1.12.0
         version: 1.12.0
+      openclaw:
+        specifier: '>=2026.3.14'
+        version: 2026.3.22(@napi-rs/canvas@0.1.97)
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
@@ -33,9 +36,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.2.4
         version: 3.2.4(vitest@3.2.4(@types/node@25.2.0)(jiti@2.6.1)(yaml@2.8.3))
-      openclaw:
-        specifier: 2026.3.22
-        version: 2026.3.22(@napi-rs/canvas@0.1.97)
       oxfmt:
         specifier: 0.34.0
         version: 0.34.0
