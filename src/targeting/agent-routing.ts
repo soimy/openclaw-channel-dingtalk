@@ -65,7 +65,28 @@ function sanitizeAgentName(name: string): string {
 }
 
 /**
- * Resolve @mention-based sub-agent routing for a group message.
+ * Extract @mention names from plain text (for DM routing where DingTalk does not
+ * populate the atMentions/atUsers fields).
+ *
+ * Mirrors the same regex used in message-utils.ts for consistency:
+ * matches @name tokens while excluding email-like patterns and emoji.
+ */
+function extractTextAtMentions(text: string): import("../types").AtMention[] {
+  const textForExtraction = text.replace(/^\[引用[^\]]*\]\s*/, "");
+  const matches = textForExtraction.matchAll(/(?<!\w)@([^\s@.]+)(?!\.\w)/g);
+  const mentions: import("../types").AtMention[] = [];
+  for (const match of matches) {
+    mentions.push({ name: match[1].trim() });
+  }
+  return mentions;
+}
+
+/**
+ * Resolve @mention-based sub-agent routing for a group or direct message.
+ *
+ * In group messages, @mentions are populated by the DingTalk SDK (atMentions field).
+ * In direct messages (DM), DingTalk does not send atMentions, so we fall back to
+ * parsing @name tokens from the message text directly.
  *
  * Returns matched agents if any @mentions resolve to configured agents,
  * or null if the message should be handled by the default agent.
@@ -84,15 +105,17 @@ export async function resolveSubAgentRoute(params: {
 } | null> {
   const { extractedContent, cfg, isGroup, dingtalkConfig, sessionWebhook, senderId, log } = params;
 
-  const atMentions = extractedContent.atMentions || [];
-  const atUserDingtalkIds = extractedContent.atUserDingtalkIds;
+  // In DM, DingTalk does not populate atMentions/atUsers; parse @mentions from text instead.
+  const atMentions = isGroup
+    ? (extractedContent.atMentions || [])
+    : extractTextAtMentions(extractedContent.text);
+  const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
   // Strip quoted prefix before checking /learn to avoid false positives
   // when the quoted message itself contains a /learn command.
   const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
   const isLearnCommand = parseLearnCommand(textForCommandCheck).scope !== "unknown";
 
   if (
-    !isGroup ||
     atMentions.length === 0 ||
     !cfg.agents?.list ||
     cfg.agents.list.length === 0 ||
