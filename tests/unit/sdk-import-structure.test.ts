@@ -21,11 +21,6 @@ const scopedSdkTestFiles = [
     "tests/unit/agent-name-matcher.test.ts",
 ];
 
-const runtimeFallbackFiles = [
-    "src/plugin-sdk-runtime-core.ts",
-    "src/plugin-sdk-runtime-helpers.ts",
-];
-
 describe("plugin-sdk import structure", () => {
     it("does not keep the local sdk-compat bridge once minimum openclaw is 2026.3.14+", () => {
         expect(existsSync(resolve(repoRoot, "src/sdk-compat.ts"))).toBe(false);
@@ -50,33 +45,5 @@ describe("plugin-sdk import structure", () => {
             devDependencies?: Record<string, string>;
         };
         expect(packageJson.devDependencies?.openclaw).toBe("2026.3.22");
-    });
-
-    it("adds local runtime fallback shims for plugin-sdk value imports", () => {
-        for (const relativePath of runtimeFallbackFiles) {
-            expect(existsSync(resolve(repoRoot, relativePath))).toBe(true);
-        }
-    });
-
-    it("routes key runtime value imports through local runtime fallback shims", () => {
-        const indexContent = readFileSync(resolve(repoRoot, "index.ts"), "utf8");
-        const channelContent = readFileSync(resolve(repoRoot, "src/channel.ts"), "utf8");
-        const onboardingContent = readFileSync(resolve(repoRoot, "src/onboarding.ts"), "utf8");
-        const runtimeContent = readFileSync(resolve(repoRoot, "src/runtime.ts"), "utf8");
-
-        expect(indexContent).toMatch(/from\s+["']\.\/src\/plugin-sdk-runtime-(?:core|helpers)["']/);
-        expect(channelContent).toMatch(/from\s+["']\.\/plugin-sdk-runtime-(?:core|helpers)["']/);
-        expect(onboardingContent).toMatch(/from\s+["']\.\/plugin-sdk-runtime-helpers["']/);
-        expect(runtimeContent).toMatch(/from\s+["']openclaw\/plugin-sdk\/core["']/);
-        expect(runtimeContent).toMatch(/from\s+["']\.\/plugin-sdk-runtime-core["']/);
-
-        expect(indexContent).not.toMatch(/import\s+\{[^}]*\}\s+from\s+["']openclaw\/plugin-sdk\/core["']/);
-        expect(indexContent).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/param-readers["']/);
-        expect(channelContent).not.toMatch(/import\s+\{[^}]*\}\s+from\s+["']openclaw\/plugin-sdk\/core["']/);
-        expect(channelContent).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/telegram-core["']/);
-        expect(channelContent).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/param-readers["']/);
-        expect(channelContent).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/tool-send["']/);
-        expect(onboardingContent).not.toMatch(/import\s+\{[^}]*\}\s+from\s+["']openclaw\/plugin-sdk\/setup["']/);
-        expect(runtimeContent).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/runtime-store["']/);
     });
 });

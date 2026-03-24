@@ -1,5 +1,5 @@
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { createPluginRuntimeStore } from "./plugin-sdk-runtime-core";
+import { createPluginRuntimeStore } from "openclaw/plugin-sdk/runtime-store";
 
 const runtimeStore = createPluginRuntimeStore<PluginRuntime>("DingTalk runtime not initialized");
 

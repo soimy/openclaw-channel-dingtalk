@@ -1,6 +1,5 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { defineChannelPluginEntry } from "./src/plugin-sdk-runtime-core";
-import { readStringParam } from "./src/plugin-sdk-runtime-helpers";
+import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig } from "./src/config";
 import { appendToDoc, createDoc, DocCreateAppendError, listDocs, searchDocs } from "./src/docs-service";

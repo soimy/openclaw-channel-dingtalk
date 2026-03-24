@@ -64,8 +64,16 @@ const shared = vi.hoisted(() => ({
     },
 }));
 
-vi.mock("../../src/plugin-sdk-runtime-core", () => ({
+vi.mock("openclaw/plugin-sdk/core", () => ({
     defineChannelPluginEntry: shared.defineChannelPluginEntryMock,
+    emptyPluginConfigSchema: vi.fn(() => ({ schema: {} })),
+}));
+
+vi.mock("openclaw/plugin-sdk/param-readers", () => ({
+    readStringParam: shared.readStringParamMock,
+}));
+
+vi.mock("openclaw/plugin-sdk/runtime-store", () => ({
     createPluginRuntimeStore: vi.fn((errorMessage: string) => {
         let runtime: unknown;
         return {
@@ -80,10 +88,6 @@ vi.mock("../../src/plugin-sdk-runtime-core", () => ({
             },
         };
     }),
-}));
-
-vi.mock("../../src/plugin-sdk-runtime-helpers", () => ({
-    readStringParam: shared.readStringParamMock,
 }));
 
 vi.mock("openclaw/plugin-sdk/tool-send", () => ({

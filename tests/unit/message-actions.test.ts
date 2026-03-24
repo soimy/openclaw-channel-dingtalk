@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/plugin-sdk-runtime-core', () => ({
+vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
-    createPluginRuntimeStore: vi.fn((errorMessage: string) => ({
-        setRuntime: vi.fn(),
-        getRuntime: vi.fn(() => {
-            throw new Error(errorMessage);
-        }),
-    })),
 }));
 
-vi.mock('../../src/plugin-sdk-runtime-helpers', () => ({
+vi.mock('openclaw/plugin-sdk/telegram-core', () => ({
     jsonResult: vi.fn((payload: unknown) => payload),
     readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
         const raw = params[key];
@@ -35,6 +29,9 @@ vi.mock('../../src/plugin-sdk-runtime-helpers', () => ({
         }
         return normalized;
     }),
+}));
+
+vi.mock('openclaw/plugin-sdk/tool-send', () => ({
     extractToolSend: vi.fn((args: Record<string, unknown>) => {
         const target = args.to;
         if (typeof target !== 'string' || !target.trim()) {

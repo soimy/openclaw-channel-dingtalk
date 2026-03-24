@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { buildChannelConfigSchema } from "./plugin-sdk-runtime-core";
-import { extractToolSend, jsonResult, readStringParam } from "./plugin-sdk-runtime-helpers";
+import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { jsonResult } from "openclaw/plugin-sdk/telegram-core";
+import { readStringParam } from "openclaw/plugin-sdk/param-readers";
+import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
 import {
