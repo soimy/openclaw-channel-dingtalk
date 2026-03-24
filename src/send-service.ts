@@ -254,8 +254,16 @@ export async function uploadMedia(
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
 ): Promise<string | null> {
-  const uploaded = await uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  const uploaded = await uploadMediaUtil(
+    config,
+    mediaPath,
+    mediaType,
+    getAccessToken,
+    log,
+    options,
+  );
   if (typeof uploaded === "string") {
     return uploaded;
   }
@@ -405,7 +413,9 @@ export async function sendProactiveMedia(
 
   try {
     // Upload first, then send by media_id.
-    const mediaId = await uploadMedia(config, mediaPath, mediaType, log);
+    const mediaId = await uploadMedia(config, mediaPath, mediaType, log, {
+      mediaLocalRoots: options.mediaLocalRoots,
+    });
     if (!mediaId) {
       return { ok: false, error: "Failed to upload media" };
     }

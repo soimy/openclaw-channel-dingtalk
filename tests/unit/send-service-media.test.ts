@@ -113,6 +113,32 @@ describe('send-service media branches', () => {
         expect(mockedAxios).not.toHaveBeenCalled();
     });
 
+    it('forwards mediaLocalRoots to uploadMedia for proactive sends', async () => {
+        mockedUploadMedia.mockResolvedValueOnce('media_file_roots');
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_roots' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            '/tmp/a.pdf',
+            'file',
+            {
+                mediaLocalRoots: ['/tmp/runtime-media', '/tmp/upload-cache'],
+            } as any,
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/a.pdf',
+            'file',
+            expect.any(Function),
+            undefined,
+            {
+                mediaLocalRoots: ['/tmp/runtime-media', '/tmp/upload-cache'],
+            },
+        );
+    });
+
     it('sendProactiveMedia maps image payload to sampleImageMsg template', async () => {
         mockedUploadMedia.mockResolvedValueOnce('media_img_2');
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
