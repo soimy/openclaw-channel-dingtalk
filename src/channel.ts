@@ -344,7 +344,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
           accountId: accountId ?? undefined,
           storePath,
           chatType: inferTargetChatType({ target, storePath, accountId: accountId ?? undefined, log }),
-          mediaLocalRoots,
+          mediaLocalRoots: mediaLocalRoots ? [...mediaLocalRoots] : undefined,
         });
 
         if (!result.ok) {
