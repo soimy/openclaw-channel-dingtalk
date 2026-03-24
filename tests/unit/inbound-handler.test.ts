@@ -2512,7 +2512,7 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage stores extracted attachment text without injecting it into the current inbound context", async () => {
+  it("handleDingTalkMessage stores extracted attachment text and injects it into inbound body", async () => {
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
     shared.extractMessageContentMock.mockReturnValueOnce({
@@ -2562,8 +2562,8 @@ describe("inbound-handler", () => {
     });
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        RawBody: "[钉钉文档]\n\n",
-        CommandBody: "[钉钉文档]\n\n",
+        RawBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
+        CommandBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
       }),
     );
     const restored = messageContextStore.resolveByMsgId({
@@ -7010,5 +7010,61 @@ describe("inbound-handler", () => {
       (call: any[]) => typeof call[2] === "string" && call[2].includes("访问受限"),
     );
     expect(denyCalls.length).toBe(0);
+  });
+
+  it("handleDingTalkMessage concatenates extracted attachment text into inboundText", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "[钉钉文档]\n\n",
+      messageType: "interactiveCardFile",
+      docSpaceId: "space_attach_concat",
+      docFileId: "file_attach_concat",
+    });
+    shared.downloadGroupFileMock.mockResolvedValueOnce({
+      path: "/tmp/.openclaw/media/inbound/report.pdf",
+      mimeType: "application/pdf",
+    });
+    shared.extractAttachmentTextMock.mockResolvedValueOnce({
+      text: "第一章 概述\n本报告介绍了...",
+      sourceType: "pdf",
+      truncated: false,
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "msg_attach_concat",
+        msgtype: "interactiveCard",
+        content: {
+          fileName: "report.pdf",
+          biz_custom_action_url:
+            "dingtalk://dingtalkclient/page/yunpan?route=previewDentry&spaceId=space_attach_concat&fileId=file_attach_concat&type=file",
+        },
+        conversationType: "1",
+        conversationId: "cid_dm_attach_concat",
+        senderId: "user_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // The extracted text MUST be concatenated into RawBody/CommandBody
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        RawBody: expect.stringContaining("[附件内容摘录]"),
+      }),
+    );
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        RawBody: expect.stringContaining("第一章 概述\n本报告介绍了..."),
+      }),
+    );
   });
 });

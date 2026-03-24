@@ -89,6 +89,7 @@ import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, m
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
 const MAX_DYNAMIC_ACK_DISPOSE_WAIT_MS = 500;
+const ATTACHMENT_TEXT_PREFIX = "[附件内容摘录]";
 const proactiveHintLastSentAt = new Map<string, number>();
 
 function resolvePinnedMainDmOwner(params: {
@@ -1417,6 +1418,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  let attachmentExtractedText: string | undefined;
   if (mediaPath) {
     try {
       const extracted = await extractAttachmentText({
@@ -1439,6 +1441,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           ttlMs: ttlDaysToMs(journalTTLDays),
           topic: null,
         });
+        attachmentExtractedText = `${ATTACHMENT_TEXT_PREFIX}\n${extracted.text}`;
       }
     } catch (err: any) {
       log?.warn?.(`[DingTalk] Failed to extract attachment text: ${err.message}`);
@@ -1449,7 +1452,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     mediaPath && /<media:[^>]+>/.test(content.text)
       ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
       : content.text;
-  const inboundText = inboundBody;
+  const inboundText = attachmentExtractedText
+    ? `${inboundBody}\n\n${attachmentExtractedText}`
+    : inboundBody;
   const learningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
   const learningContextBlock = buildLearningContextBlock({
     enabled: learningEnabled,
