@@ -13,6 +13,11 @@ vi.mock('axios', () => {
     };
 });
 
+vi.mock('../../src/media-utils', () => ({
+    uploadMedia: vi.fn(),
+    getVoiceDurationMs: vi.fn(),
+}));
+
 vi.mock('../../src/card-service', () => ({
     getActiveCardIdByTarget: vi.fn().mockReturnValue(undefined),
     getCardById: vi.fn().mockReturnValue(undefined),
@@ -45,7 +50,7 @@ describe('error payload logging integration', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'markdown' },
-            'user_123',
+            'user:user_123',
             'hello',
             { log }
         );

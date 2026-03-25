@@ -148,5 +148,13 @@ export function listDingTalkDirectoryUsers(params: DirectoryListParams): Channel
 }
 
 export function normalizeResolvedDingTalkTarget(raw: string): string {
-  return resolveOriginalPeerId(stripTargetPrefix(raw).targetId);
+  const parsed = stripTargetPrefix(raw);
+  const resolvedTarget = resolveOriginalPeerId(parsed.targetId);
+  if (parsed.explicitChatType === "group") {
+    return `group:${resolvedTarget}`;
+  }
+  if (parsed.explicitChatType === "direct") {
+    return `user:${resolvedTarget}`;
+  }
+  return resolvedTarget;
 }

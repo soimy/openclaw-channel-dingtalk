@@ -13,6 +13,11 @@ vi.mock('axios', () => {
     };
 });
 
+vi.mock('../../src/media-utils', () => ({
+    uploadMedia: vi.fn(),
+    getVoiceDurationMs: vi.fn(),
+}));
+
 import { convertMarkdownTablesToPlainText } from '../../src/message-utils';
 import { sendBySession, sendProactiveTextOrMarkdown } from '../../src/send-service';
 import type { DingTalkConfig } from '../../src/types';
@@ -64,7 +69,7 @@ describe('message payload transform', () => {
     it('should convert group proactive text to sampleText payload', async () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_1' } });
 
-        await sendProactiveTextOrMarkdown(config, 'cidA1B2C3', 'plain text');
+        await sendProactiveTextOrMarkdown(config, 'group:cidA1B2C3', 'plain text');
 
         expect(mockedAxios).toHaveBeenCalledTimes(1);
         const request = mockedAxios.mock.calls[0]?.[0] as {
@@ -106,7 +111,7 @@ describe('message payload transform', () => {
     it('converts markdown tables to plain text before proactive markdown send', async () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_table' } });
 
-        await sendProactiveTextOrMarkdown(config, 'cidA1B2C3', '# 周报\n| 项目 | 状态 |\n| --- | --- |\n| PR-295 | 处理中 |');
+        await sendProactiveTextOrMarkdown(config, 'group:cidA1B2C3', '# 周报\n| 项目 | 状态 |\n| --- | --- |\n| PR-295 | 处理中 |');
 
         const request = mockedAxios.mock.calls[0]?.[0] as {
             data: {

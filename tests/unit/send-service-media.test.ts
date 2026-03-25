@@ -104,7 +104,7 @@ describe('send-service media branches', () => {
 
         const result = await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/a.pdf',
             'file'
         );
@@ -119,7 +119,7 @@ describe('send-service media branches', () => {
 
         await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/a.pdf',
             'file',
             {
@@ -145,7 +145,7 @@ describe('send-service media branches', () => {
 
         const result = await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/a.png',
             'image'
         );
@@ -163,7 +163,7 @@ describe('send-service media branches', () => {
 
         const result = await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'user_123',
+            'user:user_123',
             '/tmp/a.amr',
             'voice'
         );
@@ -180,7 +180,7 @@ describe('send-service media branches', () => {
 
         await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'user_123',
+            'user:user_123',
             '/tmp/a.amr',
             'voice',
             {
@@ -230,7 +230,7 @@ describe('send-service media branches', () => {
 
         const result = await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'user_123',
+            'user:user_123',
             '/tmp/a.pdf',
             'file',
             {
@@ -260,7 +260,7 @@ describe('send-service media branches', () => {
 
         await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_media', name: 'Media Bot' } as any,
-            'user_123',
+            'user:user_123',
             '/tmp/a.amr',
             'voice',
             { accountId: 'main', storePath: '/tmp/sessions.json', chatType: 'direct' } as any,
@@ -280,7 +280,7 @@ describe('send-service media branches', () => {
 
         await sendProactiveMedia(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
-            'user_123',
+            'user:user_123',
             '/tmp/a.amr',
             'voice'
         );

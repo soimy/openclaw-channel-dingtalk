@@ -105,7 +105,7 @@ describe('card-service', () => {
 
         await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'robot_1' } as any,
-            'manager123'
+            'user:manager123'
         );
 
         const body = mockedAxios.post.mock.calls[0]?.[1];
@@ -128,7 +128,7 @@ describe('card-service', () => {
                 robotCode: 'robot_1',
                 bypassProxyForSend: true,
             } as any,
-            'manager123'
+            'user:manager123'
         );
 
         const requestConfig = mockedAxios.post.mock.calls[0]?.[2];
@@ -585,7 +585,7 @@ describe('card-service', () => {
 
         const result = await sendProactiveCardText(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
-            'cid_proactive',
+            'group:cid_proactive',
             'proactive done'
         );
 

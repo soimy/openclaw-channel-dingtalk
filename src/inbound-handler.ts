@@ -603,6 +603,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const replyTarget = isDirect ? senderId : groupId;
+  const cardReplyTarget = isDirect ? `user:${senderId}` : `group:${groupId}`;
   const parsedLearnCommand = parseLearnCommand(extractedContent.text);
   const parsedSessionCommand = parseSessionCommand(extractedContent.text);
   const parsedSummaryCommand = parseSummaryCommand(extractedContent.text);
@@ -1066,9 +1067,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (useCardMode) {
     try {
       log?.debug?.(
-        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${replyTarget}`,
+        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${cardReplyTarget}`,
       );
-      const aiCard = await createAICard(dingtalkConfig, replyTarget, log, {
+      const aiCard = await createAICard(dingtalkConfig, cardReplyTarget, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
@@ -1672,6 +1673,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             accountId,
             storePath: accountStorePath,
             conversationId: groupId,
+            chatType: isDirect ? "direct" : "group",
             quotedRef: replyQuotedRef,
           });
           if (!sendResult.ok) {

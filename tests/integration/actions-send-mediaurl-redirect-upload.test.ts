@@ -125,7 +125,7 @@ describe('actions.send mediaUrl redirect integration', () => {
                 },
             },
             params: {
-                to: 'cidA1B2C3',
+                to: 'group:cidA1B2C3',
                 mediaUrl: 'https://example.com/path/photo',
             },
             accountId: 'default',

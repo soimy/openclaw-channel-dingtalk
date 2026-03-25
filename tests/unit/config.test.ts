@@ -6,8 +6,8 @@ import { resolveGroupConfig, resolveRelativePath, stripTargetPrefix } from '../.
 describe('config helpers', () => {
     describe('stripTargetPrefix', () => {
         it('strips explicit target prefixes correctly', () => {
-            expect(stripTargetPrefix('group:cid123')).toEqual({ targetId: 'cid123', isExplicitUser: false });
-            expect(stripTargetPrefix('user:user_1')).toEqual({ targetId: 'user_1', isExplicitUser: true });
+            expect(stripTargetPrefix('group:cid123')).toEqual({ targetId: 'cid123', isExplicitUser: false, explicitChatType: 'group' });
+            expect(stripTargetPrefix('user:user_1')).toEqual({ targetId: 'user_1', isExplicitUser: true, explicitChatType: 'direct' });
             expect(stripTargetPrefix('raw_target')).toEqual({ targetId: 'raw_target', isExplicitUser: false });
         });
     });

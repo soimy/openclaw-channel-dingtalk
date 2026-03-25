@@ -389,6 +389,18 @@ export function formatContentForCard(content: string | undefined, type: "thinkin
   return `${emoji} **${label}**\n\n${escaped}`;
 }
 
+function resolveCardConversationTarget(conversationId: string): {
+  resolvedConversationId: string;
+  isGroup: boolean;
+} {
+  const { targetId, isExplicitUser, explicitChatType } = stripTargetPrefix(conversationId);
+  const resolvedConversationId = resolveOriginalPeerId(targetId);
+  const isGroup = explicitChatType
+    ? explicitChatType === "group"
+    : !isExplicitUser && resolvedConversationId.startsWith("cid");
+  return { resolvedConversationId, isGroup };
+}
+
 async function sendTemplateMismatchNotification(
   card: AICardInstance,
   text: string,
@@ -400,9 +412,9 @@ async function sendTemplateMismatchNotification(
   }
   try {
     const token = await getAccessToken(config, log);
-    const { targetId, isExplicitUser } = stripTargetPrefix(card.conversationId);
-    const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+    const { resolvedConversationId: resolvedTarget, isGroup } = resolveCardConversationTarget(
+      card.conversationId,
+    );
     const url = isGroup
       ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
       : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
@@ -566,10 +578,9 @@ export async function createAICard(
     const token = await getAccessToken(config, log);
     // Use randomUUID to avoid collisions across workers/restarts.
     const cardInstanceId = `card_${randomUUID()}`;
+    const { resolvedConversationId, isGroup } = resolveCardConversationTarget(conversationId);
 
     log?.info?.(`[DingTalk][AICard] Creating and delivering card outTrackId=${cardInstanceId}`);
-
-    const isGroup = conversationId.startsWith("cid");
 
     if (!config.cardTemplateId) {
       throw new Error("DingTalk cardTemplateId is not configured.");
@@ -591,8 +602,8 @@ export async function createAICard(
       imGroupOpenSpaceModel: { supportForward: true },
       imRobotOpenSpaceModel: { supportForward: true },
       openSpaceId: isGroup
-        ? `dtv1.card//IM_GROUP.${conversationId}`
-        : `dtv1.card//IM_ROBOT.${conversationId}`,
+        ? `dtv1.card//IM_GROUP.${resolvedConversationId}`
+        : `dtv1.card//IM_ROBOT.${resolvedConversationId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
         ? {
@@ -663,8 +674,8 @@ export async function createAICard(
     const aiCardInstance: AICardInstance = {
       cardInstanceId: resolvedCardInstanceId,
       accessToken: token,
-      conversationId,
-      contextConversationId: options.contextConversationId || conversationId,
+      conversationId: resolvedConversationId,
+      contextConversationId: options.contextConversationId || resolvedConversationId,
       accountId,
       storePath: options.storePath,
       createdAt: Date.now(),

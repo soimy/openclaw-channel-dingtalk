@@ -127,7 +127,7 @@ describe('dingtalkPlugin.actions.send', () => {
             action: 'send',
             cfg: cfg as any,
             params: {
-                to: 'cidA1B2C3',
+                to: 'group:cidA1B2C3',
                 media: '/tmp/audio.mp3',
                 asVoice: true,
             },
@@ -137,7 +137,7 @@ describe('dingtalkPlugin.actions.send', () => {
 
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/audio.mp3',
             'voice',
             expect.objectContaining({ accountId: 'default' })
@@ -164,7 +164,7 @@ describe('dingtalkPlugin.actions.send', () => {
                 action: 'send',
                 cfg: cfg as any,
                 params: {
-                    to: 'cidA1B2C3',
+                    to: 'group:cidA1B2C3',
                     media: '/tmp/not-audio.pdf',
                     asVoice: true,
                 },
@@ -185,7 +185,7 @@ describe('dingtalkPlugin.actions.send', () => {
             action: 'send',
             cfg: cfg as any,
             params: {
-                to: 'user_abc',
+                to: 'user:user_abc',
                 message: 'hello',
             },
             accountId: 'default',
@@ -194,7 +194,7 @@ describe('dingtalkPlugin.actions.send', () => {
 
         expect(sendMessageMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'user_abc',
+            'user:user_abc',
             'hello',
             expect.objectContaining({ accountId: 'default' })
         );
@@ -263,7 +263,7 @@ describe('dingtalkPlugin.actions.send', () => {
             action: 'send',
             cfg: cfg as any,
             params: {
-                to: 'cidA1B2C3',
+                to: 'group:cidA1B2C3',
                 message: 'hello group',
             },
             accountId: 'default',
@@ -272,7 +272,7 @@ describe('dingtalkPlugin.actions.send', () => {
 
         expect(sendMessageMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'hello group',
             expect.objectContaining({
                 accountId: 'default',
@@ -289,7 +289,7 @@ describe('dingtalkPlugin.actions.send', () => {
                 action: 'send',
                 cfg: cfg as any,
                 params: {
-                    to: 'user_abc',
+                    to: 'user:user_abc',
                     message: 'hello',
                     asVoice: true,
                 },
@@ -318,7 +318,7 @@ describe('dingtalkPlugin.actions.send', () => {
             action: 'send',
             cfg: cfg as any,
             params: {
-                to: 'cidA1B2C3',
+                to: 'group:cidA1B2C3',
                 mediaUrl: 'https://example.com/photo.png',
             },
             accountId: 'default',
@@ -332,7 +332,7 @@ describe('dingtalkPlugin.actions.send', () => {
         );
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/dingtalk_remote.png',
             'image',
             expect.objectContaining({ accountId: 'default' })

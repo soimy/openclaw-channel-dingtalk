@@ -16,6 +16,11 @@ vi.mock('axios', () => ({
     isAxiosError: vi.fn(),
 }));
 
+vi.mock('../../src/media-utils', () => ({
+    uploadMedia: vi.fn(),
+    getVoiceDurationMs: vi.fn(),
+}));
+
 vi.mock('../../src/card-service', () => ({
     isCardInTerminalState: cardMocks.isCardInTerminalStateMock,
     streamAICard: cardMocks.streamAICardMock,
@@ -42,7 +47,7 @@ describe('sendMessage card mode', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'stream content',
             { card, sessionWebhook: 'https://session.webhook' }
         );
@@ -63,7 +68,7 @@ describe('sendMessage card mode', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             ' world',
             { card, cardUpdateMode: 'append' } as any,
         );
@@ -79,7 +84,7 @@ describe('sendMessage card mode', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'fallback text',
             { card, sessionWebhook: 'https://session.webhook' }
         );
@@ -106,7 +111,7 @@ describe('sendMessage card mode', () => {
                 robotCode: 'id',
                 cardTemplateId: 'tmpl.schema',
             } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'new terminal content',
             { card }
         );
@@ -114,7 +119,7 @@ describe('sendMessage card mode', () => {
         expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
         expect(cardMocks.sendProactiveCardTextMock).toHaveBeenCalledWith(
             expect.objectContaining({ cardTemplateId: 'tmpl.schema' }),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'new terminal content',
             undefined,
         );
@@ -134,7 +139,7 @@ describe('sendMessage card mode', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'no card text',
             { sessionWebhook: 'https://session.webhook' }
         );
@@ -151,7 +156,7 @@ describe('sendMessage card mode', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'appended',
             { card, cardUpdateMode: 'append' } as any
         );

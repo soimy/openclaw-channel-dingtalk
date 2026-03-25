@@ -13,6 +13,11 @@ vi.mock('axios', () => {
     };
 });
 
+vi.mock('../../src/media-utils', () => ({
+    uploadMedia: vi.fn(),
+    getVoiceDurationMs: vi.fn(),
+}));
+
 const cardServiceMocks = vi.hoisted(() => ({
     isCardInTerminalStateMock: vi.fn(),
     streamAICardMock: vi.fn(),
@@ -63,7 +68,7 @@ describe('send-service advanced branches', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
-            'manager123',
+            'user:manager123',
             'text',
             { accountId: 'main' } as any,
         );
@@ -83,7 +88,7 @@ describe('send-service advanced branches', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
-            'manager123',
+            'user:manager123',
             'text',
             { accountId: 'main' } as any,
         );
@@ -110,7 +115,7 @@ describe('send-service advanced branches', () => {
 
         await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
-            'manager123',
+            'user:manager123',
             'card proactive text',
             {
                 accountId: 'main',
@@ -158,7 +163,7 @@ describe('send-service advanced branches', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             'text',
             { log: log as any }
         );
@@ -192,7 +197,7 @@ describe('send-service advanced branches', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            '0341234567',
+            'user:0341234567',
             'text',
             { log: log as any, accountId: 'main' } as any,
         );
@@ -202,8 +207,7 @@ describe('send-service advanced branches', () => {
         expect(logs.some((entry) => entry.includes('proactiveRisk=high:numeric-user-id'))).toBe(true);
     });
 
-    it('warns when chatType falls back to heuristic inference', async () => {
-        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_warn_1' } } as any);
+    it('fails closed when proactive send lacks a resolvable chatType', async () => {
         const log = { warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
 
         const result = await sendMessage(
@@ -213,10 +217,12 @@ describe('send-service advanced branches', () => {
             { log: log as any, accountId: 'main' } as any,
         );
 
-        expect(result.ok).toBe(true);
-        expect(log.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Falling back to heuristic chatType inference')
-        );
+        expect(result).toEqual({
+            ok: false,
+            error: 'Unable to determine DingTalk chatType for target cid_dm_heuristic; use user:/group: prefix or pass chatType explicitly.',
+        });
+        expect(log.warn).not.toHaveBeenCalled();
+        expect(mockedAxios).not.toHaveBeenCalled();
     });
 
     it('records proactive API risk observation when permission denied is returned', async () => {
@@ -230,7 +236,7 @@ describe('send-service advanced branches', () => {
 
         const result = await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
-            'manager123',
+            'user:manager123',
             'text',
             { accountId: 'main' } as any,
         );
@@ -352,7 +358,7 @@ describe('send-service advanced branches', () => {
 
         await sendMessage(
             { clientId: 'id', clientSecret: 'sec', robotCode: 'robot_42', name: 'Ding Helper' } as any,
-            'manager123',
+            'user:manager123',
             'hello proactive',
             {
                 accountId: 'main',

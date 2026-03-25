@@ -222,14 +222,18 @@ export function resolveAckReactionSetting(params: {
 
 /**
  * Strip group/user prefixes used by CLI targeting.
- * Returns raw DingTalk target ID and whether caller explicitly requested a user target.
+ * Returns raw DingTalk target ID and the explicit chat type when provided.
  */
-export function stripTargetPrefix(target: string): { targetId: string; isExplicitUser: boolean } {
+export function stripTargetPrefix(target: string): {
+  targetId: string;
+  isExplicitUser: boolean;
+  explicitChatType?: "direct" | "group";
+} {
   if (target.startsWith("group:")) {
-    return { targetId: target.slice(6), isExplicitUser: false };
+    return { targetId: target.slice(6), isExplicitUser: false, explicitChatType: "group" };
   }
   if (target.startsWith("user:")) {
-    return { targetId: target.slice(5), isExplicitUser: true };
+    return { targetId: target.slice(5), isExplicitUser: true, explicitChatType: "direct" };
   }
   return { targetId: target, isExplicitUser: false };
 }

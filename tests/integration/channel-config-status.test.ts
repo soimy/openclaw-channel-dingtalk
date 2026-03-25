@@ -103,7 +103,7 @@ describe("channel config + status helpers", () => {
     const resolved = plugin.outbound.resolveTarget({ to: "group:cidAbC" } as any);
     const invalid = plugin.outbound.resolveTarget({ to: "   " } as any);
 
-    expect(resolved).toEqual({ ok: true, to: "cidAbC" });
+    expect(resolved).toEqual({ ok: true, to: "group:cidAbC" });
     expect(invalid.ok).toBe(false);
     expect(plugin.messaging.normalizeTarget("dingtalk:user_1")).toBe("user_1");
     expect(plugin.messaging.normalizeTarget("dingtalk:group:cidAbC")).toBe("cidAbC");

@@ -10,12 +10,11 @@ function parseDingTalkTargetInput(raw: string): {
   explicitGroup: boolean;
 } {
   const providerStripped = stripProviderPrefix(raw.trim()).trim();
-  const explicitGroup = providerStripped.startsWith("group:");
-  const { targetId, isExplicitUser } = stripTargetPrefix(providerStripped);
+  const { targetId, isExplicitUser, explicitChatType } = stripTargetPrefix(providerStripped);
   return {
     targetId: targetId.trim(),
     explicitUser: isExplicitUser,
-    explicitGroup,
+    explicitGroup: explicitChatType === "group",
   };
 }
 
