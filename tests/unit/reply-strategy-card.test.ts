@@ -254,15 +254,13 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
         });
 
-        it("uses fallback Done text when counts.final > 0 but no text content", async () => {
+        it("closes card with interruption notice when counts.final > 0 but no text content", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
-            // deliver called with empty final text
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            // counts.final > 0 means agent did produce a final reply
             await strategy.finalize({ block: 0, final: 1, tool: 0 });
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls[0][1]).toContain("Done");
+            expect(finishAICardMock.mock.calls[0][1]).toContain("未收到最终回复");
         });
 
         it("silently closes card when counts.final=0 and no content (agent produced no output)", async () => {

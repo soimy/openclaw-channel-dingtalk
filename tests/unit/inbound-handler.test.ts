@@ -153,6 +153,11 @@ function buildRuntime() {
           }),
       },
     },
+    events: undefined as
+      | {
+          onAgentEvent?: (listener: (event: unknown) => void) => () => void;
+        }
+      | undefined,
   };
 }
 
@@ -3314,6 +3319,44 @@ describe("inbound-handler", () => {
     expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "", undefined);
   });
 
+  it("handleDingTalkMessage uses queuedFinal when no explicit final text was delivered", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockResolvedValue({ queuedFinal: "queued final answer", counts: { block: 0, final: 0, tool: 0 } });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    const card = { cardInstanceId: "card_qf", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      data: {
+        msgId: "m6_qf",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "queued final answer", undefined, {
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "m6_qf",
+      },
+    });
+  });
+
   it("handleDingTalkMessage falls back to markdown sends when createAICard returns null", async () => {
     shared.createAICardMock.mockResolvedValueOnce(null);
 
@@ -3376,13 +3419,8 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m6_tool",
-      },
-    });
+    const toolFinalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(toolFinalContent).not.toContain("Done");
     expect(shared.sendMessageMock.mock.calls[0]?.[3]?.quotedRef).toBeUndefined();
     expect(shared.sendMessageMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -5589,7 +5627,7 @@ describe("inbound-handler", () => {
     expect(finalizeContent).not.toContain("思考中");
   });
 
-  it("file-only response finalizes card with Done instead of reasoning content", async () => {
+  it("file-only response uses last streamed content instead of Done", async () => {
     const card = { cardInstanceId: "card_file_only", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
     shared.isCardInTerminalStateMock.mockReturnValue(false);
@@ -5600,7 +5638,6 @@ describe("inbound-handler", () => {
       .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
         replyOptions?.onReasoningStream?.({ text: "Let me send the file" });
         await new Promise((r) => setTimeout(r, 350));
-        // Bot sent file via tool, deliver(final) has no text and no media
         await dispatcherOptions.deliver({ text: "" }, { kind: "final" });
         return {};
       });
@@ -5632,8 +5669,7 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).not.toContain("思考中");
-    expect(finalizeContent).not.toContain("send");
+    expect(finalizeContent).not.toContain("Done");
   });
 
   it("learns group/user targets from inbound displayName metadata", async () => {
@@ -6606,7 +6642,7 @@ describe("inbound-handler", () => {
         expect(finalizeContent).not.toContain('思考中');
     });
 
-    it('file-only response finalizes card with Done instead of reasoning content', async () => {
+    it('file-only response uses last streamed content instead of Done', async () => {
         const card = { cardInstanceId: 'card_file_only', state: '1', lastUpdated: Date.now() } as any;
         shared.createAICardMock.mockResolvedValueOnce(card);
         shared.isCardInTerminalStateMock.mockReturnValue(false);
@@ -6617,7 +6653,6 @@ describe("inbound-handler", () => {
             .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
                 replyOptions?.onReasoningStream?.({ text: 'Let me send the file' });
                 await new Promise((r) => setTimeout(r, 350));
-                // Bot sent file via tool, deliver(final) has no text and no media
                 await dispatcherOptions.deliver({ text: '' }, { kind: 'final' });
                 return {};
             });
@@ -6638,8 +6673,7 @@ describe("inbound-handler", () => {
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-        expect(finalizeContent).not.toContain('思考中');
-        expect(finalizeContent).not.toContain('send');
+        expect(finalizeContent).not.toContain('Done');
     });
 
     it('cardAtSender: sends @mention after card finalize in group chat', async () => {

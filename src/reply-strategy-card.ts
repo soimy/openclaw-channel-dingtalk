@@ -168,36 +168,51 @@ export function createCardReplyStrategy(
         await controller.waitForInFlight();
         controller.stop();
 
-        // Determine if the agent actually produced any content during dispatch.
-        // Use counts from the runtime dispatcher as the authoritative signal,
-        // falling back to controller/fallback text as secondary indicators.
         const toolCount = counts?.tool ?? 0;
-        const agentProducedContent = finalCount > 0
-          || toolCount > 0
-          || !!controller.getLastAnswerContent()
-          || !!controller.getLastContent()
-          || !!finalTextForFallback;
+        const lastAnswer = controller.getLastAnswerContent();
+        const lastContent = controller.getLastContent();
 
-        const finalText = controller.getLastAnswerContent()
+        const finalText = lastAnswer
           || finalTextForFallback
-          || (agentProducedContent ? "✅ Done" : undefined);
+          || (toolCount > 0 ? card.lastStreamedContent : undefined)
+          || lastContent
+          || undefined;
 
         if (!finalText) {
-          log?.warn?.(
-            "[DingTalk][Finalize] Agent produced no content (counts.final=0, no streamed text) — " +
-            "closing card silently instead of showing fallback text",
-          );
+          const noDispatchActivity = finalCount === 0 && toolCount === 0
+            && !lastAnswer && !lastContent && !finalTextForFallback;
+          if (noDispatchActivity) {
+            log?.warn?.(
+              "[DingTalk][Finalize] Agent produced no content — closing card silently",
+            );
+          } else {
+            log?.warn?.(
+              "[DingTalk][Finalize] Dispatch completed but no final text available — closing card with interruption notice",
+            );
+          }
+          const closeText = noDispatchActivity
+            ? ""
+            : "⚠️ 未收到最终回复，请重新发送。";
           try {
-            await finishAICard(card, "", log);
+            await finishAICard(card, closeText, log);
           } catch {
-            // Best-effort silent close; card will expire naturally if this fails.
+            // Best-effort close; card will expire naturally if this fails.
           }
           return;
         }
 
+        const source = lastAnswer
+          ? "lastAnswerContent"
+          : finalTextForFallback
+            ? "finalTextForFallback"
+            : toolCount > 0 && card.lastStreamedContent
+              ? "toolStreamContent"
+              : lastContent
+                ? "lastContent"
+                : "unknown";
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
-          `source=${controller.getLastAnswerContent() ? "lastAnswerContent" : finalTextForFallback ? "finalTextForFallback" : "fallbackDone"} ` +
+          `source=${source} ` +
           `preview="${finalText.slice(0, 120)}"`,
         );
         await finishAICard(card, finalText, log, {

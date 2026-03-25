@@ -1720,7 +1720,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       deliverMedia: deliverMediaAttachments,
     });
 
-    let dispatchResult: { queuedFinal?: boolean; counts?: Record<string, number> } | undefined;
+    let dispatchResult: { queuedFinal?: unknown; counts?: Record<string, number> } | undefined;
+    let sawExplicitFinalText = false;
     try {
       dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
@@ -1730,10 +1731,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
             try {
               const mediaUrls = extractMediaUrls(payload);
+              const kind = (info?.kind as DeliverPayload["kind"]) || "block";
+              if (
+                kind === "final"
+                && typeof payload.text === "string"
+                && payload.text.trim().length > 0
+              ) {
+                sawExplicitFinalText = true;
+              }
               await strategy.deliver({
                 text: payload.text,
                 mediaUrls,
-                kind: (info?.kind as DeliverPayload["kind"]) || "block",
+                kind,
               });
             } catch (err: unknown) {
               log?.error?.(`[DingTalk] Reply failed: ${getErrorMessage(err)}`);
@@ -1747,6 +1756,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         },
         replyOptions: strategy.getReplyOptions(),
       });
+      const queuedFinal = dispatchResult?.queuedFinal;
+      const queuedFinalText = typeof queuedFinal === "string" && queuedFinal.trim().length > 0
+        ? queuedFinal
+        : undefined;
+      if (!sawExplicitFinalText && queuedFinalText) {
+        log?.info?.(
+          `[DingTalk][Finalize] Injecting queuedFinal as synthetic final len=${queuedFinalText.length}`,
+        );
+        await strategy.deliver({
+          text: queuedFinalText,
+          mediaUrls: [],
+          kind: "final",
+        });
+      }
     } catch (dispatchErr: unknown) {
       const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
       await strategy.abort(error);
