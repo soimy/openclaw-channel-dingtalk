@@ -1720,8 +1720,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       deliverMedia: deliverMediaAttachments,
     });
 
+    let dispatchResult: { queuedFinal?: boolean; counts?: Record<string, number> } | undefined;
     try {
-      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
         cfg,
         dispatcherOptions: {
@@ -1752,7 +1753,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       throw dispatchErr;
     }
 
-    await strategy.finalize();
+    const counts = {
+      block: dispatchResult?.counts?.block ?? 0,
+      final: dispatchResult?.counts?.final ?? 0,
+      tool: dispatchResult?.counts?.tool ?? 0,
+    };
+    await strategy.finalize(counts);
   } finally {
     await waitForDynamicAckDispose({
       dispose: () => dynamicAckReactionController.dispose(MIN_THINKING_REACTION_VISIBLE_MS),

@@ -5,7 +5,7 @@
  * final text as a single message via sendMessage.
  */
 
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import type { DeliverPayload, DispatchCounts, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendMessage } from "./send-service";
 
 export function createMarkdownReplyStrategy(
@@ -40,7 +40,7 @@ export function createMarkdownReplyStrategy(
       }
     },
 
-    async finalize(): Promise<void> {
+    async finalize(_counts?: DispatchCounts): Promise<void> {
       // Markdown mode: delivery already happened in deliver(final).
     },
 

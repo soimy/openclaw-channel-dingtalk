@@ -3280,11 +3280,11 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage finalizes card with default content when no textual output is produced", async () => {
+  it("handleDingTalkMessage silently closes card when agent produces no output (counts.final=0)", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockResolvedValue({ queuedFinal: "" });
+      .mockResolvedValue({ queuedFinal: false, counts: { block: 0, final: 0, tool: 0 } });
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
     const card = { cardInstanceId: "card_2", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
@@ -3308,14 +3308,10 @@ describe("inbound-handler", () => {
       },
     } as any);
 
+    // When counts.final=0 and no content, card should be silently closed with
+    // empty string instead of showing "✅ Done" to the user.
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m6",
-      },
-    });
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "", undefined);
   });
 
   it("handleDingTalkMessage falls back to markdown sends when createAICard returns null", async () => {
@@ -3353,7 +3349,7 @@ describe("inbound-handler", () => {
       .fn()
       .mockImplementation(async ({ dispatcherOptions }) => {
         await dispatcherOptions.deliver({ text: "tool output" }, { kind: "tool" });
-        return { queuedFinal: false };
+        return { queuedFinal: false, counts: { block: 0, final: 0, tool: 1 } };
       });
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
 

@@ -254,13 +254,38 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
         });
 
-        it("uses fallback Done text when no content is available", async () => {
+        it("uses fallback Done text when counts.final > 0 but no text content", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
-            // No deliver(final) called → finalTextForFallback is undefined
-            await strategy.finalize();
+            // deliver called with empty final text
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            // counts.final > 0 means agent did produce a final reply
+            await strategy.finalize({ block: 0, final: 1, tool: 0 });
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             expect(finishAICardMock.mock.calls[0][1]).toContain("Done");
+        });
+
+        it("silently closes card when counts.final=0 and no content (agent produced no output)", async () => {
+            const card = makeCard();
+            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+            const strategy = createCardReplyStrategy(buildCtx(card, { log: log as any }));
+            // Agent returned empty — counts.final=0, no deliver called
+            await strategy.finalize({ block: 0, final: 0, tool: 0 });
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            // Should close with empty string, not "✅ Done"
+            expect(finishAICardMock.mock.calls[0][1]).toBe("");
+            const warnLogs = log.warn.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(warnLogs.some((msg) => msg.includes("Agent produced no content"))).toBe(true);
+        });
+
+        it("silently closes card when finalize called without counts (defensive)", async () => {
+            const card = makeCard();
+            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+            const strategy = createCardReplyStrategy(buildCtx(card, { log: log as any }));
+            // No counts passed (e.g. older runtime)
+            await strategy.finalize();
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            expect(finishAICardMock.mock.calls[0][1]).toBe("");
         });
     });
 

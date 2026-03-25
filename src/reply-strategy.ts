@@ -25,6 +25,13 @@ export interface ReplyOptions {
   onAssistantMessageStart?: () => void;
 }
 
+/** Dispatch result counts from the runtime dispatcher. */
+export interface DispatchCounts {
+  block: number;
+  final: number;
+  tool: number;
+}
+
 export interface ReplyStrategy {
   /** Options forwarded to the runtime dispatcher. */
   getReplyOptions(): ReplyOptions;
@@ -32,8 +39,10 @@ export interface ReplyStrategy {
   /** Called by the deliver callback for each payload chunk. */
   deliver(payload: DeliverPayload): Promise<void>;
 
-  /** Called after dispatch completes successfully. */
-  finalize(): Promise<void>;
+  /** Called after dispatch completes successfully.
+   *  @param counts — delivery counts from the runtime dispatcher; used to
+   *  determine whether the agent actually produced output. */
+  finalize(counts?: DispatchCounts): Promise<void>;
 
   /** Called when dispatch throws an error. */
   abort(error: Error): Promise<void>;

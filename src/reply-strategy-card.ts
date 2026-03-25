@@ -12,7 +12,7 @@ import {
   isCardInTerminalState,
 } from "./card-service";
 import { createCardDraftController } from "./card-draft-controller";
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import type { DeliverPayload, DispatchCounts, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendBySession, sendMessage } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
@@ -118,11 +118,13 @@ export function createCardReplyStrategy(
       }
     },
 
-    async finalize(): Promise<void> {
+    async finalize(counts?: DispatchCounts): Promise<void> {
+      const finalCount = counts?.final ?? 0;
       log?.info?.(
         `[DingTalk][Finalize] Step 5 entry — ` +
         `cardState=${card.state ?? "N/A"} ` +
         `controllerFailed=${controller.isFailed()} ` +
+        `counts=${JSON.stringify(counts ?? {})} ` +
         `finalTextForFallback="${(finalTextForFallback ?? "").slice(0, 80)}" ` +
         `lastAnswer="${(controller.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
         `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
@@ -165,9 +167,34 @@ export function createCardReplyStrategy(
         await controller.flush();
         await controller.waitForInFlight();
         controller.stop();
+
+        // Determine if the agent actually produced any content during dispatch.
+        // Use counts from the runtime dispatcher as the authoritative signal,
+        // falling back to controller/fallback text as secondary indicators.
+        const toolCount = counts?.tool ?? 0;
+        const agentProducedContent = finalCount > 0
+          || toolCount > 0
+          || !!controller.getLastAnswerContent()
+          || !!controller.getLastContent()
+          || !!finalTextForFallback;
+
         const finalText = controller.getLastAnswerContent()
           || finalTextForFallback
-          || "✅ Done";
+          || (agentProducedContent ? "✅ Done" : undefined);
+
+        if (!finalText) {
+          log?.warn?.(
+            "[DingTalk][Finalize] Agent produced no content (counts.final=0, no streamed text) — " +
+            "closing card silently instead of showing fallback text",
+          );
+          try {
+            await finishAICard(card, "", log);
+          } catch {
+            // Best-effort silent close; card will expire naturally if this fails.
+          }
+          return;
+        }
+
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
           `source=${controller.getLastAnswerContent() ? "lastAnswerContent" : finalTextForFallback ? "finalTextForFallback" : "fallbackDone"} ` +

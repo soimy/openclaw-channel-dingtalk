@@ -24,7 +24,7 @@
  * concurrently. The `sessionFilter` parameter is required for this reason.
  */
 
-import type { DeliverPayload, ReplyOptions, ReplyStrategy } from "./reply-strategy";
+import type { DeliverPayload, DispatchCounts, ReplyOptions, ReplyStrategy } from "./reply-strategy";
 import type { DingTalkConfig, Logger } from "./types";
 
 const TOOL_REACTION_SILENCE_MS = 55_000;
@@ -173,9 +173,9 @@ export function withDynamicReaction(
       await inner.deliver(payload);
     },
 
-    async finalize(): Promise<void> {
+    async finalize(counts?: DispatchCounts): Promise<void> {
       await dispose();
-      await inner.finalize();
+      await inner.finalize(counts);
     },
 
     async abort(_error: Error): Promise<void> {
