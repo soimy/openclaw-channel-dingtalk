@@ -71,7 +71,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
+            to: 'group:cidA1B2C3',
             text: '',
             mediaPath: './fixtures/photo.png',
             accountId: 'default',
@@ -85,7 +85,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         });
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.objectContaining({ clientId: 'id' }),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             path.resolve('./fixtures/photo.png'),
             'image',
             expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
@@ -109,7 +109,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
+            to: 'user:user_123',
             text: '',
             mediaPath: '/tmp/voice.wav',
             mediaType: 'voice',
@@ -124,7 +124,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         });
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'user_123',
+            'user:user_123',
             '/tmp/voice.wav',
             'voice',
             expect.any(Object)
@@ -146,7 +146,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
+            to: 'group:cidA1B2C3',
             text: '',
             mediaUrl: 'https://example.com/photo.png',
             accountId: 'default',
@@ -160,7 +160,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         );
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'cidA1B2C3',
+            'group:cidA1B2C3',
             '/tmp/dingtalk_123.png',
             'image',
             expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
@@ -178,7 +178,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
+            to: 'user:user_123',
             text: '',
             mediaPath: '/tmp/audio.mp3',
             asVoice: true,
@@ -188,7 +188,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
-            'user_123',
+            'user:user_123',
             '/tmp/audio.mp3',
             'voice',
             expect.any(Object)
@@ -203,7 +203,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
+            to: 'user:user_123',
             text: '',
             mediaPath: '/tmp/not-audio.pdf',
             asVoice: true,
@@ -224,7 +224,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
+            to: 'group:cidA1B2C3',
             text: '',
             mediaPath: '/tmp/doc.pdf',
             accountId: 'default',
@@ -244,7 +244,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         const request = {
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
+            to: 'group:cidA1B2C3',
             text: '',
             mediaUrl: 'http://127.0.0.1/photo.png',
             accountId: 'default',
@@ -273,7 +273,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
                     },
                 },
             },
-            to: 'cidA1B2C3',
+            to: 'group:cidA1B2C3',
             text: '',
             mediaUrl: 'http://192.168.1.23/photo.png',
             accountId: 'default',

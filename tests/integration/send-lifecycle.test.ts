@@ -61,14 +61,14 @@ describe('plugin outbound lifecycle', () => {
 
         const result = await sendText({
             cfg,
-            to: 'user_123',
+            to: 'user:user_123',
             text: 'hello',
             accountId: 'default',
         });
 
         expect(sendMessageMock).toHaveBeenCalledWith(
             expect.objectContaining({ clientId: 'ding-client-id' }),
-            'user_123',
+            'user:user_123',
             'hello',
             expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
@@ -101,7 +101,7 @@ describe('plugin outbound lifecycle', () => {
 
         const result = await sendText({
             cfg,
-            to: 'user_123',
+            to: 'user:user_123',
             text: 'hello card',
             accountId: 'default',
         });
@@ -137,7 +137,7 @@ describe('plugin outbound lifecycle', () => {
         await expect(
             sendText({
                 cfg,
-                to: 'cidA1B2C3',
+                to: 'group:cidA1B2C3',
                 text: 'hello',
                 accountId: 'default',
             })
