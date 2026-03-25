@@ -28,6 +28,12 @@ export interface WriteNamespaceJsonOptions<T> extends ResolveNamespacePathOption
   log?: Logger;
 }
 
+export interface ListNamespaceScopesOptions {
+  storePath: string;
+  format?: NamespaceFormat;
+  log?: Logger;
+}
+
 const NAMESPACE_ROOT_DIR = "dingtalk-state";
 
 function toErrorMessage(err: unknown): string {
@@ -47,6 +53,14 @@ function sanitizeSegment(value: string): string {
 
 function encodeScopeValue(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function decodeScopeValue(value: string): string | undefined {
+  try {
+    return Buffer.from(value, "base64url").toString("utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 function buildScopeSuffix(scope?: PersistenceScope): string {
@@ -69,6 +83,48 @@ function buildScopeSuffix(scope?: PersistenceScope): string {
     return "";
   }
   return `.${segments.join(".")}`;
+}
+
+function parseScopeSuffix(scopeSuffix: string): PersistenceScope | null {
+  if (!scopeSuffix.trim()) {
+    return {};
+  }
+
+  const scope: PersistenceScope = {};
+  for (const segment of scopeSuffix.split(".")) {
+    const separatorIndex = segment.indexOf("-");
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    const keyToken = segment.slice(0, separatorIndex);
+    const decodedValue = decodeScopeValue(segment.slice(separatorIndex + 1));
+    if (!decodedValue?.trim()) {
+      return null;
+    }
+
+    switch (keyToken) {
+      case "account":
+        scope.accountId = decodedValue.trim();
+        break;
+      case "agent":
+        scope.agentId = decodedValue.trim();
+        break;
+      case "conversation":
+        scope.conversationId = decodedValue.trim();
+        break;
+      case "group":
+        scope.groupId = decodedValue.trim();
+        break;
+      case "target":
+        scope.targetId = decodedValue.trim();
+        break;
+      default:
+        return null;
+    }
+  }
+
+  return scope;
 }
 
 export function resolveNamespacePath(namespace: string, options: ResolveNamespacePathOptions): string {
@@ -99,6 +155,45 @@ export function readNamespaceJson<T>(
     );
     return options.fallback;
   }
+}
+
+export function listNamespaceScopes(
+  namespace: string,
+  options: ListNamespaceScopesOptions,
+): PersistenceScope[] {
+  const format = options.format || "json";
+  const baseDir = path.join(path.dirname(options.storePath), NAMESPACE_ROOT_DIR);
+  if (!fs.existsSync(baseDir)) {
+    return [];
+  }
+
+  const safeNamespace = sanitizeSegment(namespace.trim());
+  const unscopedFileName = `${safeNamespace}.${format}`;
+  const prefix = `${safeNamespace}.`;
+  const suffix = `.${format}`;
+  const results: PersistenceScope[] = [];
+
+  for (const fileName of fs.readdirSync(baseDir)) {
+    if (fileName === unscopedFileName) {
+      results.push({});
+      continue;
+    }
+    if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) {
+      continue;
+    }
+
+    const scopeSuffix = fileName.slice(prefix.length, -suffix.length);
+    const scope = parseScopeSuffix(scopeSuffix);
+    if (!scope) {
+      options.log?.warn?.(
+        `[DingTalk][Persistence] Ignoring malformed namespace scope filename=${fileName}`,
+      );
+      continue;
+    }
+    results.push(scope);
+  }
+
+  return results;
 }
 
 export function writeNamespaceJsonAtomic<T>(

@@ -100,6 +100,24 @@ English version: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - `src/message-context-store.ts`
 - `src/media-utils.ts`
 
+### History
+
+负责：
+
+- 基于 message-context 状态做只读型历史聚合
+- 为 summary/history 命令提供会话索引与 rollup 查询
+- 复用 messaging 持久化作为唯一消息真源，而不是再维护一套独立 history store
+
+示例：
+
+- `src/history/group-history-store.ts`
+
+不负责：
+
+- 维护独立的消息持久化 schema
+- 出站消息格式与投递
+- slash 命令解析与分发
+
 ### Card
 
 负责：
@@ -180,7 +198,10 @@ src/
     card-service.ts
     card-callback-service.ts
 
-  command/
+  history/
+    group-history-store.ts
+
+  commands/
     learning-command-service.ts
     feedback-learning-service.ts
     feedback-learning-store.ts

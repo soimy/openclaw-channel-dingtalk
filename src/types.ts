@@ -378,6 +378,7 @@ export interface SendMessageOptions {
   conversationId?: string;
   chatType?: "direct" | "group";
   mediaPath?: string;
+  /** Allowed local roots for sandbox/container media path resolution. */
   mediaLocalRoots?: string[];
   filePath?: string;
   mediaUrl?: string;

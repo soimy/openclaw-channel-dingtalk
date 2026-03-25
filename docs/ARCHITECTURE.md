@@ -100,6 +100,24 @@ Examples:
 - `src/message-context-store.ts`
 - `src/media-utils.ts`
 
+### History
+
+Responsible for:
+
+- Read-optimized history aggregation over message-context state
+- Conversation index and rollup queries used by summary/history commands
+- Reusing messaging persistence as the source of truth instead of introducing a second history store
+
+Examples:
+
+- `src/history/group-history-store.ts`
+
+Not responsible for:
+
+- Owning an independent message persistence schema
+- Outbound delivery formatting
+- Slash-command parsing and dispatch
+
 ### Card
 
 Responsible for:
@@ -180,7 +198,10 @@ src/
     card-service.ts
     card-callback-service.ts
 
-  command/
+  history/
+    group-history-store.ts
+
+  commands/
     learning-command-service.ts
     feedback-learning-service.ts
     feedback-learning-store.ts

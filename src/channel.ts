@@ -42,7 +42,11 @@ import {
   sendBySession,
   uploadMedia,
 } from "./send-service";
-import { resolveDingTalkDeliveryTarget } from "./targeting/delivery-target";
+import {
+  normalizeExplicitChatType,
+  resolveDingTalkDeliveryTarget,
+} from "./targeting/delivery-target";
+import { resolveDeliveryStorePath } from "./targeting/delivery-store-path";
 import {
   listDingTalkDirectoryGroups,
   listDingTalkDirectoryUsers,
@@ -73,26 +77,6 @@ type InstrumentedDWClient = {
   config?: Record<string, unknown> & { endpoint?: { endpoint?: string } | string };
   dw_url?: string;
 };
-
-function resolveActionStorePath(params: {
-  cfg: OpenClawConfig;
-  accountId?: string;
-}): string | undefined {
-  if (!params.accountId) {
-    return undefined;
-  }
-  try {
-    const rt = getDingTalkRuntime();
-    return rt.channel.session.resolveStorePath(params.cfg.session?.store, {
-      agentId: params.accountId,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.message === "DingTalk runtime not initialized") {
-      return undefined;
-    }
-    throw err;
-  }
-}
 
 function attachConnectionErrorContext(
   err: unknown,
@@ -229,26 +213,6 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
   return undefined;
 }
 
-function normalizeExplicitChatType(raw: unknown): "direct" | "group" | undefined {
-  if (raw == null) {
-    return undefined;
-  }
-  if (typeof raw !== "string") {
-    throw new Error(`chatType must be a string when provided; received ${typeof raw}`);
-  }
-  const normalized = raw.trim().toLowerCase();
-  if (!normalized) {
-    return undefined;
-  }
-  if (normalized === "direct" || normalized === "dm") {
-    return "direct";
-  }
-  if (normalized === "group") {
-    return "group";
-  }
-  throw new Error(`Unsupported chatType "${raw}". Use "direct" or "group".`);
-}
-
 function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   actions: readonly ["send"] | readonly [];
   capabilities: readonly ["cards"] | readonly [];
@@ -316,7 +280,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
 
     const log = getLogger();
     const config = getConfig(cfg, accountId ?? undefined);
-    const storePath = resolveActionStorePath({ cfg, accountId: accountId ?? undefined });
+    const storePath = resolveDeliveryStorePath({ cfg, accountId: accountId ?? undefined });
     const targetContext = resolveDingTalkDeliveryTarget({
       target,
       explicitChatType,
@@ -510,10 +474,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     sendText: async ({ cfg, to, text, accountId, log, chatType, conversationType }: any) => {
       const config = getConfig(cfg, accountId);
-      const rt = getDingTalkRuntime();
-      const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
-        agentId: accountId,
-      });
+      const storePath = resolveDeliveryStorePath({ cfg, accountId });
       const targetContext = resolveDingTalkDeliveryTarget({
         target: to,
         explicitChatType: normalizeExplicitChatType(chatType ?? conversationType),
@@ -574,10 +535,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       conversationType,
     }: any) => {
       const config = getConfig(cfg, accountId);
-      const rt = getDingTalkRuntime();
-      const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
-        agentId: accountId,
-      });
+      const storePath = resolveDeliveryStorePath({ cfg, accountId });
       const targetContext = resolveDingTalkDeliveryTarget({
         target: to,
         explicitChatType: normalizeExplicitChatType(chatType ?? conversationType),

@@ -13,6 +13,26 @@ function normalizeScopedConversationId(raw: string): string {
   return resolveOriginalPeerId(stripTargetPrefix(raw).targetId);
 }
 
+export function normalizeExplicitChatType(raw: unknown): "direct" | "group" | undefined {
+  if (raw == null) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new Error(`chatType must be a string when provided; received ${typeof raw}`);
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "direct" || normalized === "dm") {
+    return "direct";
+  }
+  if (normalized === "group") {
+    return "group";
+  }
+  throw new Error(`Unsupported chatType "${raw}". Use "direct" or "group".`);
+}
+
 export function resolveDingTalkDeliveryTarget(params: {
   target: string;
   conversationId?: string;
