@@ -1607,7 +1607,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         dispatcherOptions: {
           responsePrefix: "",
           deliver: async (payload) => {
-            if (!payload.text) return;
+            if (!payload.text) { return; }
             try {
               if (sessionWebhook) {
                 await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
