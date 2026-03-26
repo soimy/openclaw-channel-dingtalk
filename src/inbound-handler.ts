@@ -1650,7 +1650,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
     if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
       try {
-        await finishAICard(currentAICard, abortConfirmationText ?? "", log);
+        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
       } catch (cardErr) {
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
