@@ -66,6 +66,30 @@ describe('send-service media branches', () => {
         expect(req.data).toEqual({ msgtype: 'image', image: { media_id: 'media_img_1' } });
     });
 
+    it('sendBySession reuses the uploaded voice buffer for duration parsing', async () => {
+        const voiceBuffer = Buffer.from('voice-data');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_session', buffer: voiceBuffer } as any);
+        mockedGetVoiceDurationMs.mockResolvedValueOnce(1234);
+        mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'https://session.webhook',
+            'ignored text',
+            { mediaPath: '/tmp/a.amr', mediaType: 'voice' }
+        );
+
+        expect(mockedGetVoiceDurationMs).toHaveBeenCalledWith(
+            '/tmp/a.amr',
+            'voice',
+            undefined,
+            {
+                mediaLocalRoots: undefined,
+                preReadBuffer: voiceBuffer,
+            },
+        );
+    });
+
     it('sendBySession falls back to plain text when media upload fails', async () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
@@ -157,7 +181,8 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_1');
+        const voiceBuffer = Buffer.from('voice-data');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_1', buffer: voiceBuffer } as any);
         mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
@@ -171,6 +196,15 @@ describe('send-service media branches', () => {
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
+        expect(mockedGetVoiceDurationMs).toHaveBeenCalledWith(
+            '/tmp/a.amr',
+            'voice',
+            undefined,
+            {
+                mediaLocalRoots: undefined,
+                preReadBuffer: voiceBuffer,
+            },
+        );
         expect(result.ok).toBe(true);
     });
 

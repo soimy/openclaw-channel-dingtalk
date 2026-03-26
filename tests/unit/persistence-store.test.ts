@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+    listNamespaceScopes,
     readNamespaceJson,
     resolveNamespacePath,
     writeNamespaceJsonAtomic,
@@ -82,5 +83,24 @@ describe("persistence-store", () => {
         });
 
         expect(actual).toEqual(fallback);
+    });
+
+    it("lists decoded scopes for a namespaced persistence file", () => {
+        const storePath = createStorePath();
+        writeNamespaceJsonAtomic("messages.context", {
+            storePath,
+            scope: {
+                accountId: "main",
+                conversationId: "cid_scope_1",
+            },
+            data: { version: 1 },
+        });
+
+        expect(listNamespaceScopes("messages.context", { storePath })).toEqual([
+            {
+                accountId: "main",
+                conversationId: "cid_scope_1",
+            },
+        ]);
     });
 });

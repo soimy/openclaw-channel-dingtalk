@@ -8,7 +8,11 @@ import {
 } from "./card-service";
 import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
-import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
+import {
+  getVoiceDurationMs,
+  uploadMedia as uploadMediaUtil,
+  type UploadMediaResult,
+} from "./media-utils";
 import { convertMarkdownTablesToPlainText, detectMarkdownAndExtractTitle } from "./message-utils";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS, upsertOutboundMessageContext } from "./message-context-store";
 import { resolveOriginalPeerId } from "./peer-id-registry";
@@ -217,13 +221,13 @@ function isProactivePermissionOrScopeError(code: string | null): boolean {
 /**
  * Wrapper to upload media with shared getAccessToken binding.
  */
-export async function uploadMedia(
+async function uploadMediaWithBuffer(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
   options?: { mediaLocalRoots?: string[] },
-): Promise<string | null> {
+): Promise<UploadMediaResult | null> {
   const uploaded = await uploadMediaUtil(
     config,
     mediaPath,
@@ -232,9 +236,26 @@ export async function uploadMedia(
     log,
     options,
   );
-  if (typeof uploaded === "string") {
-    return uploaded;
+  if (!uploaded) {
+    return null;
   }
+  if (typeof uploaded === "string") {
+    return {
+      mediaId: uploaded,
+      buffer: Buffer.alloc(0),
+    };
+  }
+  return uploaded;
+}
+
+export async function uploadMedia(
+  config: DingTalkConfig,
+  mediaPath: string,
+  mediaType: "image" | "voice" | "video" | "file",
+  log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
+): Promise<string | null> {
+  const uploaded = await uploadMediaWithBuffer(config, mediaPath, mediaType, log, options);
   return uploaded?.mediaId ?? null;
 }
 
@@ -380,12 +401,13 @@ export async function sendProactiveMedia(
 
   try {
     // Upload first, then send by media_id.
-    const mediaId = await uploadMedia(config, mediaPath, mediaType, log, {
+    const uploadedMedia = await uploadMediaWithBuffer(config, mediaPath, mediaType, log, {
       mediaLocalRoots: options.mediaLocalRoots,
     });
-    if (!mediaId) {
+    if (!uploadedMedia) {
       return { ok: false, error: "Failed to upload media" };
     }
+    const mediaId = uploadedMedia.mediaId;
 
     const token = await getAccessToken(config, log);
     const targetContext = resolveDingTalkDeliveryTarget({
@@ -413,7 +435,10 @@ export async function sendProactiveMedia(
       msgParam = JSON.stringify({ photoURL: mediaId });
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
-      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log);
+      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log, {
+        mediaLocalRoots: options.mediaLocalRoots,
+        preReadBuffer: uploadedMedia.buffer.length > 0 ? uploadedMedia.buffer : undefined,
+      });
       msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
@@ -545,14 +570,24 @@ export async function sendBySession(
 
   // Session webhook supports native media messages; prefer that when media info is available.
   if (options.mediaPath && options.mediaType) {
-    const mediaId = await uploadMedia(config, options.mediaPath, options.mediaType, log);
-    if (mediaId) {
+    const uploadedMedia = await uploadMediaWithBuffer(
+      config,
+      options.mediaPath,
+      options.mediaType,
+      log,
+      { mediaLocalRoots: options.mediaLocalRoots },
+    );
+    if (uploadedMedia) {
+      const mediaId = uploadedMedia.mediaId;
       let body: any;
 
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
-        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log);
+        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log, {
+          mediaLocalRoots: options.mediaLocalRoots,
+          preReadBuffer: uploadedMedia.buffer.length > 0 ? uploadedMedia.buffer : undefined,
+        });
         body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
       } else if (options.mediaType === "video") {
         body = { msgtype: "video", video: { media_id: mediaId } };
