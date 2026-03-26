@@ -1,12 +1,11 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { randomUUID } from "node:crypto";
-import {
-  listNamespaceScopes,
-  readNamespaceJson,
-  writeNamespaceJsonAtomic,
-} from "./persistence-store";
+import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
 import type { AttachmentTextSource, Logger, QuotedRef } from "./types";
 
 const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
+const PERSISTENCE_ROOT_DIR = "dingtalk-state";
 const MESSAGE_CONTEXT_VERSION = 1;
 export const DEFAULT_MESSAGE_CONTEXT_TTL_DAYS = 7;
 export const DEFAULT_CARD_CONTENT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -115,6 +114,14 @@ const stateCache = new Map<string, MessageContextState>();
 
 function getScopeKey(params: ScopeParams): string {
   return JSON.stringify([params.storePath || "__memory__", params.accountId, params.conversationId || null]);
+}
+
+function decodeScopeValue(value: string): string | undefined {
+  try {
+    return Buffer.from(value, "base64url").toString("utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 function fallbackState(): MessageContextState {
@@ -893,13 +900,19 @@ export function listKnownMessageContextScopes(params: {
     return [...results.values()].toSorted((left, right) => right.updatedAt - left.updatedAt);
   }
 
-  for (const scope of listNamespaceScopes(MESSAGE_CONTEXT_NAMESPACE, {
-    storePath: params.storePath,
-  })) {
-    if (scope.accountId !== params.accountId) {
+  const persistenceDir = path.join(path.dirname(params.storePath), PERSISTENCE_ROOT_DIR);
+  if (!fs.existsSync(persistenceDir)) {
+    return [...results.values()].toSorted((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  const accountToken = Buffer.from(params.accountId, "utf8").toString("base64url");
+  const prefix = `${MESSAGE_CONTEXT_NAMESPACE}.account-${accountToken}.conversation-`;
+  for (const fileName of fs.readdirSync(persistenceDir)) {
+    if (!fileName.startsWith(prefix) || !fileName.endsWith(".json")) {
       continue;
     }
-    const conversationId = scope.conversationId?.trim();
+    const encodedConversationId = fileName.slice(prefix.length, -".json".length);
+    const conversationId = decodeScopeValue(encodedConversationId);
     if (!conversationId) {
       continue;
     }
