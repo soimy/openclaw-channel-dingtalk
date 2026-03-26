@@ -85,6 +85,7 @@ import {
 } from "./targeting/target-directory-store";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
+import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -1589,6 +1590,52 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
+
+  // ---- Pre-lock abort: bypass session lock for stop requests ----
+  // isAbortRequestText matches "/stop", "停止", "stop", "esc", etc.
+  // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
+  // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
+  // rather than waiting for it to finish before the stop message is processed.
+  if (isAbortRequestText(inboundText)) {
+    log?.info?.(
+      `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
+    );
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) return;
+            try {
+              if (sessionWebhook) {
+                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                  log,
+                  accountId,
+                  storePath: accountStorePath,
+                });
+              } else {
+                await sendMessage(dingtalkConfig, to, payload.text, {
+                  log,
+                  accountId,
+                  storePath: accountStorePath,
+                  conversationId: groupId,
+                });
+              }
+            } catch (deliverErr) {
+              log?.warn?.(
+                `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+              );
+            }
+          },
+        },
+      });
+    } catch (abortErr) {
+      log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+    }
+    return;
+  }
 
   const ackReaction =
     typeof dingtalkConfig.ackReaction === "string"
