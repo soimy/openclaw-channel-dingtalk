@@ -90,6 +90,7 @@ export async function resolveSubAgentRoute(params: {
   const { extractedContent, cfg, isGroup, dingtalkConfig, sessionWebhook, senderId, log } = params;
 
   const atMentions = extractedContent.atMentions || [];
+  // DM has no @picker list from DingTalk; only group chats provide atUsers for real-user hints.
   const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
   // Strip quoted prefix before checking /learn to avoid false positives
   // when the quoted message itself contains a /learn command.
@@ -118,9 +119,9 @@ export async function resolveSubAgentRoute(params: {
   if (hasInvalidAgentNames) {
     const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
     try {
+      const sendOptions = isGroup ? { atUserId: senderId, log } : { log };
       await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
-        atUserId: senderId,
-        log,
+        ...sendOptions,
       });
     } catch (err: any) {
       log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);

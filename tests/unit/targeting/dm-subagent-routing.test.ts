@@ -7,11 +7,17 @@
  * enable sub-agent routing in DMs without duplicating the extraction logic.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveAtAgents } from "../../../src/targeting/agent-name-matcher";
+import { resolveSubAgentRoute } from "../../../src/targeting/agent-routing";
 import { extractMessageContent } from "../../../src/message-utils";
+import { sendBySession } from "../../../src/send-service";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import type { DingTalkInboundMessage } from "../../../src/types";
+import type { DingTalkConfig, DingTalkInboundMessage, Logger, MessageContent } from "../../../src/types";
+
+vi.mock("../../../src/send-service", () => ({
+  sendBySession: vi.fn(),
+}));
 
 function makeDmMessage(text: string): DingTalkInboundMessage {
   return {
@@ -35,6 +41,18 @@ const cfg = {
   },
 } as OpenClawConfig;
 
+const dingtalkConfig = {
+  dmPolicy: "open",
+  messageType: "markdown",
+} as DingTalkConfig;
+
+const log = {
+  info: vi.fn(),
+  debug: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+} as Logger;
+
 describe("DM sub-agent @mention routing", () => {
   it("extractMessageContent populates atMentions in DM text messages", () => {
     const content = extractMessageContent(makeDmMessage("@agent-alpha 你好"));
@@ -42,7 +60,7 @@ describe("DM sub-agent @mention routing", () => {
     expect(content.atMentions![0].name).toBe("agent-alpha");
   });
 
-  it("does not extract @mention from quoted previewText (P1 guard)", () => {
+  it("strips quoted prefix and still extracts @mention from real message text", () => {
     // Quoted prefix is stripped before @mention extraction in message-utils.ts
     const content = extractMessageContent(makeDmMessage("[引用消息] @agent-alpha 你好"));
     // The quoted prefix is stripped; only the real message text is matched
@@ -80,5 +98,80 @@ describe("DM sub-agent @mention routing", () => {
     const result = resolveAtAgents(content.atMentions!, cfg);
     expect(result.matchedAgents).toHaveLength(0);
     expect(result.hasInvalidAgentNames).toBe(true);
+  });
+});
+
+describe("resolveSubAgentRoute in DM", () => {
+  const mockedSendBySession = vi.mocked(sendBySession);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not include atUserId in DM fallback notice", async () => {
+    const extractedContent: MessageContent = {
+      text: "@nonexistent 你好",
+      messageType: "text",
+      atMentions: [{ name: "nonexistent" }],
+    };
+
+    const result = await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: false,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
+
+    expect(result).toBeNull();
+    expect(mockedSendBySession).toHaveBeenCalledTimes(1);
+    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(options).toMatchObject({ log });
+    expect(options).not.toHaveProperty("atUserId");
+  });
+
+  it("keeps atUserId in group fallback notice", async () => {
+    const extractedContent: MessageContent = {
+      text: "@nonexistent 你好",
+      messageType: "text",
+      atMentions: [{ name: "nonexistent" }],
+      atUserDingtalkIds: [],
+    };
+
+    await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: true,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
+
+    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(options).toMatchObject({ log, atUserId: "user-001" });
+  });
+
+  it("skips sub-agent routing for /learn commands in DM", async () => {
+    const extractedContent: MessageContent = {
+      text: "/learn list",
+      messageType: "text",
+      atMentions: [{ name: "agent-alpha" }],
+    };
+
+    const result = await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: false,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
+
+    expect(result).toBeNull();
+    expect(mockedSendBySession).not.toHaveBeenCalled();
   });
 });
