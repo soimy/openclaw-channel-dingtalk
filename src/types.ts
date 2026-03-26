@@ -313,6 +313,7 @@ export interface QuotedInfo {
   cardCreatedAt?: number;
   processQueryKey?: string;
   fileCreatedAt?: number;
+  fileDownloadCode?: string;
   msgId?: string;
   previewText?: string;
   previewMessageType?: string;

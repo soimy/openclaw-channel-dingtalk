@@ -1275,20 +1275,40 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  // Quoted file/video/audio (unknownMsgType): cache-first, then group file API fallback.
+  // Quoted file/audio/video (file/audio/video msgType) or unknownMsgType:
+  // Step 0 tries direct downloadCode; Steps 1-2 fall back to cache and group file API.
   if (!mediaPath && content.quoted?.isQuotedFile) {
     let fileResolved = false;
 
+    // Step 0: Direct download via downloadCode from quoted payload (file/audio/video msgType).
+    if (!fileResolved && content.quoted.fileDownloadCode && dingtalkConfig.robotCode) {
+      const media = await downloadMedia(dingtalkConfig, content.quoted.fileDownloadCode, log);
+      if (media) {
+        mediaPath = media.path;
+        mediaType = media.mimeType;
+        attachmentContextMsgId = content.quoted.msgId || data.msgId;
+        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextMessageType = content.quoted.previewMessageType || "file";
+        attachmentContextFileName = content.quoted.previewFileName;
+        fileResolved = true;
+        log?.debug?.(
+          `[DingTalk][QuotedRef] Downloaded quoted file via direct downloadCode scope=${data.conversationId}`,
+        );
+      }
+    }
+
     // Step 1: Prefer quotedRef-backed record lookup, then msgId-based cache.
-    const cachedMedia = await tryDownloadFromRecord(quotedRecord);
-    if (cachedMedia) {
-      mediaPath = cachedMedia.path;
-      mediaType = cachedMedia.mimeType;
-      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-      attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
-      attachmentContextMessageType = quotedRecord?.messageType || "file";
-      attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
-      fileResolved = true;
+    if (!fileResolved) {
+      const cachedMedia = await tryDownloadFromRecord(quotedRecord);
+      if (cachedMedia) {
+        mediaPath = cachedMedia.path;
+        mediaType = cachedMedia.mimeType;
+        attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+        attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextMessageType = quotedRecord?.messageType || "file";
+        attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
+        fileResolved = true;
+      }
     }
 
     // Step 2 (group only): Cache miss → fall back to group file API time-based matching.

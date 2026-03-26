@@ -188,6 +188,18 @@ function buildRepliedMessagePreview(params: {
     };
   }
 
+  if (repliedMsgType === "file" || repliedMsgType === "audio" || repliedMsgType === "video") {
+    const hasFileName = repliedMsgType === "file";
+    return {
+      isQuotedFile: true,
+      fileCreatedAt: repliedMsg.createdAt,
+      previewText: buildQuotedMessageTypePlaceholder(repliedMsgType, hasFileName ? fileName : undefined),
+      previewMessageType: repliedMsgType,
+      ...(hasFileName ? { previewFileName: fileName } : {}),
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
   if (repliedMsgType === "interactiveCard") {
     const isBotCard = repliedMsg.senderId === data.chatbotUserId;
     if (isBotCard) {
@@ -364,6 +376,16 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         return {
           isQuotedFile: true,
           fileCreatedAt: repliedMsg.createdAt,
+          msgId: repliedMsgId,
+          ...repliedPreview,
+        };
+      }
+
+      if (repliedMsgType === "file" || repliedMsgType === "audio" || repliedMsgType === "video") {
+        return {
+          isQuotedFile: true,
+          fileCreatedAt: repliedMsg.createdAt,
+          fileDownloadCode: trimString(content?.downloadCode),
           msgId: repliedMsgId,
           ...repliedPreview,
         };

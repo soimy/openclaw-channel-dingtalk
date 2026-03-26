@@ -135,6 +135,112 @@ describe('message-utils', () => {
         expect(content.quoted?.msgId).toBe('msg123');
     });
 
+    it('引用普通文件（file）— isQuotedFile, fileCreatedAt, msgId, previewFileName', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '看这个文件',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'file',
+                    msgId: 'msg456',
+                    createdAt: 1774356117207,
+                    content: {
+                        spaceId: '28414449789',
+                        fileName: 'report.pdf',
+                        downloadCode: 'DOWNLOAD_CODE_ABC',
+                        fileId: '215330128705',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774356117207);
+        expect(content.quoted?.msgId).toBe('msg456');
+        expect(content.quoted?.previewFileName).toBe('report.pdf');
+        expect(content.quoted?.previewMessageType).toBe('file');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('DOWNLOAD_CODE_ABC');
+    });
+
+    it('引用音频（audio）— isQuotedFile, fileDownloadCode, previewMessageType', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '听这段',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'audio',
+                    msgId: 'msg_audio_1',
+                    createdAt: 1774508519673,
+                    content: {
+                        duration: '2000',
+                        downloadCode: 'AUDIO_DL_CODE',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774508519673);
+        expect(content.quoted?.msgId).toBe('msg_audio_1');
+        expect(content.quoted?.previewMessageType).toBe('audio');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('AUDIO_DL_CODE');
+    });
+
+    it('引用视频（video）— isQuotedFile, fileDownloadCode, previewMessageType', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '看这段',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'video',
+                    msgId: 'msg_video_1',
+                    createdAt: 1774508952829,
+                    content: {
+                        duration: '1',
+                        downloadCode: 'VIDEO_DL_CODE',
+                        videoType: 'mp4',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774508952829);
+        expect(content.quoted?.msgId).toBe('msg_video_1');
+        expect(content.quoted?.previewMessageType).toBe('video');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('VIDEO_DL_CODE');
+    });
+
     it('引用 AI 卡片（interactiveCard）— isQuotedCard, processQueryKey', () => {
         const message = {
             msgId: 'test',
