@@ -7344,5 +7344,40 @@ describe("inbound-handler", () => {
         } as any),
       ).resolves.toBeUndefined();
     });
+
+    it("finalizes the card with abort text when card mode is active", async () => {
+      const card = { cardInstanceId: "card_abort_1", state: "1", lastUpdated: Date.now() };
+      shared.createAICardMock.mockResolvedValue(card);
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "⚙️ Agent was aborted." });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+        data: baseData,
+      } as any);
+
+      // session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      // abort text should be written to card, not sent as plain text
+      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      expect(shared.finishAICardMock).toHaveBeenCalledWith(
+        card,
+        "⚙️ Agent was aborted.",
+        undefined,
+      );
+    });
   });
 });

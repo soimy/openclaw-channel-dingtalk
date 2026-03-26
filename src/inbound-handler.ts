@@ -6,7 +6,7 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard } from "./card-service";
+import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { resolveAckReactionSetting, resolveGroupConfig } from "./config";
 import {
   applyManualTargetLearningRule,
@@ -83,6 +83,7 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
+import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
@@ -1600,6 +1601,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
     );
+    // In card mode: capture the abort confirmation text so we can write it into
+    // the card (instead of sending a separate plain text message).
+    let abortConfirmationText: string | undefined;
     try {
       await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
@@ -1611,31 +1615,46 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
               return;
             }
-            try {
-              if (sessionWebhook) {
-                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
-                  log,
-                  accountId,
-                  storePath: accountStorePath,
-                });
-              } else {
-                await sendMessage(dingtalkConfig, to, payload.text, {
-                  log,
-                  accountId,
-                  storePath: accountStorePath,
-                  conversationId: groupId,
-                });
+            if (currentAICard) {
+              // Card mode: capture text — will be written to card after dispatch.
+              abortConfirmationText = payload.text;
+            } else {
+              try {
+                if (sessionWebhook) {
+                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                  });
+                } else {
+                  await sendMessage(dingtalkConfig, to, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                    conversationId: groupId,
+                  });
+                }
+              } catch (deliverErr) {
+                log?.warn?.(
+                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+                );
               }
-            } catch (deliverErr) {
-              log?.warn?.(
-                `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
-              );
             }
           },
         },
       });
     } catch (abortErr) {
       log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+    }
+    // Finalize the card that was created for this message before the abort check.
+    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
+      try {
+        await finishAICard(currentAICard, abortConfirmationText || "❌ 处理失败", log);
+      } catch (cardErr) {
+        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
+        currentAICard.state = AICardStatus.FAILED;
+      }
     }
     return;
   }
