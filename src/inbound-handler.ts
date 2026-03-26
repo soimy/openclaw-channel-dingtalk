@@ -1473,7 +1473,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
       : content.text;
   const inboundText = attachmentExtractedText
-    ? `${inboundBody}\n\n${attachmentExtractedText}`
+    ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
     : inboundBody;
   const learningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
   const learningContextBlock = buildLearningContextBlock({

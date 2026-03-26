@@ -2562,8 +2562,8 @@ describe("inbound-handler", () => {
     });
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        RawBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
-        CommandBody: "[钉钉文档]\n\n\n\n[附件内容摘录]\n第一段\n第二段",
+        RawBody: "[钉钉文档]\n\n[附件内容摘录]\n第一段\n第二段",
+        CommandBody: "[钉钉文档]\n\n[附件内容摘录]\n第一段\n第二段",
       }),
     );
     const restored = messageContextStore.resolveByMsgId({
