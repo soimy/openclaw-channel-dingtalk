@@ -629,25 +629,57 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
       // ==================== HTTP callback mode ====================
       if (config.mode === "http") {
+        const httpConfig =
+          config.messageType === "card"
+            ? (() => {
+                ctx.log?.warn?.(
+                  `[${account.accountId}] HTTP mode does not support AI card replies yet; falling back to markdown`,
+                );
+                return {
+                  ...config,
+                  messageType: "markdown" as const,
+                };
+              })()
+            : config;
         const { startHttpReceiver } = await import("./http-receiver");
-        const port = config.httpPort ?? 3000;
+        const port = httpConfig.httpPort ?? 3000;
         const server = startHttpReceiver({
           cfg,
           accountId: account.accountId,
-          dingtalkConfig: config,
+          dingtalkConfig: httpConfig,
           port,
-          webhookPath: config.webhookPath,
+          webhookPath: httpConfig.webhookPath,
           log: ctx.log,
+        });
+        let stopped = false;
+        const stopHttpReceiver = () => {
+          if (stopped) {
+            return;
+          }
+          stopped = true;
+          server.close();
+          ctx.setStatus({
+            ...ctx.getStatus(),
+            running: false,
+            lastStopAt: getCurrentTimestamp(),
+          });
+        };
+
+        ctx.setStatus({
+          ...ctx.getStatus(),
+          running: true,
+          lastStartAt: getCurrentTimestamp(),
+          lastError: null,
         });
 
         abortSignal?.addEventListener("abort", () => {
           ctx.log?.info?.(`[${account.accountId}] Stopping HTTP receiver...`);
-          server.close();
+          stopHttpReceiver();
         });
 
         return {
           stop: async () => {
-            server.close();
+            stopHttpReceiver();
           },
         };
       }

@@ -11,6 +11,8 @@ const shared = vi.hoisted(() => ({
     clientConnectMock: vi.fn(),
     clientDisconnectMock: vi.fn(),
     dwClientConfig: undefined as any,
+    httpReceiverCloseMock: vi.fn(),
+    startHttpReceiverMock: vi.fn(),
 }));
 
 vi.mock('openclaw/plugin-sdk', () => ({
@@ -73,6 +75,10 @@ vi.mock('../../src/utils', async () => {
     };
 });
 
+vi.mock('../../src/http-receiver', () => ({
+    startHttpReceiver: shared.startHttpReceiverMock,
+}));
+
 import { dingtalkPlugin } from '../../src/channel';
 
 const startGatewayAccount = (ctx: any): Promise<any> => dingtalkPlugin.gateway!.startAccount!(ctx as any);
@@ -124,12 +130,17 @@ describe('gateway.startAccount lifecycle', () => {
         shared.clientConnectMock.mockReset();
         shared.clientDisconnectMock.mockReset();
         shared.dwClientConfig = undefined;
+        shared.httpReceiverCloseMock.mockReset();
+        shared.startHttpReceiverMock.mockReset();
 
         shared.connectMock.mockResolvedValue(undefined);
         shared.waitForStopMock.mockResolvedValue(undefined);
         shared.isConnectedMock.mockReturnValue(true);
         shared.clientGetEndpointMock.mockResolvedValue(undefined);
         shared.clientConnectMock.mockResolvedValue(undefined);
+        shared.startHttpReceiverMock.mockReturnValue({
+            close: shared.httpReceiverCloseMock,
+        });
     });
 
     it('fails fast when abortSignal is already aborted before start', async () => {
@@ -234,5 +245,40 @@ describe('gateway.startAccount lifecycle', () => {
         expect(shared.clientGetEndpointMock).toHaveBeenCalledTimes(1);
         expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining('[DingTalk][ConnectionError][connect.websocket]'));
         expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining('wss-open-connection.dingtalk.com'));
+    });
+
+    it('warns and falls back to markdown when http mode is configured with card replies', async () => {
+        const { ctx, setStatusCalls } = createStartContext();
+        ctx.account.config = {
+            clientId: 'ding_id',
+            clientSecret: 'ding_secret',
+            mode: 'http',
+            messageType: 'card',
+            cardTemplateId: 'template-id',
+        } as any;
+
+        const stopResult = await startGatewayAccount(ctx as any);
+
+        expect(shared.startHttpReceiverMock).toHaveBeenCalledTimes(1);
+        expect(shared.startHttpReceiverMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dingtalkConfig: expect.objectContaining({
+                    mode: 'http',
+                    messageType: 'markdown',
+                    cardTemplateId: 'template-id',
+                }),
+            })
+        );
+        expect(ctx.log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('HTTP mode does not support AI card replies yet; falling back to markdown')
+        );
+        expect(shared.connectMock).not.toHaveBeenCalled();
+        expect(shared.clientConnectMock).not.toHaveBeenCalled();
+        expect(setStatusCalls.some((s) => s.running === true && s.lastStartAt !== null)).toBe(true);
+
+        await stopResult.stop();
+
+        expect(shared.httpReceiverCloseMock).toHaveBeenCalledTimes(1);
+        expect(setStatusCalls.some((s) => s.running === false && s.lastStopAt !== null)).toBe(true);
     });
 });

@@ -202,6 +202,15 @@ Required endpoints to reach:
 - Robot capability is enabled
 - Message receive mode: Stream mode
 
+## HTTP mode limitation
+
+If you are using DingTalk HTTP callback mode instead of Stream mode:
+
+- current plugin support is focused on inbound delivery behind reverse proxy / multi-instance deployments
+- `messageType: "card"` is **not** treated as fully supported in HTTP mode yet
+- when HTTP mode is enabled and `messageType` is set to `card`, the plugin logs a warning and falls back to `markdown`
+- if you need AI interactive card streaming / callback parity today, stay on Stream mode for this plugin version
+
 If you open an issue, include:
 
 - the plugin startup error line

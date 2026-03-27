@@ -427,7 +427,7 @@ openclaw configure --section channels
       "journalTTLDays": 7,
       "ackReaction": "🤔思考中", // 给原消息贴处理中的表情反馈；设为 "" 可关闭
       "debug": false,
-      "messageType": "markdown", // 或 "card"
+      "messageType": "markdown", // 或 "card"（HTTP mode 下若配置 card，会自动回退到 markdown）
       // "mediaMaxMb": 20,  // 可选：接收文件大小上限（MB），默认 5 MB
       // "aicardDegradeMs": 1800000, // 可选：AI 卡片失败后降级持续时间（毫秒，默认 30 分钟）
       // "cardRealTimeStream": false, // 可选：开启真流式卡片更新（默认 false，开启后 API 调用量增加约 2-3 倍）
@@ -469,7 +469,7 @@ openclaw gateway restart
 | `mediaUrlAllowlist`     | string[] | `[]`         | 允许通过 `mediaUrl` 下载的主机/IP/CIDR 白名单 |
 | `journalTTLDays`        | number   | `7`          | `originalMsgId` 文本回溯日志的保留天数      |
 | `ackReaction`          | string   | -            | 官方 `ackReaction` 配置入口；设为 `""` 可关闭；设为 `"emoji"` 时按输入语气自动选表情 |
-| `messageType`           | string   | `"markdown"` | 消息类型：markdown/card                     |
+| `messageType`           | string   | `"markdown"` | 消息类型：markdown/card（HTTP mode 下若配置 card，会自动回退到 markdown） |
 | `cardTemplateId`        | string   |              | AI 互动卡片模板 ID（仅当 messageType=card） |
 | `cardTemplateKey`       | string   | `"content"`  | 卡片模板内容字段键（仅当 messageType=card） |
 | `cardRealTimeStream`    | boolean  | `false`      | 开启真流式卡片更新（300ms 节流，首 token 快、流畅但 API 调用更多）。详见下方说明 |
@@ -979,6 +979,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 - **适用于 AI 对话场景**
 - 支持在卡片中实时显示 AI 思考过程（推理流）和工具执行结果
 - 当前卡片模式仅支持**文本内容流式更新**，不支持图片图文混排
+- **当前仅在 Stream mode 下完整支持**；若使用 HTTP callback mode 且配置 `messageType: 'card'`，插件会在启动时记录 warning，并自动回退到 `markdown`
 
 > 这里的 `card` 专指**机器人主动发送的 AI 互动卡片**。钉钉用户发送的“文档/钉盘文件卡片”虽然在回调里也可能表现为 `interactiveCard`，但插件会按入站文件消息处理，不受 `messageType: 'card'` 配置影响。
 
