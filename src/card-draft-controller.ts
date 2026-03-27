@@ -1,58 +1,130 @@
 /**
  * Card draft controller for throttled AI Card streaming updates.
  *
- * Wraps {@link createDraftStreamLoop} with a phase-based state machine
- * (idle → reasoning → answer) that manages what content is sent to the
- * DingTalk AI Card during the reply lifecycle.
+ * The controller keeps a single rendered card timeline made of:
+ * - sealed process blocks (`thinking` / `tool`)
+ * - an optional live thinking block
+ * - accumulated answer turns rendered as plain markdown
  *
- * Responsibilities (and non-responsibilities):
- * - DOES manage throttled card preview updates via streamAICard
- * - DOES enforce single-flight, latest-wins, phase-gated semantics
- * - Does NOT handle tool append, finalize, or markdown fallback —
- *   those stay in inbound-handler's deliver callback.
+ * It delegates throttling and single-flight transport guarantees to
+ * {@link createDraftStreamLoop}.
  */
 
-import { formatContentForCard, streamAICard } from "./card-service";
+import { streamAICard } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
 import type { AICardInstance, Logger } from "./types";
 
-export type CardDraftPhase = "idle" | "reasoning" | "answer";
+type ProcessBlockKind = "thinking" | "tool";
+
+type ProcessBlock = {
+    kind: ProcessBlockKind;
+    text: string;
+};
 
 export interface CardDraftController {
     updateAnswer: (text: string) => void;
     updateReasoning: (text: string) => void;
-    /** Update tool result through draft controller (used in verbose mode for ordered streaming). */
+    updateThinking: (text: string) => void;
     updateTool: (text: string) => Promise<void>;
+    appendTool: (text: string) => Promise<void>;
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
     notifyNewAssistantTurn: () => void;
+    startAssistantTurn: () => void;
     flush: () => Promise<void>;
     waitForInFlight: () => Promise<void>;
     stop: () => void;
     isFailed: () => boolean;
-    /** Last content sent to card (reasoning or answer). */
+    /** Last content successfully sent to card. */
     getLastContent: () => string;
-    /** Last content sent to card during answer phase only. */
+    /** Last answer-only content successfully sent to card. */
     getLastAnswerContent: () => string;
+    /** Current answer-only content composed from all completed answer turns. */
+    getFinalAnswerContent: () => string;
+    /** Current rendered timeline, including process blocks and answer text. */
+    getRenderedContent: (options?: { fallbackAnswer?: string }) => string;
+}
+
+function normalizeProcessText(text: string | undefined): string {
+    return typeof text === "string" ? text.trim() : "";
+}
+
+function normalizeAnswerText(text: string | undefined): string {
+    return typeof text === "string" ? text.trimStart() : "";
+}
+
+function quoteMarkdown(text: string): string {
+    return text
+        .split("\n")
+        .map((line) => line.trim() ? `> ${line}` : ">")
+        .join("\n");
+}
+
+function renderProcessBlock(kind: ProcessBlockKind, text: string): string {
+    const title = kind === "thinking" ? "🤔 思考" : "🛠 工具";
+    return `${title}\n${quoteMarkdown(text)}`;
 }
 
 export function createCardDraftController(params: {
     card: AICardInstance;
     throttleMs?: number;
-    /** When true, uses 50ms throttle and allows reasoning updates during answer phase */
+    /** Legacy compatibility: verbose mode previously lowered the throttle. */
     verboseMode?: boolean;
     log?: Logger;
 }): CardDraftController {
-    let phase: CardDraftPhase = "idle";
     let failed = false;
     let stopped = false;
     let lastSentContent = "";
     let lastAnswerContent = "";
-    let answerPrefix = "";
-    let turnBoundaryPending = false;
 
-    // Verbose mode: lower throttle for more real-time updates
-    const verboseThrottleMs = 50;
-    const effectiveThrottleMs = params.verboseMode ? verboseThrottleMs : (params.throttleMs ?? 300);
+    let processBlocks: ProcessBlock[] = [];
+    let liveThinkingText = "";
+    let answerTurns: string[] = [];
+    let currentAnswerTurn = "";
+
+    const effectiveThrottleMs = params.throttleMs ?? (params.verboseMode ? 50 : 300);
+
+    const getFinalAnswerContent = (): string => {
+        return [...answerTurns, currentAnswerTurn].filter(Boolean).join("\n\n");
+    };
+
+    const renderTimeline = (options: { fallbackAnswer?: string } = {}): string => {
+        const parts: string[] = [];
+
+        for (const block of processBlocks) {
+            if (!block.text) {
+                continue;
+            }
+            parts.push(renderProcessBlock(block.kind, block.text));
+        }
+
+        if (liveThinkingText) {
+            parts.push(renderProcessBlock("thinking", liveThinkingText));
+        }
+
+        const answer = getFinalAnswerContent() || normalizeAnswerText(options.fallbackAnswer);
+        if (answer) {
+            parts.push(answer);
+        }
+
+        return parts.join("\n\n");
+    };
+
+    const sealLiveThinking = () => {
+        if (!liveThinkingText) {
+            return;
+        }
+        processBlocks.push({ kind: "thinking", text: liveThinkingText });
+        liveThinkingText = "";
+    };
+
+    const queueRender = () => {
+        const rendered = renderTimeline();
+        if (rendered) {
+            loop.update(rendered);
+            return;
+        }
+        loop.resetPending();
+    };
 
     const loop = createDraftStreamLoop({
         throttleMs: effectiveThrottleMs,
@@ -61,9 +133,7 @@ export function createCardDraftController(params: {
             try {
                 await streamAICard(params.card, content, false, params.log);
                 lastSentContent = content;
-                if (phase === "answer") {
-                    lastAnswerContent = content;
-                }
+                lastAnswerContent = getFinalAnswerContent();
             } catch (err: unknown) {
                 failed = true;
                 const message = err instanceof Error ? err.message : String(err);
@@ -72,52 +142,67 @@ export function createCardDraftController(params: {
         },
     });
 
+    const updateReasoning = (text: string) => {
+        if (stopped || failed || currentAnswerTurn) {
+            return;
+        }
+        const normalized = normalizeProcessText(text);
+        if (!normalized) {
+            return;
+        }
+        liveThinkingText = normalized;
+        queueRender();
+    };
+
+    const updateAnswer = (text: string) => {
+        if (stopped || failed) {
+            return;
+        }
+        const normalized = normalizeAnswerText(text);
+        if (!normalized.trim()) {
+            return;
+        }
+        sealLiveThinking();
+        currentAnswerTurn = normalized;
+        queueRender();
+    };
+
+    const updateTool = async (text: string) => {
+        if (stopped || failed) {
+            return;
+        }
+        const normalized = normalizeProcessText(text);
+        if (!normalized) {
+            return;
+        }
+        sealLiveThinking();
+        processBlocks.push({ kind: "tool", text: normalized });
+        queueRender();
+    };
+
+    const notifyNewAssistantTurn = () => {
+        if (stopped || failed) {
+            return;
+        }
+        if (currentAnswerTurn) {
+            answerTurns.push(currentAnswerTurn);
+            currentAnswerTurn = "";
+            return;
+        }
+        if (liveThinkingText) {
+            liveThinkingText = "";
+            loop.resetPending();
+        }
+    };
+
     return {
-        updateReasoning: (text: string) => {
-            // In verbose mode, allow reasoning updates even after answer phase begins
-            if (stopped || failed || (!params.verboseMode && phase === "answer")) { return; }
-            phase = "reasoning";
-            const formatted = formatContentForCard(text, "thinking");
-            if (formatted) {
-                loop.update(formatted);
-            }
-        },
-
-        updateAnswer: (text: string) => {
-            if (stopped || failed) { return; }
-            if (phase !== "answer") {
-                params.log?.debug?.(`[DingTalk][Draft] phase ${phase} → answer`);
-                phase = "answer";
-                if (turnBoundaryPending && lastAnswerContent) {
-                    answerPrefix = lastAnswerContent + "\n\n";
-                }
-                turnBoundaryPending = false;
-            }
-            const trimmed = text?.trimStart();
-            if (trimmed) {
-                loop.update(answerPrefix + trimmed);
-            }
-        },
-
-        updateTool: async (text: string) => {
-            if (stopped || failed) { return; }
-            await loop.flush();
-            await loop.waitForInFlight();
-            const formatted = formatContentForCard(text, "tool");
-            if (formatted) {
-                loop.update(formatted);
-            }
-        },
-
-        notifyNewAssistantTurn: () => {
-            if (stopped || failed) { return; }
-            turnBoundaryPending = true;
-            if (phase === "reasoning") {
-                loop.resetPending();
-            }
-            phase = "idle";
-        },
-
+        updateAnswer,
+        updateReasoning,
+        updateThinking: updateReasoning,
+        updateTool,
+        appendTool: updateTool,
+        notifyNewAssistantTurn,
+        startAssistantTurn: notifyNewAssistantTurn,
         flush: () => loop.flush(),
         waitForInFlight: () => loop.waitForInFlight(),
 
@@ -129,5 +214,7 @@ export function createCardDraftController(params: {
         isFailed: () => failed,
         getLastContent: () => lastSentContent,
         getLastAnswerContent: () => lastAnswerContent,
+        getFinalAnswerContent,
+        getRenderedContent: renderTimeline,
     };
 }

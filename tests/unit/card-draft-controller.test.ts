@@ -48,7 +48,7 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).toHaveBeenCalledWith(card, "Hello world", false, undefined);
     });
 
-    it("updateReasoning sends formatted thinking text", async () => {
+    it("updateReasoning sends a rendered thinking block", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
@@ -57,11 +57,12 @@ describe("card-draft-controller", () => {
 
         const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
         expect(sentContent).toContain("🤔");
-        expect(sentContent).toContain("思考中");
+        expect(sentContent).toContain("思考");
+        expect(sentContent).toContain("> Analyzing...");
         expect(sentContent).toContain("Analyzing...");
     });
 
-    it("phase flows idle -> reasoning -> answer (one-way)", async () => {
+    it("answer rendering keeps the latest thinking block in the same timeline", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
@@ -77,7 +78,10 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
         expect(streamAICardMock).toHaveBeenCalledTimes(1);
-        expect(streamAICardMock.mock.calls[0]?.[1]).toBe("answer");
+        const rendered = streamAICardMock.mock.calls[0]?.[1] as string;
+        expect(rendered).toContain("🤔");
+        expect(rendered).toContain("> think");
+        expect(rendered).toContain("answer");
     });
 
     it("reasoning is ignored once in answer phase", async () => {
@@ -93,7 +97,7 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).not.toHaveBeenCalled();
     });
 
-    it("reasoning -> answer switch resets pending so reasoning does not leak", async () => {
+    it("reasoning -> answer switch seals only the latest thinking snapshot into the timeline", async () => {
         const sent: string[] = [];
         let resolveInFlight!: () => void;
         streamAICardMock.mockImplementation(async (_card, content) => {
@@ -118,8 +122,10 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(300);
 
         const lastSent = sent[sent.length - 1];
-        expect(lastSent).toBe("Hello");
-        expect(lastSent).not.toContain("thinking");
+        expect(lastSent).toContain("🤔");
+        expect(lastSent).toContain("> still thinking...");
+        expect(lastSent).not.toContain("> thinking...");
+        expect(lastSent).toContain("Hello");
     });
 
     it("isFailed becomes true when streamAICard throws", async () => {
@@ -297,7 +303,8 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(sentContent).toContain("思考中");
+        expect(sentContent).toContain("🤔 思考");
+        expect(sentContent).toContain("> new thinking");
         expect(sentContent).toContain("new thinking");
     });
 
@@ -308,10 +315,89 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("thinking");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("");
-        expect(ctrl.getLastContent()).toContain("思考中");
+        expect(ctrl.getLastContent()).toContain("🤔 思考");
+        expect(ctrl.getLastContent()).toContain("> thinking");
 
         ctrl.updateAnswer("answer text");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("answer text");
+    });
+
+    it("renders thinking and tool blocks as blockquotes while leaving answer plain", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateReasoning("先检查改动");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.updateTool).toBe("function");
+
+        await ctrl.updateTool("git diff --stat");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.updateAnswer("这里是最终回复");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("🤔 思考");
+        expect(rendered).toContain("> 先检查改动");
+        expect(rendered).toContain("🛠 工具");
+        expect(rendered).toContain("> git diff --stat");
+        expect(rendered).toContain("这里是最终回复");
+        expect(rendered).not.toContain("> 这里是最终回复");
+    });
+
+    it("replaces the live thinking block instead of appending multiple reasoning snapshots", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+
+        ctrl.updateReasoning("第一版思考");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.updateReasoning("第二版思考");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("> 第二版思考");
+        expect(rendered).not.toContain("> 第一版思考");
+    });
+
+    it("notifyNewAssistantTurn keeps earlier answer text and appends the next answer turn", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+
+        ctrl.updateAnswer("Turn 1 content");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("Turn 2 short summary");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("Turn 1 content");
+        expect(rendered).toContain("Turn 2 short summary");
+    });
+
+    it("getFinalAnswerContent returns answer-only text without process block prefixes", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateReasoning("我先看看");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateTool("git status");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.updateAnswer("最终答案");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(typeof ctrl.getFinalAnswerContent).toBe("function");
+        const answerOnly = ctrl.getFinalAnswerContent?.() ?? "";
+        expect(answerOnly).toBe("最终答案");
+        expect(answerOnly).not.toContain("思考");
+        expect(answerOnly).not.toContain("工具");
     });
 });
