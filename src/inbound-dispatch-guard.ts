@@ -94,6 +94,11 @@ export async function dispatchInboundMessageWithGuard(params: {
   }
 
   while (true) {
+    if (isMessageProcessed(dedupKey)) {
+      hooks?.onDedupSkipped?.(dedupKey);
+      return { status: "dedup_skipped" };
+    }
+
     const inflight = processingDedupKeys.get(dedupKey);
     if (inflight !== undefined) {
       const heldMs = Date.now() - inflight.since;

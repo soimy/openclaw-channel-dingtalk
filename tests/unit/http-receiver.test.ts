@@ -1,5 +1,6 @@
 import http from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { markMessageProcessed } from "../../src/dedup";
 import { startHttpReceiver } from "../../src/http-receiver";
 import { dispatchInboundMessageWithGuard } from "../../src/inbound-dispatch-guard";
 import { generateDingTalkSignature } from "../../src/signature";
@@ -618,5 +619,47 @@ describe("http-receiver", () => {
       status: "processed",
     });
     expect(mockedHandle).toHaveBeenCalledTimes(2);
+  });
+
+  it("rechecks processed state before taking over after stale waiter timeout", async () => {
+    mockedHandle.mockImplementationOnce(() => new Promise<void>(() => {}));
+
+    const dedupKey = "id:m-http-stale-processed";
+    const baseParams = {
+      cfg: {} as any,
+      accountId: "test",
+      data: {
+        msgId: "m-http-stale-processed",
+        msgtype: "text",
+        text: { content: "stale processed" },
+        conversationType: "2",
+        conversationId: "group-1",
+        senderId: "user-1",
+        chatbotUserId: "bot-1",
+        sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?session=stale-processed",
+        createAt: Date.now(),
+      } as any,
+      sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?session=stale-processed",
+      log: undefined,
+      dingtalkConfig: { clientId: "id", clientSecret: INGRESS_SECRET } as any,
+      robotCode: undefined,
+      clientId: "id",
+      msgId: "m-http-stale-processed",
+      inFlightPolicy: "wait" as const,
+      inFlightTtlMs: 10,
+      hooks: {
+        onStaleInflightReleased: () => {
+          markMessageProcessed(dedupKey);
+        },
+      },
+    };
+
+    void dispatchInboundMessageWithGuard(baseParams);
+    await vi.waitFor(() => expect(mockedHandle).toHaveBeenCalledTimes(1));
+
+    await expect(dispatchInboundMessageWithGuard(baseParams)).resolves.toEqual({
+      status: "dedup_skipped",
+    });
+    expect(mockedHandle).toHaveBeenCalledTimes(1);
   });
 });
