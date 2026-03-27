@@ -20,13 +20,15 @@ import {
 } from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
-import { isMessageProcessed, markMessageProcessed } from "./dedup";
 import {
   isFeedbackLearningAutoApplyEnabled,
   isFeedbackLearningEnabled,
   recordExplicitFeedbackLearning,
 } from "./feedback-learning-service";
-import { handleDingTalkMessage } from "./inbound-handler";
+import {
+  clearInboundDispatchInFlightLocks,
+  dispatchInboundMessageWithGuard,
+} from "./inbound-dispatch-guard";
 import { getLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkOnboardingAdapter } from "./onboarding.js";
@@ -137,8 +139,6 @@ function instrumentConnectionStages(client: DWClient): void {
   };
 }
 
-const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 5 min safety net for hung handlers
-const processingDedupKeys = new Map<string, number>(); // key → timestamp when acquired
 export const CHANNEL_INFLIGHT_NAMESPACE_POLICY = "memory-only" as const;
 const inboundCountersByAccount = new Map<
   string,
@@ -696,22 +696,44 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           };
           try {
             const data = JSON.parse(res.data) as DingTalkInboundMessage;
+            const dispatchResult = await dispatchInboundMessageWithGuard({
+              cfg,
+              accountId: account.accountId,
+              data,
+              sessionWebhook: data.sessionWebhook,
+              log: ctx.log,
+              dingtalkConfig: config,
+              robotCode: config.robotCode,
+              clientId: config.clientId,
+              msgId: data.msgId || messageId,
+              hooks: {
+                onMissingMessageId: () => {
+                  ctx.log?.warn?.(
+                    `[${account.accountId}] No message ID available for deduplication`,
+                  );
+                  stats.noMessageId += 1;
+                },
+                onDedupSkipped: (dedupKey) => {
+                  ctx.log?.debug?.(
+                    `[${account.accountId}] Skipping duplicate message: ${dedupKey}`,
+                  );
+                  stats.dedupSkipped += 1;
+                },
+                onInflightSkipped: (dedupKey) => {
+                  ctx.log?.debug?.(
+                    `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
+                  );
+                  stats.inflightSkipped += 1;
+                },
+                onStaleInflightReleased: ({ dedupKey, heldMs, ttlMs }) => {
+                  ctx.log?.warn?.(
+                    `[${account.accountId}] Releasing stale in-flight lock for ${dedupKey} (held ${heldMs}ms > TTL ${ttlMs}ms)`,
+                  );
+                },
+              },
+            });
 
-            const robotKey = config.robotCode || config.clientId || account.accountId;
-            const msgId = data.msgId || messageId;
-            const dedupKey = msgId ? `${robotKey}:${msgId}` : undefined;
-
-            if (!dedupKey) {
-              ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
-              stats.noMessageId += 1;
-              await handleDingTalkMessage({
-                cfg,
-                accountId: account.accountId,
-                data,
-                sessionWebhook: data.sessionWebhook,
-                log: ctx.log,
-                dingtalkConfig: config,
-              });
+            if (dispatchResult.status === "processed") {
               stats.processed += 1;
               acknowledge();
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
@@ -720,50 +742,13 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               return;
             }
 
-            if (isMessageProcessed(dedupKey)) {
-              ctx.log?.debug?.(`[${account.accountId}] Skipping duplicate message: ${dedupKey}`);
-              stats.dedupSkipped += 1;
+            if (dispatchResult.status === "dedup_skipped") {
               acknowledge();
               logInboundCounters(ctx.log, account.accountId, "dedup-skipped");
               return;
             }
 
-            const inflightSince = processingDedupKeys.get(dedupKey);
-            if (inflightSince !== undefined) {
-              if (Date.now() - inflightSince > INFLIGHT_TTL_MS) {
-                ctx.log?.warn?.(
-                  `[${account.accountId}] Releasing stale in-flight lock for ${dedupKey} (held ${Date.now() - inflightSince}ms > TTL ${INFLIGHT_TTL_MS}ms)`,
-                );
-                processingDedupKeys.delete(dedupKey);
-              } else {
-                ctx.log?.debug?.(
-                  `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
-                );
-                stats.inflightSkipped += 1;
-                logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
-                return;
-              }
-            }
-
-            processingDedupKeys.set(dedupKey, Date.now());
-            try {
-              await handleDingTalkMessage({
-                cfg,
-                accountId: account.accountId,
-                data,
-                sessionWebhook: data.sessionWebhook,
-                log: ctx.log,
-                dingtalkConfig: config,
-              });
-              stats.processed += 1;
-              markMessageProcessed(dedupKey);
-              acknowledge();
-              if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
-                logInboundCounters(ctx.log, account.accountId, "periodic");
-              }
-            } finally {
-              processingDedupKeys.delete(dedupKey);
-            }
+            logInboundCounters(ctx.log, account.accountId, "inflight-skipped");
           } catch (error: any) {
             stats.failed += 1;
             logInboundCounters(ctx.log, account.accountId, "failed");
@@ -973,13 +958,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             // DingTalk will redeliver unacknowledged messages on reconnect; without
             // this cleanup the redelivered messages would be silently skipped forever.
             const robotKey = config.robotCode || config.clientId || account.accountId;
-            let cleared = 0;
-            for (const key of processingDedupKeys.keys()) {
-              if (key.startsWith(`${robotKey}:`)) {
-                processingDedupKeys.delete(key);
-                cleared++;
-              }
-            }
+            const cleared = clearInboundDispatchInFlightLocks(robotKey);
             if (cleared > 0) {
               ctx.log?.info?.(
                 `[${account.accountId}] Cleared ${cleared} stale in-flight lock(s) on disconnect`,

@@ -12,7 +12,7 @@
 
 import http from "node:http";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { handleDingTalkMessage } from "./inbound-handler";
+import { dispatchInboundMessageWithGuard } from "./inbound-dispatch-guard";
 import { verifyDingTalkSignature } from "./signature";
 import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "./types";
 
@@ -123,13 +123,16 @@ export function startHttpReceiver(params: {
     // Keep the callback acknowledgement decoupled from downstream handling.
     void Promise.resolve()
       .then(() =>
-        handleDingTalkMessage({
+        dispatchInboundMessageWithGuard({
           cfg,
           accountId,
           data,
           sessionWebhook: data.sessionWebhook,
           log,
           dingtalkConfig,
+          robotCode: dingtalkConfig.robotCode,
+          clientId: dingtalkConfig.clientId,
+          msgId: data.msgId,
         }),
       )
       .catch((err: any) => {

@@ -376,4 +376,82 @@ describe("http-receiver", () => {
       expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Failed to process message")),
     );
   });
+
+  it("returns success for duplicate msgId callback and skips second dispatch", async () => {
+    server = startHttpReceiver({
+      cfg: {} as any,
+      accountId: "test",
+      dingtalkConfig: { clientId: "id", clientSecret: INGRESS_SECRET } as any,
+      port,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const message = {
+      msgId: "m-http-dedup-once",
+      msgtype: "text",
+      text: { content: "dedup me once" },
+      conversationType: "2",
+      conversationId: "group-1",
+      senderId: "user-1",
+      chatbotUserId: "bot-1",
+      sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?session=dedup",
+      createAt: Date.now(),
+    };
+
+    const first = await post(port, "/dingtalk/callback", message, {
+      headers: createSignedHeaders(INGRESS_SECRET),
+    });
+    const second = await post(port, "/dingtalk/callback", message, {
+      headers: createSignedHeaders(INGRESS_SECRET),
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(JSON.parse(first.body)).toEqual({ success: true });
+    expect(JSON.parse(second.body)).toEqual({ success: true });
+    await vi.waitFor(() => expect(mockedHandle).toHaveBeenCalledTimes(1));
+  });
+
+  it("retries same msgId after first dispatch failure", async () => {
+    mockedHandle
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockResolvedValueOnce(undefined);
+    const errorLog = vi.fn();
+    server = startHttpReceiver({
+      cfg: {} as any,
+      accountId: "test",
+      dingtalkConfig: { clientId: "id", clientSecret: INGRESS_SECRET } as any,
+      port,
+      log: { error: errorLog } as any,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const message = {
+      msgId: "m-http-retry-after-failure",
+      msgtype: "text",
+      text: { content: "retry me" },
+      conversationType: "2",
+      conversationId: "group-1",
+      senderId: "user-1",
+      chatbotUserId: "bot-1",
+      sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?session=retry",
+      createAt: Date.now(),
+    };
+
+    const first = await post(port, "/dingtalk/callback", message, {
+      headers: createSignedHeaders(INGRESS_SECRET),
+    });
+    const second = await post(port, "/dingtalk/callback", message, {
+      headers: createSignedHeaders(INGRESS_SECRET),
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(JSON.parse(first.body)).toEqual({ success: true });
+    expect(JSON.parse(second.body)).toEqual({ success: true });
+    await vi.waitFor(() => expect(mockedHandle).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Failed to process message")),
+    );
+  });
 });
