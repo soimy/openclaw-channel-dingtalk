@@ -4258,6 +4258,94 @@ describe("inbound-handler", () => {
     }
   });
 
+  it("keeps ackReaction tool progress independent from visible tool blocks", async () => {
+    vi.useFakeTimers();
+    mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+
+    const runtime = buildRuntime();
+    let agentEventListener: ((event: unknown) => void) | undefined;
+    runtime.events = {
+      onAgentEvent: vi.fn((listener: (event: unknown) => void) => {
+        agentEventListener = listener;
+        return () => {
+          agentEventListener = undefined;
+        };
+      }),
+    } as any;
+
+    const card = { cardInstanceId: "card_tool_hidden", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        agentEventListener?.({
+          stream: "lifecycle",
+          data: {
+            phase: "start",
+            runId: "run_hidden_tool",
+          },
+        });
+        agentEventListener?.({
+          stream: "tool",
+          data: {
+            phase: "start",
+            name: "exec",
+            args: { cmd: "pwd" },
+            runId: "run_hidden_tool",
+            toolCallId: "tool_hidden",
+          },
+        });
+        await dispatcherOptions.deliver({ text: "final answer only" }, { kind: "final" });
+        return { queuedFinal: "final answer only" };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "hello",
+      messageType: "text",
+    });
+
+    try {
+      const handlePromise = handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          dmPolicy: "open",
+          messageType: "card",
+          ackReaction: "emoji",
+        } as any,
+        data: {
+          msgId: "m5_hidden_tool_ackreaction",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+      await vi.advanceTimersByTimeAsync(1200);
+      await handlePromise;
+
+      expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+      const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+      expect(finalizeContent).toContain("final answer only");
+      expect(finalizeContent).not.toContain("🛠 工具");
+
+      const reactionNames = mockedAxiosPost.mock.calls.map((call: any[]) => call[1]?.emotionName);
+      expect(reactionNames).toContain("🤔思考中");
+      expect(reactionNames).toContain("🛠️");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handleDingTalkMessage attaches default ack reaction (👀) when config and agent identity ackReaction are absent", async () => {
     vi.useFakeTimers();
     mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
