@@ -30,6 +30,12 @@ function normalizeLearningConfig(
   };
 }
 
+function stripRemovedLegacyFields(config: DingTalkConfig): DingTalkConfig {
+  const { verboseRealtimeStream: _verboseRealtimeStream, ...rest } =
+    config as DingTalkConfig & { verboseRealtimeStream?: unknown };
+  return rest as DingTalkConfig;
+}
+
 /**
  * Merge channel-level defaults into an account-specific config.
  * Account-level values take precedence; `accounts` key is excluded to avoid recursion.
@@ -38,8 +44,12 @@ export function mergeAccountWithDefaults(
   channelCfg: DingTalkConfig,
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
-  const { accounts: _accounts, ...defaults } = channelCfg;
-  const normalizedAccountCfg = normalizeLearningConfig(accountCfg, { applyDefaults: false });
+  const { accounts: _accounts, ...defaultCandidate } =
+    channelCfg as DingTalkConfig & { accounts?: unknown; verboseRealtimeStream?: unknown };
+  const defaults = stripRemovedLegacyFields(defaultCandidate as DingTalkConfig);
+  const normalizedAccountCfg = stripRemovedLegacyFields(
+    normalizeLearningConfig(accountCfg, { applyDefaults: false }),
+  );
   const overrides: Partial<DingTalkConfig> = {};
   for (const [key, value] of Object.entries(normalizedAccountCfg)) {
     if (value !== undefined) {
@@ -71,14 +81,14 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   }
 
   if (accountId) {
-    return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
+    return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));
   }
 
   if (dingtalkCfg.accounts && Object.keys(dingtalkCfg.accounts).length > 0) {
     return dingtalkCfg;
   }
 
-  return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
+  return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));
 }
 
 export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {

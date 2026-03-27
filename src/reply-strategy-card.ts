@@ -8,7 +8,6 @@
 
 import {
   finishAICard,
-  formatContentForCard,
   isCardInTerminalState,
 } from "./card-service";
 import { createCardDraftController } from "./card-draft-controller";
@@ -23,11 +22,7 @@ export function createCardReplyStrategy(
 ): ReplyStrategy {
   const { card, config, log } = ctx;
 
-  const controller = createCardDraftController({
-    card,
-    log,
-    verboseMode: config.verboseRealtimeStream,
-  });
+  const controller = createCardDraftController({ card, log });
   let finalTextForFallback: string | undefined;
 
   return {
@@ -51,7 +46,7 @@ export function createCardReplyStrategy(
 
         onReasoningStream: (payload) => {
           if (payload.text) {
-            controller.updateReasoning(payload.text);
+            controller.updateThinking(payload.text);
           }
         },
       };
@@ -95,30 +90,7 @@ export function createCardReplyStrategy(
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
         );
-        // In verbose mode, route tool results through draft controller for ordered throttled streaming
-        if (config.verboseRealtimeStream) {
-          await controller.updateTool(textToSend ?? "");
-        } else {
-          // Original behavior: use sendMessage with cardUpdateMode append
-          await controller.flush();
-          await controller.waitForInFlight();
-          const toolText = typeof textToSend === "string" ? formatContentForCard(textToSend, "tool") : "";
-          if (toolText) {
-            const sendResult = await sendMessage(ctx.config, ctx.to, toolText, {
-              sessionWebhook: ctx.sessionWebhook,
-              atUserId: !ctx.isDirect ? ctx.senderId : null,
-              log,
-              card,
-              accountId: ctx.accountId,
-              storePath: ctx.storePath,
-              conversationId: ctx.groupId,
-              cardUpdateMode: "append",
-            });
-            if (!sendResult.ok) {
-              throw new Error(sendResult.error || "Tool stream send failed");
-            }
-          }
-        }
+        await controller.appendTool(textToSend ?? "");
         return;
       }
 

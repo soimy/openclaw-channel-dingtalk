@@ -113,15 +113,16 @@ describe("reply-strategy-card", () => {
             expect(deliverMedia).toHaveBeenCalledWith(["/img.png"]);
         });
 
-        it("deliver(tool) sends via sendMessage with cardUpdateMode=append", async () => {
+        it("deliver(tool) appends to the controller instead of sendMessage append mode", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "tool output", mediaUrls: [], kind: "tool" });
-            expect(sendMessageMock).toHaveBeenCalledTimes(1);
-            expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
-                card,
-                cardUpdateMode: "append",
-            });
+            expect(sendMessageMock).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+                expect.objectContaining({ cardUpdateMode: "append" }),
+            );
         });
 
         it("deliver(tool) skips when card is FAILED", async () => {
@@ -138,13 +139,14 @@ describe("reply-strategy-card", () => {
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
-        it("deliver(tool) throws when sendMessage returns not ok", async () => {
+        it("deliver(tool) does not depend on sendMessage append mode success", async () => {
             const card = makeCard();
             sendMessageMock.mockResolvedValueOnce({ ok: false, error: "tool send failed" });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await expect(
                 strategy.deliver({ text: "tool output", mediaUrls: [], kind: "tool" }),
-            ).rejects.toThrow("tool send failed");
+            ).resolves.toBeUndefined();
+            expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
         it("deliver(tool) skips when tool text is empty after formatting", async () => {

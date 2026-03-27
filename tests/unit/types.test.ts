@@ -90,6 +90,31 @@ describe('types helpers', () => {
         expect(account.bypassProxyForSend).toBe(true);
     });
 
+    it('does not copy verboseRealtimeStream onto resolved accounts', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'cli_default',
+                    clientSecret: 'sec_default',
+                    verboseRealtimeStream: true,
+                    accounts: {
+                        main: {
+                            clientId: 'cli_main',
+                            clientSecret: 'sec_main',
+                            verboseRealtimeStream: true,
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const defaultAccount = resolveDingTalkAccount(cfg, 'default') as Record<string, unknown>;
+        const mainAccount = resolveDingTalkAccount(cfg, 'main') as Record<string, unknown>;
+
+        expect('verboseRealtimeStream' in defaultAccount).toBe(false);
+        expect('verboseRealtimeStream' in mainAccount).toBe(false);
+    });
+
     it('resolves named account with inherited bypassProxyForSend default', () => {
         const cfg = {
             channels: {

@@ -128,6 +128,24 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 
+    it('does not surface verboseRealtimeStream in parsed top-level or account config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            verboseRealtimeStream: true,
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    verboseRealtimeStream: true,
+                },
+            },
+        }) as { accounts: Record<string, Record<string, unknown>> } & Record<string, unknown>;
+
+        expect('verboseRealtimeStream' in parsed).toBe(false);
+        expect('verboseRealtimeStream' in parsed.accounts.main).toBe(false);
+    });
+
     it('accepts learning config and default auto-apply/note ttl', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',

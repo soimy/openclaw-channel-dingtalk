@@ -122,12 +122,6 @@ const DingTalkAccountConfigShape = {
    *  When true, card updates are streamed per-token with 300ms throttle for a smoother experience, at the cost of more API calls. */
   cardRealTimeStream: z.boolean().optional().default(false),
 
-  /** Enable verbose real-time streaming (default: false).
-   *  When true, reasoning and tool outputs are streamed with lower throttle (50ms) and
-   *  reasoning updates continue even after answer phase begins, providing visible work chain.
-   *  Intended for /verbose on mode where users want to see intermediate steps. */
-  verboseRealtimeStream: z.boolean().optional().default(false),
-
   /** AICard degrade duration in milliseconds after trigger errors (default: 30 minutes) */
   aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
 
