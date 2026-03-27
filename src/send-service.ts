@@ -4,7 +4,6 @@ import { getAccessToken } from "./auth";
 import {
   isCardInTerminalState,
   sendProactiveCardText,
-  streamAICard,
 } from "./card-service";
 import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
@@ -29,7 +28,6 @@ import type {
   SendMessageOptions,
   SessionWebhookResponse,
 } from "./types";
-import { AICardStatus } from "./types";
 
 export { detectMediaTypeFromExtension } from "./media-utils";
 
@@ -116,26 +114,6 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
     return `[media:${options.mediaType}] ${options.mediaPath}`;
   }
   return text;
-}
-
-function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
-  const prev = previous ?? "";
-  if (!prev) {
-    return incoming;
-  }
-  if (!incoming) {
-    return prev;
-  }
-  if (incoming.startsWith(prev)) {
-    return incoming;
-  }
-  if (prev.endsWith(incoming)) {
-    return prev;
-  }
-  if (prev.endsWith("\n") || incoming.startsWith("\n")) {
-    return `${prev}${incoming}`;
-  }
-  return `${prev}${incoming}`;
 }
 
 const DINGTALK_TEXT_CHUNK_LIMIT = 3800;
@@ -608,17 +586,6 @@ export async function sendMessage(
               cardInstanceId: proactiveResult.cardInstanceId,
             },
           };
-        }
-      } else if (options.cardUpdateMode === "append") {
-        try {
-          const nextContent = composeCardContentForAppend(card.lastStreamedContent, text);
-          await streamAICard(card, nextContent, false, log);
-          return { ok: true };
-        } catch (err: any) {
-          log?.warn?.(`[DingTalk] AI Card streaming failed: ${err.message}`);
-          card.state = AICardStatus.FAILED;
-          card.lastUpdated = Date.now();
-          return { ok: false, error: err.message };
         }
       }
     }

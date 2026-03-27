@@ -435,6 +435,7 @@ openclaw gateway restart
 
 - `markdown` 和 `card` 模式都可启用
 - 该反馈作用于用户原消息，不会额外发送一条“思考中”消息
+- `ackReaction` 与 AI Card 正文中的 thinking / tool 显示开关独立；即使关闭 `/reasoning` 或 `/verbose`，reaction 仍可单独工作
 - 解析顺序与官方一致：`channels.dingtalk.accounts.<accountId>.ackReaction` -> `channels.dingtalk.ackReaction` -> `messages.ackReaction` -> `agents.list[].identity.emoji`
 - 若上述路径都未配置，则不发送 ack reaction
 - 当最终解析值为 `emoji` 时，钉钉插件会贴固定的 `🤔思考中` 原生 reaction，并允许后续 tool-progress 流程动态切换
@@ -979,7 +980,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 **卡片流式模式 (`cardRealTimeStream`)：**
 
-插件支持两种卡片更新策略，通过 `cardRealTimeStream` 配置：
+插件支持两种卡片刷新节奏，通过 `cardRealTimeStream` 配置：
 
 | 值 | 模式 | 说明 |
 | -- | ---- | ---- |
@@ -987,6 +988,8 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 | `true` | 真流式 | 每 300ms 最多一次卡片更新 PUT，首 token 延迟低（~300ms），打字机效果流畅。API 调用量约为 block 模式的 2-3 倍 |
 
 > **API 调用量参考**：以一次 10 秒的 AI 回复为例，真流式约产生 ~30 次 `streamAICard` PUT，block 模式约 ~10-15 次。钉钉企业内部应用的 QPS 限制为 40 次/秒，真流式的峰值约 3.3 次/秒，远低于限制。
+
+> `cardRealTimeStream` 只影响卡片刷新的节奏，不决定是否显示 thinking 或 tool 过程。
 
 **AI Card 持久化与恢复机制（v3.2.x）：**
 
@@ -997,7 +1000,7 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 ### AI 思考过程与工具执行显示（AI Card 模式）
 
-当 `messageType` 为 `card` 时，插件可以在卡片中实时展示 AI 的推理过程（🤔 思考中）和工具调用结果（🛠️ 工具执行）。这两项功能通过**对话级命令**控制，无需修改配置文件：
+当 `messageType` 为 `card` 时，插件可以在卡片中实时展示 AI 的推理过程和工具调用结果。这两项功能通过**对话级命令**控制，无需修改配置文件：
 
 | 功能              | 对话命令              | 说明                               |
 | ----------------- | --------------------- | ---------------------------------- |
@@ -1008,8 +1011,9 @@ node scripts/feedback-learning-debug.mjs --storePath /path/to/session-store.json
 
 **显示格式：**
 
-- 思考内容以 `🤔 **思考中**` 为标题，正文以 `>` 引用块展示，最多显示前 500 个字符
-- 工具结果以 `🛠️ **工具执行**` 为标题，正文以 `>` 引用块展示，最多显示前 500 个字符
+- 思考内容以 `🤔 思考` 为标题，正文以 `>` 引用块展示
+- 工具结果以 `🛠 工具` 为标题，正文以 `>` 引用块展示
+- 最终 answer 作为正常 markdown 正文保留在时间线末尾，不使用引用块
 
 > **注意：** 推理流和工具执行均会产生额外的卡片流式更新 API 调用，在 AI 推理步骤较多时可能显著增加 API 消耗，建议按需开启。
 
