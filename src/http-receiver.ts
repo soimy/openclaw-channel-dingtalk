@@ -26,6 +26,20 @@ function readHeaderValue(value: string | string[] | undefined): string {
   return String(value ?? "").trim();
 }
 
+function rejectRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  statusCode: number,
+  payload: { success: false; error: string },
+): void {
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(payload), () => {
+    if (!req.destroyed) {
+      req.destroy();
+    }
+  });
+}
+
 export function startHttpReceiver(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -56,15 +70,13 @@ export function startHttpReceiver(params: {
     const sign = readHeaderValue(req.headers.sign);
     if (!timestamp || !sign) {
       log?.warn?.(`[${accountId}][HTTP] Missing callback signature headers`);
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: "Missing signature headers" }));
+      rejectRequest(req, res, 401, { success: false, error: "Missing signature headers" });
       return;
     }
 
     if (!verifyDingTalkSignature({ timestamp, sign, secret: dingtalkConfig.clientSecret })) {
       log?.warn?.(`[${accountId}][HTTP] Callback signature verification failed`);
-      res.writeHead(403, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: "Invalid signature" }));
+      rejectRequest(req, res, 403, { success: false, error: "Invalid signature" });
       return;
     }
 
@@ -73,8 +85,7 @@ export function startHttpReceiver(params: {
       log?.warn?.(
         `[${accountId}][HTTP] Callback payload too large (content-length=${contentLength}, max=${MAX_HTTP_BODY_BYTES})`,
       );
-      res.writeHead(413, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: "Payload Too Large" }));
+      rejectRequest(req, res, 413, { success: false, error: "Payload Too Large" });
       return;
     }
 
@@ -88,8 +99,7 @@ export function startHttpReceiver(params: {
         log?.warn?.(
           `[${accountId}][HTTP] Callback payload exceeded limit while streaming (bytes=${totalBytes}, max=${MAX_HTTP_BODY_BYTES})`,
         );
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: false, error: "Payload Too Large" }));
+        rejectRequest(req, res, 413, { success: false, error: "Payload Too Large" });
         return;
       }
       chunks.push(chunkBuffer);

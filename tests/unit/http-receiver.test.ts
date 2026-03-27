@@ -64,17 +64,58 @@ function get(port: number, path: string): Promise<{ status: number; body: string
   });
 }
 
+function postChunked(
+  port: number,
+  path: string,
+  chunks: string[],
+  options?: {
+    headers?: Record<string, string>;
+  },
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(options?.headers ?? {}),
+        },
+      },
+      (res) => {
+        const responseChunks: Buffer[] = [];
+        res.on("data", (c) => responseChunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode!, body: Buffer.concat(responseChunks).toString() }),
+        );
+      },
+    );
+    req.on("error", reject);
+    for (const chunk of chunks) {
+      req.write(chunk);
+    }
+    req.end();
+  });
+}
+
 describe("http-receiver", () => {
   let server: http.Server;
+  let destroySpy: ReturnType<typeof vi.spyOn<typeof http.IncomingMessage.prototype, "destroy">>;
   const port = 19876; // use a high port to avoid conflicts
 
   beforeEach(() => {
     mockedHandle.mockReset();
     mockedHandle.mockResolvedValue(undefined);
+    destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
   });
 
-  afterEach(() => {
-    server?.close();
+  afterEach(async () => {
+    destroySpy.mockRestore();
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("processes POST /callback and calls handleDingTalkMessage", async () => {
@@ -105,10 +146,7 @@ describe("http-receiver", () => {
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ success: true });
 
-    // Wait for async processing
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(mockedHandle).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(mockedHandle).toHaveBeenCalledTimes(1));
     expect(mockedHandle).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "test-account",
@@ -177,13 +215,14 @@ describe("http-receiver", () => {
       headers: createSignedHeaders(INGRESS_SECRET),
     });
     expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(mockedHandle).toHaveBeenCalledTimes(1));
 
     // Default path should 404
     const res2 = await post(port, "/dingtalk/callback", { msgId: "m3", sessionWebhook: "https://x" });
     expect(res2.status).toBe(404);
   });
 
-  it("returns 401 or 403 when signature headers are missing", async () => {
+  it("returns 401 and destroys the request when signature headers are missing", async () => {
     server = startHttpReceiver({
       cfg: {} as any,
       accountId: "test",
@@ -194,11 +233,12 @@ describe("http-receiver", () => {
 
     const res = await post(port, "/dingtalk/callback", { msgId: "m-missing-sign", sessionWebhook: "https://x" });
 
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(401);
     expect(mockedHandle).not.toHaveBeenCalled();
+    expect(destroySpy).toHaveBeenCalled();
   });
 
-  it("returns 401 or 403 when signature is invalid", async () => {
+  it("returns 403 and destroys the request when signature is invalid", async () => {
     server = startHttpReceiver({
       cfg: {} as any,
       accountId: "test",
@@ -214,11 +254,12 @@ describe("http-receiver", () => {
       },
     });
 
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(403);
     expect(mockedHandle).not.toHaveBeenCalled();
+    expect(destroySpy).toHaveBeenCalled();
   });
 
-  it("returns 401 or 403 when timestamp is invalid", async () => {
+  it("returns 403 and destroys the request when timestamp is invalid", async () => {
     server = startHttpReceiver({
       cfg: {} as any,
       accountId: "test",
@@ -234,11 +275,12 @@ describe("http-receiver", () => {
       },
     });
 
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(403);
     expect(mockedHandle).not.toHaveBeenCalled();
+    expect(destroySpy).toHaveBeenCalled();
   });
 
-  it("returns 413 when request body exceeds limit", async () => {
+  it("returns 413 and destroys the request when content-length exceeds limit", async () => {
     server = startHttpReceiver({
       cfg: {} as any,
       accountId: "test",
@@ -248,21 +290,43 @@ describe("http-receiver", () => {
     });
     await new Promise((r) => setTimeout(r, 100));
 
-    const oversized = JSON.stringify({
-      msgId: "m-oversized",
-      sessionWebhook: "https://x",
-      text: {
-        content: "x".repeat(1_048_577),
-      },
-    });
-
     const res = await post(port, "/dingtalk/callback", {}, {
-      headers: createSignedHeaders(INGRESS_SECRET),
-      rawBody: oversized,
+      headers: {
+        ...createSignedHeaders(INGRESS_SECRET),
+        "Content-Length": String(1_048_577),
+      },
+      rawBody: "{}",
     });
 
     expect(res.status).toBe(413);
     expect(mockedHandle).not.toHaveBeenCalled();
+    expect(destroySpy).toHaveBeenCalled();
+  });
+
+  it("returns 413 and destroys the request when chunked body exceeds limit while streaming", async () => {
+    server = startHttpReceiver({
+      cfg: {} as any,
+      accountId: "test",
+      dingtalkConfig: { clientId: "id", clientSecret: INGRESS_SECRET } as any,
+      port,
+      log: { warn: vi.fn() } as any,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const prefix = JSON.stringify({
+      msgId: "m-streaming-oversized",
+      sessionWebhook: "https://x",
+      text: { content: "" },
+    }).replace('""', '"');
+    const suffix = `${"x".repeat(1_048_577)}"}`;
+
+    const res = await postChunked(port, "/dingtalk/callback", [prefix, suffix], {
+      headers: createSignedHeaders(INGRESS_SECRET),
+    });
+
+    expect(res.status).toBe(413);
+    expect(mockedHandle).not.toHaveBeenCalled();
+    expect(destroySpy).toHaveBeenCalled();
   });
 
   it("still returns success response even when handleDingTalkMessage throws", async () => {
@@ -301,7 +365,8 @@ describe("http-receiver", () => {
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ success: true });
 
-    await new Promise((r) => setTimeout(r, 50));
-    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Failed to process message"));
+    await vi.waitFor(() =>
+      expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Failed to process message")),
+    );
   });
 });
