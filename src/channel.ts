@@ -664,6 +664,32 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       }
 
+      // ==================== HTTP callback mode ====================
+      if (config.mode === "http") {
+        const { startHttpReceiver } = await import("./http-receiver");
+        const port = config.httpPort ?? 3000;
+        const server = startHttpReceiver({
+          cfg,
+          accountId: account.accountId,
+          dingtalkConfig: config,
+          port,
+          webhookPath: config.webhookPath,
+          log: ctx.log,
+        });
+
+        abortSignal?.addEventListener("abort", () => {
+          ctx.log?.info?.(`[${account.accountId}] Stopping HTTP receiver...`);
+          server.close();
+        });
+
+        return {
+          stop: async () => {
+            server.close();
+          },
+        };
+      }
+      // ==================== End HTTP callback mode ====================
+
       const useConnectionManager = config.useConnectionManager ?? true;
 
       // Factory that creates a fresh DWClient with the TOPIC_ROBOT callback
