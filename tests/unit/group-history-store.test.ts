@@ -85,4 +85,29 @@ describe("group-history-store", () => {
     expect(senderSlices).toHaveLength(1);
     expect(senderSlices[0]?.recentEntries[0]?.senderId).toBe("bot");
   });
+
+  it("includes conversations discovered from message-context persistence even without target directory entries", () => {
+    upsertInboundMessageContext({
+      storePath,
+      accountId: "main",
+      conversationId: "cid_group_from_context",
+      msgId: "m_ctx_1",
+      createdAt: 1000,
+      messageType: "text",
+      text: "只写入 message context",
+      senderId: "user_ctx",
+      senderName: "Alice",
+      chatType: "group",
+      ttlMs: 60_000,
+      topic: null,
+    });
+
+    const slices = queryConversationHistory({
+      storePath,
+      accountId: "main",
+      chatType: "group",
+    });
+
+    expect(slices.some((slice) => slice.conversation.conversationId === "cid_group_from_context")).toBe(true);
+  });
 });

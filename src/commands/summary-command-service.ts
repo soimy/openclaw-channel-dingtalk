@@ -62,6 +62,11 @@ const SUMMARY_COMMAND_HELP_LINES = [
   "- /summary mention <name1,name2|me> [1d|3d|12h|today]",
 ].join("\n");
 
+function buildSummarySessionKey(routeSessionKey: string): string {
+  const baseKey = routeSessionKey.trim();
+  return baseKey ? `${baseKey}::summary` : "dingtalk::summary";
+}
+
 function parseTimeWindow(raw: string | undefined, nowMs: number): { sinceTs?: number; label: string; valid: boolean } {
   const value = (raw || "").trim().toLowerCase();
   if (!value) {
@@ -354,7 +359,7 @@ export async function generateSummaryNarrative(
     BodyForCommands: prompt.userPrompt,
     From: params.to,
     To: params.to,
-    SessionKey: params.routeSessionKey,
+    SessionKey: buildSummarySessionKey(params.routeSessionKey),
     AccountId: params.accountId,
     ChatType: params.chatType,
     ConversationLabel: `${params.conversationLabel} [summary]`,

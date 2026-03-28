@@ -659,7 +659,7 @@ describe("inbound-handler", () => {
     expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toBe("final output");
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        SessionKey: "s1",
+        SessionKey: "s1::summary",
       }),
     );
   });
