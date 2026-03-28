@@ -6,7 +6,7 @@ import {
   sendProactiveCardText,
   streamAICard,
 } from "./card-service";
-import { stripTargetPrefix } from "./config";
+import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
 import { getVoiceDurationMs, uploadMedia as uploadMediaUtil, type UploadMediaResult } from "./media-utils";
 import { convertMarkdownTablesToPlainText, detectMarkdownAndExtractTitle } from "./message-utils";
@@ -277,7 +277,7 @@ export async function sendProactiveTextOrMarkdown(
     : JSON.stringify({ content: normalizedText });
 
   const payload: ProactiveMessagePayload = {
-    robotCode: config.robotCode || config.clientId,
+    robotCode: resolveRobotCode(config),
     msgKey,
     msgParam,
   };
@@ -391,7 +391,7 @@ export async function sendProactiveMedia(
     }
 
     const payload: ProactiveMessagePayload = {
-      robotCode: config.robotCode || config.clientId,
+      robotCode: resolveRobotCode(config),
       msgKey,
       msgParam,
     };

@@ -33,8 +33,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
   clientSecret: string;
   robotCode?: string;
-  corpId?: string;
-  agentId?: string;
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
@@ -82,12 +80,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
-  /** @deprecated Use learningEnabled */
-  feedbackLearningEnabled?: boolean;
-  /** @deprecated Use learningAutoApply */
-  feedbackLearningAutoApply?: boolean;
-  /** @deprecated Use learningNoteTtlMs */
-  feedbackLearningNoteTtlMs?: number;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
@@ -102,8 +94,6 @@ export interface DingTalkChannelConfig {
   clientId: string;
   clientSecret: string;
   robotCode?: string;
-  corpId?: string;
-  agentId?: string;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist" | "disabled";
@@ -149,12 +139,6 @@ export interface DingTalkChannelConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
-  /** @deprecated Use learningEnabled */
-  feedbackLearningEnabled?: boolean;
-  /** @deprecated Use learningAutoApply */
-  feedbackLearningAutoApply?: boolean;
-  /** @deprecated Use learningNoteTtlMs */
-  feedbackLearningNoteTtlMs?: number;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
@@ -773,8 +757,6 @@ export function resolveDingTalkAccount(
       clientId: dingtalk?.clientId ?? "",
       clientSecret: dingtalk?.clientSecret ?? "",
       robotCode: dingtalk?.robotCode,
-      corpId: dingtalk?.corpId,
-      agentId: dingtalk?.agentId,
       name: dingtalk?.name,
       enabled: dingtalk?.enabled,
       dmPolicy: dingtalk?.dmPolicy,
@@ -803,12 +785,9 @@ export function resolveDingTalkAccount(
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       cardRealTimeStream: dingtalk?.cardRealTimeStream,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
-      learningEnabled: dingtalk?.learningEnabled ?? dingtalk?.feedbackLearningEnabled,
-      learningAutoApply: dingtalk?.learningAutoApply ?? dingtalk?.feedbackLearningAutoApply,
-      learningNoteTtlMs: dingtalk?.learningNoteTtlMs ?? dingtalk?.feedbackLearningNoteTtlMs,
-      feedbackLearningEnabled: dingtalk?.feedbackLearningEnabled,
-      feedbackLearningAutoApply: dingtalk?.feedbackLearningAutoApply,
-      feedbackLearningNoteTtlMs: dingtalk?.feedbackLearningNoteTtlMs,
+      learningEnabled: dingtalk?.learningEnabled,
+      learningAutoApply: dingtalk?.learningAutoApply,
+      learningNoteTtlMs: dingtalk?.learningNoteTtlMs,
       convertMarkdownTables: dingtalk?.convertMarkdownTables,
       cardAtSender: dingtalk?.cardAtSender,
     };

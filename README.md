@@ -4,7 +4,7 @@
 
 # DingTalk Channel for OpenClaw
 
-针对Openclaw的钉钉企业内部机器人 Channel 渠道插件，使用 Stream 模式，无需公网 IP。
+针对 OpenClaw 的钉钉企业内部机器人 Channel 渠道插件，使用 Stream 模式，无需公网 IP。
 
 ## 功能特性
 
@@ -14,6 +14,7 @@
 - 支持引用消息恢复和常见文本附件正文抽取
 - 支持 Markdown 回复与 AI 卡片流式回复
 - 支持多 Agent、多机器人绑定和实验性的 `@多助手路由`
+- 支持实时中止当前 AI generation。常用停止指令包括 `停止`、`stop`、`/stop`、`esc` 等
 - 接入 OpenClaw 消息处理与 outbound 能力
 
 ## 文档入口
@@ -37,7 +38,7 @@ openclaw plugins install @soimy/dingtalk
 ```bash
 git clone https://github.com/soimy/openclaw-channel-dingtalk.git
 cd openclaw-channel-dingtalk
-npm install // 或 pnpm install
+npm install # 或 pnpm install
 openclaw plugins install -l .
 ```
 

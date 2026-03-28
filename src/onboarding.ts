@@ -116,8 +116,6 @@ function applyAccountConfig(params: {
     ...(input.clientId ? { clientId: input.clientId } : {}),
     ...(input.clientSecret ? { clientSecret: input.clientSecret } : {}),
     ...(input.robotCode ? { robotCode: input.robotCode } : {}),
-    ...(input.corpId ? { corpId: input.corpId } : {}),
-    ...(input.agentId ? { agentId: input.agentId } : {}),
     ...(input.dmPolicy ? { dmPolicy: input.dmPolicy } : {}),
     ...(input.groupPolicy ? { groupPolicy: input.groupPolicy } : {}),
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),
@@ -192,7 +190,6 @@ function applyGenericSetupInput(params: {
       clientId: typeof params.input.token === "string" ? params.input.token.trim() : undefined,
       clientSecret:
         typeof params.input.password === "string" ? params.input.password.trim() : undefined,
-      robotCode: typeof params.input.code === "string" ? params.input.code.trim() : undefined,
     },
   });
 }
@@ -232,44 +229,6 @@ async function configureDingTalkAccount(params: {
     initialValue: resolved.clientSecret ?? undefined,
     validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
   });
-
-  const wantsFullConfig = await prompter.confirm({
-    message: "Configure robot code, corp ID, and agent ID? (recommended for full features)",
-    initialValue: false,
-  });
-
-  let robotCode: string | undefined;
-  let corpId: string | undefined;
-  let agentId: string | undefined;
-
-  if (wantsFullConfig) {
-    robotCode =
-      String(
-        await prompter.text({
-          message: "Robot Code",
-          placeholder: "dingxxxxxxxx",
-          initialValue: resolved.robotCode ?? undefined,
-        }),
-      ).trim() || undefined;
-
-    corpId =
-      String(
-        await prompter.text({
-          message: "Corp ID",
-          placeholder: "dingxxxxxxxx",
-          initialValue: resolved.corpId ?? undefined,
-        }),
-      ).trim() || undefined;
-
-    agentId =
-      String(
-        await prompter.text({
-          message: "Agent ID",
-          placeholder: "123456789",
-          initialValue: resolved.agentId ? String(resolved.agentId) : undefined,
-        }),
-      ).trim() || undefined;
-  }
 
   const wantsCardMode = await prompter.confirm({
     message: "Enable AI interactive card mode? (for streaming AI responses)",
@@ -471,9 +430,6 @@ async function configureDingTalkAccount(params: {
     input: {
       clientId: String(clientId).trim(),
       clientSecret: String(clientSecret).trim(),
-      robotCode,
-      corpId,
-      agentId,
       dmPolicy: dmPolicyValue as "open" | "allowlist",
       groupPolicy: groupPolicyValue as "open" | "allowlist" | "disabled",
       allowFrom,

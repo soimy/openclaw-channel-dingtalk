@@ -23,12 +23,6 @@ const DingTalkAccountConfigShape = {
   /** DingTalk Robot Code for media download */
   robotCode: z.string().optional(),
 
-  /** DingTalk Corporation ID */
-  corpId: z.string().optional(),
-
-  /** DingTalk Application ID (Agent ID) */
-  agentId: z.union([z.string(), z.number()]).optional(),
-
   /** Direct message policy: open, pairing, or allowlist */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 
@@ -133,15 +127,6 @@ const DingTalkAccountConfigShape = {
 
   /** Session learning note TTL in milliseconds (default: 6 hours) */
   learningNoteTtlMs: z.number().int().min(60_000).optional(),
-
-  /** @deprecated Use learningEnabled */
-  feedbackLearningEnabled: z.boolean().optional(),
-
-  /** @deprecated Use learningAutoApply */
-  feedbackLearningAutoApply: z.boolean().optional(),
-
-  /** @deprecated Use learningNoteTtlMs */
-  feedbackLearningNoteTtlMs: z.number().int().min(60_000).optional(),
 
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables: z.boolean().optional().default(true),

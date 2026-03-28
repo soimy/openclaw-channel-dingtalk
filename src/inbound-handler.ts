@@ -6,8 +6,8 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard } from "./card-service";
-import { resolveAckReactionSetting, resolveGroupConfig } from "./config";
+import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
+import { resolveAckReactionSetting, resolveGroupConfig, resolveRobotCode } from "./config";
 import {
   applyManualTargetLearningRule,
   applyManualTargetsLearningRule,
@@ -18,7 +18,7 @@ import {
   createOrUpdateTargetSet,
   deleteManualRule,
   disableManualRule,
-  isFeedbackLearningEnabled,
+  isLearningEnabled,
   listLearningTargetSets,
   listScopedLearningRules,
   resolveManualForcedReply,
@@ -83,8 +83,10 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
+import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
+import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -272,9 +274,10 @@ export async function downloadMedia(
     log?.error?.("[DingTalk] downloadMedia requires downloadCode to be provided.");
     return null;
   }
-  if (!config.robotCode) {
+  const robotCode = resolveRobotCode(config);
+  if (!robotCode) {
     if (log?.error) {
-      log.error("[DingTalk] downloadMedia requires robotCode to be configured.");
+      log.error("[DingTalk] downloadMedia requires clientId or robotCode to be configured.");
     }
     return null;
   }
@@ -282,7 +285,7 @@ export async function downloadMedia(
     const token = await getAccessToken(config, log);
     const response = await axios.post(
       "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
-      { downloadCode, robotCode: config.robotCode },
+      { downloadCode, robotCode },
       { headers: { "x-acs-dingtalk-access-token": token } },
     );
     const payload = response.data as Record<string, any>;
@@ -1099,6 +1102,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     log?.warn?.(`[DingTalk] Message context inbound append failed: ${String(err)}`);
   }
 
+  const robotCode = resolveRobotCode(dingtalkConfig);
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   let attachmentContextMsgId = data.msgId;
@@ -1110,7 +1114,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (preDownloadedMedia?.mediaPath) {
     mediaPath = preDownloadedMedia.mediaPath;
     mediaType = preDownloadedMedia.mediaType;
-  } else if (content.mediaPath && dingtalkConfig.robotCode) {
+  } else if (content.mediaPath && robotCode) {
     // Download media only if not pre-downloaded
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
@@ -1254,7 +1258,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   };
 
   // Quoted picture: download via existing downloadMedia.
-  if (!mediaPath && content.quoted?.mediaDownloadCode && dingtalkConfig.robotCode) {
+  if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
     const media =
       (await tryDownloadFromRecord(quotedRecord)) ||
       (await downloadMedia(dingtalkConfig, content.quoted.mediaDownloadCode, log));
@@ -1281,7 +1285,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     let fileResolved = false;
 
     // Step 0: Direct download via downloadCode from quoted payload (file/audio/video msgType).
-    if (!fileResolved && content.quoted.fileDownloadCode && dingtalkConfig.robotCode) {
+    if (!fileResolved && content.quoted.fileDownloadCode && robotCode) {
       const media = await downloadMedia(dingtalkConfig, content.quoted.fileDownloadCode, log);
       if (media) {
         mediaPath = media.path;
@@ -1468,14 +1472,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  const inboundBody =
-    mediaPath && /<media:[^>]+>/.test(content.text)
-      ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
-      : content.text;
+  const inboundBody = content.text;
   const inboundText = attachmentExtractedText
     ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
     : inboundBody;
-  const learningEnabled = isFeedbackLearningEnabled(dingtalkConfig);
+  const learningEnabled = isLearningEnabled(dingtalkConfig);
   const learningContextBlock = buildLearningContextBlock({
     enabled: learningEnabled,
     storePath: accountStorePath,
@@ -1589,6 +1590,81 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
+
+  // ---- Pre-lock abort: bypass session lock for stop requests ----
+  // isAbortRequestText matches "/stop", "停止", "stop", "esc", etc.
+  // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
+  // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
+  // rather than waiting for it to finish before the stop message is processed.
+  //
+  // In group chats, DingTalk typically strips @BotName from text.content at the
+  // protocol level before delivery, but as a defensive measure we also strip leading
+  // @mention tokens here (e.g. "@Bot 停止" → "停止") to match the SDK's own behavior
+  // in tryFastAbortFromMessage (which calls stripMentions for group messages).
+  const textForAbortCheck = !isDirect
+    ? inboundText.replace(/^(?:@\S+\s+)*/u, "").trim()
+    : inboundText;
+  if (isAbortRequestText(textForAbortCheck)) {
+    log?.info?.(
+      `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
+    );
+    // In card mode: capture the abort confirmation text so we can write it into
+    // the card (instead of sending a separate plain text message).
+    let abortConfirmationText: string | undefined;
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) {
+              log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
+              return;
+            }
+            if (currentAICard) {
+              // Card mode: capture text — will be written to card after dispatch.
+              abortConfirmationText = payload.text;
+            } else {
+              try {
+                if (sessionWebhook) {
+                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                  });
+                } else {
+                  await sendMessage(dingtalkConfig, to, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                    conversationId: groupId,
+                  });
+                }
+              } catch (deliverErr) {
+                log?.warn?.(
+                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+                );
+              }
+            }
+          },
+        },
+      });
+    } catch (abortErr) {
+      log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+    }
+    // Finalize the card that was created for this message before the abort check.
+    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
+      try {
+        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+      } catch (cardErr) {
+        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
+        currentAICard.state = AICardStatus.FAILED;
+      }
+    }
+    return;
+  }
 
   const ackReaction =
     typeof dingtalkConfig.ackReaction === "string"
