@@ -119,6 +119,9 @@ export async function attachNativeAckReaction(
   data: AckReactionTarget,
   log?: AckReactionLogger,
 ): Promise<boolean> {
+  if (!resolveAckReactionPayload(config, data)) {
+    return false;
+  }
   for (let index = 0; index < THINKING_REACTION_ATTACH_DELAYS_MS.length; index += 1) {
     const delayMs = THINKING_REACTION_ATTACH_DELAYS_MS[index];
     if (delayMs > 0) {
@@ -171,6 +174,9 @@ export async function recallNativeAckReactionWithRetry(
   data: AckReactionTarget,
   log?: AckReactionLogger,
 ): Promise<void> {
+  if (!resolveAckReactionPayload(config, data)) {
+    return;
+  }
   for (const delayMs of THINKING_REACTION_RECALL_DELAYS_MS) {
     if (delayMs > 0) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
