@@ -1,23 +1,99 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+function readInboundHandlerTestSource(): string {
+  const filePath = fileURLToPath(new URL("./inbound-handler.test.ts", import.meta.url));
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function collectVitestTitles(source: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    "inbound-handler.test.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const titles: string[] = [];
+
+  const extractStaticTitle = (expression: ts.Expression | undefined): string | undefined => {
+    if (!expression) {
+      return undefined;
+    }
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+      return expression.text;
+    }
+    return undefined;
+  };
+
+  const isVitestTitleCall = (expression: ts.LeftHandSideExpression): boolean => {
+    let current: ts.LeftHandSideExpression = expression;
+    while (ts.isPropertyAccessExpression(current)) {
+      current = current.expression;
+    }
+    return ts.isIdentifier(current) && (current.text === "it" || current.text === "test");
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && isVitestTitleCall(node.expression)) {
+      const title = extractStaticTitle(node.arguments[0]);
+      if (title !== undefined) {
+        titles.push(title);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return titles;
+}
+
+function findDuplicateVitestTitles(source: string): string[] {
+  const counts = new Map<string, number>();
+
+  for (const title of collectVitestTitles(source)) {
+    counts.set(title, (counts.get(title) || 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([title, count]) => `${count}x ${title}`);
+}
 
 describe("inbound-handler test structure", () => {
   it("does not contain duplicate test titles", () => {
-    const filePath = path.resolve(process.cwd(), "tests/unit/inbound-handler.test.ts");
-    const source = fs.readFileSync(filePath, "utf8");
-    const matches = [...source.matchAll(/\bit\((['"])(.*?)\1/g)];
-    const counts = new Map<string, number>();
+    expect(findDuplicateVitestTitles(readInboundHandlerTestSource())).toEqual([]);
+  });
 
-    for (const match of matches) {
-      const title = match[2];
-      counts.set(title, (counts.get(title) || 0) + 1);
+  it("resolves the target test file independently from process.cwd", () => {
+    const originalCwd = process.cwd();
+
+    try {
+      process.chdir(path.resolve(originalCwd, ".."));
+
+      expect(readInboundHandlerTestSource()).toContain('describe("inbound-handler"');
+    } finally {
+      process.chdir(originalCwd);
     }
+  });
 
-    const duplicates = [...counts.entries()]
-      .filter(([, count]) => count > 1)
-      .map(([title, count]) => `${count}x ${title}`);
+  it("collects static Vitest titles without matching comments", () => {
+    const source = `
+      it("plain title", () => {});
+      it.only("only title", () => {});
+      test.skip("skip title", () => {});
+      it(\`template title\`, () => {});
+      // it("comment title", () => {});
+    `;
 
-    expect(duplicates).toEqual([]);
+    expect(collectVitestTitles(source)).toEqual([
+      "plain title",
+      "only title",
+      "skip title",
+      "template title",
+    ]);
   });
 });
