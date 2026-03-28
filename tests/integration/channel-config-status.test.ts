@@ -200,6 +200,75 @@ describe("channel config + status helpers", () => {
         message: "HTTP mode port conflict on 3000: accounts main, backup must use distinct httpPort values",
       }),
     );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        accountId: "backup",
+        channel: "dingtalk",
+        kind: "config",
+        message: "HTTP mode port conflict on 3000: accounts main, backup must use distinct httpPort values",
+      }),
+    );
+  });
+
+  it("treats omitted httpPort as default 3000 and ignores disabled/non-http accounts", () => {
+    const issues = plugin.status.collectStatusIssues([
+      {
+        accountId: "main",
+        configured: true,
+        enabled: true,
+        config: { mode: "http" },
+      },
+      {
+        accountId: "backup",
+        configured: true,
+        enabled: true,
+        config: { mode: "http", httpPort: 3000 },
+      },
+      {
+        accountId: "disabled",
+        configured: true,
+        enabled: false,
+        config: { mode: "http" },
+      },
+      {
+        accountId: "stream",
+        configured: true,
+        enabled: true,
+        config: { mode: "stream", httpPort: 3000 },
+      },
+      {
+        accountId: "missing",
+        configured: false,
+        enabled: true,
+        config: { mode: "http", httpPort: 3000 },
+      },
+    ] as any);
+
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          accountId: "main",
+          message: "HTTP mode port conflict on 3000: accounts main, backup must use distinct httpPort values",
+        }),
+        expect.objectContaining({
+          accountId: "backup",
+          message: "HTTP mode port conflict on 3000: accounts main, backup must use distinct httpPort values",
+        }),
+        expect.objectContaining({
+          accountId: "missing",
+          message: "Account not configured (missing clientId or clientSecret)",
+        }),
+      ]),
+    );
+    expect(issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountId: "disabled", kind: "config" }),
+        expect.objectContaining({
+          accountId: "stream",
+          message: "HTTP mode port conflict on 3000: accounts main, backup must use distinct httpPort values",
+        }),
+      ]),
+    );
   });
 
   it("lists groups/peers from learned displayName directory", async () => {

@@ -1144,12 +1144,14 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
       const httpPortConflicts = collectHttpPortConflicts(accounts);
       for (const conflict of httpPortConflicts) {
-        issues.push({
-          channel: "dingtalk",
-          kind: "config" as const,
-          accountId: conflict.accountIds[0] ?? null,
-          message: `HTTP mode port conflict on ${conflict.port}: accounts ${conflict.accountIds.join(", ")} must use distinct httpPort values`,
-        });
+        for (const accountId of conflict.accountIds) {
+          issues.push({
+            channel: "dingtalk",
+            kind: "config" as const,
+            accountId,
+            message: `HTTP mode port conflict on ${conflict.port}: accounts ${conflict.accountIds.join(", ")} must use distinct httpPort values`,
+          });
+        }
       }
 
       return issues;
