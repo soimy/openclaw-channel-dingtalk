@@ -22,6 +22,7 @@ const shared = vi.hoisted(() => ({
   extractAttachmentTextMock: vi.fn(),
   prepareMediaInputMock: vi.fn(),
   resolveOutboundMediaTypeMock: vi.fn(),
+  isAbortRequestTextMock: vi.fn(),
 }));
 
 vi.mock("axios", () => ({
@@ -74,6 +75,10 @@ vi.mock("../../src/card-service", () => ({
 
 vi.mock("../../src/session-lock", () => ({
   acquireSessionLock: shared.acquireSessionLockMock,
+}));
+
+vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
+  isAbortRequestText: shared.isAbortRequestTextMock,
 }));
 
 vi.mock("../../src/message-context-store", async () => {
@@ -207,6 +212,8 @@ describe("inbound-handler", () => {
     shared.acquireSessionLockMock.mockResolvedValue(vi.fn());
     shared.extractAttachmentTextMock.mockReset();
     shared.extractAttachmentTextMock.mockResolvedValue(null);
+    shared.isAbortRequestTextMock.mockReset();
+    shared.isAbortRequestTextMock.mockReturnValue(false); // 默认不触发 abort
 
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
     shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
@@ -285,14 +292,29 @@ describe("inbound-handler", () => {
     expect(call[2]).toBe("inbound");
   });
 
-  it("downloadMedia returns null when robotCode missing", async () => {
+  it("downloadMedia falls back to clientId when robotCode is missing", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    mockedAxiosPost.mockResolvedValueOnce({
+      data: { downloadUrl: "https://download.url/file" },
+    } as any);
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from("abc"),
+      headers: { "content-type": "image/png" },
+    } as any);
+
     const result = await downloadMedia(
       { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
-    expect(result).toBeNull();
-    expect(mockedAxiosPost).not.toHaveBeenCalled();
+    expect(result).toBeTruthy();
+    expect(mockedAxiosPost).toHaveBeenCalledWith(
+      "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+      { downloadCode: "download_code_1", robotCode: "id" },
+      { headers: { "x-acs-dingtalk-access-token": "token_abc" } },
+    );
   });
 
   it("handleDingTalkMessage ignores self-message", async () => {
@@ -5575,7 +5597,6 @@ describe("inbound-handler", () => {
         messageType: "card",
         cardRealTimeStream: true,
         ackReaction: "",
-        showThinking: false,
       } as any,
       data: {
         msgId: "mid_accum_test",
@@ -5616,7 +5637,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "card", showThinking: false } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
       data: {
         msgId: "mid_empty_final",
         msgtype: "text",
@@ -5657,7 +5678,6 @@ describe("inbound-handler", () => {
       dingtalkConfig: {
         dmPolicy: "open",
         messageType: "card",
-        showThinking: false,
         cardRealTimeStream: false,
       } as any,
       data: {
@@ -5707,7 +5727,6 @@ describe("inbound-handler", () => {
         dmPolicy: "open",
         messageType: "card",
         cardRealTimeStream: true,
-        showThinking: false,
       } as any,
       data: {
         msgId: "mid_file_only",
@@ -6229,7 +6248,7 @@ describe("inbound-handler", () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true, ackReaction: '', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true, ackReaction: '' } as any,
             data: {
                 msgId: 'mid_accum_test', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -6270,7 +6289,6 @@ describe("inbound-handler", () => {
           groupPolicy: 'allowlist',
           allowFrom: ['allowed_group'],
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_subagent_1',
@@ -6324,7 +6342,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_subagent_2',
@@ -6366,7 +6383,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_subagent_3',
@@ -6413,7 +6429,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_text_real_user',
@@ -6463,7 +6478,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_text_invalid_agent',
@@ -6513,7 +6527,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_text_invalid_agent_no_real_users',
@@ -6574,7 +6587,6 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           dmPolicy: 'open',
           messageType: 'markdown',
-          showThinking: false,
         } as any,
         data: {
           msgId: 'm_webhook_order',
@@ -6618,7 +6630,7 @@ describe("inbound-handler", () => {
         accountId: 'main',
         sessionWebhook: 'https://session.webhook',
         log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
-        dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown', showThinking: false } as any,
+        dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
         data: {
           msgId: 'fb1', msgtype: 'text', text: { content: '@expert1 help' },
           conversationType: '2', conversationId: 'group_1',
@@ -6651,7 +6663,7 @@ describe("inbound-handler", () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card' } as any,
             data: {
                 msgId: 'mid_empty_final', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -6685,7 +6697,7 @@ describe("inbound-handler", () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', showThinking: false, cardRealTimeStream: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: false } as any,
             data: {
                 msgId: 'mid_norealtime', msgtype: 'text', text: { content: 'hello' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -6723,7 +6735,7 @@ describe("inbound-handler", () => {
             accountId: 'main',
             sessionWebhook: 'https://session.webhook',
             log: undefined,
-            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true, showThinking: false } as any,
+            dingtalkConfig: { dmPolicy: 'open', messageType: 'card', cardRealTimeStream: true } as any,
             data: {
                 msgId: 'mid_file_only', msgtype: 'text', text: { content: 'send me the file' },
                 conversationType: '1', conversationId: 'cid_ok', senderId: 'user_1',
@@ -7304,5 +7316,251 @@ describe("inbound-handler", () => {
         RawBody: expect.stringContaining("[附件内容摘录]"),
       }),
     );
+  });
+
+  describe("abort pre-lock bypass", () => {
+    const baseData = {
+      msgId: "abort_m1",
+      msgtype: "text",
+      text: { content: "停止" },
+      conversationType: "1",
+      conversationId: "cid_abort",
+      senderId: "user_1",
+      chatbotUserId: "bot_1",
+      sessionWebhook: "https://session.webhook/abort",
+      createAt: Date.now(),
+    };
+
+    it("bypasses session lock and dispatches when isAbortRequestText returns true", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: baseData,
+      } as any);
+
+      // session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      // abort dispatch should be called
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+      // abort deliver should call sendBySession
+      expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://session.webhook/abort",
+        "已停止响应",
+        expect.anything(),
+      );
+    });
+
+    it("falls back to sendMessage when sessionWebhook is absent", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendMessageMock.mockResolvedValue({ ok: true });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "",          // 无 webhook
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: { ...baseData, sessionWebhook: "" },
+      } as any);
+
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(shared.sendMessageMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "user_1",
+        "已停止响应",
+        expect.anything(),
+      );
+    });
+
+    it("acquires session lock normally when isAbortRequestText returns false", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(false);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: baseData,
+      } as any);
+
+      expect(shared.acquireSessionLockMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("swallows deliver errors in abort path without propagating", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendBySessionMock.mockRejectedValue(new Error("network error"));
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: false, counts: { final: 0 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      // should not throw
+      await expect(
+        handleDingTalkMessage({
+          cfg: {},
+          accountId: "main",
+          sessionWebhook: "https://session.webhook/abort",
+          log: undefined,
+          dingtalkConfig: { dmPolicy: "open" } as any,
+          data: baseData,
+        } as any),
+      ).resolves.toBeUndefined();
+    });
+
+    it("finalizes the card with abort text when card mode is active", async () => {
+      const card = { cardInstanceId: "card_abort_1", state: "1", lastUpdated: Date.now() };
+      shared.createAICardMock.mockResolvedValue(card);
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "⚙️ Agent was aborted." });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+        data: baseData,
+      } as any);
+
+      // session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      // abort text should be written to card, not sent as plain text
+      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      expect(shared.finishAICardMock).toHaveBeenCalledWith(
+        card,
+        "⚙️ Agent was aborted.",
+        undefined,
+      );
+    });
+
+    it("strips leading @mention from group message before abort check", async () => {
+      // Simulate DingTalk not stripping @BotName from text.content in group chat.
+      // isAbortRequestText should only match the bare command ("停止"), not "@Bot 停止".
+      shared.extractMessageContentMock.mockReturnValue({ text: "@Bot 停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "停止");
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: {
+          ...baseData,
+          msgId: "abort_group_mention",
+          text: { content: "@Bot 停止" },
+          conversationType: "2",
+          conversationId: "cid_group_abort",
+        },
+      } as any);
+
+      // @mention stripped → "停止" matches → session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("handleDingTalkMessage does not inject [media_path:] into body — sets MediaPath on ctx instead", async () => {
+    // Regression test for sandbox compatibility: the absolute host path must NOT appear
+    // in RawBody/CommandBody, because in sandbox mode the LLM cannot access host paths.
+    // OpenClaw core translates ctx.MediaPath to a sandbox-relative path via [media attached:].
+    // Uses msgtype: "file" to match the actual bug scenario reported in issue #429.
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "<media:file> (report.pdf)",
+      messageType: "file",
+      mediaPath: "FILE_DOWNLOAD_CODE",
+    });
+    mockedAxiosPost.mockResolvedValueOnce({
+      data: { downloadUrl: "https://download.dingtalk.com/file" },
+    } as any);
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from("%PDF"),
+      headers: { "content-type": "application/pdf" },
+    } as any);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      data: {
+        msgId: "m_file_sandbox",
+        msgtype: "file",
+        content: { downloadCode: "FILE_DOWNLOAD_CODE", fileName: "report.pdf" },
+        conversationType: "1",
+        conversationId: "cid_dm_file",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+
+    // [media_path:] must NOT appear in body — it exposes the host absolute path which
+    // breaks sandbox mode. OpenClaw handles path translation via ctx.MediaPath.
+    expect(finalized.RawBody).not.toContain("[media_path:");
+    expect(finalized.CommandBody).not.toContain("[media_path:");
+
+    // ctx.MediaPath must still be set so OpenClaw can generate [media attached: relative/path]
+    expect(finalized.MediaPath).toContain("/.openclaw/media/inbound/");
   });
 });

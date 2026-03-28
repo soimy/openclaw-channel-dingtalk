@@ -1,6 +1,6 @@
 # Architecture
 
-Chinese version: [`ARCHITECTURE.zh-CN.md`](ARCHITECTURE.zh-CN.md)
+Chinese version: [`architecture.zh-CN.md`](architecture.zh-CN.md)
 
 This document is the canonical source for module boundaries and incremental architecture rules in `openclaw-channel-dingtalk`.
 

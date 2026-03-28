@@ -160,7 +160,7 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.learningNoteTtlMs).toBeUndefined();
     });
 
-    it('keeps backward compatibility for legacy feedback learning keys', () => {
+    it('drops removed legacy feedback learning keys', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
@@ -179,9 +179,9 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.learningEnabled).toBeUndefined();
         expect(parsed.learningAutoApply).toBeUndefined();
         expect(parsed.learningNoteTtlMs).toBeUndefined();
-        expect(parsed.feedbackLearningEnabled).toBe(true);
-        expect(parsed.feedbackLearningAutoApply).toBe(true);
-        expect(parsed.feedbackLearningNoteTtlMs).toBe(120000);
+        expect('feedbackLearningEnabled' in parsed).toBe(false);
+        expect('feedbackLearningAutoApply' in parsed).toBe(false);
+        expect('feedbackLearningNoteTtlMs' in parsed).toBe(false);
     });
 
     it('accepts enum ackReaction config without injecting a schema default', () => {

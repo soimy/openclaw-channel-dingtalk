@@ -20,14 +20,15 @@ import {
   mergeAccountWithDefaults,
   resolveGroupConfig,
   resolveRelativePath,
+  resolveRobotCode,
   stripTargetPrefix,
 } from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import { ConnectionManager } from "./connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "./dedup";
 import {
-  isFeedbackLearningAutoApplyEnabled,
-  isFeedbackLearningEnabled,
+  isLearningAutoApplyEnabled,
+  isLearningEnabled,
   recordExplicitFeedbackLearning,
 } from "./feedback-learning-service";
 import { handleDingTalkMessage } from "./inbound-handler";
@@ -708,7 +709,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           try {
             const data = JSON.parse(res.data) as DingTalkInboundMessage;
 
-            const robotKey = config.robotCode || config.clientId || account.accountId;
+            const robotKey = resolveRobotCode(config) || account.accountId;
             const msgId = data.msgId || messageId;
             const dedupKey = msgId ? `${robotKey}:${msgId}` : undefined;
 
@@ -807,15 +808,15 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
             if (analysis.feedbackTarget && analysis.feedbackAckText) {
               recordExplicitFeedbackLearning({
-                enabled: isFeedbackLearningEnabled(config),
-                autoApply: isFeedbackLearningAutoApplyEnabled(config),
+                enabled: isLearningEnabled(config),
+                autoApply: isLearningAutoApplyEnabled(config),
                 storePath: accountStorePath,
                 accountId: account.accountId,
                 targetId: analysis.feedbackTarget,
                 feedbackType: analysis.actionId === "feedback_up" ? "feedback_up" : "feedback_down",
                 userId: analysis.userId,
                 processQueryKey: analysis.processQueryKey,
-                noteTtlMs: config.learningNoteTtlMs ?? config.feedbackLearningNoteTtlMs,
+                noteTtlMs: config.learningNoteTtlMs,
               });
               try {
                 await sendProactiveTextOrMarkdown(
@@ -984,7 +985,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             // Clear stale in-flight locks for this account on disconnect.
             // DingTalk will redeliver unacknowledged messages on reconnect; without
             // this cleanup the redelivered messages would be silently skipped forever.
-            const robotKey = config.robotCode || config.clientId || account.accountId;
+            const robotKey = resolveRobotCode(config) || account.accountId;
             let cleared = 0;
             for (const key of processingDedupKeys.keys()) {
               if (key.startsWith(`${robotKey}:`)) {

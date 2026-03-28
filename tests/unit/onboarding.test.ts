@@ -7,7 +7,7 @@ vi.mock("openclaw/plugin-sdk/setup", () => ({
     formatDocsLink: (path: string) => `https://docs.example${path}`,
 }));
 
-import { dingtalkSetupWizard } from "../../src/onboarding";
+import { dingtalkSetupAdapter, dingtalkSetupWizard } from "../../src/onboarding";
 
 function listAccountIds(cfg: OpenClawConfig): string[] {
     const dingtalk = cfg.channels?.dingtalk as { accounts?: Record<string, unknown> } | undefined;
@@ -82,9 +82,6 @@ describe("dingtalk setup wizard", () => {
             .fn()
             .mockResolvedValueOnce("ding_client")
             .mockResolvedValueOnce("ding_secret")
-            .mockResolvedValueOnce("ding_robot")
-            .mockResolvedValueOnce("ding_corp")
-            .mockResolvedValueOnce("12345")
             .mockResolvedValueOnce("tmpl.schema")
             .mockResolvedValueOnce("")
             .mockResolvedValueOnce("user_a, user_b")
@@ -96,7 +93,6 @@ describe("dingtalk setup wizard", () => {
 
         const confirm = vi
             .fn()
-            .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
@@ -122,7 +118,9 @@ describe("dingtalk setup wizard", () => {
         expect(result.accountId).toBe("default");
         expect(dingtalkConfig.clientId).toBe("ding_client");
         expect(dingtalkConfig.clientSecret).toBe("ding_secret");
-        expect(dingtalkConfig.robotCode).toBe("ding_robot");
+        expect(dingtalkConfig.robotCode).toBeUndefined();
+        expect((dingtalkConfig as any).corpId).toBeUndefined();
+        expect((dingtalkConfig as any).agentId).toBeUndefined();
         expect(dingtalkConfig.messageType).toBe("card");
         expect(dingtalkConfig.cardTemplateId).toBe("tmpl.schema");
         expect(dingtalkConfig.cardTemplateKey).toBe("content");
@@ -134,6 +132,23 @@ describe("dingtalk setup wizard", () => {
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
         expect(dingtalkConfig.journalTTLDays).toBe(14);
         expect(note).toHaveBeenCalled();
+    });
+
+    it("generic setup input no longer stores legacy code as robotCode", () => {
+        const cfg = dingtalkSetupAdapter.applyAccountConfig({
+            cfg: {} as any,
+            accountId: "default",
+            input: {
+                token: "ding_client",
+                password: "ding_secret",
+                code: "ding_robot",
+            } as any,
+        });
+
+        const dingtalkConfig = cfg.channels?.dingtalk;
+        expect(dingtalkConfig?.clientId).toBe("ding_client");
+        expect(dingtalkConfig?.clientSecret).toBe("ding_secret");
+        expect((dingtalkConfig as any)?.robotCode).toBeUndefined();
     });
 
     it("configure with disabled groupPolicy skips groupAllowFrom prompt", async () => {
@@ -149,7 +164,6 @@ describe("dingtalk setup wizard", () => {
 
         const confirm = vi
             .fn()
-            .mockResolvedValueOnce(false)
             .mockResolvedValueOnce(false)
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)

@@ -5,7 +5,7 @@ excludeAgent: "coding-agent"
 
 # Copilot Code Review Instructions
 
-When reviewing pull requests in this repository, treat `CONTRIBUTING.md` and `docs/ARCHITECTURE.md` as the source of truth.
+When reviewing pull requests in this repository, treat `CONTRIBUTING.md` and `docs/contributor/architecture.en.md` as the source of truth.
 
 Write all review comments in Simplified Chinese. Keep the tone professional, direct, and collaborative.
 

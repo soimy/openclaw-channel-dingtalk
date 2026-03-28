@@ -1,10 +1,10 @@
 # 架构说明
 
-English version: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+English version: [`architecture.en.md`](architecture.en.md)
 
 本文档是 `openclaw-channel-dingtalk` 的模块职责边界、增量演进规则与架构协作约定的权威来源。
 
-它面向维护者、贡献者以及在本仓库内工作的 AI / 代码代理使用。当 `README.md`、`AGENTS.md` 或 `CONTRIBUTING*` 中出现架构摘要时，以本文和 [`ARCHITECTURE.md`](ARCHITECTURE.md) 为准。
+它面向维护者、贡献者以及在本仓库内工作的 AI / 代码代理使用。当 `README.md`、`AGENTS.md` 或 `CONTRIBUTING*` 中出现架构摘要时，以本文和 [`architecture.en.md`](architecture.en.md) 为准。
 
 ## 目标
 

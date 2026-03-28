@@ -9,6 +9,7 @@
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { resolveAtAgents } from "./agent-name-matcher";
+import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";
 import { sendBySession } from "../send-service";
@@ -154,7 +155,7 @@ export async function dispatchSubAgents(params: {
 
   // Pre-download media once to avoid duplication across sub-agents
   let preDownloadedMedia: { mediaPath?: string; mediaType?: string } | undefined;
-  if (extractedContent.mediaPath && dingtalkConfig.robotCode) {
+  if (extractedContent.mediaPath && resolveRobotCode(dingtalkConfig)) {
     const media = await download(dingtalkConfig, extractedContent.mediaPath, log);
     if (media) {
       preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };

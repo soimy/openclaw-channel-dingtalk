@@ -151,7 +151,7 @@ Check next:
 Example websocket-stage log snippet:
 
 ```text
-[main] Failed to establish connection: Unexpected server response: 400 [DingTalk][ConnectionError][connect.websocket] endpoint=wss://wss-open-connection.dingtalk.com:443/connect Likely websocket/proxy/WSS issue after connections/open succeeded See docs/connection-troubleshooting.md or run scripts/dingtalk-connection-check.*
+[main] Failed to establish connection: Unexpected server response: 400 [DingTalk][ConnectionError][connect.websocket] endpoint=wss://wss-open-connection.dingtalk.com:443/connect Likely websocket/proxy/WSS issue after connections/open succeeded See docs/user/troubleshooting/connection.en.md or run scripts/dingtalk-connection-check.*
 ```
 
 ### Case 3: no HTTP status / transport failure

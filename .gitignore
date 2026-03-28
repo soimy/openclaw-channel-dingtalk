@@ -9,6 +9,8 @@ package-lock.json
 # Build files
 dist/
 coverage/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 *.js.map
 
 # Logs
@@ -30,9 +32,6 @@ credentials.json
 .vscode/
 .idea/
 .sisyphus/
-
-# Development plans (not part of published docs)
-docs/plans/
 
 # vscode workspace settings
 *.code-workspace

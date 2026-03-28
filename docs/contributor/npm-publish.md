@@ -156,7 +156,7 @@ npm install @soimy/dingtalk
 - [ ] `npm run type-check` 无错误
 - [ ] `npm run lint` 无错误
 - [ ] README.md 文档已更新
-- [ ] RELEASES.md 已记录新版本变更
+- [ ] `docs/releases/` 已记录新版本变更
 - [ ] 版本号已更新（`npm version`）
 - [ ] `.npmignore` 配置正确
 - [ ] 已登录 npm (`npm whoami`)

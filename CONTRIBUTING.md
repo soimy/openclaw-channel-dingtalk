@@ -13,10 +13,22 @@ This repository has a few areas that need extra care when you change them:
 
 Use this guide as the contributor entry point, then follow the deeper links in `README.md` and `docs/` for platform-specific details.
 
+## Documentation Placement Rules
+
+Keep documentation updates structured:
+
+- `README.md` is a concise repository entry page only. Do not keep extending it with long feature manuals, config matrices, troubleshooting deep dives, or release-history details.
+- User-facing setup, behavior, and troubleshooting updates belong under `docs/user/`.
+- Contributor, architecture, testing, and release process updates belong under `docs/contributor/`.
+- Release notes belong under `docs/releases/`.
+- When adding a new release note, also update `docs/releases/latest.md` so the latest alias and `/releases/` entry stay current.
+
+If a code change affects user-visible behavior, config, permissions, routing, cards, media, quoting, or troubleshooting, update the relevant `docs/` page in the same PR instead of adding ad-hoc detail to `README.md`.
+
 ## Architecture Boundaries
 
-The canonical architecture guide lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-For Chinese readers, see [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md).
+The canonical architecture guide lives in [`docs/contributor/architecture.en.md`](docs/contributor/architecture.en.md).
+For Chinese readers, see [`docs/contributor/architecture.zh-CN.md`](docs/contributor/architecture.zh-CN.md).
 
 Before adding a new module or widening an existing one, align with these rules:
 
@@ -102,12 +114,13 @@ Before testing changes locally:
 - Publish the app version to the target tenant before testing callbacks
 - Fill in the required DingTalk credentials in your OpenClaw config
 
-See `README.md` for the full setup details:
+See the structured docs for setup details:
 
-- installation and local linking in `README.md`
-- DingTalk app setup and permissions in `README.md`
-- connection troubleshooting in `docs/connection-troubleshooting.md`
-- Chinese troubleshooting guide in `docs/connection-troubleshooting.zh-CN.md`
+- installation and local linking in `docs/user/getting-started/install.md`
+- DingTalk app setup and permissions in `docs/user/getting-started/permissions.md`
+- configuration in `docs/user/getting-started/configure.md`
+- connection troubleshooting in `docs/user/troubleshooting/connection.en.md`
+- Chinese troubleshooting guide in `docs/user/troubleshooting/connection.zh-CN.md`
 
 ## Validation Checklist
 
@@ -248,9 +261,9 @@ For security issues, do not open a public bug report with exploit details. Follo
 ## Helpful References
 
 - `README.md`
-- `docs/connection-troubleshooting.md`
-- `docs/connection-troubleshooting.zh-CN.md`
-- `docs/cardTemplate.json`
+- `docs/user/troubleshooting/connection.en.md`
+- `docs/user/troubleshooting/connection.zh-CN.md`
+- `docs/assets/card-template.json`
 - issue `#104`
 - issue `#264`
 - issue `#268`

@@ -1,0 +1,27 @@
+.readme-banner-theme-switch {
+  display: block;
+  max-width: 1040px;
+  margin: 0 auto 1.75rem;
+}
+
+.readme-banner-theme-switch img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.vp-doc p:has(> .readme-banner-theme-switch) {
+  margin: 0;
+}
+
+.readme-banner-theme-switch .banner-dark {
+  display: none;
+}
+
+.dark .readme-banner-theme-switch .banner-light {
+  display: none;
+}
+
+.dark .readme-banner-theme-switch .banner-dark {
+  display: block;
+}

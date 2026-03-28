@@ -227,7 +227,7 @@ describe('config advanced', () => {
         })).toBe('👀');
     });
 
-    it('normalizes legacy learning keys in single-account config', () => {
+    it('ignores removed legacy learning keys in single-account config', () => {
         const cfg = {
             channels: {
                 dingtalk: {
@@ -241,12 +241,12 @@ describe('config advanced', () => {
         } as any;
 
         const resolved = getConfig(cfg);
-        expect(resolved.learningEnabled).toBe(true);
-        expect(resolved.learningAutoApply).toBe(true);
-        expect(resolved.learningNoteTtlMs).toBe(120000);
+        expect(resolved.learningEnabled).toBe(false);
+        expect(resolved.learningAutoApply).toBe(false);
+        expect(resolved.learningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
     });
 
-    it('normalizes account-level legacy learning keys with account override precedence', () => {
+    it('ignores removed account-level legacy learning keys and keeps current learning defaults', () => {
         const cfg = {
             channels: {
                 dingtalk: {
@@ -270,8 +270,8 @@ describe('config advanced', () => {
 
         const resolved = getConfig(cfg, 'bot1');
         expect(resolved.learningEnabled).toBe(true);
-        expect(resolved.learningAutoApply).toBe(false);
-        expect(resolved.learningNoteTtlMs).toBe(180000);
+        expect(resolved.learningAutoApply).toBe(true);
+        expect(resolved.learningNoteTtlMs).toBe(3600000);
     });
 
     it('recovers Windows root-relative workspace paths only on win32', () => {
