@@ -7421,19 +7421,20 @@ describe("inbound-handler", () => {
     // Regression test for sandbox compatibility: the absolute host path must NOT appear
     // in RawBody/CommandBody, because in sandbox mode the LLM cannot access host paths.
     // OpenClaw core translates ctx.MediaPath to a sandbox-relative path via [media attached:].
+    // Uses msgtype: "file" to match the actual bug scenario reported in issue #429.
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
     shared.extractMessageContentMock.mockReturnValueOnce({
-      text: "<media:image>",
-      messageType: "image",
-      mediaPath: "IMAGE_DOWNLOAD_CODE",
+      text: "<media:file> (report.pdf)",
+      messageType: "file",
+      mediaPath: "FILE_DOWNLOAD_CODE",
     });
     mockedAxiosPost.mockResolvedValueOnce({
-      data: { downloadUrl: "https://download.dingtalk.com/img" },
+      data: { downloadUrl: "https://download.dingtalk.com/file" },
     } as any);
     mockedAxiosGet.mockResolvedValueOnce({
-      data: Buffer.from("PNG"),
-      headers: { "content-type": "image/png" },
+      data: Buffer.from("%PDF"),
+      headers: { "content-type": "application/pdf" },
     } as any);
 
     await handleDingTalkMessage({
@@ -7443,11 +7444,11 @@ describe("inbound-handler", () => {
       log: undefined,
       dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
       data: {
-        msgId: "m_image_sandbox",
-        msgtype: "picture",
-        content: { downloadCode: "IMAGE_DOWNLOAD_CODE" },
+        msgId: "m_file_sandbox",
+        msgtype: "file",
+        content: { downloadCode: "FILE_DOWNLOAD_CODE", fileName: "report.pdf" },
         conversationType: "1",
-        conversationId: "cid_dm_image",
+        conversationId: "cid_dm_file",
         senderId: "user_1",
         chatbotUserId: "bot_1",
         sessionWebhook: "https://session.webhook",
