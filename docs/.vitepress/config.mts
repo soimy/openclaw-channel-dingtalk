@@ -108,7 +108,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: '用户文档', link: '/user/' },
       { text: '参与贡献', link: '/contributor/' },
-      { text: '发布记录', link: '/releases/v3.4.2' },
+      { text: '发布记录', link: '/releases/latest' },
       { text: 'English', link: '/en/' },
       { text: 'GitHub', link: 'https://github.com/soimy/openclaw-channel-dingtalk' },
     ],
@@ -173,6 +173,7 @@ export default defineConfig({
         {
           text: '发布记录',
           items: [
+            { text: '最新版本', link: '/releases/latest' },
             { text: 'v3.4.2', link: '/releases/v3.4.2' },
             { text: 'v3.4.1', link: '/releases/v3.4.1' },
             { text: 'v3.4.0', link: '/releases/v3.4.0' },

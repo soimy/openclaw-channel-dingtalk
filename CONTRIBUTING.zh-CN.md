@@ -13,10 +13,22 @@ English version: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 这份文档是贡献入口；更深入的钉钉平台细节请继续查看 `README.md` 和 `docs/` 下的文档。
 
+## 文档放置规范
+
+今后的文档更新请遵守分层约束：
+
+- `README.md` 只作为仓库入口页，不要继续把长篇功能说明、配置矩阵、深度排障、发布历史等内容塞回 `README`。
+- 面向用户的安装、配置、功能说明和故障排查，统一更新到 `docs/user/`。
+- 面向贡献者的架构、测试、开发和发布流程，统一更新到 `docs/contributor/`。
+- 版本发布说明统一放到 `docs/releases/`。
+- 新增版本发布说明时，同时更新 `docs/releases/latest.md`，保证 latest 入口和 `/releases/` 默认页始终指向最新版本。
+
+如果某次代码改动影响了用户可见行为、配置、权限、路由、卡片、媒体、引用链或排障方式，请在同一个 PR 里同步更新对应 `docs/` 页面，而不是把说明追加进 `README.md`。
+
 ## 架构边界
 
-仓库的整体架构说明、模块职责边界和增量迁移规则以 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 为准。
-中文版本见 [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
+仓库的整体架构说明、模块职责边界和增量迁移规则以 [`docs/contributor/architecture.en.md`](docs/contributor/architecture.en.md) 为准。
+中文版本见 [`docs/contributor/architecture.zh-CN.md`](docs/contributor/architecture.zh-CN.md)。
 
 新增模块或扩展现有模块前，请先对齐以下规则：
 
@@ -102,12 +114,13 @@ openclaw plugins install -l .
 - 应用版本已发布到目标租户，否则回调测试可能无效
 - 已在 OpenClaw 配置中填入必需的钉钉凭证
 
-完整配置步骤请参考 `README.md`：
+完整配置步骤请优先参考结构化文档：
 
-- 安装与本地链接：`README.md`
-- 钉钉应用配置与权限说明：`README.md`
-- 英文连接排障文档：`docs/connection-troubleshooting.md`
-- 中文连接排障文档：`docs/connection-troubleshooting.zh-CN.md`
+- 安装与本地链接：`docs/user/getting-started/install.md`
+- 钉钉应用配置与权限说明：`docs/user/getting-started/permissions.md`
+- 配置说明：`docs/user/getting-started/configure.md`
+- 英文连接排障文档：`docs/user/troubleshooting/connection.en.md`
+- 中文连接排障文档：`docs/user/troubleshooting/connection.zh-CN.md`
 
 ## 提交前验证清单
 
@@ -248,9 +261,9 @@ npm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 ## 参考资料
 
 - `README.md`
-- `docs/connection-troubleshooting.md`
-- `docs/connection-troubleshooting.zh-CN.md`
-- `docs/cardTemplate.json`
+- `docs/user/troubleshooting/connection.en.md`
+- `docs/user/troubleshooting/connection.zh-CN.md`
+- `docs/assets/card-template.json`
 - issue `#104`
 - issue `#264`
 - issue `#268`

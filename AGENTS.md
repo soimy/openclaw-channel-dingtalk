@@ -15,6 +15,7 @@ For new code and refactors, the canonical architecture guide is `docs/contributo
 Chinese version: `docs/contributor/architecture.zh-CN.md`.
 Use those documents as the source of truth for logical domain placement, incremental migration rules, and module boundaries.
 For AI-agent generated design and execution docs, write specs to `docs/spec/` and plans to `docs/plans/`. Do not create tool-specific doc roots such as `docs/superpowers/`.
+Documentation updates must follow the repo docs structure: keep `README.md` as a concise project entry page, put user-facing details in `docs/user/`, contributor/process docs in `docs/contributor/`, and release notes in `docs/releases/`. Do not expand README with long-form feature/config/troubleshooting content that belongs in `docs/`.
 Planned domain summary:
 - `gateway/`: stream connection lifecycle, callback registration, inbound entry points
 - `targeting/`: peer identity, session aliasing, target resolution, and learned displayName directory
