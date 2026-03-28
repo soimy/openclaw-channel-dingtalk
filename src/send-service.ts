@@ -124,6 +124,7 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
   return text;
 }
 
+/** DingTalk conversation ids usually start with "cid" for group chats; treat this as a heuristic. */
 function inferConversationChatType(conversationId: string): "direct" | "group" {
   return conversationId.startsWith("cid") ? "group" : "direct";
 }
@@ -219,8 +220,9 @@ export async function uploadMedia(
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
+  options?: { mediaLocalRoots?: string[] },
 ): Promise<{ mediaId: string; buffer: Buffer } | null> {
-  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log);
+  return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log, options);
 }
 
 export async function sendProactiveTextOrMarkdown(
@@ -357,7 +359,9 @@ export async function sendProactiveMedia(
 
   try {
     // Upload first, then send by media_id.
-    const uploadResult = await uploadMedia(config, mediaPath, mediaType, log);
+    const uploadResult = await uploadMedia(config, mediaPath, mediaType, log, {
+      mediaLocalRoots: options.mediaLocalRoots,
+    });
     if (!uploadResult) {
       return { ok: false, error: "Failed to upload media" };
     }
@@ -514,7 +518,9 @@ export async function sendBySession(
 
   // Session webhook supports native media messages; prefer that when media info is available.
   if (options.mediaPath && options.mediaType) {
-    const uploadResult = await uploadMedia(config, options.mediaPath, options.mediaType, log);
+    const uploadResult = await uploadMedia(config, options.mediaPath, options.mediaType, log, {
+      mediaLocalRoots: options.mediaLocalRoots,
+    });
     if (uploadResult) {
       const { mediaId, buffer } = uploadResult;
       let body: any;

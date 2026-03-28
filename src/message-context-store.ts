@@ -228,7 +228,8 @@ function normalizeMentions(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
-  const normalized = [...new Set(value.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))];
+  // Preserve the original mention token casing because DingTalk ids may be case-sensitive.
+  const normalized = [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))];
   return normalized.length > 0 ? normalized : undefined;
 }
 

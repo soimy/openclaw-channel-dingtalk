@@ -125,7 +125,7 @@ describe('message-context-store', () => {
             text: 'first',
             senderId: 'user_1',
             senderName: 'Alice',
-            mentions: ['Bob', 'bob', ''],
+            mentions: ['Bob', 'Bob', ''],
             chatType: 'group',
             quotedMessageId: 'quoted_1',
             ttlMs: 60_000,
@@ -158,7 +158,7 @@ describe('message-context-store', () => {
         });
         expect(inbound?.senderId).toBe('user_1');
         expect(inbound?.senderName).toBe('Alice');
-        expect(inbound?.mentions).toEqual(['bob']);
+        expect(inbound?.mentions).toEqual(['Bob']);
         expect(inbound?.chatType).toBe('group');
         expect(inbound?.quotedMessageId).toBe('quoted_1');
 

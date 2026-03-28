@@ -63,6 +63,31 @@ describe('send-service media branches', () => {
         expect(req.data).toEqual({ msgtype: 'image', image: { media_id: 'media_img_1' } });
     });
 
+    it('forwards mediaLocalRoots when sendBySession uploads media', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_roots', buffer: Buffer.from('img') });
+        mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'https://session.webhook',
+            'ignored text',
+            {
+                mediaPath: '/tmp/a.png',
+                mediaType: 'image',
+                mediaLocalRoots: ['/sandbox/media', '/workspace/media'],
+            }
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/a.png',
+            'image',
+            expect.any(Function),
+            undefined,
+            { mediaLocalRoots: ['/sandbox/media', '/workspace/media'] },
+        );
+    });
+
     it('sendBySession falls back to plain text when media upload fails', async () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
@@ -125,6 +150,28 @@ describe('send-service media branches', () => {
         expect(req.data.msgKey).toBe('sampleImageMsg');
         expect(JSON.parse(req.data.msgParam)).toEqual({ photoURL: 'media_img_2' });
         expect(result.ok).toBe(true);
+    });
+
+    it('forwards mediaLocalRoots when sendProactiveMedia uploads media', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_roots_2', buffer: Buffer.from('data') });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image_roots' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            'cidA1B2C3',
+            '/tmp/a.png',
+            'image',
+            { mediaLocalRoots: ['/sandbox/media'] }
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/a.png',
+            'image',
+            expect.any(Function),
+            undefined,
+            { mediaLocalRoots: ['/sandbox/media'] },
+        );
     });
 
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
