@@ -7379,5 +7379,41 @@ describe("inbound-handler", () => {
         undefined,
       );
     });
+
+    it("strips leading @mention from group message before abort check", async () => {
+      // Simulate DingTalk not stripping @BotName from text.content in group chat.
+      // isAbortRequestText should only match the bare command ("停止"), not "@Bot 停止".
+      shared.extractMessageContentMock.mockReturnValue({ text: "@Bot 停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "停止");
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: {
+          ...baseData,
+          msgId: "abort_group_mention",
+          text: { content: "@Bot 停止" },
+          conversationType: "2",
+          conversationId: "cid_group_abort",
+        },
+      } as any);
+
+      // @mention stripped → "停止" matches → session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    });
   });
 });

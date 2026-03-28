@@ -1597,7 +1597,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
   // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
   // rather than waiting for it to finish before the stop message is processed.
-  if (isAbortRequestText(inboundText)) {
+  //
+  // In group chats, DingTalk typically strips @BotName from text.content at the
+  // protocol level before delivery, but as a defensive measure we also strip leading
+  // @mention tokens here (e.g. "@Bot 停止" → "停止") to match the SDK's own behavior
+  // in tryFastAbortFromMessage (which calls stripMentions for group messages).
+  const textForAbortCheck = !isDirect
+    ? inboundText.replace(/^(?:@\S+\s+)*/u, "").trim()
+    : inboundText;
+  if (isAbortRequestText(textForAbortCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
     );
