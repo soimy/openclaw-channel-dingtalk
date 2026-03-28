@@ -147,6 +147,63 @@ Useful repo entry points while testing:
 - `tests/integration/`
 - `scripts/dingtalk-stream-monitor.mjs`
 
+For runtime changes that need a real DingTalk client, prefer the repository's structured debug session workflow instead of ad-hoc logs:
+
+```bash
+pnpm debug:session run --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat" --no-stream-monitor
+```
+
+If you need a more explicit staged flow:
+
+```bash
+pnpm debug:session start --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat"
+pnpm debug:session prepare --session-dir <sessionDir>
+pnpm debug:session observe --session-dir <sessionDir> --observation-file /path/to/observation.json
+pnpm debug:session judge --session-dir <sessionDir>
+```
+
+When you use this flow, attach or summarize these artifacts in the PR when relevant:
+
+- `manifest.json`
+- `summary.md`
+- `judgment.json`
+- key screenshots from `screenshots/`
+
+The full workflow and session artifact model are documented in [`docs/real-device-debugging.md`](docs/real-device-debugging.md).
+
+When a runtime validation should become a reusable repository asset, prefer the higher-level scenario-driven harness:
+
+```bash
+pnpm real-device:verify --scenario pr389-preview-store-miss
+pnpm real-device:verify --resume <sessionDir>
+```
+
+Recommended division of responsibilities:
+
+- `pnpm debug:session ...`: low-level ad-hoc debugging primitive
+- `pnpm real-device:verify ...`: scenario-driven, versioned real-device verification
+
+The current `real-device:verify` workflow is file-driven and resumable:
+
+- `resolve-target.response.json` is used when the target cannot be resolved automatically
+- `operator-response.json` is the completion signal for each operator step
+- `observation.json` is the final observation handoff for the judging stage
+
+When you update a reusable real-device scenario, avoid hardcoding one specific user or group. Prefer target resolution that can be derived from inbound context, operator input, or learned local directory state.
+
+If your PR introduces or changes a real-device behavior that should be repeatable, prefer adding or updating a scenario under `scripts/real-device-scenarios/scenarios/` instead of leaving the procedure only in the PR description.
+
+The scenario-driven harness guide lives in [`docs/real-device-harness.md`](docs/real-device-harness.md).
+
+For PR notes, prefer attaching or summarizing these scenario artifacts when relevant:
+
+- `session.json`
+- `operator-prompt.md`
+- `resolve-target.response.json` when manual target resolution was needed
+- `operator-response.json` / `observation.json` when they explain the execution path
+- `judgment.json`
+- `summary.md`
+
 ## Special Validation By Issue Type
 
 ### Message loss or stream delivery changes (#104)

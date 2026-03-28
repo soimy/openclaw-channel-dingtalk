@@ -1,0 +1,11 @@
+{
+  "sentAt": "2026-03-21T08:16:00.000Z",
+  "replyObservedAt": "2026-03-21T08:16:18.000Z",
+  "sendStatus": "sent",
+  "replyStatus": "visible",
+  "replyPreview": "ok",
+  "notes": "Desktop DingTalk client displayed the bot reply normally.",
+  "screenshots": [
+    "/absolute/path/to/<sessionDir>/screenshots/reply-visible.png"
+  ]
+}

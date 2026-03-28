@@ -1328,6 +1328,50 @@ npm run lint                    # ESLint 代码检查
 | `npm run type-check` | TypeScript 类型检查 |
 | `npm run lint`       | ESLint 代码检查     |
 | `npm run lint:fix`   | 自动修复格式问题    |
+| `pnpm debug:session` | 真机调试 session CLI |
+| `pnpm real-device:verify` | 场景驱动的真机验证入口 |
+
+### 真机调试
+
+如果问题只能在真实钉钉客户端中观察，建议使用仓库内的 debug session 工作流，而不是临时盯 `openclaw logs`。
+
+最短可用流程：
+
+```bash
+pnpm debug:session start --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat"
+pnpm debug:session prepare --session-dir <sessionDir>
+pnpm debug:session judge --session-dir <sessionDir>
+```
+
+更常用的一键入口：
+
+```bash
+pnpm debug:session run --scenario dm-text-reply --target-id <conversationId> --target-label "Debug Chat" --no-stream-monitor
+```
+
+完整流程、产物目录、operator/desktop-agent 边界、`observe` JSON 结构请见：
+
+- [docs/real-device-debugging.md](docs/real-device-debugging.md)
+- [docs/real-device-debugging.zh-CN.md](docs/real-device-debugging.zh-CN.md)
+
+### Scenario-Driven 真机验证
+
+如果你希望把某个 PR / commit 的真机验证固化为可复用测试资产，推荐使用更高层的 scenario-driven harness：
+
+```bash
+pnpm real-device:verify --scenario pr389-preview-store-miss
+pnpm real-device:verify --resume <sessionDir>
+```
+
+使用原则：
+
+- `pnpm debug:session ...`：适合底层临时调试
+- `pnpm real-device:verify ...`：适合场景化、可版本化的真机验证
+
+相关文档：
+
+- [docs/real-device-harness.md](docs/real-device-harness.md)
+- [docs/real-device-harness.zh-CN.md](docs/real-device-harness.zh-CN.md)
 
 ### 项目结构
 
@@ -1477,6 +1521,14 @@ pnpm test
 # 生成覆盖率报告（coverage/）
 pnpm test:coverage
 ```
+
+### 真机测试与自动化测试的边界
+
+- `pnpm test` 只验证仓库内的自动化逻辑，不会真的驱动钉钉客户端。
+- 真机联调请使用 `pnpm debug:session ...` 创建结构化调试 session。
+- 真机调试文档见 [docs/real-device-debugging.md](docs/real-device-debugging.md)。
+- 中文流程文档见 [docs/real-device-debugging.zh-CN.md](docs/real-device-debugging.zh-CN.md)。
+- 当你需要可复用的、版本化的真机场景时，优先使用 `pnpm real-device:verify ...`。
 
 ### Mock 约束
 

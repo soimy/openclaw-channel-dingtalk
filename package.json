@@ -31,11 +31,13 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
+    "debug:session": "node scripts/dingtalk-debug-session.mjs",
     "format": "oxfmt --write package.json tsconfig.json index.ts src/*.ts",
     "format:check": "oxfmt --check package.json tsconfig.json index.ts src/*.ts",
     "lint": "oxlint --type-aware index.ts src",
     "lint:fix": "oxlint --type-aware --fix index.ts src && pnpm format",
     "monitor:stream": "node scripts/dingtalk-stream-monitor.mjs",
+    "real-device:verify": "node scripts/real-device-scenarios/runtime/verify.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "type-check": "tsc -p tsconfig.json"

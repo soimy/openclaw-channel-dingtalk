@@ -1,0 +1,11 @@
+{
+  "sentAt": "2026-03-21T08:16:00.000Z",
+  "replyObservedAt": "2026-03-21T08:18:30.000Z",
+  "sendStatus": "sent",
+  "replyStatus": "timeout",
+  "replyPreview": "",
+  "notes": "Probe message was sent, but no bot reply became visible within the timeout window.",
+  "screenshots": [
+    "/absolute/path/to/<sessionDir>/screenshots/reply-timeout.png"
+  ]
+}
