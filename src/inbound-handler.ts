@@ -6,7 +6,7 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard } from "./card-service";
+import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRobotCode } from "./config";
 import {
   applyManualTargetLearningRule,
@@ -83,8 +83,10 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
+import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
+import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -1591,6 +1593,81 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
+
+  // ---- Pre-lock abort: bypass session lock for stop requests ----
+  // isAbortRequestText matches "/stop", "停止", "stop", "esc", etc.
+  // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
+  // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
+  // rather than waiting for it to finish before the stop message is processed.
+  //
+  // In group chats, DingTalk typically strips @BotName from text.content at the
+  // protocol level before delivery, but as a defensive measure we also strip leading
+  // @mention tokens here (e.g. "@Bot 停止" → "停止") to match the SDK's own behavior
+  // in tryFastAbortFromMessage (which calls stripMentions for group messages).
+  const textForAbortCheck = !isDirect
+    ? inboundText.replace(/^(?:@\S+\s+)*/u, "").trim()
+    : inboundText;
+  if (isAbortRequestText(textForAbortCheck)) {
+    log?.info?.(
+      `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
+    );
+    // In card mode: capture the abort confirmation text so we can write it into
+    // the card (instead of sending a separate plain text message).
+    let abortConfirmationText: string | undefined;
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) {
+              log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
+              return;
+            }
+            if (currentAICard) {
+              // Card mode: capture text — will be written to card after dispatch.
+              abortConfirmationText = payload.text;
+            } else {
+              try {
+                if (sessionWebhook) {
+                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                  });
+                } else {
+                  await sendMessage(dingtalkConfig, to, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                    conversationId: groupId,
+                  });
+                }
+              } catch (deliverErr) {
+                log?.warn?.(
+                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+                );
+              }
+            }
+          },
+        },
+      });
+    } catch (abortErr) {
+      log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+    }
+    // Finalize the card that was created for this message before the abort check.
+    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
+      try {
+        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+      } catch (cardErr) {
+        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
+        currentAICard.state = AICardStatus.FAILED;
+      }
+    }
+    return;
+  }
 
   const ackReaction =
     typeof dingtalkConfig.ackReaction === "string"
