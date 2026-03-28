@@ -48,6 +48,10 @@ const inMemoryCardContentStore = new Map<
   }
 >();
 
+function inferConversationChatType(conversationId: string): "direct" | "group" {
+  return conversationId.startsWith("cid") ? "group" : "direct";
+}
+
 function pruneInMemoryCardContentEntries(
   entries: Array<{ content: string; createdAt: number; expiresAt: number }>,
   nowMs: number,
@@ -888,6 +892,9 @@ function cacheCardContentByProcessQueryKey(
     createdAt: Date.now(),
     text: content,
     messageType: "card",
+    senderId: "bot",
+    senderName: "OpenClaw",
+    chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
     quotedRef,
@@ -925,6 +932,9 @@ export function cacheCardContent(
     createdAt,
     text: content,
     messageType: "card",
+    senderId: "bot",
+    senderName: "OpenClaw",
+    chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
   });

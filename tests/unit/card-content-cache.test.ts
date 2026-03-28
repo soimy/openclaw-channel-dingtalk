@@ -8,6 +8,7 @@ import {
     clearCardContentCacheForTest,
     findCardContent,
 } from '../../src/card-service';
+import { resolveByCreatedAtWindow } from '../../src/message-context-store';
 import { resolveNamespacePath } from '../../src/persistence-store';
 
 describe('card-content-cache', () => {
@@ -104,5 +105,28 @@ describe('card-content-cache', () => {
 
         const restored = findCardContent(accountId, conversationId, createdAt + 500, storePath);
         expect(restored).toBe('持久化内容');
+    });
+
+    it('持久化 card 内容时同时记录统一的出站元数据', () => {
+        const accountId = 'default';
+        const conversationId = 'cid_group_meta';
+        const createdAt = 2345678;
+
+        cacheCardContent(accountId, conversationId, '卡片内容', createdAt, storePath);
+
+        const record = resolveByCreatedAtWindow({
+            storePath,
+            accountId,
+            conversationId,
+            createdAt,
+        });
+
+        expect(record).toEqual(expect.objectContaining({
+            text: '卡片内容',
+            messageType: 'card',
+            senderId: 'bot',
+            senderName: 'OpenClaw',
+            chatType: 'group',
+        }));
     });
 });
