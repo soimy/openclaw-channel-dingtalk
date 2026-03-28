@@ -1470,10 +1470,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  const inboundBody =
-    mediaPath && /<media:[^>]+>/.test(content.text)
-      ? `${content.text}\n[media_path: ${mediaPath}]\n[media_type: ${mediaType || "unknown"}]`
-      : content.text;
+  const inboundBody = content.text;
   const inboundText = attachmentExtractedText
     ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
     : inboundBody;
