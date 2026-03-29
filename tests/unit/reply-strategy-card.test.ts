@@ -15,6 +15,16 @@ vi.mock("../../src/card-service", async (importOriginal) => {
     };
 });
 
+vi.mock("../../src/session-state", () => ({
+    getSessionState: vi.fn().mockReturnValue(undefined),
+    getTaskTimeSeconds: vi.fn().mockReturnValue(undefined),
+    updateSessionState: vi.fn(),
+    initSessionState: vi.fn(),
+    incrementDapiCount: vi.fn(),
+    clearSessionState: vi.fn(),
+    clearAllSessionStatesForTest: vi.fn(),
+}));
+
 vi.mock("../../src/send-service", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../../src/send-service")>();
     return {
@@ -184,11 +194,11 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("> 先检查差异");
-            expect(rendered).toContain("> git diff --stat");
-            expect(rendered).toContain("the answer");
-            expect(rendered).not.toContain("> the answer");
+            const blockList = finishAICardMock.mock.calls[0][1];
+            // blockList is CardBlock[], check structure
+            expect(blockList.some((b: any) => b.isTool && b.text.includes("先检查差异"))).toBe(true);
+            expect(blockList.some((b: any) => b.isTool && b.text.includes("git diff --stat"))).toBe(true);
+            expect(blockList.some((b: any) => !b.isTool && b.text.includes("the answer"))).toBe(true);
         });
 
         it("preserves answer and tool blocks in event order during finalize", async () => {
@@ -217,12 +227,14 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
-            const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
-            const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
-            const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
-            const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+            const blockList = finishAICardMock.mock.calls.at(-1)?.[1] as any[] ?? [];
+            // Verify all blocks are present in correct order
+            const blockTexts = blockList.map((b: any) => b.text);
+            const phase1Index = blockTexts.findIndex((t: string) => t.includes("阶段1答案：准备先检查当前目录"));
+            const tool1Index = blockTexts.findIndex((t: string) => t.includes("🛠️ Exec: pwd"));
+            const phase2Index = blockTexts.findIndex((t: string) => t.includes("阶段2答案：pwd 已返回结果"));
+            const tool2Index = blockTexts.findIndex((t: string) => t.includes("🛠️ Exec: printf ok"));
+            const phase3Index = blockTexts.findIndex((t: string) => t.includes("阶段3答案：两次工具都已完成"));
 
             expect(phase1Index).toBeGreaterThanOrEqual(0);
             expect(tool1Index).toBeGreaterThan(phase1Index);
@@ -316,19 +328,24 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("> 我来发附件");
-            expect(rendered).toContain("附件已发送，请查收。");
+            const blockList = finishAICardMock.mock.calls[0][1] as any[];
+            // Tool block should contain the reasoning text
+            expect(blockList.some((b: any) => b.isTool && b.text.includes("我来发附件"))).toBe(true);
+            // Fallback answer block should be present
+            expect(blockList.some((b: any) => !b.isTool && b.text.includes("附件已发送，请查收。"))).toBe(true);
         });
     });
 
     describe("abort", () => {
-        it("calls finishAICard with error message", async () => {
+        it("calls finishAICard with error block when no content exists", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls[0][1]).toContain("处理失败");
+            const blockList = finishAICardMock.mock.calls[0][1] as any[];
+            // Should have a single error block with failure message
+            expect(blockList).toHaveLength(1);
+            expect(blockList[0].text).toContain("处理失败");
         });
 
         it("sets card FAILED when finishAICard throws during abort", async () => {

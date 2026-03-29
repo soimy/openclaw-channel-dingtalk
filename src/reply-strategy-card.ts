@@ -13,7 +13,8 @@ import {
 import { createCardDraftController } from "./card-draft-controller";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendBySession, sendMessage } from "./send-service";
-import type { AICardInstance } from "./types";
+import { getSessionState, getTaskTimeSeconds, updateSessionState } from "./session-state";
+import type { AICardInstance, CardBlock, CardTaskInfo } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
@@ -45,6 +46,13 @@ export function createCardReplyStrategy(
 
         onAssistantMessageStart: async () => {
           await controller.notifyNewAssistantTurn();
+        },
+
+        onModelSelected: (modelCtx) => {
+          updateSessionState(ctx.accountId, card.conversationId, {
+            model: modelCtx.model,
+            effort: modelCtx.thinkLevel,
+          }, log);
         },
 
         onPartialReply: config.cardRealTimeStream
@@ -158,14 +166,47 @@ export function createCardReplyStrategy(
       try {
         await controller.flush();
         await controller.waitForInFlight();
-        const finalText = getRenderedTimeline() || "✅ Done";
         controller.stop();
+
+        // Assemble taskInfo from session state
+        const sessionState = getSessionState(ctx.accountId, card.conversationId);
+        const taskTime = getTaskTimeSeconds(ctx.accountId, card.conversationId);
+        const taskInfo: CardTaskInfo = {
+          model: sessionState?.model,
+          effort: sessionState?.effort,
+          taskTime,
+          dapi_usage: sessionState?.dapiCount,
+        };
+        log?.debug?.(`[DingTalk][AICard] Finalizing with taskInfo: ${JSON.stringify(taskInfo)}`);
+
+        // Get blockList from controller and ensure answer block is present
+        const blockList = controller.getBlockList();
+        const hasAnswerBlock = blockList.some((b) => !b.isTool && b.text.trim().length > 0);
+
+        // If no answer block, add finalTextForFallback or file-only fallback
+        if (!hasAnswerBlock) {
+          const answerText = finalTextForFallback || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
+          if (answerText) {
+            blockList.push({ text: answerText, markdown: answerText, isTool: false });
+          }
+        } else if (finalTextForFallback) {
+          // If there's an answer block but we also have finalTextForFallback,
+          // override the last answer block with the final text (for streaming case)
+          const lastAnswerIndex = blockList.findLastIndex((b) => !b.isTool);
+          if (lastAnswerIndex >= 0 && finalTextForFallback) {
+            blockList[lastAnswerIndex] = {
+              text: finalTextForFallback,
+              markdown: finalTextForFallback,
+              isTool: false,
+            };
+          }
+        }
+
         log?.info?.(
-          `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
-          `source=${controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
-          `preview="${finalText.slice(0, 120)}"`,
+          `[DingTalk][Finalize] Calling finishAICard — blockListLen=${blockList.length} ` +
+          `source=${controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"}`,
         );
-        await finishAICard(card, finalText, log, {
+        await finishAICard(card, blockList, log, {
           quotedRef: ctx.replyQuotedRef,
         });
 
@@ -201,7 +242,13 @@ export function createCardReplyStrategy(
         controller.stop();
         await controller.waitForInFlight();
         try {
-          await finishAICard(card, "❌ 处理失败", log);
+          const blockList = controller.getBlockList();
+          if (blockList.length > 0) {
+            await finishAICard(card, blockList, log);
+          } else {
+            const errorBlock: CardBlock[] = [{ text: "❌ 处理失败", markdown: "❌ 处理失败", isTool: false }];
+            await finishAICard(card, errorBlock, log);
+          }
         } catch (cardCloseErr: unknown) {
           log?.debug?.(`[DingTalk] Failed to finalize card after dispatch error: ${(cardCloseErr as Error).message}`);
           card.state = AICardStatus.FAILED;
