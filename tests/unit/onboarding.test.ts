@@ -82,8 +82,6 @@ describe("dingtalk setup wizard", () => {
             .fn()
             .mockResolvedValueOnce("ding_client")
             .mockResolvedValueOnce("ding_secret")
-            .mockResolvedValueOnce("tmpl.schema")
-            .mockResolvedValueOnce("")
             .mockResolvedValueOnce("user_a, user_b")
             .mockResolvedValueOnce("")
             .mockResolvedValueOnce("grp_user1, grp_user2")
@@ -121,8 +119,6 @@ describe("dingtalk setup wizard", () => {
         expect((dingtalkConfig as any).corpId).toBeUndefined();
         expect((dingtalkConfig as any).agentId).toBeUndefined();
         expect(dingtalkConfig.messageType).toBe("card");
-        expect(dingtalkConfig.cardTemplateId).toBe("tmpl.schema");
-        expect(dingtalkConfig.cardTemplateKey).toBe("content");
         expect(dingtalkConfig.allowFrom).toEqual(["user_a", "user_b"]);
         expect(dingtalkConfig.groupAllowFrom).toEqual(["grp_user1", "grp_user2"]);
         expect(dingtalkConfig.displayNameResolution).toBe("all");
