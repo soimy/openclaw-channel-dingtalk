@@ -1910,7 +1910,7 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage runs non-card flow and sends thinking + final outputs", async () => {
+  it("handleDingTalkMessage markdown flow sends thinking, tool, and final outputs incrementally", async () => {
     const runtime = buildRuntime();
     runtime.channel.session.resolveStorePath = vi
       .fn()
@@ -1937,11 +1937,11 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.sendMessageMock).toHaveBeenCalled();
-    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
+      1,
       expect.anything(),
       "user_1",
-      expect.any(String),
+      "> thinking",
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
         quotedRef: {
@@ -1949,6 +1949,24 @@ describe("inbound-handler", () => {
           key: "msgId",
           value: "m5",
         },
+      }),
+    );
+    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "user_1",
+      "> tool output",
+      expect.objectContaining({
+        storePath: "/tmp/account-store.json",
+      }),
+    );
+    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      "user_1",
+      "final output",
+      expect.objectContaining({
+        storePath: "/tmp/account-store.json",
       }),
     );
   });
@@ -3721,7 +3739,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
+      1,
       expect.anything(),
       "user_1",
       "",
@@ -3736,7 +3755,8 @@ describe("inbound-handler", () => {
         },
       }),
     );
-    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
+      2,
       expect.anything(),
       "user_1",
       "final output",
@@ -3749,6 +3769,45 @@ describe("inbound-handler", () => {
         },
       }),
     );
+  });
+
+  it("markdown flow resets answer incremental cursor after assistant turn start", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "Turn 1 summary" });
+        await replyOptions?.onAssistantMessageStart?.();
+        await replyOptions?.onPartialReply?.({ text: "Turn 2 short summary" });
+        await dispatcherOptions.deliver({ text: "Turn 2 short summary with detail" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_markdown_turn_reset",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendMessageMock.mock.calls.map((call: any[]) => call[2])).toEqual([
+      "Turn 1 summary",
+      "Turn 2 short summary",
+      "with detail",
+    ]);
   });
 
   it("card mode + media bypasses finalContent accumulation and still finalizes with text", async () => {
