@@ -35,9 +35,14 @@ import { getAccessToken } from '../../src/auth';
 import { resolveByAlias } from '../../src/message-context-store';
 import { resolveNamespacePath } from '../../src/persistence-store';
 import { AICardStatus } from '../../src/types';
+import type { CardBlock } from '../../src/types';
 
 const mockedAxios = axios as any;
 const mockedGetAccessToken = vi.mocked(getAccessToken);
+
+function makeBlockList(text: string): CardBlock[] {
+    return [{ text, markdown: text, isTool: false }];
+}
 
 describe('card-service', () => {
     let storePath = '';
@@ -74,14 +79,14 @@ describe('card-service', () => {
         fs.rmSync(stateDirPath, { force: true, recursive: true });
     });
 
-    it('createAICard returns card instance', async () => {
+    it('createAICard returns card instance with preset template', async () => {
         mockedAxios.post.mockResolvedValueOnce({
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_1' }] } },
         });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3'
         );
 
@@ -90,9 +95,15 @@ describe('card-service', () => {
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
         const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.cardTemplateId).toBe('301508cd-5ddd-4e86-85f0-6b5312032743.schema');
         expect(body.cardData?.cardParamMap).toEqual({
+            blockList: '[]',
+            btns: '[]',
             config: '{"autoLayout":true,"enableForward":true}',
-            content: '',
+            hasAction: 'false',
+            hasQuote: 'false',
+            quoteContent: '',
+            taskInfo: '{}',
         });
         expect(body.imGroupOpenDeliverModel).toEqual({
             robotCode: 'id',
@@ -104,7 +115,7 @@ describe('card-service', () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'manager123'
         );
 
@@ -124,7 +135,6 @@ describe('card-service', () => {
             {
                 clientId: 'id',
                 clientSecret: 'sec',
-                cardTemplateId: 'tmpl.schema',
                 bypassProxyForSend: true,
             } as any,
             'manager123'
@@ -134,21 +144,11 @@ describe('card-service', () => {
         expect(requestConfig?.proxy).toBe(false);
     });
 
-    it('createAICard returns null when templateId is missing', async () => {
-        const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec' } as any,
-            'cidA1B2C3'
-        );
-
-        expect(card).toBeNull();
-        expect(mockedAxios.post).not.toHaveBeenCalled();
-    });
-
     it('createAICard skips create during degrade window', async () => {
         activateAICardDegrade('main', 'card.create:429', { aicardDegradeMs: 120000 } as any);
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             undefined,
             { accountId: 'main' }
@@ -165,7 +165,7 @@ describe('card-service', () => {
         });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
+            { clientId: 'id', clientSecret: 'sec', aicardDegradeMs: 120000 } as any,
             'cidA1B2C3',
             undefined,
             { accountId: 'main' }
@@ -183,7 +183,7 @@ describe('card-service', () => {
         });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
+            { clientId: 'id', clientSecret: 'sec', aicardDegradeMs: 120000 } as any,
             'cidA1B2C3',
             undefined,
             { accountId: 'main' }
@@ -203,7 +203,7 @@ describe('card-service', () => {
         });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
+            { clientId: 'id', clientSecret: 'sec', aicardDegradeMs: 120000 } as any,
             'cidA1B2C3',
             undefined,
             { accountId: 'main' }
@@ -223,10 +223,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await streamAICard(card, 'stream text', false);
+        await streamAICard(card, makeBlockList('stream text'), false);
 
         expect(card.state).toBe(AICardStatus.INPUTING);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
@@ -244,10 +244,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await streamAICard(card, 'stream text', false);
+        await streamAICard(card, makeBlockList('stream text'), false);
 
         expect(mockedAxios.put).toHaveBeenCalledTimes(2);
         expect(card.state).toBe(AICardStatus.INPUTING);
@@ -263,10 +263,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.INPUTING,
-            config: { cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await finishAICard(card, 'final text');
+        await finishAICard(card, makeBlockList('final text'));
 
         expect(card.state).toBe(AICardStatus.FINISHED);
     });
@@ -284,10 +284,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.INPUTING,
-            config: { cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await finishAICard(card, 'final text');
+        await finishAICard(card, makeBlockList('final text'));
 
         expect(resolveByAlias({
             storePath,
@@ -312,10 +312,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.INPUTING,
-            config: { cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await finishAICard(card, 'dm final text');
+        await finishAICard(card, makeBlockList('dm final text'));
 
         expect(resolveByAlias({
             storePath,
@@ -333,12 +333,11 @@ describe('card-service', () => {
         })).toBeNull();
     });
 
-    it('streamAICard marks FAILED and sends mismatch notification on 500 unknownError', async () => {
+    it('streamAICard marks FAILED on 500 unknownError', async () => {
         mockedAxios.put.mockRejectedValueOnce({
             response: { status: 500, data: { code: 'unknownError' } },
             message: 'unknownError',
         });
-        mockedAxios.mockResolvedValueOnce({ data: { ok: true } });
 
         const card = {
             cardInstanceId: 'card_4',
@@ -347,13 +346,12 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.INPUTING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await expect(streamAICard(card, 'stream text', false)).rejects.toBeDefined();
+        await expect(streamAICard(card, makeBlockList('stream text'), false)).rejects.toBeDefined();
 
         expect(card.state).toBe(AICardStatus.FAILED);
-        expect(mockedAxios).toHaveBeenCalledTimes(1);
     });
 
     it('streamAICard keeps FAILED when 401 retry also fails', async () => {
@@ -368,10 +366,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await expect(streamAICard(card, 'stream text', false)).rejects.toBeDefined();
+        await expect(streamAICard(card, makeBlockList('stream text'), false)).rejects.toBeDefined();
         expect(card.state).toBe(AICardStatus.FAILED);
         expect(mockedAxios.put).toHaveBeenCalledTimes(2);
     });
@@ -390,10 +388,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content', aicardDegradeMs: 120000 },
+            config: { clientId: 'id', clientSecret: 'sec', aicardDegradeMs: 120000 },
         } as any;
 
-        await expect(streamAICard(card, 'stream text', false)).rejects.toBeDefined();
+        await expect(streamAICard(card, makeBlockList('stream text'), false)).rejects.toBeDefined();
 
         expect(isAICardDegraded('main')).toBe(true);
         expect(getAICardDegradeState('main')?.reason).toContain('card.stream:429');
@@ -407,10 +405,10 @@ describe('card-service', () => {
             createdAt: Date.now(),
             lastUpdated: Date.now(),
             state: AICardStatus.FINISHED,
-            config: { cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await streamAICard(card, 'should be ignored', false);
+        await streamAICard(card, makeBlockList('should be ignored'), false);
 
         expect(mockedAxios.put).not.toHaveBeenCalled();
         expect(card.state).toBe(AICardStatus.FINISHED);
@@ -450,10 +448,10 @@ describe('card-service', () => {
             createdAt: Date.now() - 100 * 60 * 1000,
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await streamAICard(card, 'stream text', false);
+        await streamAICard(card, makeBlockList('stream text'), false);
         expect(card.accessToken).toBe('token_new');
     });
 
@@ -468,10 +466,10 @@ describe('card-service', () => {
             createdAt: Date.now() - 100 * 60 * 1000,
             lastUpdated: Date.now(),
             state: AICardStatus.PROCESSING,
-            config: { clientId: 'id', clientSecret: 'sec', cardTemplateKey: 'content' },
+            config: { clientId: 'id', clientSecret: 'sec' },
         } as any;
 
-        await streamAICard(card, 'stream text', false);
+        await streamAICard(card, makeBlockList('stream text'), false);
         expect(card.accessToken).toBe('token_keep');
     });
 
@@ -480,7 +478,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cid_pending',
             undefined,
             { accountId: 'main', storePath }
@@ -495,7 +493,7 @@ describe('card-service', () => {
         if (!card) {
             return;
         }
-        await finishAICard(card, 'done');
+        await finishAICard(card, makeBlockList('done'));
         const afterFinish = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinish.pendingCards).toHaveLength(0);
     });
@@ -520,7 +518,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'main',
             storePath
         );
@@ -554,7 +552,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const finalized = await finalizeActiveCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'main',
             'stop-reason',
             storePath
@@ -563,7 +561,8 @@ describe('card-service', () => {
         expect(finalized).toBe(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
-        expect(putBody.content).toBe('stop-reason');
+        const blockList = JSON.parse(putBody.content ?? '[]');
+        expect(blockList).toEqual([{ text: 'stop-reason', markdown: 'stop-reason', isTool: false }]);
         expect(putBody.isFinalize).toBe(true);
         const afterFinalize = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinalize.pendingCards).toHaveLength(0);
@@ -583,7 +582,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const result = await sendProactiveCardText(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cid_proactive',
             'proactive done'
         );
@@ -620,7 +619,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'main',
             storePath
         );
@@ -644,7 +643,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cid_pending_track',
             undefined,
             { accountId: 'main', storePath }
@@ -659,7 +658,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'main',
             storePath
         );

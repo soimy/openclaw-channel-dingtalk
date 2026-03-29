@@ -3,6 +3,7 @@ import path from "node:path";
 import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAccessToken } from "../../src/auth";
+import type { CardBlock } from "../../src/types";
 
 const shared = vi.hoisted(() => ({
   sendBySessionMock: vi.fn(),
@@ -3430,7 +3431,7 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, [], undefined, {
       quotedRef: {
         targetDirection: "inbound",
         key: "msgId",
@@ -3501,15 +3502,21 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, expect.any(String), undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m6_tool",
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+      card,
+      expect.arrayContaining([expect.objectContaining({ text: expect.any(String) })]),
+      undefined,
+      {
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m6_tool",
+        },
       },
-    });
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> tool output");
+    );
+    const blockList = shared.finishAICardMock.mock.calls[0][1] as CardBlock[];
+    const finalizeContent = blockList.map((b) => b.text).join("\n");
+    expect(finalizeContent).toContain("tool output");
     expect(finalizeContent).not.toContain("🛠 工具");
     expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
       expect.anything(),
@@ -3801,13 +3808,18 @@ describe("inbound-handler", () => {
         },
       }),
     );
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "final output", undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m_card_media_text",
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+      card,
+      [{ text: "final output", markdown: "final output", isTool: false }],
+      undefined,
+      {
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_card_media_text",
+        },
       },
-    });
+    );
   });
 
   it("deliver callback falls back to proactive media send when sessionWebhook is absent", async () => {
@@ -4457,7 +4469,8 @@ describe("inbound-handler", () => {
       await handlePromise;
 
       expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-      const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+      const blockList = shared.finishAICardMock.mock.calls[0][1] as CardBlock[];
+      const finalizeContent = blockList.map((b) => b.text).join("\n");
       expect(finalizeContent).toContain("final answer only");
       expect(finalizeContent).not.toContain("🛠 工具");
 
@@ -5117,7 +5130,7 @@ describe("inbound-handler", () => {
 
     expect(shared.streamAICardMock).toHaveBeenCalledWith(
       card,
-      expect.stringContaining("thinking pass 1"),
+      expect.arrayContaining([expect.objectContaining({ text: "thinking pass 1" })]),
       false,
       undefined,
     );
@@ -5465,8 +5478,14 @@ describe("inbound-handler", () => {
     await promiseA;
 
     const streamCalls = shared.streamAICardMock.mock.calls;
-    const toolCallA = streamCalls.find((call: any[]) => String(call[1]).includes("tool A"));
-    const toolCallB = streamCalls.find((call: any[]) => String(call[1]).includes("tool B"));
+    const toolCallA = streamCalls.find((call: any[]) => {
+      const blockList = call[1] as CardBlock[];
+      return blockList.some((b) => b.text.includes("tool A"));
+    });
+    const toolCallB = streamCalls.find((call: any[]) => {
+      const blockList = call[1] as CardBlock[];
+      return blockList.some((b) => b.text.includes("tool B"));
+    });
     expect(toolCallA).toBeTruthy();
     expect(toolCallB).toBeTruthy();
     expect(toolCallA![0]?.cardInstanceId).toBe("card_A");
@@ -5657,7 +5676,11 @@ describe("inbound-handler", () => {
     ).rejects.toThrow("dispatch crash");
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "❌ 处理失败", expect.anything());
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+      card,
+      [{ text: "❌ 处理失败", markdown: "❌ 处理失败", isTool: false }],
+      expect.anything(),
+    );
   });
 
   it("cardRealTimeStream finalize uses accumulated multi-turn content instead of last-turn-only deliver text", async () => {
@@ -5713,7 +5736,8 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    const blockList = shared.finishAICardMock.mock.calls[0][1] as CardBlock[];
+    const finalizeContent = blockList.map((b) => b.text).join("\n");
     expect(finalizeContent).toContain("Turn 1");
     expect(finalizeContent).toContain("Turn 2");
     expect(finalizeContent).not.toBe("Turn 2 short summary");
@@ -5795,8 +5819,9 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> deep thinking about the problem");
+    const blockList = shared.finishAICardMock.mock.calls[0][1] as CardBlock[];
+    const finalizeContent = blockList.map((b) => b.text).join("\n");
+    expect(finalizeContent).toContain("deep thinking about the problem");
     expect(finalizeContent).toContain("Here is the final answer.");
     expect(finalizeContent).not.toContain("> Here is the final answer.");
     expect(finalizeContent).not.toContain("🤔 思考");
@@ -5843,8 +5868,9 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> Let me send the file");
+    const blockList = shared.finishAICardMock.mock.calls[0][1] as CardBlock[];
+    const finalizeContent = blockList.map((b) => b.text).join("\n");
+    expect(finalizeContent).toContain("Let me send the file");
     expect(finalizeContent).toContain("附件已发送，请查收。");
     expect(finalizeContent).not.toContain("🤔 思考");
   });
@@ -6748,7 +6774,7 @@ describe("inbound-handler", () => {
       expect(shared.sendBySessionMock).not.toHaveBeenCalled();
       expect(shared.finishAICardMock).toHaveBeenCalledWith(
         card,
-        "⚙️ Agent was aborted.",
+        [{ text: "⚙️ Agent was aborted.", markdown: "⚙️ Agent was aborted.", isTool: false }],
         undefined,
       );
     });

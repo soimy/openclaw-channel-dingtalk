@@ -3,8 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import axios from "axios";
 import { getAccessToken } from "./auth";
-import { resolveRobotCode, stripTargetPrefix } from "./config";
-import { resolveOriginalPeerId } from "./peer-id-registry";
+import { resolveRobotCode } from "./config";
 import {
   createSyntheticOutboundMsgId,
   clearMessageContextCacheForTest,
@@ -391,48 +390,6 @@ export function formatContentForCard(content: string | undefined, type: "thinkin
     .join("\n");
 
   return `${emoji} **${label}**\n\n${escaped}`;
-}
-
-async function sendTemplateMismatchNotification(
-  card: AICardInstance,
-  text: string,
-  log?: Logger,
-): Promise<void> {
-  const config = card.config;
-  if (!config) {
-    return;
-  }
-  try {
-    const token = await getAccessToken(config, log);
-    const { targetId, isExplicitUser } = stripTargetPrefix(card.conversationId);
-    const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
-    const url = isGroup
-      ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-      : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
-
-    // Direct markdown fallback notification to user/group, without re-entering sendMessage card flow.
-    const payload: Record<string, unknown> = {
-      robotCode: resolveRobotCode(config),
-      msgKey: "sampleMarkdown",
-      msgParam: JSON.stringify({ title: "OpenClaw 提醒", text }),
-    };
-
-    if (isGroup) {
-      payload.openConversationId = resolvedTarget;
-    } else {
-      payload.userIds = [resolvedTarget];
-    }
-
-    await axios({
-      url,
-      method: "POST",
-      data: payload,
-      headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-    });
-  } catch (sendErr: any) {
-    log?.warn?.(`[DingTalk][AICard] Failed to send error notification to user: ${sendErr.message}`);
-  }
 }
 
 /**

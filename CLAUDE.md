@@ -51,9 +51,11 @@ pnpm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 - **`src/channel.ts`** — Assembly layer only. Defines `dingtalkPlugin` (config, gateway, outbound, status, security, messaging, directory). Delegates all heavy logic to service modules. Keep this file thin.
 - **`src/inbound-handler.ts`** — Inbound pipeline orchestrator: dedup → self-filter → content extraction → authorization → session routing → media download → message context persistence → reply dispatch.
 - **`src/send-service.ts`** — All outbound delivery: session webhook, proactive text/markdown, proactive media, unified `sendMessage` with card/markdown fallback.
-- **`src/card-service.ts`** — AI Card state machine (PROCESSING → INPUTING → FINISHED/FAILED), card instance cache, createdAt fallback cache, recovery of unfinished cards on restart.
+- **`src/card-service.ts`** — AI Card state machine (PROCESSING → INPUTING → FINISHED/FAILED), card instance cache, createdAt fallback cache, recovery of unfinished cards on restart. Uses preset template `301508cd-5ddd-4e86-85f0-6b5312032743.schema` with structured `CardBlock[]` for streaming.
+- **`src/card-draft-controller.ts`** — Throttled AI Card streaming controller. Manages `CardBlock[]` timeline (thinking/tool blocks with `isTool=true`, answer blocks with `isTool=false`). Streams `blockList` via `streamAICard` while keeping static params (taskInfo, hasQuote, btns) fixed.
+- **`src/session-state.ts`** — In-memory session state tracking: `model`, `effort` (thinking level), `taskStartTime`, `dapiCount` (DingTalk API calls). Keyed by `accountId:conversationId`. Provides `taskTime` for `CardTaskInfo` on finalize.
 - **`src/message-context-store.ts`** — Unified short-TTL message persistence under namespace `messages.context`. The **only** production API for quote/media/card context recovery.
-- **`src/reply-strategy.ts`** + `reply-strategy-card.ts` + `reply-strategy-markdown.ts` + `reply-strategy-with-reaction.ts` — Strategy pattern for reply delivery.
+- **`src/reply-strategy.ts`** + `reply-strategy-card.ts` + `reply-strategy-markdown.ts` + `reply-strategy-with-reaction.ts` — Strategy pattern for reply delivery. Card strategy collects model/effort via `onModelSelected` callback and builds `taskInfo` on finalize.
 - **`src/connection-manager.ts`** — Robust stream reconnect lifecycle with exponential backoff, jitter, cycle limits, and warm reconnection (creates fresh DWClient to minimize message-loss window).
 - **`src/config.ts`** — Config resolution, multi-account merging, path resolution. `getConfig()` is the canonical way to read DingTalk config.
 - **`src/auth.ts`** — Access token cache with clientId-scoped caching and retry.
@@ -62,6 +64,8 @@ pnpm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 ### Key Patterns
 
 - **Multi-account support**: `channels.dingtalk.accounts` allows multiple DingTalk bots. Named accounts inherit channel-level defaults with account-level overrides via `mergeAccountWithDefaults`.
+- **Card streaming model**: Cards use a preset template with structured `cardParamMap` keys (`blockList`, `taskInfo`, `hasQuote`, `btns`, `config`). Static params are set at `createAndDeliver`; only `blockList` streams during real-time updates. `CardBlock[]` replaces the legacy single-content approach — each block has `text`, `markdown`, and `isTool` (true for thinking/tool, false for answer).
+- **Session state tracking**: `session-state.ts` provides in-memory tracking of model, effort, taskTime, and dapiCount per `accountId:conversationId`. Updated via `onModelSelected` callback from the OpenClaw runtime and `incrementDapiCount` on DingTalk API calls.
 - **Card fallback**: If card streaming fails, card is marked FAILED and delivery falls back to markdown/text. Priority: no message loss over card rendering fidelity.
 - **Dedup + inflight protection**: `dedup.processed-message`, `session.lock`, and `channel.inflight` are process-local memory-only state. Never introduce cross-process persistence for these.
 - **Peer SDK**: Types and APIs come from `openclaw/plugin-sdk`. The `tsconfig.json` paths resolve this from either `../openclaw/src/plugin-sdk` or `../../src/plugin-sdk`.

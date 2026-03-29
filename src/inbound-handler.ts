@@ -84,7 +84,7 @@ import {
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
 import { AICardStatus } from "./types";
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
+import type { CardBlock, DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { initSessionState } from "./session-state";
@@ -1684,7 +1684,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
     if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
       try {
-        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+        const abortBlockList: CardBlock[] = [{
+          text: abortConfirmationText ?? "已停止",
+          markdown: abortConfirmationText ?? "已停止",
+          isTool: false,
+        }];
+        await finishAICard(currentAICard, abortBlockList, log);
       } catch (cardErr) {
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
