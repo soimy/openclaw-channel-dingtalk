@@ -133,9 +133,6 @@ openclaw configure --section channels
       "enabled": true,
       "clientId": "dingxxxxxx",
       "clientSecret": "your-app-secret",
-      "robotCode": "dingxxxxxx",
-      "corpId": "dingxxxxxx",
-      "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
       "messageType": "markdown"

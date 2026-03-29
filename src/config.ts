@@ -143,11 +143,10 @@ export const resolveUserPath = resolveRelativePath;
 
 /**
  * Resolve the robot code used by DingTalk APIs.
- * Falls back to clientId so existing deployments can omit robotCode when they
- * use the same identifier for both values.
+ * DingTalk robotCode is always equal to clientId; this helper trims whitespace.
  */
-export function resolveRobotCode(config: Pick<DingTalkConfig, "clientId" | "robotCode">): string {
-  return (config.robotCode || config.clientId || "").trim();
+export function resolveRobotCode(config: Pick<DingTalkConfig, "clientId">): string {
+  return (config.clientId || "").trim();
 }
 
 export function resolveGroupConfig(

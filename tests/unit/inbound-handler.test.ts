@@ -237,7 +237,7 @@ describe("inbound-handler", () => {
     } as any);
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -256,7 +256,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -279,7 +279,7 @@ describe("inbound-handler", () => {
     });
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -295,7 +295,7 @@ describe("inbound-handler", () => {
     mockedGetAccessToken.mockRejectedValueOnce(new Error("token failed"));
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -316,7 +316,7 @@ describe("inbound-handler", () => {
     });
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -335,7 +335,7 @@ describe("inbound-handler", () => {
     mockedAxiosGet.mockRejectedValueOnce(new Error("plain failure"));
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -359,7 +359,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1", mediaMaxMb: 50 } as any,
+      { clientId: "id", clientSecret: "sec", mediaMaxMb: 50 } as any,
       "download_code_1",
     );
 
@@ -384,7 +384,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -393,7 +393,7 @@ describe("inbound-handler", () => {
     expect(call[2]).toBe("inbound");
   });
 
-  it("downloadMedia falls back to clientId when robotCode is missing", async () => {
+  it("downloadMedia uses clientId as robotCode", async () => {
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValue(runtime);
 
@@ -2545,7 +2545,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_quote_1",
         msgtype: "text",
@@ -2592,7 +2592,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg",
         msgtype: "interactiveCard",
@@ -2659,7 +2659,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg_extract",
         msgtype: "interactiveCard",
@@ -2727,7 +2727,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg_extract_error",
         msgtype: "interactiveCard",
@@ -2792,7 +2792,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg",
         msgtype: "text",
@@ -2870,7 +2870,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg_filename",
         msgtype: "text",
@@ -2936,7 +2936,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg_cached_filename",
         msgtype: "text",
@@ -2992,7 +2992,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_name",
         msgtype: "text",
@@ -3055,7 +3055,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_name_conflict",
         msgtype: "text",
@@ -3125,7 +3125,7 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           groupPolicy: "open",
           messageType: "markdown",
-          robotCode: "robot_1",
+          clientId: "robot_1",
           journalTTLDays: 30,
         } as any,
         data: {
@@ -3191,7 +3191,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_doc_name_conflict",
         msgtype: "text",
@@ -3238,7 +3238,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_group_msg",
         msgtype: "text",
@@ -3292,7 +3292,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "group_doc_quote",
         msgtype: "text",
@@ -3377,7 +3377,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_quote_2",
         msgtype: "text",
@@ -4916,7 +4916,7 @@ describe("inbound-handler", () => {
         groupPolicy: "allowlist",
         allowFrom: ["cid_group_1"],
         messageType: "card",
-        robotCode: "robot_1",
+        clientId: "robot_1",
         groups: { cid_group_1: { systemPrompt: "group prompt" } },
       } as any,
       data: {
@@ -6327,7 +6327,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "msg_attach_concat",
         msgtype: "interactiveCard",
@@ -6393,7 +6393,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_dl_777",
         msgtype: "text",
@@ -6467,7 +6467,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_step1_guard",
         msgtype: "text",
@@ -6726,7 +6726,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_sandbox",
         msgtype: "file",

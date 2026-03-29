@@ -41,7 +41,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_skip' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'stream content',
             { card, sessionWebhook: 'https://session.webhook' }
@@ -62,7 +62,7 @@ describe('sendMessage card mode', () => {
         cardMocks.streamAICardMock.mockResolvedValue(undefined);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             ' world',
             { card, cardUpdateMode: 'append' } as any,
@@ -78,7 +78,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_456' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'fallback text',
             { card, sessionWebhook: 'https://session.webhook' }
@@ -103,7 +103,6 @@ describe('sendMessage card mode', () => {
                 clientId: 'id',
                 clientSecret: 'sec',
                 messageType: 'card',
-                robotCode: 'id',
                 cardTemplateId: 'tmpl.schema',
             } as any,
             'cidA1B2C3',
@@ -133,7 +132,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_789' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'no card text',
             { sessionWebhook: 'https://session.webhook' }
@@ -150,7 +149,7 @@ describe('sendMessage card mode', () => {
         cardMocks.streamAICardMock.mockRejectedValue(new Error('stream failed'));
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'appended',
             { card, cardUpdateMode: 'append' } as any

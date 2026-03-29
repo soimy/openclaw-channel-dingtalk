@@ -53,7 +53,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'https://session.webhook',
             'ignored text',
             { mediaPath: '/tmp/a.png', mediaType: 'image' }
@@ -68,7 +68,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'https://session.webhook',
             'ignored text',
             {
@@ -93,7 +93,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'https://session.webhook',
             'fallback text',
             { mediaPath: '/tmp/a.png', mediaType: 'image', useMarkdown: false }
@@ -111,7 +111,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            { clientId: 'id', clientSecret: 'sec', bypassProxyForSend: true } as any,
             'https://session.webhook',
             'ignored text',
             { mediaPath: '/tmp/a.png', mediaType: 'image' }
@@ -125,7 +125,7 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             '/tmp/a.pdf',
             'file'
@@ -140,7 +140,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             '/tmp/a.png',
             'image'
@@ -157,7 +157,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image_roots' } } as any);
 
         await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             '/tmp/a.png',
             'image',
@@ -180,7 +180,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.amr',
             'voice'
@@ -197,7 +197,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_2' } } as any);
 
         await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.amr',
             'voice',
@@ -246,7 +246,7 @@ describe('send-service media branches', () => {
             .mockResolvedValueOnce({ data: { processQueryKey: 'fallback_q_1' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.pdf',
             'file',
@@ -279,7 +279,7 @@ describe('send-service media branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_proxy' } } as any);
 
         await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            { clientId: 'id', clientSecret: 'sec', bypassProxyForSend: true } as any,
             'user_123',
             '/tmp/a.amr',
             'voice'

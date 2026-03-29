@@ -62,7 +62,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_123' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
             'manager123',
             'text',
             { accountId: 'main' } as any,
@@ -82,7 +82,7 @@ describe('send-service advanced branches', () => {
         });
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
             'manager123',
             'text',
             { accountId: 'main' } as any,
@@ -109,7 +109,7 @@ describe('send-service advanced branches', () => {
         });
 
         await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
             'manager123',
             'card proactive text',
             {
@@ -156,7 +156,7 @@ describe('send-service advanced branches', () => {
         const log = { error: vi.fn() };
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             'text',
             { log: log as any }
@@ -190,7 +190,7 @@ describe('send-service advanced branches', () => {
         const log = { error: vi.fn(), debug: vi.fn() };
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             '0341234567',
             'text',
             { log: log as any, accountId: 'main' } as any,
@@ -211,7 +211,7 @@ describe('send-service advanced branches', () => {
         });
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'manager123',
             'text',
             { accountId: 'main' } as any,
@@ -229,7 +229,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { errcode: 0, errmsg: 'ok', msgid: 'legacy_msg_2' } } as any);
 
         await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             'hello session',
             {
@@ -272,7 +272,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'proactive_q_1' } } as any);
 
         await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             'hello proactive',
             {
@@ -301,7 +301,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'proactive_q_dm_1' } } as any);
 
         await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_target_123',
             'hello proactive dm',
             {

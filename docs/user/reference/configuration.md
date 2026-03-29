@@ -7,11 +7,8 @@
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否启用插件 |
-| `clientId` | string | 必填 | 钉钉 AppKey |
+| `clientId` | string | 必填 | 钉钉 AppKey；同时作为钉钉 API 请求中的 `robotCode` |
 | `clientSecret` | string | 必填 | 钉钉 AppSecret |
-| `robotCode` | string | - | 机器人代码 |
-| `corpId` | string | - | 企业 ID |
-| `agentId` | string | - | 应用 ID |
 | `dmPolicy` | string | `open` | 私聊策略 |
 | `groupPolicy` | string | `open` | 群聊策略 |
 | `allowFrom` | string[] | `[]` | 私聊白名单 |
@@ -36,6 +33,10 @@
 | `initialReconnectDelay` | number | `1000` | 初始重连延迟 |
 | `maxReconnectDelay` | number | `60000` | 最大重连延迟 |
 | `reconnectJitter` | number | `0.3` | 重连抖动因子 |
+
+## 关于 `clientId` 与钉钉 `robotCode`
+
+钉钉开放接口的请求体里仍会携带 `robotCode` 字段。本插件不提供单独的 `robotCode`、`corpId` 或钉钉应用 `agentId` 配置项：`clientId` 会作为机器人代码用于相关 API 调用。
 
 ## 关于 `displayNameResolution`
 

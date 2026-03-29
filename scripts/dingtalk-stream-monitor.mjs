@@ -56,9 +56,6 @@ function parseArgs(argv) {
   const out = {
     clientId: process.env.DINGTALK_CLIENT_ID?.trim() || "",
     clientSecret: process.env.DINGTALK_CLIENT_SECRET?.trim() || "",
-    robotCode: process.env.DINGTALK_ROBOT_CODE?.trim() || "",
-    corpId: process.env.DINGTALK_CORP_ID?.trim() || "",
-    agentId: process.env.DINGTALK_AGENT_ID?.trim() || "",
     sdkDebug: process.env.DINGTALK_MONITOR_SDK_DEBUG === "1",
     sdkKeepAlive: process.env.DINGTALK_MONITOR_SDK_KEEPALIVE !== "0",
     durationSec: Number.parseInt(process.env.DINGTALK_MONITOR_DURATION_SEC ?? "0", 10) || 0,
@@ -77,15 +74,6 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg === "--client-secret" && next) {
       out.clientSecret = next.trim();
-      i += 1;
-    } else if (arg === "--robot-code" && next) {
-      out.robotCode = next.trim();
-      i += 1;
-    } else if (arg === "--corp-id" && next) {
-      out.corpId = next.trim();
-      i += 1;
-    } else if (arg === "--agent-id" && next) {
-      out.agentId = next.trim();
       i += 1;
     } else if (arg === "--summary-every" && next) {
       out.summaryEverySec = Number.parseInt(next, 10) || out.summaryEverySec;
@@ -241,9 +229,6 @@ async function main() {
     envFile: envLoadResult.resolved,
     envFileLoaded: envLoadResult.loaded,
     clientId: mask(clientId),
-    robotCode: mask(args.robotCode || clientId),
-    corpId: mask(args.corpId),
-    agentId: args.agentId ? String(args.agentId) : "",
     sdkDebug: args.sdkDebug,
     sdkKeepAlive: args.sdkKeepAlive,
     durationSec: args.durationSec,

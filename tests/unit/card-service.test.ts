@@ -81,7 +81,7 @@ describe('card-service', () => {
         });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'cidA1B2C3'
         );
 
@@ -104,7 +104,7 @@ describe('card-service', () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'robot_1' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'manager123'
         );
 
@@ -112,7 +112,7 @@ describe('card-service', () => {
         expect(body.openSpaceId).toBe('dtv1.card//IM_ROBOT.manager123');
         expect(body.imRobotOpenDeliverModel).toEqual({
             spaceType: 'IM_ROBOT',
-            robotCode: 'robot_1',
+            robotCode: 'id',
             extension: { dynamicSummary: 'true' },
         });
     });
@@ -125,7 +125,6 @@ describe('card-service', () => {
                 clientId: 'id',
                 clientSecret: 'sec',
                 cardTemplateId: 'tmpl.schema',
-                robotCode: 'robot_1',
                 bypassProxyForSend: true,
             } as any,
             'manager123'
@@ -481,7 +480,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'cid_pending',
             undefined,
             { accountId: 'main', storePath }
@@ -521,7 +520,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'main',
             storePath
         );
@@ -555,7 +554,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const finalized = await finalizeActiveCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'main',
             'stop-reason',
             storePath
@@ -584,7 +583,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const result = await sendProactiveCardText(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'cid_proactive',
             'proactive done'
         );
@@ -621,7 +620,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'main',
             storePath
         );
@@ -645,7 +644,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'cid_pending_track',
             undefined,
             { accountId: 'main', storePath }
@@ -660,7 +659,7 @@ describe('card-service', () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
             'main',
             storePath
         );

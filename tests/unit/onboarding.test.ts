@@ -118,7 +118,6 @@ describe("dingtalk setup wizard", () => {
         expect(result.accountId).toBe("default");
         expect(dingtalkConfig.clientId).toBe("ding_client");
         expect(dingtalkConfig.clientSecret).toBe("ding_secret");
-        expect(dingtalkConfig.robotCode).toBeUndefined();
         expect((dingtalkConfig as any).corpId).toBeUndefined();
         expect((dingtalkConfig as any).agentId).toBeUndefined();
         expect(dingtalkConfig.messageType).toBe("card");
@@ -134,7 +133,7 @@ describe("dingtalk setup wizard", () => {
         expect(note).toHaveBeenCalled();
     });
 
-    it("generic setup input no longer stores legacy code as robotCode", () => {
+    it("generic setup input stores clientId and clientSecret without legacy fields", () => {
         const cfg = dingtalkSetupAdapter.applyAccountConfig({
             cfg: {} as any,
             accountId: "default",
@@ -148,7 +147,6 @@ describe("dingtalk setup wizard", () => {
         const dingtalkConfig = cfg.channels?.dingtalk;
         expect(dingtalkConfig?.clientId).toBe("ding_client");
         expect(dingtalkConfig?.clientSecret).toBe("ding_secret");
-        expect((dingtalkConfig as any)?.robotCode).toBeUndefined();
     });
 
     it("configure with disabled groupPolicy skips groupAllowFrom prompt", async () => {
