@@ -20,15 +20,17 @@ import {
   resolveNamespacePath,
   writeNamespaceJsonAtomic,
 } from "./persistence-store";
+import { incrementDapiCount } from "./session-state";
 import type {
   AICardInstance,
   AICardStreamingRequest,
+  CardBlock,
   DingTalkConfig,
   DingTalkTrackingMetadata,
   Logger,
   QuotedRef,
 } from "./types";
-import { AICardStatus } from "./types";
+import { AICardStatus, PRESET_CARD_TEMPLATE_ID } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 
 const DINGTALK_API = "https://api.dingtalk.com";
@@ -448,7 +450,8 @@ export async function sendProactiveCardText(
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
-    await finishAICard(card, content, log);
+    const blockList: CardBlock[] = [{ text: content, markdown: content, isTool: false }];
+    await finishAICard(card, blockList, log);
     return {
       ok: true,
       processQueryKey: card.processQueryKey,
@@ -534,7 +537,10 @@ async function finalizePendingCardsByAccount(
       config,
     };
     try {
-      await finishAICard(card, reason, log);
+      const recoveryBlockList: CardBlock[] = [
+        { text: reason, markdown: reason, isTool: false },
+      ];
+      await finishAICard(card, recoveryBlockList, log);
       finalizedCount += 1;
     } catch (err: any) {
       const action = mode === "recover" ? "recover" : "finalize";
@@ -573,18 +579,21 @@ export async function createAICard(
 
     const isGroup = conversationId.startsWith("cid");
 
-    if (!config.cardTemplateId) {
-      throw new Error("DingTalk cardTemplateId is not configured.");
-    }
+    // Use preset template ID, no user configuration needed
+    const cardTemplateId = PRESET_CARD_TEMPLATE_ID;
 
     // DingTalk createAndDeliver API payload.
-    const cardTemplateKey = config.cardTemplateKey || "content";
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
-      [cardTemplateKey]: "",
+      blockList: JSON.stringify([]),
+      taskInfo: JSON.stringify({}),
+      hasQuote: "false",
+      quoteContent: "",
+      btns: JSON.stringify([]),
+      hasAction: "false",
     };
     const createAndDeliverBody = {
-      cardTemplateId: config.cardTemplateId,
+      cardTemplateId,
       outTrackId: cardInstanceId,
       cardData: {
         cardParamMap,
@@ -674,6 +683,12 @@ export async function createAICard(
     }
 
     clearAICardDegrade(accountId, log);
+
+    // Increment API count for createAndDeliver
+    if (options.accountId) {
+      incrementDapiCount(options.accountId, conversationId, log);
+    }
+
     return aiCardInstance;
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Create failed: ${err.message}`);
@@ -700,7 +715,7 @@ export async function createAICard(
 
 export async function streamAICard(
   card: AICardInstance,
-  content: string,
+  blockList: CardBlock[],
   finished: boolean = false,
   log?: Logger,
 ): Promise<void> {
@@ -729,15 +744,15 @@ export async function streamAICard(
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.outTrackId || card.cardInstanceId,
     guid: randomUUID(),
-    key: card.config?.cardTemplateKey || "content",
-    content: content,
+    key: "blockList",
+    content: JSON.stringify(blockList),
     isFull: true,
     isFinalize: finished,
     isError: false,
   };
 
   log?.debug?.(
-    `[DingTalk][AICard] PUT /v1.0/card/streaming contentLen=${content.length} isFull=true isFinalize=${finished} guid=${streamBody.guid} payload=${JSON.stringify(streamBody)}`,
+    `[DingTalk][AICard] PUT /v1.0/card/streaming blockListLen=${blockList.length} isFull=true isFinalize=${finished} guid=${streamBody.guid} payload=${JSON.stringify(streamBody)}`,
   );
 
   try {
@@ -752,8 +767,13 @@ export async function streamAICard(
       `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`,
     );
 
+    // Increment API count for streaming
+    if (card.accountId) {
+      incrementDapiCount(card.accountId, card.conversationId, log);
+    }
+
     card.lastUpdated = Date.now();
-    card.lastStreamedContent = content;
+    card.lastStreamedContent = JSON.stringify(blockList);
     if (finished) {
       card.state = AICardStatus.FINISHED;
       removePendingCard(card, log);
@@ -761,31 +781,6 @@ export async function streamAICard(
       card.state = AICardStatus.INPUTING;
     }
   } catch (err: any) {
-    // 500 unknownError usually means cardTemplateKey mismatch with template variable names.
-    if (err.response?.status === 500 && err.response?.data?.code === "unknownError") {
-      const usedKey = streamBody.key;
-      const cardTemplateId = card.config?.cardTemplateId || "(unknown)";
-      const errorMsg =
-        `⚠️ **[DingTalk] AI Card 串流更新失败 (500 unknownError)**\n\n` +
-        `这通常是因为 \`cardTemplateKey\` (当前值: \`${usedKey}\`) 与钉钉卡片模板 \`${cardTemplateId}\` 中定义的正文变量名不匹配。\n\n` +
-        `**建议操作**：\n` +
-        `1. 前往钉钉开发者后台检查该模板的“变量管理”\n` +
-        `2. 确保配置中的 \`cardTemplateKey\` 与模板中用于显示内容的字段变量名完全一致\n\n` +
-        `*注意：当前及后续消息将自动转为 Markdown 发送，直到问题修复。*\n` +
-        `*参考文档: https://github.com/soimy/openclaw-channel-dingtalk/blob/main/README.md#3-%E5%BB%BA%E7%AB%8B%E5%8D%A1%E7%89%87%E6%A8%A1%E6%9D%BF%E5%8F%AF%E9%80%89`;
-
-      log?.error?.(
-        `[DingTalk][AICard] Streaming failed with 500 unknownError. Key: ${usedKey}, Template: ${cardTemplateId}. ` +
-          `Verify that "cardTemplateKey" matches the content field variable name in your card template.`,
-      );
-
-      card.state = AICardStatus.FAILED;
-      card.lastUpdated = Date.now();
-      removePendingCard(card, log);
-      await sendTemplateMismatchNotification(card, errorMsg, log);
-      throw err;
-    }
-
     // Retry once on 401 with refreshed token.
     if (err.response?.status === 401 && card.config) {
       log?.warn?.("[DingTalk][AICard] Received 401 error, attempting token refresh and retry...");
@@ -802,7 +797,7 @@ export async function streamAICard(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
         );
         card.lastUpdated = Date.now();
-        card.lastStreamedContent = content;
+        card.lastStreamedContent = JSON.stringify(blockList);
         if (finished) {
           card.state = AICardStatus.FINISHED;
           removePendingCard(card, log);
@@ -847,12 +842,13 @@ export async function streamAICard(
 
 export async function finishAICard(
   card: AICardInstance,
-  content: string,
+  blockList: CardBlock[],
   log?: Logger,
   options: { quotedRef?: QuotedRef } = {},
 ): Promise<void> {
-  log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
-  await streamAICard(card, content, true, log);
+  log?.debug?.(`[DingTalk][AICard] Starting finish, blockList length=${blockList.length}`);
+  await streamAICard(card, blockList, true, log);
+  const content = blockList.map((b) => b.markdown).join("\n\n");
   if (card.conversationId && content.trim() && card.accountId && card.processQueryKey) {
     const primaryConversationId = card.contextConversationId || card.conversationId;
     cacheCardContentByProcessQueryKey(
