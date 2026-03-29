@@ -47,7 +47,6 @@ describe('config advanced', () => {
                     allowFrom: ['user1'],
                     ackReaction: '',
                     messageType: 'card',
-                    cardTemplateId: 'tpl.schema',
                     journalTTLDays: 9,
                     debug: true,
                     accounts: {
@@ -64,7 +63,6 @@ describe('config advanced', () => {
         expect(resolved.allowFrom).toEqual(['user1']);
         expect(resolved.ackReaction).toBe('');
         expect(resolved.messageType).toBe('card');
-        expect(resolved.cardTemplateId).toBe('tpl.schema');
         expect(resolved.journalTTLDays).toBe(9);
         expect(resolved.debug).toBe(true);
     });

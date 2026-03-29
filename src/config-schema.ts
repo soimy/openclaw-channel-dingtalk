@@ -47,18 +47,6 @@ const DingTalkAccountConfigShape = {
   /** Message type for replies: markdown or card */
   messageType: z.enum(["markdown", "card"]).optional().default("markdown"),
 
-  /** Card template ID for AI interactive cards
-   * obtain the template ID from DingTalk Developer Console.
-   * ref: https://github.com/soimy/openclaw-channel-dingtalk/blob/main/README.md#3-%E5%BB%BA%E7%AB%8B%E5%8D%A1%E7%89%87%E6%A8%A1%E6%9D%BF%E5%8F%AF%E9%80%89
-   */
-  cardTemplateId: z.string().optional(),
-
-  /** Card template key for streaming updates
-   * Default: 'content' - maps to the content field in the card template
-   * This key is used in the streaming API to update specific fields in the card.
-   */
-  cardTemplateKey: z.string().optional().default("content"),
-
   /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
   groups: z
     .record(
