@@ -13,6 +13,15 @@ const MAX_RECORDS_PER_SCOPE = 1000;
 export type MessageContextDirection = "inbound" | "outbound";
 export type MessageAliasKind = "inboundMsgId" | "messageId" | "processQueryKey" | "outTrackId" | "cardInstanceId";
 export type MessageDeliveryKind = "session" | "proactive-text" | "proactive-card" | "proactive-media";
+export const DEFAULT_OUTBOUND_SENDER = {
+  senderId: "bot",
+  senderName: "OpenClaw",
+} as const;
+
+/** DingTalk conversation ids usually start with "cid" for group chats; treat this as a heuristic. */
+export function inferConversationChatType(conversationId: string): "direct" | "group" {
+  return conversationId.startsWith("cid") ? "group" : "direct";
+}
 
 export interface MessageRecord {
   msgId: string;
@@ -34,6 +43,7 @@ export interface MessageRecord {
   senderName?: string;
   mentions?: string[];
   chatType?: "direct" | "group";
+  /** Flat quoted target for summary/history lookups; quotedRef remains the authoritative structured link. */
   quotedMessageId?: string;
   media?: {
     downloadCode?: string;
@@ -837,6 +847,9 @@ export function clearMessageContextCacheForTest(): void {
   stateCache.clear();
 }
 
+/**
+ * Lists non-expired message-context records for one account/conversation scope in createdAt ascending order.
+ */
 export function listMessageContexts(
   params: ScopeParams & { nowMs?: number },
 ): MessageRecord[] {

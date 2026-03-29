@@ -10,6 +10,8 @@ import {
   clearMessageContextCacheForTest,
   DEFAULT_CARD_CONTENT_TTL_MS,
   DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
+  DEFAULT_OUTBOUND_SENDER,
+  inferConversationChatType,
   resolveByCreatedAtWindow,
   upsertOutboundMessageContext,
 } from "./message-context-store";
@@ -47,10 +49,6 @@ const inMemoryCardContentStore = new Map<
     lastActiveAt: number;
   }
 >();
-
-function inferConversationChatType(conversationId: string): "direct" | "group" {
-  return conversationId.startsWith("cid") ? "group" : "direct";
-}
 
 function pruneInMemoryCardContentEntries(
   entries: Array<{ content: string; createdAt: number; expiresAt: number }>,
@@ -892,8 +890,7 @@ function cacheCardContentByProcessQueryKey(
     createdAt: Date.now(),
     text: content,
     messageType: "card",
-    senderId: "bot",
-    senderName: "OpenClaw",
+    ...DEFAULT_OUTBOUND_SENDER,
     chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
@@ -932,8 +929,7 @@ export function cacheCardContent(
     createdAt,
     text: content,
     messageType: "card",
-    senderId: "bot",
-    senderName: "OpenClaw",
+    ...DEFAULT_OUTBOUND_SENDER,
     chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,

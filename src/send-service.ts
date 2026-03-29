@@ -10,7 +10,12 @@ import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
 import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
 import { convertMarkdownTablesToPlainText, detectMarkdownAndExtractTitle } from "./message-utils";
-import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS, upsertOutboundMessageContext } from "./message-context-store";
+import {
+  DEFAULT_MESSAGE_CONTEXT_TTL_DAYS,
+  DEFAULT_OUTBOUND_SENDER,
+  inferConversationChatType,
+  upsertOutboundMessageContext,
+} from "./message-context-store";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
   deleteProactiveRiskObservation,
@@ -18,6 +23,7 @@ import {
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+import type { UploadMediaResult } from "./media-utils";
 import type {
   AICardInstance,
   AxiosResponse,
@@ -124,11 +130,6 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
   return text;
 }
 
-/** DingTalk conversation ids usually start with "cid" for group chats; treat this as a heuristic. */
-function inferConversationChatType(conversationId: string): "direct" | "group" {
-  return conversationId.startsWith("cid") ? "group" : "direct";
-}
-
 function composeCardContentForAppend(previous: string | undefined, incoming: string): string {
   const prev = previous ?? "";
   if (!prev) {
@@ -221,7 +222,7 @@ export async function uploadMedia(
   mediaType: "image" | "voice" | "video" | "file",
   log?: Logger,
   options?: { mediaLocalRoots?: string[] },
-): Promise<{ mediaId: string; buffer: Buffer } | null> {
+): Promise<UploadMediaResult | null> {
   return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log, options);
 }
 
@@ -434,8 +435,7 @@ export async function sendProactiveMedia(
       messageType: "outbound-proactive-media",
       quotedRef: options.quotedRef,
       log,
-      senderId: "bot",
-      senderName: "OpenClaw",
+      ...DEFAULT_OUTBOUND_SENDER,
       chatType: inferConversationChatType(options.conversationId || resolvedTarget),
       delivery: {
         ...delivery,
@@ -495,8 +495,7 @@ export async function sendProactiveMedia(
       messageType: "outbound-proactive-fallback",
       quotedRef: options.quotedRef,
       log,
-      senderId: "bot",
-      senderName: "OpenClaw",
+      ...DEFAULT_OUTBOUND_SENDER,
       chatType: inferConversationChatType(options.conversationId || normalizedTarget),
       delivery: {
         ...fallbackDelivery,
@@ -646,8 +645,7 @@ export async function sendMessage(
         messageType: options.mediaPath && options.mediaType ? "outbound-media" : "outbound",
         quotedRef: options.quotedRef,
         log,
-        senderId: "bot",
-        senderName: "OpenClaw",
+        ...DEFAULT_OUTBOUND_SENDER,
         chatType: inferConversationChatType(options.conversationId || conversationId),
         delivery: {
           ...delivery,
@@ -668,8 +666,7 @@ export async function sendMessage(
       messageType: "outbound-proactive",
       quotedRef: options.quotedRef,
       log,
-      senderId: "bot",
-      senderName: "OpenClaw",
+      ...DEFAULT_OUTBOUND_SENDER,
       chatType: inferConversationChatType(options.conversationId || conversationId),
       delivery: {
         ...delivery,
