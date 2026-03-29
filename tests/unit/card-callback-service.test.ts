@@ -40,4 +40,38 @@ describe("card-callback-service", () => {
       feedbackTarget: "user_123",
     });
   });
+
+  it("parses feedback callbacks with feedback target fields", () => {
+    const analysis = analyzeCardCallback({
+      actionValue: "feedback_up",
+      spaceType: "im",
+      userId: "user_1",
+      processQueryKey: "pq_1",
+    });
+
+    expect(analysis.actionId).toBe("feedback_up");
+    expect(analysis.feedbackTarget).toBe("user_1");
+    expect(analysis.feedbackAckText).toContain("点赞");
+    expect(analysis.processQueryKey).toBe("pq_1");
+  });
+
+  it("parses stop callbacks with outTrackId and user fields", () => {
+    const analysis = analyzeCardCallback({
+      outTrackId: "track_1",
+      cardInstanceId: "card_1",
+      userId: "user_2",
+      spaceId: "space_2",
+      content: JSON.stringify({
+        cardPrivateData: {
+          actionIds: ["btn_stop"],
+        },
+      }),
+    });
+
+    expect(analysis.actionId).toBe("btn_stop");
+    expect(analysis.outTrackId).toBe("track_1");
+    expect(analysis.cardInstanceId).toBe("card_1");
+    expect(analysis.userId).toBe("user_2");
+    expect(analysis.spaceId).toBe("space_2");
+  });
 });

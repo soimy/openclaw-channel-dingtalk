@@ -8,6 +8,12 @@ import { extractAttachmentText } from "./attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRobotCode } from "./config";
+import { AICardStatus } from "./types";
+import {
+  isCardRunStopRequested,
+  registerCardRun,
+  removeCardRun,
+} from "./card/card-run-registry";
 import {
   applyManualTargetLearningRule,
   applyManualTargetsLearningRule,
@@ -83,7 +89,6 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
-import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
@@ -240,9 +245,6 @@ type ReplyChunkInfo = {
   kind?: string;
 };
 
-const INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS = 15_000;
-const DINGTALK_API_HOST = "api.dingtalk.com";
-
 /**
  * Download DingTalk media file via runtime media service (sandbox-compatible).
  * Files are stored in the global media inbound directory.
@@ -253,9 +255,6 @@ export async function downloadMedia(
   log?: any,
 ): Promise<MediaFile | null> {
   const rt = getDingTalkRuntime();
-  let downloadUrl: string | undefined;
-  let requestStage = "auth";
-  let requestHost = DINGTALK_API_HOST;
   const formatAxiosErrorData = (value: unknown): string | undefined => {
     if (value === null || value === undefined) {
       return undefined;
@@ -288,18 +287,14 @@ export async function downloadMedia(
     return null;
   }
   try {
-    requestStage = "auth";
-    requestHost = DINGTALK_API_HOST;
     const token = await getAccessToken(config, log);
-    requestStage = "exchange";
-    requestHost = DINGTALK_API_HOST;
     const response = await axios.post(
       "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
       { downloadCode, robotCode },
       { headers: { "x-acs-dingtalk-access-token": token } },
     );
     const payload = response.data as Record<string, any>;
-    downloadUrl = payload?.downloadUrl ?? payload?.data?.downloadUrl;
+    const downloadUrl = payload?.downloadUrl ?? payload?.data?.downloadUrl;
     if (!downloadUrl) {
       const payloadDetail = formatAxiosErrorData(payload);
       log?.error?.(
@@ -307,18 +302,7 @@ export async function downloadMedia(
       );
       return null;
     }
-    requestStage = "download";
-    requestHost = (() => {
-      try {
-        return new URL(downloadUrl).host || "unknown";
-      } catch {
-        return "unknown";
-      }
-    })();
-    const mediaResponse = await axios.get(downloadUrl, {
-      responseType: "arraybuffer",
-      timeout: INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS,
-    });
+    const mediaResponse = await axios.get(downloadUrl, { responseType: "arraybuffer" });
     const contentType = mediaResponse.headers["content-type"] || "application/octet-stream";
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
@@ -338,7 +322,7 @@ export async function downloadMedia(
         const code = err.code ? ` code=${err.code}` : "";
         const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ""}` : "";
         log.error(
-          `[DingTalk] Failed to download media: stage=${requestStage} host=${requestHost}${statusLabel}${code} message=${err.message}`,
+          `[DingTalk] Failed to download media:${statusLabel}${code} message=${err.message}`,
         );
         if (err.response?.data !== undefined) {
           log.error(formatDingTalkErrorPayloadLog("inbound.downloadMedia", err.response.data));
@@ -346,9 +330,7 @@ export async function downloadMedia(
           log.error(`[DingTalk] downloadMedia response data: ${dataDetail}`);
         }
       } else {
-        log.error(
-          `[DingTalk] Failed to download media: stage=${requestStage} host=${requestHost} message=${err.message}`,
-        );
+        log.error(`[DingTalk] Failed to download media: ${err.message}`);
       }
     }
     return null;
@@ -1046,7 +1028,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
   let useCardMode = dingtalkConfig.messageType === "card";
-  let currentAICard = undefined;
+  let currentAICard: import("./types").AICardInstance | undefined;
 
   if (useCardMode) {
     try {
@@ -1060,6 +1042,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       });
       if (aiCard) {
         currentAICard = aiCard;
+        if (aiCard.outTrackId) {
+          registerCardRun(aiCard.outTrackId, {
+            accountId,
+            sessionKey: route.sessionKey,
+            agentId: route.agentId,
+            ownerUserId: senderId,
+            card: aiCard,
+          });
+        }
       } else {
         useCardMode = false;
         log?.warn?.(
@@ -1798,6 +1789,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // causes empty replies for all but the first caller.
   // Each sub-agent call acquires its own lock since sub-agent sessions have
   // different session keys (different agentId), so no deadlock risk.
+  const currentOutTrackId = currentAICard?.outTrackId;
   const shouldTrackDynamicAckReaction =
     (normalizedAckReaction === "emoji" || normalizedAckReaction === "kaomoji")
     && shouldAttachAckReaction;
@@ -1826,6 +1818,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (!ackReactionAttached && shouldAttachAckReaction) {
       log?.debug?.("[DingTalk] Native ack reaction unavailable; skipping fallback.");
     }
+    const isCurrentCardStopRequested = () =>
+      Boolean(
+        currentAICard
+        && (
+          currentAICard.state === AICardStatus.STOPPED
+          || (currentOutTrackId && isCardRunStopRequested(currentOutTrackId))
+        ),
+      );
+
+    if (isCurrentCardStopRequested()) {
+      log?.info?.("[DingTalk][CardStop] Skip dispatch because card was already stopped before session lock was acquired");
+      return;
+    }
 
     // ---- Create reply strategy (card or markdown) ----
     const strategy = createReplyStrategy({
@@ -1842,6 +1847,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log,
       replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
+      isStopRequested: isCurrentCardStopRequested,
     });
 
     try {
@@ -1851,6 +1857,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         dispatcherOptions: {
           responsePrefix: subAgentOptions?.responsePrefix || "",
           deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
+            if (isCurrentCardStopRequested()) {
+              log?.debug?.("[DingTalk][CardStop] Ignoring reply delivery because stop was already requested");
+              return;
+            }
             try {
               const mediaUrls = extractMediaUrls(payload);
               await strategy.deliver({
@@ -1878,6 +1888,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
     await strategy.finalize();
   } finally {
+    // Only remove the registry entry if no stop was requested. When a stop is
+    // in progress, card-stop-handler may still be running async operations
+    // (finalize card, hide button, gateway abort) that read the record.
+    // In that case, let the 30-minute TTL sweep handle cleanup.
+    if (currentOutTrackId && !isCardRunStopRequested(currentOutTrackId)) {
+      removeCardRun(currentOutTrackId);
+    }
     await waitForDynamicAckDispose({
       dispose: () => dynamicAckReactionController.dispose(MIN_THINKING_REACTION_VISIBLE_MS),
       log,

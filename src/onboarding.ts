@@ -127,8 +127,6 @@ function applyAccountConfig(params: {
       ? { mediaUrlAllowlist: input.mediaUrlAllowlist }
       : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
-    ...(input.cardTemplateId ? { cardTemplateId: input.cardTemplateId } : {}),
-    ...(input.cardTemplateKey ? { cardTemplateKey: input.cardTemplateKey } : {}),
     ...(typeof input.maxReconnectCycles === "number"
       ? { maxReconnectCycles: input.maxReconnectCycles }
       : {}),
@@ -235,41 +233,17 @@ async function configureDingTalkAccount(params: {
     initialValue: resolved.messageType === "card",
   });
 
-  let cardTemplateId: string | undefined;
-  let cardTemplateKey: string | undefined;
   let messageType: "markdown" | "card" = "markdown";
 
   if (wantsCardMode) {
     await prompter.note(
       [
-        "Create an AI card template in DingTalk Developer Console:",
-        "https://open-dev.dingtalk.com/fe/card",
-        "1. Go to 'My Templates' > 'Create Template'",
-        "2. Select 'AI Card' scenario",
-        "3. Design your card and publish",
-        "4. Copy the Template ID (e.g., xxx.schema)",
+        "AI interactive card mode now uses the built-in DingTalk template contract.",
+        "No manual Template ID or content field configuration is required.",
+        "Legacy cardTemplateId/cardTemplateKey config is deprecated and ignored.",
       ].join("\n"),
-      "Card Template Setup",
+      "Built-in AI Card Template",
     );
-
-    cardTemplateId =
-      String(
-        await prompter.text({
-          message: "Card Template ID",
-          placeholder: "xxxxx-xxxxx-xxxxx.schema",
-          initialValue: resolved.cardTemplateId ?? undefined,
-        }),
-      ).trim() || undefined;
-
-    cardTemplateKey =
-      String(
-        await prompter.text({
-          message: "Card Template Key (content field name)",
-          placeholder: "content",
-          initialValue: resolved.cardTemplateKey ?? "content",
-        }),
-      ).trim() || "content";
-
     messageType = "card";
   }
 
@@ -437,8 +411,6 @@ async function configureDingTalkAccount(params: {
       displayNameResolution: displayNameResolutionValue as "disabled" | "all",
       mediaUrlAllowlist,
       messageType,
-      cardTemplateId,
-      cardTemplateKey,
       maxReconnectCycles,
       mediaMaxMb,
       journalTTLDays,

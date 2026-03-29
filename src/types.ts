@@ -45,7 +45,9 @@ export interface DingTalkConfig extends OpenClawConfig {
   ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
+  /** @deprecated 已固定使用内置模板契约 */
   cardTemplateId?: string;
+  /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
@@ -105,7 +107,9 @@ export interface DingTalkChannelConfig {
   ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
+  /** @deprecated 已固定使用内置模板契约 */
   cardTemplateId?: string;
+  /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
   groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
@@ -620,6 +624,7 @@ export const AICardStatus = {
   PROCESSING: "1",
   INPUTING: "2",
   FINISHED: "3",
+  STOPPED: "4",
   FAILED: "5",
 } as const;
 
@@ -641,7 +646,7 @@ export interface AICardInstance {
   storePath?: string;
   createdAt: number;
   lastUpdated: number;
-  state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, FAILED
+  state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, STOPPED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
   lastStreamedContent?: string;
   outTrackId?: string;

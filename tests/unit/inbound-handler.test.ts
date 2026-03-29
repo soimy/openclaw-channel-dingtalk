@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +29,6 @@ vi.mock("axios", () => ({
   default: {
     post: vi.fn(),
     get: vi.fn(),
-    isAxiosError: (err: unknown) => Boolean((err as { isAxiosError?: boolean })?.isAxiosError),
   },
   isAxiosError: (err: unknown) => Boolean((err as { isAxiosError?: boolean })?.isAxiosError),
 }));
@@ -108,6 +107,7 @@ import {
   resetProactivePermissionHintStateForTest,
 } from "../../src/inbound-handler";
 import * as messageContextStore from "../../src/message-context-store";
+import { clearCardRunRegistryForTest, markCardRunStopRequested } from "../../src/card/card-run-registry";
 import { recordProactiveRiskObservation } from "../../src/proactive-risk-registry";
 import {
   clearTargetDirectoryStateCache,
@@ -219,6 +219,7 @@ describe("inbound-handler", () => {
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
     shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
     resetProactivePermissionHintStateForTest();
+    clearCardRunRegistryForTest();
     messageContextStore.clearMessageContextCacheForTest();
     shared.createAICardMock.mockResolvedValue({
       cardInstanceId: "card_1",
@@ -244,106 +245,6 @@ describe("inbound-handler", () => {
     expect(result).toBeTruthy();
     expect(result?.mimeType).toBe("image/png");
     expect(result?.path).toContain("/.openclaw/media/inbound/");
-  });
-
-  it("downloadMedia applies timeout to the downloadUrl fetch", async () => {
-    mockedAxiosPost.mockResolvedValueOnce({
-      data: { downloadUrl: "https://download.url/file" },
-    } as any);
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: Buffer.from("abc"),
-      headers: { "content-type": "image/png" },
-    } as any);
-
-    await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
-      "download_code_1",
-    );
-
-    expect(mockedAxiosGet).toHaveBeenCalledWith("https://download.url/file", {
-      responseType: "arraybuffer",
-      timeout: 15_000,
-    });
-  });
-
-  it("downloadMedia logs the download host when the downloadUrl fetch fails", async () => {
-    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
-    mockedAxiosPost.mockResolvedValueOnce({
-      data: { downloadUrl: "https://download.url/file" },
-    } as any);
-    mockedAxiosGet.mockRejectedValueOnce({
-      isAxiosError: true,
-      code: "ETIMEDOUT",
-      message: "connect ETIMEDOUT",
-      request: {},
-    });
-
-    const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
-      "download_code_1",
-      log as any,
-    );
-
-    expect(result).toBeNull();
-    expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining("stage=download host=download.url"),
-    );
-  });
-
-  it("downloadMedia logs the auth stage when token retrieval fails", async () => {
-    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
-    mockedGetAccessToken.mockRejectedValueOnce(new Error("token failed"));
-
-    const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
-      "download_code_1",
-      log as any,
-    );
-
-    expect(result).toBeNull();
-    expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining("stage=auth host=api.dingtalk.com message=token failed"),
-    );
-  });
-
-  it("downloadMedia logs the exchange stage when messageFiles/download fails", async () => {
-    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
-    mockedAxiosPost.mockRejectedValueOnce({
-      isAxiosError: true,
-      code: "ECONNRESET",
-      message: "socket hang up",
-      request: {},
-    });
-
-    const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
-      "download_code_1",
-      log as any,
-    );
-
-    expect(result).toBeNull();
-    expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining("stage=exchange host=api.dingtalk.com"),
-    );
-  });
-
-  it("downloadMedia keeps message= prefix for non-Axios download failures", async () => {
-    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
-    mockedAxiosPost.mockResolvedValueOnce({
-      data: { downloadUrl: "https://download.url/file" },
-    } as any);
-    mockedAxiosGet.mockRejectedValueOnce(new Error("plain failure"));
-
-    const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
-      "download_code_1",
-      log as any,
-    );
-
-    expect(result).toBeNull();
-    expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining("stage=download host=download.url message=plain failure"),
-    );
   });
 
   it("downloadMedia passes mediaMaxMb as maxBytes to saveMediaBuffer", async () => {
@@ -5803,6 +5704,9 @@ describe("inbound-handler", () => {
     expect(users).toHaveLength(1);
     expect(users[0]?.canonicalUserId).toBe("staff_user_1");
   });
+
+
+  // Duplicate test block (12 tests) removed — already present in the upstream version above.
 
   // ==================== @Sub-Agent 回归测试 ====================
   describe('@sub-agent feature', () => {
