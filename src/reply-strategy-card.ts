@@ -136,7 +136,6 @@ export function createCardReplyStrategy(
       );
 
       if (isStopRequested?.()) {
-        card.state = AICardStatus.STOPPED;
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
         return;
       }

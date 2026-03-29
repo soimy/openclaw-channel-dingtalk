@@ -98,7 +98,6 @@ describe('card-action-handler', () => {
                 clickerUserId: 'user_abc',
             }),
         );
-        expect(card.state).toBe(AICardStatus.STOPPED);
         expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
         const stoppedContent = shared.finishStoppedAICardMock.mock.calls[0][1];
         expect(stoppedContent).toContain('partial output...');
@@ -141,7 +140,6 @@ describe('card-action-handler', () => {
 
         expect(result.handled).toBe(true);
         expect(shared.dispatchDingTalkCardStopCommandMock).not.toHaveBeenCalled();
-        expect(card.state).toBe(AICardStatus.STOPPED);
         expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
         expect(isCardRunStopRequested('track_queued')).toBe(true);
     });
@@ -303,7 +301,6 @@ describe('card-action-handler', () => {
         });
 
         expect(result.handled).toBe(true);
-        expect(card.state).toBe(AICardStatus.STOPPED);
         expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
     });
 });

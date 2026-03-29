@@ -76,8 +76,6 @@ export async function stopCardRun(params: {
         `[${params.accountId}] [DingTalk][CardStop] failed to finalize stopped card: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    record.card.state = AICardStatus.STOPPED;
-    record.card.lastUpdated = Date.now();
   }
 
   // --- Phase 3: Hide stop button (with retry, consistent with finishAICard path) ---
