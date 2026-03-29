@@ -87,6 +87,7 @@ import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
+import { initSessionState } from "./session-state";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -361,6 +362,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
   setCurrentLogger(log);
+
+  // Initialize session state for this conversation
+  initSessionState(accountId, data.conversationId, log);
 
   log?.debug?.("[DingTalk] Full Inbound Data: " + JSON.stringify(maskSensitiveData(data)));
 
