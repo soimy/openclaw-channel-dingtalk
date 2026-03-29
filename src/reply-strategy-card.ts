@@ -43,21 +43,21 @@ export function createCardReplyStrategy(
         // onPartialReply (real-time) or deliver(final) -> finishAICard.
         disableBlockStreaming: true,
 
-        onAssistantMessageStart: () => {
-          controller.notifyNewAssistantTurn();
+        onAssistantMessageStart: async () => {
+          await controller.notifyNewAssistantTurn();
         },
 
         onPartialReply: config.cardRealTimeStream
-          ? (payload) => {
+          ? async (payload) => {
               if (payload.text) {
-                controller.updateAnswer(payload.text);
+                await controller.updateAnswer(payload.text);
               }
             }
           : undefined,
 
-        onReasoningStream: (payload) => {
+        onReasoningStream: async (payload) => {
           if (payload.text) {
-            controller.updateThinking(payload.text);
+            await controller.updateThinking(payload.text);
           }
         },
       };

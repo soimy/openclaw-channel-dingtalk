@@ -435,4 +435,60 @@ describe("card-draft-controller", () => {
         expect(tool2Index).toBeGreaterThan(phase2Index);
         expect(phase3Index).toBeGreaterThan(tool2Index);
     });
+
+    it("flushes the latest answer frame before appending a new tool block", async () => {
+        const sent: string[] = [];
+        streamAICardMock.mockImplementation(async (_card, content) => {
+            sent.push(content);
+        });
+
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 300 }) as any;
+
+        await ctrl.updateAnswer("阶段1答案：初版");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateAnswer("阶段1答案：完整版");
+        await ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent).toHaveLength(3);
+        expect(sent[1]).toContain("阶段1答案：完整版");
+        expect(sent[1]).not.toContain("🛠️ Exec: pwd");
+        expect(sent[2]).toContain("阶段1答案：完整版");
+        expect(sent[2]).toContain("🛠️ Exec: pwd");
+    });
+
+    it("waits for the tool boundary frame before starting the next answer block", async () => {
+        const sent: string[] = [];
+        let resolveToolFrame!: () => void;
+        streamAICardMock.mockImplementation(async (_card, content) => {
+            sent.push(content);
+            if (content.includes("🛠️ Exec: pwd") && !content.includes("阶段2答案")) {
+                await new Promise<void>((r) => { resolveToolFrame = r; });
+            }
+        });
+
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 300 }) as any;
+
+        await ctrl.updateAnswer("阶段1答案：准备先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const toolPromise = ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const answerPromise = ctrl.updateAnswer("阶段2答案：pwd 已返回结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent.at(-1)).toContain("🛠️ Exec: pwd");
+        expect(sent.at(-1)).not.toContain("阶段2答案：pwd 已返回结果");
+
+        resolveToolFrame();
+        await toolPromise;
+        await answerPromise;
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
+    });
 });

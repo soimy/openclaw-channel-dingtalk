@@ -207,15 +207,15 @@ describe("reply-strategy-card", () => {
             );
             const replyOptions = strategy.getReplyOptions();
 
-            replyOptions.onPartialReply?.({ text: "阶段1答案：准备先检查当前目录" });
+            await replyOptions.onPartialReply?.({ text: "阶段1答案：准备先检查当前目录" });
             await strategy.deliver({ text: "🛠️ Exec: pwd", mediaUrls: [], kind: "tool" });
 
-            replyOptions.onAssistantMessageStart?.();
-            replyOptions.onPartialReply?.({ text: "阶段2答案：pwd 已返回结果" });
+            await replyOptions.onAssistantMessageStart?.();
+            await replyOptions.onPartialReply?.({ text: "阶段2答案：pwd 已返回结果" });
             await strategy.deliver({ text: "🛠️ Exec: printf ok", mediaUrls: [], kind: "tool" });
 
-            replyOptions.onAssistantMessageStart?.();
-            replyOptions.onPartialReply?.({ text: "阶段3答案：两次工具都已完成" });
+            await replyOptions.onAssistantMessageStart?.();
+            await replyOptions.onPartialReply?.({ text: "阶段3答案：两次工具都已完成" });
             await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 

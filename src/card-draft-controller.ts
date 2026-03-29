@@ -22,14 +22,14 @@ type TimelineEntry = {
 };
 
 export interface CardDraftController {
-    updateAnswer: (text: string) => void;
-    updateReasoning: (text: string) => void;
-    updateThinking: (text: string) => void;
+    updateAnswer: (text: string) => Promise<void>;
+    updateReasoning: (text: string) => Promise<void>;
+    updateThinking: (text: string) => Promise<void>;
     updateTool: (text: string) => Promise<void>;
     appendTool: (text: string) => Promise<void>;
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
-    notifyNewAssistantTurn: () => void;
-    startAssistantTurn: () => void;
+    notifyNewAssistantTurn: () => Promise<void>;
+    startAssistantTurn: () => Promise<void>;
     flush: () => Promise<void>;
     waitForInFlight: () => Promise<void>;
     stop: () => void;
@@ -79,6 +79,7 @@ export function createCardDraftController(params: {
     let timelineEntries: TimelineEntry[] = [];
     let activeThinkingIndex: number | null = null;
     let activeAnswerIndex: number | null = null;
+    let pendingBoundaryPromise: Promise<void> | null = null;
 
     const effectiveThrottleMs = params.throttleMs ?? (params.verboseMode ? 50 : 300);
 
@@ -165,6 +166,34 @@ export function createCardDraftController(params: {
         loop.resetPending();
     };
 
+    const flushBoundaryFrame = async () => {
+        if (stopped || failed) {
+            return;
+        }
+        await loop.flush();
+        await loop.waitForInFlight();
+        loop.resetThrottleWindow();
+    };
+
+    const beginBoundaryFlush = () => {
+        if (pendingBoundaryPromise) {
+            return pendingBoundaryPromise;
+        }
+        const current = flushBoundaryFrame().finally(() => {
+            if (pendingBoundaryPromise === current) {
+                pendingBoundaryPromise = null;
+            }
+        });
+        pendingBoundaryPromise = current;
+        return current;
+    };
+
+    const waitForPendingBoundary = async () => {
+        if (pendingBoundaryPromise) {
+            await pendingBoundaryPromise;
+        }
+    };
+
     const loop = createDraftStreamLoop({
         throttleMs: effectiveThrottleMs,
         isStopped: () => stopped || failed,
@@ -181,13 +210,20 @@ export function createCardDraftController(params: {
         },
     });
 
-    const updateReasoning = (text: string) => {
+    const updateReasoning = async (text: string) => {
+        await waitForPendingBoundary();
         if (stopped || failed || activeAnswerIndex !== null) {
             return;
         }
         const normalized = normalizeProcessText(text);
         if (!normalized) {
             return;
+        }
+        if (activeThinkingIndex === null && timelineEntries.length > 0) {
+            const lastKind = timelineEntries.at(-1)?.kind;
+            if (lastKind && lastKind !== "thinking") {
+                await flushBoundaryFrame();
+            }
         }
         if (activeThinkingIndex !== null) {
             timelineEntries[activeThinkingIndex] = { kind: "thinking", text: normalized };
@@ -197,13 +233,20 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
-    const updateAnswer = (text: string) => {
+    const updateAnswer = async (text: string) => {
+        await waitForPendingBoundary();
         if (stopped || failed) {
             return;
         }
         const normalized = normalizeAnswerText(text);
         if (!normalized.trim()) {
             return;
+        }
+        if (activeAnswerIndex === null && timelineEntries.length > 0) {
+            const lastKind = timelineEntries.at(-1)?.kind;
+            if (lastKind && lastKind !== "answer") {
+                await flushBoundaryFrame();
+            }
         }
         sealLiveThinking();
         if (activeAnswerIndex !== null) {
@@ -215,6 +258,7 @@ export function createCardDraftController(params: {
     };
 
     const updateTool = async (text: string) => {
+        await waitForPendingBoundary();
         if (stopped || failed) {
             return;
         }
@@ -222,18 +266,22 @@ export function createCardDraftController(params: {
         if (!normalized) {
             return;
         }
+        if (timelineEntries.length > 0) {
+            await flushBoundaryFrame();
+        }
         sealLiveThinking();
         sealCurrentAnswer();
         appendTimelineEntry("tool", normalized);
         queueRender();
     };
 
-    const notifyNewAssistantTurn = () => {
+    const notifyNewAssistantTurn = async () => {
         if (stopped || failed) {
             return;
         }
         if (activeAnswerIndex !== null) {
             sealCurrentAnswer();
+            await beginBoundaryFlush();
             return;
         }
         if (activeThinkingIndex !== null) {
