@@ -4,6 +4,12 @@
 
 # DingTalk Channel for OpenClaw
 
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.24-0A7CFF)](https://github.com/openclaw/openclaw)
+[![npm version](https://img.shields.io/npm/v/%40soimy%2Fdingtalk)](https://www.npmjs.com/package/@soimy/dingtalk)
+[![npm downloads](https://img.shields.io/npm/dm/%40soimy%2Fdingtalk)](https://www.npmjs.com/package/@soimy/dingtalk)
+[![Docs](https://img.shields.io/github/actions/workflow/status/soimy/openclaw-channel-dingtalk/docs-pages.yml?branch=main&label=Docs)](https://github.com/soimy/openclaw-channel-dingtalk/actions/workflows/docs-pages.yml)
+[![License](https://img.shields.io/github/license/soimy/openclaw-channel-dingtalk)](https://github.com/soimy/openclaw-channel-dingtalk/blob/main/LICENSE)
+
 针对 OpenClaw 的钉钉企业内部机器人 Channel 渠道插件，使用 Stream 模式，无需公网 IP。
 
 ## 功能特性
