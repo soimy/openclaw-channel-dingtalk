@@ -41,7 +41,11 @@ export interface CardDraftController {
     /** Current answer-only content composed from all completed answer turns. */
     getFinalAnswerContent: () => string;
     /** Current rendered timeline, including process blocks and answer text. */
-    getRenderedContent: (options?: { fallbackAnswer?: string; overrideAnswer?: string }) => string;
+    getRenderedContent: (options?: {
+        fallbackAnswer?: string;
+        overrideAnswer?: string;
+        compactProcessAnswerSpacing?: boolean;
+    }) => string;
 }
 
 function normalizeProcessText(text: string | undefined): string {
@@ -55,13 +59,12 @@ function normalizeAnswerText(text: string | undefined): string {
 function quoteMarkdown(text: string): string {
     return text
         .split("\n")
-        .map((line) => line.trim() ? `> ${line}` : ">")
+        .map((line) => line.trim() ? `> ${line.trim()}` : ">")
         .join("\n");
 }
 
-function renderProcessBlock(kind: "thinking" | "tool", text: string): string {
-    const title = kind === "thinking" ? "🤔 思考" : "🛠 工具";
-    return `${title}\n${quoteMarkdown(text)}`;
+function renderProcessBlock(_kind: "thinking" | "tool", text: string): string {
+    return quoteMarkdown(text);
 }
 
 export function createCardDraftController(params: {
@@ -113,8 +116,11 @@ export function createCardDraftController(params: {
         return timelineEntries.length - 1;
     };
 
-    const renderTimeline = (options: { fallbackAnswer?: string; overrideAnswer?: string } = {}): string => {
-        const parts: string[] = [];
+    const renderTimeline = (options: {
+        fallbackAnswer?: string;
+        overrideAnswer?: string;
+        compactProcessAnswerSpacing?: boolean;
+    } = {}): string => {
         const entries = timelineEntries.map((entry) => ({ ...entry }));
 
         const overrideAnswer = normalizeAnswerText(options.overrideAnswer);
@@ -135,18 +141,29 @@ export function createCardDraftController(params: {
             }
         }
 
-        for (const entry of entries) {
-            if (!entry.text) {
+        let rendered = "";
+        const compactProcessAnswerSpacing = options.compactProcessAnswerSpacing === true;
+        for (let index = 0; index < entries.length; index += 1) {
+            const entry = entries[index];
+            if (!entry?.text) {
                 continue;
             }
-            if (entry.kind === "answer") {
-                parts.push(entry.text);
-            } else {
-                parts.push(renderProcessBlock(entry.kind, entry.text));
+            const part = entry.kind === "answer"
+                ? entry.text
+                : renderProcessBlock(entry.kind, entry.text);
+            if (!rendered) {
+                rendered = part;
+                continue;
             }
+            const previousKind = entries[index - 1]?.kind;
+            const separator =
+                compactProcessAnswerSpacing && previousKind
+                    ? "\n"
+                    : "\n\n";
+            rendered += `${separator}${part}`;
         }
 
-        return parts.join("\n\n");
+        return rendered;
     };
 
     const sealLiveThinking = () => {
@@ -158,7 +175,7 @@ export function createCardDraftController(params: {
     };
 
     const queueRender = () => {
-        const rendered = renderTimeline();
+        const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
         if (rendered) {
             loop.update(rendered);
             return;

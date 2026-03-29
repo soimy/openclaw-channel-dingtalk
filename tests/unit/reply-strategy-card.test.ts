@@ -185,9 +185,7 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("🤔 思考");
             expect(rendered).toContain("> 先检查差异");
-            expect(rendered).toContain("🛠 工具");
             expect(rendered).toContain("> git diff --stat");
             expect(rendered).toContain("the answer");
             expect(rendered).not.toContain("> the answer");
@@ -252,9 +250,7 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
-            expect(fallbackText).toContain("🤔 思考");
             expect(fallbackText).toContain("> 分析上下文");
-            expect(fallbackText).toContain("🛠 工具");
             expect(fallbackText).toContain("> git status");
             expect(fallbackText).toContain("full answer");
             expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
@@ -321,7 +317,6 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("🤔 思考");
             expect(rendered).toContain("> 我来发附件");
             expect(rendered).toContain("附件已发送，请查收。");
         });
