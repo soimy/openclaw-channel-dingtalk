@@ -400,4 +400,39 @@ describe("card-draft-controller", () => {
         expect(answerOnly).not.toContain("思考");
         expect(answerOnly).not.toContain("工具");
     });
+
+    it("preserves interleaved answer and tool blocks in event order", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateAnswer("阶段1答案：准备先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("阶段2答案：pwd 已返回结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateTool("🛠️ Exec: printf ok");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("阶段3答案：两次工具都已完成");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
+        const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
+        const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
+        const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
+        const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+
+        expect(phase1Index).toBeGreaterThanOrEqual(0);
+        expect(tool1Index).toBeGreaterThan(phase1Index);
+        expect(phase2Index).toBeGreaterThan(tool1Index);
+        expect(tool2Index).toBeGreaterThan(phase2Index);
+        expect(phase3Index).toBeGreaterThan(tool2Index);
+    });
 });

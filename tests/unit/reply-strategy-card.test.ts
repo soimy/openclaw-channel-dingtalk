@@ -193,6 +193,46 @@ describe("reply-strategy-card", () => {
             expect(rendered).not.toContain("> the answer");
         });
 
+        it("preserves answer and tool blocks in event order during finalize", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(
+                buildCtx(card, {
+                    config: {
+                        clientId: "id",
+                        clientSecret: "secret",
+                        messageType: "card",
+                        cardRealTimeStream: true,
+                    } as any,
+                }),
+            );
+            const replyOptions = strategy.getReplyOptions();
+
+            replyOptions.onPartialReply?.({ text: "阶段1答案：准备先检查当前目录" });
+            await strategy.deliver({ text: "🛠️ Exec: pwd", mediaUrls: [], kind: "tool" });
+
+            replyOptions.onAssistantMessageStart?.();
+            replyOptions.onPartialReply?.({ text: "阶段2答案：pwd 已返回结果" });
+            await strategy.deliver({ text: "🛠️ Exec: printf ok", mediaUrls: [], kind: "tool" });
+
+            replyOptions.onAssistantMessageStart?.();
+            replyOptions.onPartialReply?.({ text: "阶段3答案：两次工具都已完成" });
+            await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
+            const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
+            const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
+            const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
+            const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+
+            expect(phase1Index).toBeGreaterThanOrEqual(0);
+            expect(tool1Index).toBeGreaterThan(phase1Index);
+            expect(phase2Index).toBeGreaterThan(tool1Index);
+            expect(tool2Index).toBeGreaterThan(phase2Index);
+            expect(phase3Index).toBeGreaterThan(tool2Index);
+        });
+
         it("skips finalize when card is already FINISHED", async () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
