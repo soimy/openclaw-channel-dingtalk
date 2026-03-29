@@ -102,6 +102,45 @@ New code should align with these logical boundaries (physical moves are incremen
 - Integration tests when behavior crosses module boundaries (gateway start, inbound dispatch, send lifecycle, persistence migration)
 - `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
 
+## Pull Request Guidelines
+
+Follow the conventions in `CONTRIBUTING.md` for all PRs:
+
+- **Title**: English Conventional-style, e.g. `feat(card): add multi-key streaming support`, `fix(targeting): normalize learned display names`
+- **Description**: Written in Simplified Chinese (简体中文)
+- **Structure**: Required sections — `背景`, `目标`, `实现`
+- **Checklists**: Include `实现 TODO` and `验证 TODO` with checkboxes
+- **Link issues**: Reference related issues in the description
+
+Recommended PR description outline:
+
+```markdown
+## 背景
+[Why this change is needed and what problem or issue it addresses]
+
+## 目标
+[What the PR is expected to achieve]
+
+## 实现
+[Main implementation approach and important tradeoffs]
+
+## 实现 TODO
+- [ ] Implementation item 1
+- [ ] Implementation item 2
+
+## 验证 TODO
+- [ ] `pnpm run type-check`
+- [ ] `pnpm test`
+- [ ] Manual test: [specific scenario]
+```
+
+For state-management changes, explicitly call out whether behavior changed around:
+- `dedup.processed-message`
+- `session.lock`
+- `channel.inflight`
+
+These paths are intentionally process-local and memory-only. Do not introduce cross-process persistence without discussing the design first.
+
 ## Important Anti-Patterns
 
 - Do not add business logic to `src/channel.ts`
