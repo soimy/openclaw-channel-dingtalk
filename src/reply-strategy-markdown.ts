@@ -35,7 +35,6 @@ export function createMarkdownReplyStrategy(
   ctx: ReplyStrategyContext,
 ): ReplyStrategy {
   let finalText: string | undefined;
-  let activeThinkingText = "";
   let lastSentThinkingText = "";
   let activeAnswerText = "";
   let lastSentAnswerText = "";
@@ -60,7 +59,6 @@ export function createMarkdownReplyStrategy(
 
   const emitThinkingSuffix = async (text: string | undefined): Promise<void> => {
     const current = typeof text === "string" ? text : "";
-    activeThinkingText = current;
     const suffix = computeIncrementalSuffix(lastSentThinkingText, current);
     if (suffix) {
       await sendMarkdownSegment(renderQuotedSegment(suffix));
@@ -116,7 +114,6 @@ export function createMarkdownReplyStrategy(
         if (!text) {
           return;
         }
-        activeThinkingText = "";
         lastSentThinkingText = "";
         await sendMarkdownSegment(renderQuotedSegment(text));
         return;
