@@ -12,14 +12,7 @@
 
 import { streamAICard } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
-import type { AICardInstance, Logger } from "./types";
-
-type TimelineEntryKind = "thinking" | "tool" | "answer";
-
-type TimelineEntry = {
-    kind: TimelineEntryKind;
-    text: string;
-};
+import type { AICardInstance, CardBlock, Logger } from "./types";
 
 export interface CardDraftController {
     updateAnswer: (text: string) => Promise<void>;
@@ -46,6 +39,8 @@ export interface CardDraftController {
         overrideAnswer?: string;
         compactProcessAnswerSpacing?: boolean;
     }) => string;
+    /** Get a copy of the current block list. */
+    getBlockList: () => CardBlock[];
 }
 
 function normalizeProcessText(text: string | undefined): string {
@@ -63,7 +58,7 @@ function quoteMarkdown(text: string): string {
         .join("\n");
 }
 
-function renderProcessBlock(_kind: "thinking" | "tool", text: string): string {
+function renderProcessBlock(text: string): string {
     return quoteMarkdown(text);
 }
 
@@ -79,8 +74,8 @@ export function createCardDraftController(params: {
     let lastSentContent = "";
     let lastAnswerContent = "";
 
-    let timelineEntries: TimelineEntry[] = [];
-    let activeThinkingIndex: number | null = null;
+    let timelineEntries: CardBlock[] = [];
+    let activeProcessIndex: number | null = null;
     let activeAnswerIndex: number | null = null;
     let pendingBoundaryPromise: Promise<void> | null = null;
 
@@ -88,18 +83,18 @@ export function createCardDraftController(params: {
 
     const getFinalAnswerContent = (): string => {
         return timelineEntries
-            .filter((entry) => entry.kind === "answer" && entry.text)
+            .filter((entry) => !entry.isTool && entry.text)
             .map((entry) => entry.text)
             .join("\n\n");
     };
 
     const removeTimelineEntry = (index: number) => {
         timelineEntries.splice(index, 1);
-        if (activeThinkingIndex !== null) {
-            if (activeThinkingIndex === index) {
-                activeThinkingIndex = null;
-            } else if (activeThinkingIndex > index) {
-                activeThinkingIndex -= 1;
+        if (activeProcessIndex !== null) {
+            if (activeProcessIndex === index) {
+                activeProcessIndex = null;
+            } else if (activeProcessIndex > index) {
+                activeProcessIndex -= 1;
             }
         }
         if (activeAnswerIndex !== null) {
@@ -111,8 +106,8 @@ export function createCardDraftController(params: {
         }
     };
 
-    const appendTimelineEntry = (kind: TimelineEntryKind, text: string): number => {
-        timelineEntries.push({ kind, text });
+    const appendTimelineEntry = (isTool: boolean, text: string): number => {
+        timelineEntries.push({ text, markdown: text, isTool });
         return timelineEntries.length - 1;
     };
 
@@ -128,16 +123,16 @@ export function createCardDraftController(params: {
             const lastAnswerIndex = [...entries]
                 .map((entry, index) => ({ entry, index }))
                 .toReversed()
-                .find(({ entry }) => entry.kind === "answer")?.index;
+                .find(({ entry }) => !entry.isTool)?.index;
             if (lastAnswerIndex !== undefined) {
-                entries[lastAnswerIndex] = { kind: "answer", text: overrideAnswer };
+                entries[lastAnswerIndex] = { text: overrideAnswer, markdown: overrideAnswer, isTool: false };
             } else {
-                entries.push({ kind: "answer", text: overrideAnswer });
+                entries.push({ text: overrideAnswer, markdown: overrideAnswer, isTool: false });
             }
-        } else if (!entries.some((entry) => entry.kind === "answer" && entry.text)) {
+        } else if (!entries.some((entry) => !entry.isTool && entry.text)) {
             const fallbackAnswer = normalizeAnswerText(options.fallbackAnswer);
             if (fallbackAnswer) {
-                entries.push({ kind: "answer", text: fallbackAnswer });
+                entries.push({ text: fallbackAnswer, markdown: fallbackAnswer, isTool: false });
             }
         }
 
@@ -148,16 +143,16 @@ export function createCardDraftController(params: {
             if (!entry?.text) {
                 continue;
             }
-            const part = entry.kind === "answer"
-                ? entry.text
-                : renderProcessBlock(entry.kind, entry.text);
+            const part = entry.isTool
+                ? renderProcessBlock(entry.text)
+                : entry.text;
             if (!rendered) {
                 rendered = part;
                 continue;
             }
-            const previousKind = entries[index - 1]?.kind;
+            const previousIsTool = entries[index - 1]?.isTool;
             const separator =
-                compactProcessAnswerSpacing && previousKind
+                compactProcessAnswerSpacing && previousIsTool !== undefined
                     ? "\n"
                     : "\n\n";
             rendered += `${separator}${part}`;
@@ -166,8 +161,8 @@ export function createCardDraftController(params: {
         return rendered;
     };
 
-    const sealLiveThinking = () => {
-        activeThinkingIndex = null;
+    const sealActiveProcess = () => {
+        activeProcessIndex = null;
     };
 
     const sealCurrentAnswer = () => {
@@ -216,7 +211,8 @@ export function createCardDraftController(params: {
         isStopped: () => stopped || failed,
         sendOrEditStreamMessage: async (content: string) => {
             try {
-                await streamAICard(params.card, content, false, params.log);
+                const blockList = timelineEntries;
+                await streamAICard(params.card, blockList, false, params.log);
                 lastSentContent = content;
                 lastAnswerContent = getFinalAnswerContent();
             } catch (err: unknown) {
@@ -236,16 +232,16 @@ export function createCardDraftController(params: {
         if (!normalized) {
             return;
         }
-        if (activeThinkingIndex === null && timelineEntries.length > 0) {
-            const lastKind = timelineEntries.at(-1)?.kind;
-            if (lastKind && lastKind !== "thinking") {
+        if (activeProcessIndex === null && timelineEntries.length > 0) {
+            const lastIsTool = timelineEntries.at(-1)?.isTool;
+            if (lastIsTool === false) {
                 await flushBoundaryFrame();
             }
         }
-        if (activeThinkingIndex !== null) {
-            timelineEntries[activeThinkingIndex] = { kind: "thinking", text: normalized };
+        if (activeProcessIndex !== null) {
+            timelineEntries[activeProcessIndex] = { text: normalized, markdown: normalized, isTool: true };
         } else {
-            activeThinkingIndex = appendTimelineEntry("thinking", normalized);
+            activeProcessIndex = appendTimelineEntry(true, normalized);
         }
         queueRender();
     };
@@ -260,16 +256,16 @@ export function createCardDraftController(params: {
             return;
         }
         if (activeAnswerIndex === null && timelineEntries.length > 0) {
-            const lastKind = timelineEntries.at(-1)?.kind;
-            if (lastKind && lastKind !== "answer") {
+            const lastIsTool = timelineEntries.at(-1)?.isTool;
+            if (lastIsTool === true) {
                 await flushBoundaryFrame();
             }
         }
-        sealLiveThinking();
+        sealActiveProcess();
         if (activeAnswerIndex !== null) {
-            timelineEntries[activeAnswerIndex] = { kind: "answer", text: normalized };
+            timelineEntries[activeAnswerIndex] = { text: normalized, markdown: normalized, isTool: false };
         } else {
-            activeAnswerIndex = appendTimelineEntry("answer", normalized);
+            activeAnswerIndex = appendTimelineEntry(false, normalized);
         }
         queueRender();
     };
@@ -286,9 +282,9 @@ export function createCardDraftController(params: {
         if (timelineEntries.length > 0) {
             await flushBoundaryFrame();
         }
-        sealLiveThinking();
+        sealActiveProcess();
         sealCurrentAnswer();
-        appendTimelineEntry("tool", normalized);
+        appendTimelineEntry(true, normalized);
         queueRender();
     };
 
@@ -301,8 +297,8 @@ export function createCardDraftController(params: {
             await beginBoundaryFlush();
             return;
         }
-        if (activeThinkingIndex !== null) {
-            removeTimelineEntry(activeThinkingIndex);
+        if (activeProcessIndex !== null) {
+            removeTimelineEntry(activeProcessIndex);
             loop.resetPending();
         }
     };
@@ -328,5 +324,6 @@ export function createCardDraftController(params: {
         getLastAnswerContent: () => lastAnswerContent,
         getFinalAnswerContent,
         getRenderedContent: renderTimeline,
+        getBlockList: () => [...timelineEntries],
     };
 }
