@@ -286,7 +286,63 @@ describe("inbound-handler", () => {
 
     expect(result).toBeNull();
     expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining("host=download.url"),
+      expect.stringContaining("stage=download host=download.url"),
+    );
+  });
+
+  it("downloadMedia logs the auth stage when token retrieval fails", async () => {
+    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+    mockedGetAccessToken.mockRejectedValueOnce(new Error("token failed"));
+
+    const result = await downloadMedia(
+      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      "download_code_1",
+      log as any,
+    );
+
+    expect(result).toBeNull();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining("stage=auth host=api.dingtalk.com message=token failed"),
+    );
+  });
+
+  it("downloadMedia logs the exchange stage when messageFiles/download fails", async () => {
+    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+    mockedAxiosPost.mockRejectedValueOnce({
+      isAxiosError: true,
+      code: "ECONNRESET",
+      message: "socket hang up",
+      request: {},
+    });
+
+    const result = await downloadMedia(
+      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      "download_code_1",
+      log as any,
+    );
+
+    expect(result).toBeNull();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining("stage=exchange host=api.dingtalk.com"),
+    );
+  });
+
+  it("downloadMedia keeps message= prefix for non-Axios download failures", async () => {
+    const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+    mockedAxiosPost.mockResolvedValueOnce({
+      data: { downloadUrl: "https://download.url/file" },
+    } as any);
+    mockedAxiosGet.mockRejectedValueOnce(new Error("plain failure"));
+
+    const result = await downloadMedia(
+      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      "download_code_1",
+      log as any,
+    );
+
+    expect(result).toBeNull();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining("stage=download host=download.url message=plain failure"),
     );
   });
 
