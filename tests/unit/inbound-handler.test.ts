@@ -3408,8 +3408,8 @@ describe("inbound-handler", () => {
       },
     });
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("🛠 工具");
     expect(finalizeContent).toContain("> tool output");
+    expect(finalizeContent).not.toContain("🛠 工具");
     expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
       expect.anything(),
       "user_1",
@@ -5695,10 +5695,10 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("🤔 思考");
     expect(finalizeContent).toContain("> deep thinking about the problem");
     expect(finalizeContent).toContain("Here is the final answer.");
     expect(finalizeContent).not.toContain("> Here is the final answer.");
+    expect(finalizeContent).not.toContain("🤔 思考");
   });
 
   it("file-only response finalizes card with a placeholder answer and preserved process blocks", async () => {
@@ -5743,9 +5743,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("🤔 思考");
     expect(finalizeContent).toContain("> Let me send the file");
     expect(finalizeContent).toContain("附件已发送，请查收。");
+    expect(finalizeContent).not.toContain("🤔 思考");
   });
 
   it("learns group/user targets from inbound displayName metadata", async () => {
@@ -6707,10 +6707,10 @@ describe("inbound-handler", () => {
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-        expect(finalizeContent).toContain('🤔 思考');
         expect(finalizeContent).toContain('> deep thinking about the problem');
         expect(finalizeContent).toContain('Here is the final answer.');
         expect(finalizeContent).not.toContain('> Here is the final answer.');
+        expect(finalizeContent).not.toContain('🤔 思考');
     });
 
     it('file-only response finalizes card with a placeholder answer and preserved process blocks', async () => {
@@ -6745,9 +6745,9 @@ describe("inbound-handler", () => {
 
         expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
         const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-        expect(finalizeContent).toContain('🤔 思考');
         expect(finalizeContent).toContain('> Let me send the file');
         expect(finalizeContent).toContain('附件已发送，请查收。');
+        expect(finalizeContent).not.toContain('🤔 思考');
     });
 
     it('cardAtSender: sends @mention after card finalize in group chat', async () => {
