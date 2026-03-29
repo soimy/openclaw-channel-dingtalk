@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 512 512">
+  <!-- Generator: Adobe Illustrator 30.0.0, SVG Export Plug-In . SVG Version: 2.1.1 Build 123)  -->
+  <defs>
+    <style>
+      .st0 {
+        filter: url(#drop-shadow-1);
+      }
+
+      .st1 {
+        filter: url(#drop-shadow-2);
+      }
+
+      .st2 {
+        fill: #c96717;
+      }
+
+      .st3 {
+        fill: #e57520;
+      }
+
+      .st4 {
+        fill: #d36a1c;
+      }
+
+      .st5 {
+        fill: #f4943d;
+      }
+
+      .st6 {
+        display: none;
+      }
+    </style>
+    <filter id="drop-shadow-1" x="102" y="146" width="311" height="213" filterUnits="userSpaceOnUse">
+      <feOffset dx="2" dy="10"/>
+      <feGaussianBlur result="blur" stdDeviation="10"/>
+      <feFlood flood-color="#000" flood-opacity=".15"/>
+      <feComposite in2="blur" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+    <filter id="drop-shadow-2" x="58" y="6" width="371" height="296" filterUnits="userSpaceOnUse">
+      <feOffset dx="2" dy="10"/>
+      <feGaussianBlur result="blur1" stdDeviation="10"/>
+      <feFlood flood-color="#000" flood-opacity=".15"/>
+      <feComposite in2="blur1" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <rect class="st6" width="512" height="512"/>
+  <g>
+    <path class="st2" d="M175.57,234.62l184.17,52.12-13.35,62,62.72,16.01v9.34l-142.8,111.44,23.36-88.75-67.4-.67,15.35-67.4-30.17-8.47c-25.95-7.28-41.98-33.24-36.88-59.7l4.99-25.92Z"/>
+    <path class="st4" d="M266.32,485.51l24.4-92.72-67.52-.75,14.42-63.34-30.17-8.47c-25.95-7.28-41.98-33.24-36.88-59.7l4.99-25.92,184.17,52.12-13.35,62,62.72,16.01"/>
+  </g>
+  <g class="st0">
+    <path class="st3" d="M135.51,166.46l21.49,5.97,19.48,29.15,20.19-18.13,22.68,32.64,23.89-19.7,17.83,29.71,25.17-17.75,17.37,26.25,25.01-14.47,52.06,14.47-18.26,83.41-174.17-47.33c-39.98-10.86-64.4-51.19-55.5-91.66l2.77-12.58Z"/>
+    <circle class="st4" cx="219.35" cy="239.95" r="9.83"/>
+    <circle class="st4" cx="305.94" cy="253.13" r="3.34"/>
+  </g>
+  <g class="st1">
+    <path class="st5" d="M102.58,27.09l244.33,102c40.5,16.91,60.1,63.04,44.16,103.93l-11.19,28.71-53-22.51-17.59-34.76-28.67,15.89-15-38.08-35.38,15.9-17.31-29.87-27.59,10.81-15.55-31.22-19.53,16.32c-51.42-21.84-76.86-80-58-132.58h0c1.5-4.19,6.21-6.27,10.32-4.55Z"/>
+    <circle class="st4" cx="193.5" cy="95.99" r="7.26"/>
+    <circle class="st4" cx="343.39" cy="185.33" r="8.76"/>
+    <circle class="st4" cx="130.92" cy="119.15" r="9.88"/>
+    <circle class="st4" cx="275.07" cy="167.52" r="5.54"/>
+  </g>
+</svg>

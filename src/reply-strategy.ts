@@ -20,9 +20,9 @@ export interface DeliverPayload {
 
 export interface ReplyOptions {
   disableBlockStreaming: boolean;
-  onPartialReply?: (payload: { text?: string }) => void;
-  onReasoningStream?: (payload: { text?: string }) => void;
-  onAssistantMessageStart?: () => void;
+  onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
+  onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
+  onAssistantMessageStart?: () => void | Promise<void>;
 }
 
 export interface ReplyStrategy {

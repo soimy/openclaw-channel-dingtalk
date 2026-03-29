@@ -13,10 +13,22 @@ This repository has a few areas that need extra care when you change them:
 
 Use this guide as the contributor entry point, then follow the deeper links in `README.md` and `docs/` for platform-specific details.
 
+## Documentation Placement Rules
+
+Keep documentation updates structured:
+
+- `README.md` is a concise repository entry page only. Do not keep extending it with long feature manuals, config matrices, troubleshooting deep dives, or release-history details.
+- User-facing setup, behavior, and troubleshooting updates belong under `docs/user/`.
+- Contributor, architecture, testing, and release process updates belong under `docs/contributor/`.
+- Release notes belong under `docs/releases/`.
+- When adding a new release note, also update `docs/releases/latest.md` so the latest alias and `/releases/` entry stay current.
+
+If a code change affects user-visible behavior, config, permissions, routing, cards, media, quoting, or troubleshooting, update the relevant `docs/` page in the same PR instead of adding ad-hoc detail to `README.md`.
+
 ## Architecture Boundaries
 
-The canonical architecture guide lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-For Chinese readers, see [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md).
+The canonical architecture guide lives in [`docs/contributor/architecture.en.md`](docs/contributor/architecture.en.md).
+For Chinese readers, see [`docs/contributor/architecture.zh-CN.md`](docs/contributor/architecture.zh-CN.md).
 
 Before adding a new module or widening an existing one, align with these rules:
 
@@ -102,12 +114,13 @@ Before testing changes locally:
 - Publish the app version to the target tenant before testing callbacks
 - Fill in the required DingTalk credentials in your OpenClaw config
 
-See `README.md` for the full setup details:
+See the structured docs for setup details:
 
-- installation and local linking in `README.md`
-- DingTalk app setup and permissions in `README.md`
-- connection troubleshooting in `docs/connection-troubleshooting.md`
-- Chinese troubleshooting guide in `docs/connection-troubleshooting.zh-CN.md`
+- installation and local linking in `docs/user/getting-started/install.md`
+- DingTalk app setup and permissions in `docs/user/getting-started/permissions.md`
+- configuration in `docs/user/getting-started/configure.md`
+- connection troubleshooting in `docs/user/troubleshooting/connection.en.md`
+- Chinese troubleshooting guide in `docs/user/troubleshooting/connection.zh-CN.md`
 
 ## Validation Checklist
 
@@ -186,6 +199,20 @@ If your change touches inbound message extraction or media parsing:
 
 ## Filing Good Issues
 
+Prefer using the GitHub issue templates under `.github/ISSUE_TEMPLATE/`.
+For this repository, issue reports are encouraged to use Simplified Chinese so most contributors and users can discuss details efficiently.
+
+Recommended issue guidance:
+
+- use `问题反馈` for bugs, regressions, compatibility issues, or runtime failures
+- use `功能建议` for feature requests, workflow improvements, or design ideas
+- prefer a concise Chinese title that states the problem or expected outcome directly
+- for bug reports, include `背景`, `复现步骤`, `期望行为`, `实际行为`, and `环境信息`
+- for feature requests, include `背景`, `目标`, optional `建议的实现或思路`, and `验收标准或预期效果`
+- include logs, screenshots, payload samples, or references when they materially help diagnosis
+- redact secrets, tokens, tenant credentials, and private customer data before posting
+- blank issues remain available, but following the template structure will usually get you faster help
+
 When opening a bug report, include:
 
 - plugin version
@@ -210,10 +237,23 @@ For high-signal bug reports, also include issue-specific evidence:
 Please keep PRs focused and easy to review:
 
 - one problem or one tightly related improvement per PR
+- use an English Conventional-style PR title, for example `fix(targeting): normalize learned display names`
+- keep the title type, optional scope, and summary in English
+- write the PR description in Simplified Chinese
+- structure the PR description with clear sections for `背景`, `目标`, and `实现`
+- include TODO checklists for both implementation and verification in the PR description
 - link the related issue in the PR description
 - describe both what changed and why it changed
 - list automated validation you ran
 - list manual validation you ran, if any
+
+Recommended PR description outline:
+
+- `背景`: why this change is needed and what problem or issue it addresses
+- `目标`: what the PR is expected to achieve
+- `实现`: the main implementation approach and important tradeoffs
+- `实现 TODO`: a checkbox list of completed or remaining implementation items
+- `验证 TODO`: a checkbox list of automated and manual verification items
 
 For state-management changes, explicitly call out whether you changed behavior around:
 
@@ -248,9 +288,9 @@ For security issues, do not open a public bug report with exploit details. Follo
 ## Helpful References
 
 - `README.md`
-- `docs/connection-troubleshooting.md`
-- `docs/connection-troubleshooting.zh-CN.md`
-- `docs/cardTemplate.json`
+- `docs/user/troubleshooting/connection.en.md`
+- `docs/user/troubleshooting/connection.zh-CN.md`
+- `docs/assets/card-template.json`
 - issue `#104`
 - issue `#264`
 - issue `#268`

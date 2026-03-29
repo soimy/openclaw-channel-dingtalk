@@ -1,0 +1,72 @@
+.readme-banner-theme-switch {
+  display: block;
+  max-width: 1040px;
+  margin: 0 auto 1.75rem;
+}
+
+.readme-banner-theme-switch img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.vp-doc p:has(> .readme-banner-theme-switch) {
+  margin: 0;
+}
+
+.readme-banner-theme-switch .banner-dark {
+  display: none;
+}
+
+.vp-doc .repo-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 1rem;
+}
+
+.vp-doc .repo-badges a {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.vp-doc .repo-badges img {
+  display: inline-block;
+}
+
+.VPSidebar {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.VPSidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.VPSidebar.is-scrolling {
+  scrollbar-width: thin;
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-c-text-3) 72%, transparent);
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark .readme-banner-theme-switch .banner-light {
+  display: none;
+}
+
+.dark .readme-banner-theme-switch .banner-dark {
+  display: block;
+}

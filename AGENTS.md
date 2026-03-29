@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-18
+**Generated:** 2026-03-28
 **Type:** OpenClaw DingTalk Channel Plugin
 
 ## OVERVIEW
@@ -11,9 +11,13 @@ Current architecture is modularized by responsibility. `src/channel.ts` is now a
 Recent refactors unified short-lived message persistence into `src/message-context-store.ts` and split reply delivery selection into dedicated `reply-strategy*` modules.
 Recent targeting work added a learned target directory under `src/targeting/` and a `displayNameResolution` config gate (`disabled` by default, `all` to enable learned displayName resolution).
 
-For new code and refactors, the canonical architecture guide is `docs/ARCHITECTURE.md`.
-Chinese version: `docs/ARCHITECTURE.zh-CN.md`.
+For new code and refactors, the canonical architecture guide is `docs/contributor/architecture.en.md`.
+Chinese version: `docs/contributor/architecture.zh-CN.md`.
 Use those documents as the source of truth for logical domain placement, incremental migration rules, and module boundaries.
+For AI-agent generated design and execution docs, write specs to `docs/spec/` and plans to `docs/plans/`. Do not create tool-specific doc roots such as `docs/superpowers/`.
+Documentation updates must follow the repo docs structure: keep `README.md` as a concise project entry page, put user-facing details in `docs/user/`, contributor/process docs in `docs/contributor/`, and release notes in `docs/releases/`. Do not expand README with long-form feature/config/troubleshooting content that belongs in `docs/`.
+Issue convention for this repo: prefer the GitHub issue templates under `.github/ISSUE_TEMPLATE/`; keep issue communication primarily in Simplified Chinese; use `问题反馈` for bugs and `功能建议` for feature ideas; and encourage reporters to include background, reproduction or goals, environment, and desensitized evidence.
+Pull request convention for this repo: use an English Conventional-style PR title such as `fix(targeting): normalize learned display names`; keep the title in English; write the PR description in Simplified Chinese; and include clearly labeled `背景`, `目标`, `实现`, `实现 TODO`, and `验证 TODO` sections.
 Planned domain summary:
 - `gateway/`: stream connection lifecycle, callback registration, inbound entry points
 - `targeting/`: peer identity, session aliasing, target resolution, and learned displayName directory
@@ -27,35 +31,79 @@ Planned domain summary:
 
 ```
 ./
-├── index.ts                   # Plugin registration entry point
+├── index.ts                        # Plugin registration entry point
 ├── src/
-│   ├── channel.ts             # Channel definition + gateway wiring + public exports
-│   ├── inbound-handler.ts     # Inbound pipeline (authz, routing, quote restore, dispatch orchestration)
-│   ├── send-service.ts        # Outbound send (session/proactive/text/media/card fallback)
-│   ├── card-service.ts        # AI Card lifecycle + cache + createdAt fallback cache
-│   ├── message-context-store.ts # Unified short-TTL message context persistence
-│   ├── reply-strategy.ts      # Reply strategy selection entry
-│   ├── reply-strategy-card.ts # AI Card reply strategy
-│   ├── reply-strategy-markdown.ts # Markdown/text reply strategy
+│   ├── channel.ts                  # Channel definition + gateway wiring + public exports
+│   ├── inbound-handler.ts          # Inbound pipeline (authz, routing, quote/media restore, dispatch orchestration)
+│   ├── send-service.ts             # Outbound send (session/proactive/text/media/card fallback)
+│   ├── card-service.ts             # AI Card lifecycle + cache + recovery helpers
+│   ├── card-callback-service.ts    # Card callback handling and action processing
+│   ├── card-draft-controller.ts    # Card draft buffering / state transitions
+│   ├── reply-strategy.ts           # Reply strategy selection entry
+│   ├── reply-strategy-card.ts      # AI Card reply strategy
+│   ├── reply-strategy-markdown.ts  # Markdown/text reply strategy
 │   ├── reply-strategy-with-reaction.ts # Reply wrapper for reaction lifecycle
-│   ├── auth.ts                # Access token cache + retry
-│   ├── access-control.ts      # allowFrom normalization + allowlist checks
-│   ├── message-utils.ts       # markdown/title detection + inbound content extraction
-│   ├── config.ts              # config/account/agent workspace/target prefix helpers
-│   ├── dedup.ts               # inbound message dedup with TTL + lazy cleanup
-│   ├── logger-context.ts      # shared logger getter/setter
-│   ├── media-utils.ts         # media type detect + upload
-│   ├── connection-manager.ts  # robust stream connection lifecycle
-│   ├── peer-id-registry.ts    # preserve case-sensitive conversationId mapping
-│   ├── targeting/
-│   │   ├── target-directory-adapter.ts # learned directory bridge + displayNameResolution gate
-│   │   ├── target-directory-store.ts # learned group/user target persistence under targets.directory
-│   │   └── target-input.ts # DingTalk target normalization + id heuristics
-│   ├── onboarding.ts          # channel onboarding adapter
-│   ├── runtime.ts             # runtime getter/setter
-│   ├── config-schema.ts       # Zod validation schema
-│   └── types.ts               # shared types/constants
-└── [config files]             # package.json, tsconfig.json, .eslintrc.json
+│   ├── auth.ts                     # Access token cache + retry
+│   ├── config.ts                   # Config/account/agent helpers
+│   ├── config-schema.ts            # Zod validation schema
+│   ├── runtime.ts                  # Runtime getter/setter
+│   ├── types.ts                    # Shared types/constants
+│   ├── access-control.ts           # DM/group allowlist checks
+│   ├── message-utils.ts            # Markdown/title detection + inbound content extraction
+│   ├── message-context-store.ts    # Unified short-TTL message context persistence
+│   ├── media-utils.ts              # Media type detect + upload/download helpers
+│   ├── attachment-text-extractor.ts # Text extraction for supported attachments
+│   ├── quoted-file-service.ts      # Quote/file recovery helpers
+│   ├── docs-service.ts             # DingTalk docs gateway methods
+│   ├── feedback-learning-service.ts # Learning signal handling
+│   ├── feedback-learning-store.ts  # Learning persistence
+│   ├── learning-command-service.ts # /learn command handling
+│   ├── session-command-service.ts  # Session alias and related commands
+│   ├── connection-manager.ts       # Robust stream connection lifecycle
+│   ├── dedup.ts                    # Inbound message dedup with TTL + lazy cleanup
+│   ├── persistence-store.ts        # Namespace-based persistence primitives
+│   ├── session-routing.ts          # Agent/session routing helpers
+│   ├── session-peer-store.ts       # Session peer persistence
+│   ├── session-lock.ts             # Per-session dispatch locking
+│   ├── peer-id-registry.ts         # Preserve case-sensitive conversationId mapping
+│   ├── group-members-store.ts      # Group member cache/persistence
+│   ├── proactive-risk-registry.ts  # Proactive send risk tracking
+│   ├── logger-context.ts           # Shared logger getter/setter
+│   ├── onboarding.ts               # Channel onboarding adapter
+│   ├── ack-reaction/
+│   │   ├── dynamic-ack-reaction-controller.ts # Tool-progress reaction orchestration
+│   │   ├── dynamic-ack-reaction-events.ts     # Reaction event definitions
+│   │   └── dynamic-ack-reaction-progress.ts   # Reaction progress mapping
+│   ├── messaging/
+│   │   ├── quoted-context.ts       # Quoted context assembly
+│   │   └── quoted-ref.ts           # Structured quotedRef helpers
+│   └── targeting/
+│       ├── agent-name-matcher.ts   # @agent name matching
+│       ├── agent-routing.ts        # Sub-agent routing helpers
+│       ├── target-directory-adapter.ts # Learned directory bridge + displayNameResolution gate
+│       ├── target-directory-store.ts   # Learned group/user target persistence
+│       └── target-input.ts         # DingTalk target normalization + id heuristics
+├── docs/
+│   ├── index.md                    # Docs home
+│   ├── .vitepress/                 # VitePress site config and build output root
+│   ├── user/                       # User-facing install/config/features/troubleshooting docs
+│   ├── contributor/                # Contributor/dev/test/release/architecture docs
+│   ├── releases/                   # Release notes index + version pages
+│   ├── en/                         # Partial English entry pages
+│   ├── spec/                       # AI-authored design/spec docs (not published)
+│   ├── plans/                      # AI-authored implementation plans (not published)
+│   ├── archive/                    # Archived/non-nav docs
+│   └── assets/                     # Non-published doc assets
+├── scripts/
+│   ├── dingtalk-connection-check.* # Connection diagnostics for Stream setup
+│   ├── dingtalk-stream-monitor.mjs # Stream monitoring helper
+│   └── feedback-learning-debug.mjs # Local feedback-learning inspection UI
+├── tests/
+│   ├── unit/                       # Unit tests
+│   └── integration/                # Integration tests with mocked external calls
+├── .github/
+│   └── workflows/                  # CI, npm publish, docs pages deploy
+└── [config files]                  # package.json, tsconfig.json, vitest.config.ts, lint/format configs
 ```
 
 ## WHERE TO LOOK

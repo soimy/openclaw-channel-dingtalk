@@ -1,0 +1,100 @@
+name: 问题反馈
+description: 反馈 bug、回归、兼容性或运行异常问题
+title: "[问题反馈] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈问题。
+
+        为了帮助维护者更快定位，请尽量使用中文填写，并补充可复现、可核对的信息。
+        提交前也建议先搜索是否已有相同或相近的 Issue。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与问题概述
+      description: 说明你在什么场景下遇到了什么问题，尽量先写结论，再补充上下文。
+      placeholder: |
+        例如：
+        在群聊中回复带图片的消息时，插件没有正确恢复引用上下文，而是只发送了纯文本回复。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请按顺序列出最小复现步骤，方便维护者直接照着验证。
+      placeholder: |
+        1. 在钉钉群中发送一条带图片的消息
+        2. 使用机器人进行引用回复
+        3. 观察插件日志和钉钉中的实际回复
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      placeholder: |
+        例如：机器人应恢复被引用消息的图片与文本上下文，并按原有链路继续回复。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      placeholder: |
+        例如：机器人只看到了文本，没有恢复图片上下文，导致回复内容不完整。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chat_scope
+    attributes:
+      label: 发生范围
+      description: 如果不确定，请选择“暂不确定”。
+      options:
+        - 单聊
+        - 群聊
+        - 单聊和群聊都会发生
+        - 暂不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 请尽量完整填写版本和安装方式；不确定的项也可以明确写“不确定”。
+      placeholder: |
+        - 插件版本：
+        - OpenClaw 版本：
+        - dingtalk-stream 版本：
+        - Node.js 版本：
+        - 安装方式：openclaw plugins install / openclaw plugins install -l . / 手动安装
+        - 运行环境：本地 / 服务器 / 容器
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志、截图或补充信息
+      description: 请提供带时间戳的日志、报错、截图、最小脱敏后的 payload，或你已经做过的排查结论。
+      placeholder: |
+        请注意脱敏，不要提交 token、app secret、租户凭证或私有客户原始数据。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，暂未发现可直接合并的问题报告
+        - label: 我已对日志、截图、payload 中的敏感信息做过脱敏
+        - label: 我已阅读仓库中的 CONTRIBUTING 文档，并尽量补齐了定位所需信息
+

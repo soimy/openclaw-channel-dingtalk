@@ -1,6 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { DingTalkConfig } from "./types";
 
 const WINDOWS_ROOT_DIRECTORIES = new Set([
@@ -17,17 +17,22 @@ function normalizeLearningConfig(
   config: DingTalkConfig,
   options: { applyDefaults: boolean },
 ): DingTalkConfig {
-  const learningEnabled = config.learningEnabled ?? config.feedbackLearningEnabled;
-  const learningAutoApply = config.learningAutoApply ?? config.feedbackLearningAutoApply;
-  const learningNoteTtlMs = config.learningNoteTtlMs ?? config.feedbackLearningNoteTtlMs;
   return {
     ...config,
-    learningEnabled: options.applyDefaults ? learningEnabled ?? false : learningEnabled,
-    learningAutoApply: options.applyDefaults ? learningAutoApply ?? false : learningAutoApply,
+    learningEnabled: options.applyDefaults ? config.learningEnabled ?? false : config.learningEnabled,
+    learningAutoApply: options.applyDefaults
+      ? config.learningAutoApply ?? false
+      : config.learningAutoApply,
     learningNoteTtlMs: options.applyDefaults
-      ? learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
-      : learningNoteTtlMs,
+      ? config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
+      : config.learningNoteTtlMs,
   };
+}
+
+function stripRemovedLegacyFields(config: DingTalkConfig): DingTalkConfig {
+  const { verboseRealtimeStream: _verboseRealtimeStream, ...rest } =
+    config as DingTalkConfig & { verboseRealtimeStream?: unknown };
+  return rest as DingTalkConfig;
 }
 
 /**
@@ -38,8 +43,12 @@ export function mergeAccountWithDefaults(
   channelCfg: DingTalkConfig,
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
-  const { accounts: _accounts, ...defaults } = channelCfg;
-  const normalizedAccountCfg = normalizeLearningConfig(accountCfg, { applyDefaults: false });
+  const { accounts: _accounts, ...defaultCandidate } =
+    channelCfg as DingTalkConfig & { accounts?: unknown; verboseRealtimeStream?: unknown };
+  const defaults = stripRemovedLegacyFields(defaultCandidate as DingTalkConfig);
+  const normalizedAccountCfg = stripRemovedLegacyFields(
+    normalizeLearningConfig(accountCfg, { applyDefaults: false }),
+  );
   const overrides: Partial<DingTalkConfig> = {};
   for (const [key, value] of Object.entries(normalizedAccountCfg)) {
     if (value !== undefined) {
@@ -71,14 +80,14 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   }
 
   if (accountId) {
-    return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
+    return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));
   }
 
   if (dingtalkCfg.accounts && Object.keys(dingtalkCfg.accounts).length > 0) {
     return dingtalkCfg;
   }
 
-  return normalizeLearningConfig(dingtalkCfg, { applyDefaults: true });
+  return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));
 }
 
 export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
@@ -142,10 +151,18 @@ export function resolveRelativePath(input: string): string {
 
 export const resolveUserPath = resolveRelativePath;
 
+/**
+ * Resolve the robot code used by DingTalk APIs.
+ * DingTalk robotCode is always equal to clientId; this helper trims whitespace.
+ */
+export function resolveRobotCode(config: Pick<DingTalkConfig, "clientId">): string {
+  return (config.clientId || "").trim();
+}
+
 export function resolveGroupConfig(
   cfg: DingTalkConfig,
   groupId: string,
-): { systemPrompt?: string } | undefined {
+): { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] } | undefined {
   // Group config supports exact match first, then wildcard fallback.
   const groups = cfg.groups;
   if (!groups) {
@@ -169,6 +186,30 @@ function resolveAgentIdentityEmoji(cfg: OpenClawConfig, agentId?: string | null)
   return emoji || undefined;
 }
 
+function normalizeAckReactionValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "off") {
+    return "off";
+  }
+  if (normalized === "emoji") {
+    return "emoji";
+  }
+  if (normalized === "kaomoji") {
+    return "kaomoji";
+  }
+  if (trimmed === "🤔思考中") {
+    return "emoji";
+  }
+  return trimmed;
+}
+
 export function resolveAckReactionSetting(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
@@ -182,15 +223,15 @@ export function resolveAckReactionSetting(params: {
       : undefined;
 
   if (hasOwn(accountConfig, "ackReaction")) {
-    return typeof accountConfig.ackReaction === "string" ? accountConfig.ackReaction.trim() : "";
+    return normalizeAckReactionValue(accountConfig.ackReaction);
   }
   if (hasOwn(dingtalk, "ackReaction")) {
-    return typeof dingtalk.ackReaction === "string" ? dingtalk.ackReaction.trim() : "";
+    return normalizeAckReactionValue(dingtalk.ackReaction);
   }
 
   const messages = (params.cfg as any)?.messages;
   if (hasOwn(messages, "ackReaction")) {
-    return typeof messages.ackReaction === "string" ? messages.ackReaction.trim() : "";
+    return normalizeAckReactionValue(messages.ackReaction);
   }
 
   return resolveAgentIdentityEmoji(params.cfg, params.agentId) || "👀";

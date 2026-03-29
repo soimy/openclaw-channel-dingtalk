@@ -8,7 +8,6 @@
 
 import {
   finishAICard,
-  formatContentForCard,
   isCardInTerminalState,
 } from "./card-service";
 import { createCardDraftController } from "./card-draft-controller";
@@ -18,6 +17,8 @@ import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
+const FILE_ONLY_FALLBACK_ANSWER = "附件已发送，请查收。";
+
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance },
 ): ReplyStrategy {
@@ -25,6 +26,15 @@ export function createCardReplyStrategy(
 
   const controller = createCardDraftController({ card, log });
   let finalTextForFallback: string | undefined;
+  let sawFinalDelivery = false;
+
+  const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
+    const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
+    return controller.getRenderedContent({
+      fallbackAnswer,
+      overrideAnswer: options.preferFinalAnswer ? finalTextForFallback : undefined,
+    });
+  };
 
   return {
     getReplyOptions(): ReplyOptions {
@@ -33,21 +43,21 @@ export function createCardReplyStrategy(
         // onPartialReply (real-time) or deliver(final) -> finishAICard.
         disableBlockStreaming: true,
 
-        onAssistantMessageStart: () => {
-          controller.notifyNewAssistantTurn();
+        onAssistantMessageStart: async () => {
+          await controller.notifyNewAssistantTurn();
         },
 
         onPartialReply: config.cardRealTimeStream
-          ? (payload) => {
+          ? async (payload) => {
               if (payload.text) {
-                controller.updateAnswer(payload.text);
+                await controller.updateAnswer(payload.text);
               }
             }
           : undefined,
 
-        onReasoningStream: (payload) => {
+        onReasoningStream: async (payload) => {
           if (payload.text) {
-            controller.updateReasoning(payload.text);
+            await controller.updateThinking(payload.text);
           }
         },
       };
@@ -65,6 +75,7 @@ export function createCardReplyStrategy(
 
       // ---- final: defer to finalize, just save text ----
       if (payload.kind === "final") {
+        sawFinalDelivery = true;
         log?.info?.(
           `[DingTalk][Finalize] deliver(final) received — cardState=${card.state} ` +
           `textLen=${typeof textToSend === "string" ? textToSend.length : "null"} ` +
@@ -88,27 +99,10 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk] Card failed, skipping tool result (will send full reply on final)");
           return;
         }
-        await controller.flush();
-        await controller.waitForInFlight();
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
         );
-        const toolText = typeof textToSend === "string" ? formatContentForCard(textToSend, "tool") : "";
-        if (toolText) {
-          const sendResult = await sendMessage(ctx.config, ctx.to, toolText, {
-            sessionWebhook: ctx.sessionWebhook,
-            atUserId: !ctx.isDirect ? ctx.senderId : null,
-            log,
-            card,
-            accountId: ctx.accountId,
-            storePath: ctx.storePath,
-            conversationId: ctx.groupId,
-            cardUpdateMode: "append",
-          });
-          if (!sendResult.ok) {
-            throw new Error(sendResult.error || "Tool stream send failed");
-          }
-        }
+        await controller.appendTool(textToSend ?? "");
         return;
       }
 
@@ -135,7 +129,7 @@ export function createCardReplyStrategy(
 
       // Card failed -> markdown fallback (bypass sendMessage to avoid duplicate card).
       if (card.state === AICardStatus.FAILED || controller.isFailed()) {
-        const fallbackText = finalTextForFallback
+        const fallbackText = getRenderedTimeline({ preferFinalAnswer: true })
           || controller.getLastAnswerContent()
           || controller.getLastContent()
           || card.lastStreamedContent;
@@ -164,13 +158,11 @@ export function createCardReplyStrategy(
       try {
         await controller.flush();
         await controller.waitForInFlight();
+        const finalText = getRenderedTimeline() || "✅ Done";
         controller.stop();
-        const finalText = controller.getLastAnswerContent()
-          || finalTextForFallback
-          || "✅ Done";
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
-          `source=${controller.getLastAnswerContent() ? "lastAnswerContent" : finalTextForFallback ? "finalTextForFallback" : "fallbackDone"} ` +
+          `source=${controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
           `preview="${finalText.slice(0, 120)}"`,
         );
         await finishAICard(card, finalText, log, {
@@ -219,7 +211,9 @@ export function createCardReplyStrategy(
     },
 
     getFinalText(): string | undefined {
-      return controller.getLastAnswerContent() || finalTextForFallback;
+      return controller.getFinalAnswerContent()
+        || finalTextForFallback
+        || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
     },
   };
 }

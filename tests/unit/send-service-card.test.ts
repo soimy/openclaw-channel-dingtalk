@@ -41,7 +41,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_skip' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'stream content',
             { card, sessionWebhook: 'https://session.webhook' }
@@ -51,7 +51,7 @@ describe('sendMessage card mode', () => {
         expect(result.ok).toBe(true);
     });
 
-    it('composes append updates locally and streams full content', async () => {
+    it('ignores legacy cardUpdateMode append requests and falls back to normal outbound send', async () => {
         const card = {
             cardInstanceId: 'card_append',
             state: AICardStatus.INPUTING,
@@ -59,17 +59,17 @@ describe('sendMessage card mode', () => {
             lastStreamedContent: 'hello',
         } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
-        cardMocks.streamAICardMock.mockResolvedValue(undefined);
+        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_append_ignored' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             ' world',
-            { card, cardUpdateMode: 'append' } as any,
+            { card, cardUpdateMode: 'append', sessionWebhook: 'https://session.webhook' } as any,
         );
 
-        expect(cardMocks.streamAICardMock).toHaveBeenCalledWith(card, 'hello world', false, undefined);
-        expect(result).toEqual({ ok: true });
+        expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
+        expect(result.ok).toBe(true);
     });
 
     it('skips card streaming when provided card is in terminal state', async () => {
@@ -78,7 +78,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_456' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'fallback text',
             { card, sessionWebhook: 'https://session.webhook' }
@@ -103,7 +103,6 @@ describe('sendMessage card mode', () => {
                 clientId: 'id',
                 clientSecret: 'sec',
                 messageType: 'card',
-                robotCode: 'id',
                 cardTemplateId: 'tmpl.schema',
             } as any,
             'cidA1B2C3',
@@ -133,7 +132,7 @@ describe('sendMessage card mode', () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_789' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'no card text',
             { sessionWebhook: 'https://session.webhook' }
@@ -144,20 +143,21 @@ describe('sendMessage card mode', () => {
         expect(result.ok).toBe(true);
     });
 
-    it('returns failure when card append stream fails', async () => {
+    it('does not use the removed append stream path even if streamAICard would fail', async () => {
         const card = { cardInstanceId: 'card_1', state: AICardStatus.PROCESSING, lastUpdated: Date.now(), lastStreamedContent: 'prev' } as any;
         cardMocks.isCardInTerminalStateMock.mockReturnValue(false);
         cardMocks.streamAICardMock.mockRejectedValue(new Error('stream failed'));
+        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_append_ignored_fail' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'cidA1B2C3',
             'appended',
-            { card, cardUpdateMode: 'append' } as any
+            { card, cardUpdateMode: 'append', sessionWebhook: 'https://session.webhook' } as any
         );
 
-        expect(card.state).toBe(AICardStatus.FAILED);
-        expect(mockedAxios).not.toHaveBeenCalled();
-        expect(result).toEqual({ ok: false, error: 'stream failed' });
+        expect(card.state).toBe(AICardStatus.PROCESSING);
+        expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
+        expect(result.ok).toBe(true);
     });
 });

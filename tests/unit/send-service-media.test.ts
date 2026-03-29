@@ -49,11 +49,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendBySession uses native image body when upload succeeds', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_1');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_1', buffer: Buffer.from('img') });
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'https://session.webhook',
             'ignored text',
             { mediaPath: '/tmp/a.png', mediaType: 'image' }
@@ -63,12 +63,37 @@ describe('send-service media branches', () => {
         expect(req.data).toEqual({ msgtype: 'image', image: { media_id: 'media_img_1' } });
     });
 
+    it('forwards mediaLocalRoots when sendBySession uploads media', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_roots', buffer: Buffer.from('img') });
+        mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'https://session.webhook',
+            'ignored text',
+            {
+                mediaPath: '/tmp/a.png',
+                mediaType: 'image',
+                mediaLocalRoots: ['/sandbox/media', '/workspace/media'],
+            }
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/a.png',
+            'image',
+            expect.any(Function),
+            undefined,
+            { mediaLocalRoots: ['/sandbox/media', '/workspace/media'] },
+        );
+    });
+
     it('sendBySession falls back to plain text when media upload fails', async () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'https://session.webhook',
             'fallback text',
             { mediaPath: '/tmp/a.png', mediaType: 'image', useMarkdown: false }
@@ -82,11 +107,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendBySession bypasses proxy when configured', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_proxy');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_proxy', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
         await sendBySession(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            { clientId: 'id', clientSecret: 'sec', bypassProxyForSend: true } as any,
             'https://session.webhook',
             'ignored text',
             { mediaPath: '/tmp/a.png', mediaType: 'image' }
@@ -100,7 +125,7 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             '/tmp/a.pdf',
             'file'
@@ -111,11 +136,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps image payload to sampleImageMsg template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_img_2');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_2', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3',
             '/tmp/a.png',
             'image'
@@ -127,13 +152,35 @@ describe('send-service media branches', () => {
         expect(result.ok).toBe(true);
     });
 
+    it('forwards mediaLocalRoots when sendProactiveMedia uploads media', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_roots_2', buffer: Buffer.from('data') });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_image_roots' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'cidA1B2C3',
+            '/tmp/a.png',
+            'image',
+            { mediaLocalRoots: ['/sandbox/media'] }
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/a.png',
+            'image',
+            expect.any(Function),
+            undefined,
+            { mediaLocalRoots: ['/sandbox/media'] },
+        );
+    });
+
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_1');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_1', buffer: Buffer.from('data') });
         mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.amr',
             'voice'
@@ -146,11 +193,11 @@ describe('send-service media branches', () => {
     });
 
     it('delegates proactive media journaling when storePath is provided', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_2');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_2', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_2' } } as any);
 
         await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.amr',
             'voice',
@@ -172,6 +219,9 @@ describe('send-service media branches', () => {
                 conversationId: 'user_123',
                 createdAt: expect.any(Number),
                 messageType: 'outbound-proactive-media',
+                senderId: 'bot',
+                senderName: 'OpenClaw',
+                chatType: 'direct',
                 quotedRef: {
                     targetDirection: 'inbound',
                     key: 'msgId',
@@ -186,7 +236,7 @@ describe('send-service media branches', () => {
     });
 
     it('persists proactive media fallback text without emoji prefix', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_file_fallback');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_file_fallback', buffer: Buffer.from('data') });
         mockedAxios
             .mockRejectedValueOnce({
                 message: 'upload send failed',
@@ -196,7 +246,7 @@ describe('send-service media branches', () => {
             .mockResolvedValueOnce({ data: { processQueryKey: 'fallback_q_1' } } as any);
 
         const result = await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id' } as any,
+            { clientId: 'id', clientSecret: 'sec' } as any,
             'user_123',
             '/tmp/a.pdf',
             'file',
@@ -214,6 +264,9 @@ describe('send-service media branches', () => {
                 conversationId: 'user_123',
                 text: '媒体发送失败，兜底链接/路径：/tmp/a.pdf',
                 messageType: 'outbound-proactive-fallback',
+                senderId: 'bot',
+                senderName: 'OpenClaw',
+                chatType: 'direct',
                 delivery: expect.objectContaining({
                     processQueryKey: 'fallback_q_1',
                 }),
@@ -222,11 +275,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia bypasses proxy when configured', async () => {
-        mockedUploadMedia.mockResolvedValueOnce('media_voice_proxy');
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_proxy', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_proxy' } } as any);
 
         await sendProactiveMedia(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', bypassProxyForSend: true } as any,
+            { clientId: 'id', clientSecret: 'sec', bypassProxyForSend: true } as any,
             'user_123',
             '/tmp/a.amr',
             'voice'

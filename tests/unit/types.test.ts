@@ -24,7 +24,6 @@ describe('types helpers', () => {
                 dingtalk: {
                     clientId: 'cli_default',
                     clientSecret: 'sec_default',
-                    robotCode: 'robot_default',
                     dmPolicy: 'allowlist',
                     displayNameResolution: 'all',
                 },
@@ -35,7 +34,6 @@ describe('types helpers', () => {
 
         expect(account.accountId).toBe('default');
         expect(account.clientId).toBe('cli_default');
-        expect(account.robotCode).toBe('robot_default');
         expect(account.displayNameResolution).toBe('all');
         expect(account.configured).toBe(true);
     });
@@ -88,6 +86,31 @@ describe('types helpers', () => {
         expect(account.bypassProxyForSend).toBe(true);
         expect(account.aicardDegradeMs).toBe(120000);
         expect(account.bypassProxyForSend).toBe(true);
+    });
+
+    it('does not copy verboseRealtimeStream onto resolved accounts', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'cli_default',
+                    clientSecret: 'sec_default',
+                    verboseRealtimeStream: true,
+                    accounts: {
+                        main: {
+                            clientId: 'cli_main',
+                            clientSecret: 'sec_main',
+                            verboseRealtimeStream: true,
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const defaultAccount = resolveDingTalkAccount(cfg, 'default') as Record<string, unknown>;
+        const mainAccount = resolveDingTalkAccount(cfg, 'main') as Record<string, unknown>;
+
+        expect('verboseRealtimeStream' in defaultAccount).toBe(false);
+        expect('verboseRealtimeStream' in mainAccount).toBe(false);
     });
 
     it('resolves named account with inherited bypassProxyForSend default', () => {

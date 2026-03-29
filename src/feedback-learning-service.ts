@@ -143,14 +143,12 @@ function updateLearnedRule(
   upsertLearnedRule({ storePath, accountId, rule });
 }
 
-export function isFeedbackLearningEnabled(config: DingTalkConfig | undefined): boolean {
-  const typed = config as (DingTalkConfig & { learningEnabled?: boolean; feedbackLearningEnabled?: boolean }) | undefined;
-  return Boolean(typed?.learningEnabled ?? typed?.feedbackLearningEnabled);
+export function isLearningEnabled(config: DingTalkConfig | undefined): boolean {
+  return Boolean(config?.learningEnabled);
 }
 
-export function isFeedbackLearningAutoApplyEnabled(config: DingTalkConfig | undefined): boolean {
-  const typed = config as (DingTalkConfig & { learningAutoApply?: boolean; feedbackLearningAutoApply?: boolean }) | undefined;
-  return Boolean(typed?.learningAutoApply ?? typed?.feedbackLearningAutoApply);
+export function isLearningAutoApplyEnabled(config: DingTalkConfig | undefined): boolean {
+  return Boolean(config?.learningAutoApply);
 }
 
 export function recordOutboundReplyForLearning(params: {

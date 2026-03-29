@@ -3,13 +3,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import axios from "axios";
 import { getAccessToken } from "./auth";
-import { stripTargetPrefix } from "./config";
+import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
   createSyntheticOutboundMsgId,
   clearMessageContextCacheForTest,
   DEFAULT_CARD_CONTENT_TTL_MS,
   DEFAULT_CREATED_AT_MATCH_WINDOW_MS,
+  DEFAULT_OUTBOUND_SENDER,
+  inferConversationChatType,
   resolveByCreatedAtWindow,
   upsertOutboundMessageContext,
 } from "./message-context-store";
@@ -37,6 +39,7 @@ const RECOVERY_FINALIZE_MESSAGE = "⚠️ 上一次回复处理中断，已自�
 const AICARD_DEGRADE_DEFAULT_MS = 30 * 60 * 1000;
 const CARD_CACHE_MAX_PER_CONVERSATION = 20;
 const CARD_CACHE_MAX_CONVERSATIONS = 500;
+const DYNAMIC_SUMMARY_EXTENSION = { dynamicSummary: "true" } as const;
 
 const aicardDegradeByAccount = new Map<string, { untilMs: number; reason: string }>();
 const inMemoryCardContentStore = new Map<
@@ -408,7 +411,7 @@ async function sendTemplateMismatchNotification(
 
     // Direct markdown fallback notification to user/group, without re-entering sendMessage card flow.
     const payload: Record<string, unknown> = {
-      robotCode: config.robotCode || config.clientId,
+      robotCode: resolveRobotCode(config),
       msgKey: "sampleMarkdown",
       msgParam: JSON.stringify({ title: "OpenClaw 提醒", text }),
     };
@@ -594,19 +597,19 @@ export async function createAICard(
         : `dtv1.card//IM_ROBOT.${conversationId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
-        ? { robotCode: config.robotCode || config.clientId }
+        ? {
+            robotCode: resolveRobotCode(config),
+            extension: DYNAMIC_SUMMARY_EXTENSION,
+          }
         : undefined,
       imRobotOpenDeliverModel: !isGroup
-        ? { spaceType: "IM_ROBOT", robotCode: config.robotCode || config.clientId }
+        ? {
+            spaceType: "IM_ROBOT",
+            robotCode: resolveRobotCode(config),
+            extension: DYNAMIC_SUMMARY_EXTENSION,
+          }
         : undefined,
     };
-
-    if (isGroup && !config.robotCode) {
-      log?.warn?.(
-        "[DingTalk][AICard] robotCode not configured, using clientId as fallback. " +
-          "For best compatibility, set robotCode explicitly in config.",
-      );
-    }
 
     log?.debug?.(
       `[DingTalk][AICard] POST /v1.0/card/instances/createAndDeliver body=${JSON.stringify(createAndDeliverBody)}`,
@@ -887,6 +890,8 @@ function cacheCardContentByProcessQueryKey(
     createdAt: Date.now(),
     text: content,
     messageType: "card",
+    ...DEFAULT_OUTBOUND_SENDER,
+    chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
     quotedRef,
@@ -924,6 +929,8 @@ export function cacheCardContent(
     createdAt,
     text: content,
     messageType: "card",
+    ...DEFAULT_OUTBOUND_SENDER,
+    chatType: inferConversationChatType(conversationId),
     ttlMs: DEFAULT_CARD_CONTENT_TTL_MS,
     topic: null,
   });

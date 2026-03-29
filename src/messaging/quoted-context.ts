@@ -16,12 +16,18 @@ export interface QuotedChainEntry {
 }
 
 export interface ResolvedQuotedRuntimeContext {
-  replyToId: string;
+  replyToId?: string;
   replyToBody: string;
   replyToSender?: string;
   replyToIsQuote: true;
   chain: QuotedChainEntry[];
   untrustedContext?: string;
+}
+
+export interface QuotedRuntimePreview {
+  text?: string;
+  messageType?: string;
+  senderId?: string;
 }
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {
@@ -64,8 +70,35 @@ function buildBodyPlaceholder(record: MessageRecord): string {
   return `[Quoted ${messageType}]`;
 }
 
-function resolveBaseBody(record: MessageRecord): string {
-  return trimmedString(record.text) || buildBodyPlaceholder(record);
+function buildPreviewPlaceholder(preview: QuotedRuntimePreview | undefined): string {
+  const messageType = trimmedString(preview?.messageType) || "message";
+  return `[Quoted ${messageType}]`;
+}
+
+function resolveRecordBody(record: MessageRecord): string {
+  return (
+    trimmedString(record.attachmentText) ||
+    trimmedString(record.text) ||
+    buildBodyPlaceholder(record)
+  );
+}
+
+function resolvePreviewBody(preview: QuotedRuntimePreview | undefined): string | undefined {
+  return trimmedString(preview?.text) || (preview ? buildPreviewPlaceholder(preview) : undefined);
+}
+
+function deriveReplyToIdFromQuotedRef(quotedRef: QuotedRef | undefined): string | undefined {
+  if (!quotedRef?.key || !quotedRef.value) {
+    return undefined;
+  }
+  return trimmedString(quotedRef.value);
+}
+
+function derivePreviewSender(quotedRef?: QuotedRef): string | undefined {
+  if (quotedRef?.targetDirection === "outbound") {
+    return "assistant";
+  }
+  return undefined;
 }
 
 function truncateBody(value: string, limit: number): string {
@@ -102,7 +135,7 @@ function buildChainEntry(params: {
   if (limit <= 0) {
     return null;
   }
-  const body = truncateBody(resolveBaseBody(params.record), limit);
+  const body = truncateBody(resolveRecordBody(params.record), limit);
   return {
     depth: params.depth,
     direction: params.record.direction,
@@ -119,6 +152,7 @@ export function resolveQuotedRuntimeContext(params: {
   conversationId: string | null;
   quotedRef?: QuotedRef;
   firstRecord?: MessageRecord | null;
+  firstPreview?: QuotedRuntimePreview;
   log?: Logger;
   maxDepth?: number;
   perHopBodyLimit?: number;
@@ -200,27 +234,36 @@ export function resolveQuotedRuntimeContext(params: {
     currentRecord = null;
   }
 
-  if (chain.length === 0) {
-    return null;
-  }
-
   const replyToRecord = firstResolvedRecord ?? params.firstRecord ?? null;
   const stableReplyToId = replyToRecord ? deriveReplyToId(replyToRecord) : undefined;
-  if (!replyToRecord || !stableReplyToId) {
+  if (replyToRecord && stableReplyToId) {
+    return {
+      replyToId: stableReplyToId,
+      replyToBody: chain[0].body,
+      replyToSender: chain[0].sender,
+      replyToIsQuote: true,
+      chain,
+      untrustedContext:
+        chain.length > 1
+          ? JSON.stringify({
+              quotedChain: chain.slice(1),
+            })
+          : undefined,
+    };
+  }
+
+  const previewBody = resolvePreviewBody(params.firstPreview);
+  const previewReplyToId = deriveReplyToIdFromQuotedRef(params.quotedRef);
+  if (!previewBody) {
     return null;
   }
 
   return {
-    replyToId: stableReplyToId,
-    replyToBody: chain[0].body,
-    replyToSender: chain[0].sender,
+    replyToId: previewReplyToId,
+    replyToBody: truncateBody(previewBody, perHopBodyLimit),
+    replyToSender: derivePreviewSender(params.quotedRef),
     replyToIsQuote: true,
-    chain,
-    untrustedContext:
-      chain.length > 1
-        ? JSON.stringify({
-            quotedChain: chain.slice(1),
-          })
-        : undefined,
+    chain: [],
+    untrustedContext: undefined,
   };
 }

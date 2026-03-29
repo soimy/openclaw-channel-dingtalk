@@ -44,7 +44,7 @@ describe('error payload logging integration', () => {
         const log = { error: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn() };
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', robotCode: 'id', messageType: 'markdown' },
+            { clientId: 'id', clientSecret: 'sec', messageType: 'markdown' },
             'user_123',
             'hello',
             { log }

@@ -1,0 +1,91 @@
+name: 功能建议
+description: 提交功能需求、体验改进或设计建议
+title: "[功能建议] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢提交建议。
+
+        为了让讨论更聚焦，请尽量使用中文描述“为什么需要”“希望达到什么效果”“你倾向的实现方向或边界”。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 说明当前痛点、使用场景或已有流程中存在的问题。
+      placeholder: |
+        例如：
+        当前在多群场景下查找目标会依赖人工记忆 conversationId，不利于运维和日常使用。
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 说明你希望这个建议最终解决什么问题，尽量写成结果而不是实现细节。
+      placeholder: |
+        例如：希望可以通过更直观的展示名称或目录能力，降低目标定位和运维成本。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的实现或思路
+      description: 可以写你的设想、替代方案、约束条件，或明确说明“暂无具体方案”。
+      placeholder: |
+        例如：
+        - 增加可学习的目录视图
+        - 在配置或命令中支持更友好的检索方式
+        - 不希望引入额外外部依赖
+    validations:
+      required: false
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: 非目标或边界
+      description: 如果有明确不希望触碰的范围、兼容性限制或设计边界，请写在这里。
+      placeholder: |
+        例如：
+        - 不要求一次性重构全部 routing 逻辑
+        - 不希望引入需要公网暴露的新部署方式
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准或预期效果
+      description: 说明什么结果算“这个建议已经被满足”。
+      placeholder: |
+        例如：
+        - 用户能在常见场景下快速定位目标
+        - 文档中有清晰的配置和使用说明
+        - 不破坏现有默认行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考资料或关联上下文
+      description: 可补充相关 issue、PR、截图、文档链接、竞品参考或讨论记录。
+      placeholder: |
+        例如：
+        - 相关 Issue：#123
+        - 相关 PR：#456
+        - 相关文档：docs/user/...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，暂未发现相同建议
+        - label: 我已尽量把需求背景、目标和验收标准写清楚
+        - label: 我理解这是一份建议，不代表会被立即排期或接受

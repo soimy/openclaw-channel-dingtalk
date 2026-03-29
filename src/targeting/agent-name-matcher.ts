@@ -4,7 +4,7 @@
  * Matches @mentions to agent IDs based on name and id fields in agents.list config.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { AtMention, AgentNameMatch } from "../types";
 
 interface AgentConfig {

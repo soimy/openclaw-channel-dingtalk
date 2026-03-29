@@ -10,22 +10,21 @@
  */
 
 import type {
+  ChannelPlugin as SDKChannelPlugin,
   OpenClawConfig,
-  OpenClawPluginApi,
-  ChannelLogSink as SDKChannelLogSink,
+} from "openclaw/plugin-sdk/core";
+import type {
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
-  ChannelPlugin as SDKChannelPlugin,
-} from "openclaw/plugin-sdk";
+  ChannelLogSink as SDKChannelLogSink,
+} from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
 import { mergeAccountWithDefaults } from "./config";
 
-export interface DingtalkPluginModule {
-  id: string;
-  name: string;
-  description?: string;
-  configSchema?: unknown;
-  register?: (api: OpenClawPluginApi) => void | Promise<void>;
-}
+export type AckReactionMode = "off" | "emoji" | "kaomoji";
+// Accept arbitrary strings for backward compatibility; the recommended
+// explicit modes remain: "off" | "emoji" | "kaomoji".
+export type AckReactionConfigValue = string;
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -33,23 +32,21 @@ export interface DingtalkPluginModule {
 export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
   clientSecret: string;
-  robotCode?: string;
-  corpId?: string;
-  agentId?: string;
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
-  ackReaction?: string;
+  ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
   maxConnectionAttempts?: number;
@@ -82,12 +79,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
-  /** @deprecated Use learningEnabled */
-  feedbackLearningEnabled?: boolean;
-  /** @deprecated Use learningAutoApply */
-  feedbackLearningAutoApply?: boolean;
-  /** @deprecated Use learningNoteTtlMs */
-  feedbackLearningNoteTtlMs?: number;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
@@ -101,22 +92,20 @@ export interface DingTalkChannelConfig {
   enabled?: boolean;
   clientId: string;
   clientSecret: string;
-  robotCode?: string;
-  corpId?: string;
-  agentId?: string;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
-  groupPolicy?: "open" | "allowlist";
+  groupPolicy?: "open" | "allowlist" | "disabled";
   allowFrom?: string[];
+  groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
-  ackReaction?: string;
+  ackReaction?: AckReactionConfigValue;
   debug?: boolean;
   messageType?: "markdown" | "card";
   cardTemplateId?: string;
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string }>;
+  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   maxConnectionAttempts?: number;
   initialReconnectDelay?: number;
@@ -148,12 +137,6 @@ export interface DingTalkChannelConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
-  /** @deprecated Use learningEnabled */
-  feedbackLearningEnabled?: boolean;
-  /** @deprecated Use learningAutoApply */
-  feedbackLearningAutoApply?: boolean;
-  /** @deprecated Use learningNoteTtlMs */
-  feedbackLearningNoteTtlMs?: number;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
@@ -236,6 +219,7 @@ export interface DingTalkInboundMessage {
       content?: {
         text?: string;
         downloadCode?: string;
+        fileName?: string;
         biz_custom_action_url?: string;
         richText?: Array<{
           msgType?: string;
@@ -288,6 +272,8 @@ export interface DingTalkInboundMessage {
 
 export type QuotedRefKey = "msgId" | "processQueryKey" | "messageId" | "outTrackId" | "cardInstanceId";
 
+export type AttachmentTextSource = "text" | "html" | "pdf" | "docx";
+
 export interface QuotedRef {
   targetDirection: "inbound" | "outbound";
   key?: QuotedRefKey;
@@ -309,7 +295,12 @@ export interface QuotedInfo {
   cardCreatedAt?: number;
   processQueryKey?: string;
   fileCreatedAt?: number;
+  fileDownloadCode?: string;
   msgId?: string;
+  previewText?: string;
+  previewMessageType?: string;
+  previewFileName?: string;
+  previewSenderId?: string;
 }
 
 /**
@@ -379,6 +370,8 @@ export interface SendMessageOptions {
   /** Force markdown/text delivery even when messageType is "card". Bypasses card
    *  creation while preserving journal writes and other side-effects. */
   forceMarkdown?: boolean;
+  /** Allowed local roots for sandbox/container media path resolution. */
+  mediaLocalRoots?: string[];
 }
 
 export interface DingTalkTrackingMetadata {
@@ -565,7 +558,9 @@ export interface GatewayStopResult {
 /**
  * DingTalk channel plugin definition
  */
-export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }>;
+export type DingTalkChannelPlugin = SDKChannelPlugin<ResolvedAccount & { configured: boolean }> & {
+  setupWizard?: ChannelSetupWizard;
+};
 
 /**
  * Result of target resolution validation
@@ -759,14 +754,12 @@ export function resolveDingTalkAccount(
     const config: DingTalkConfig = {
       clientId: dingtalk?.clientId ?? "",
       clientSecret: dingtalk?.clientSecret ?? "",
-      robotCode: dingtalk?.robotCode,
-      corpId: dingtalk?.corpId,
-      agentId: dingtalk?.agentId,
       name: dingtalk?.name,
       enabled: dingtalk?.enabled,
       dmPolicy: dingtalk?.dmPolicy,
       groupPolicy: dingtalk?.groupPolicy,
       allowFrom: dingtalk?.allowFrom,
+      groupAllowFrom: dingtalk?.groupAllowFrom,
       displayNameResolution: dingtalk?.displayNameResolution,
       journalTTLDays: dingtalk?.journalTTLDays,
       ackReaction: dingtalk?.ackReaction,
@@ -789,12 +782,9 @@ export function resolveDingTalkAccount(
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       cardRealTimeStream: dingtalk?.cardRealTimeStream,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
-      learningEnabled: dingtalk?.learningEnabled ?? dingtalk?.feedbackLearningEnabled,
-      learningAutoApply: dingtalk?.learningAutoApply ?? dingtalk?.feedbackLearningAutoApply,
-      learningNoteTtlMs: dingtalk?.learningNoteTtlMs ?? dingtalk?.feedbackLearningNoteTtlMs,
-      feedbackLearningEnabled: dingtalk?.feedbackLearningEnabled,
-      feedbackLearningAutoApply: dingtalk?.feedbackLearningAutoApply,
-      feedbackLearningNoteTtlMs: dingtalk?.feedbackLearningNoteTtlMs,
+      learningEnabled: dingtalk?.learningEnabled,
+      learningAutoApply: dingtalk?.learningAutoApply,
+      learningNoteTtlMs: dingtalk?.learningNoteTtlMs,
       convertMarkdownTables: dingtalk?.convertMarkdownTables,
       cardAtSender: dingtalk?.cardAtSender,
     };

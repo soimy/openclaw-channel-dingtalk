@@ -7,6 +7,7 @@ import {
     cleanupExpiredMessageContexts,
     clearMessageContextCacheForTest,
     createSyntheticOutboundMsgId,
+    listMessageContexts,
     resolveByAlias,
     resolveByCreatedAtWindow,
     resolveByMsgId,
@@ -79,6 +80,97 @@ describe('message-context-store', () => {
             spaceId: 'space_1',
             fileId: 'file_1',
         });
+    });
+
+    it('stores attachment excerpts for later quoted/history recovery', () => {
+        const now = Date.now();
+
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_attachment',
+            msgId: 'msg_attachment_1',
+            createdAt: now,
+            messageType: 'interactiveCardFile',
+            text: '[钉钉文档]',
+            attachmentText: '第一段\n第二段',
+            attachmentTextSource: 'pdf',
+            attachmentTextTruncated: true,
+            attachmentFileName: 'manual.pdf',
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        const record = resolveByMsgId({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_attachment',
+            msgId: 'msg_attachment_1',
+        });
+
+        expect(record?.attachmentText).toBe('第一段\n第二段');
+        expect(record?.attachmentTextSource).toBe('pdf');
+        expect(record?.attachmentTextTruncated).toBe(true);
+        expect(record?.attachmentFileName).toBe('manual.pdf');
+    });
+
+    it('stores sender/chat metadata and lists recent message contexts in order', () => {
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta',
+            msgId: 'msg_meta_1',
+            createdAt: 1000,
+            messageType: 'text',
+            text: 'first',
+            senderId: 'user_1',
+            senderName: 'Alice',
+            mentions: ['Bob', 'Bob', ''],
+            chatType: 'group',
+            quotedMessageId: 'quoted_1',
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        upsertOutboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta',
+            createdAt: 2000,
+            messageType: 'outbound',
+            text: 'second',
+            senderId: 'bot',
+            senderName: 'OpenClaw',
+            chatType: 'group',
+            ttlMs: 60_000,
+            topic: null,
+            delivery: {
+                messageId: 'msg_meta_2',
+                kind: 'session',
+            },
+        });
+
+        const inbound = resolveByMsgId({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta',
+            msgId: 'msg_meta_1',
+        });
+        expect(inbound?.senderId).toBe('user_1');
+        expect(inbound?.senderName).toBe('Alice');
+        expect(inbound?.mentions).toEqual(['Bob']);
+        expect(inbound?.chatType).toBe('group');
+        expect(inbound?.quotedMessageId).toBe('quoted_1');
+
+        const listed = listMessageContexts({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta',
+        });
+        expect(listed.map((record) => record.msgId)).toEqual(['msg_meta_1', 'msg_meta_2']);
+        expect(listed[1]?.senderId).toBe('bot');
+        expect(listed[1]?.senderName).toBe('OpenClaw');
+        expect(listed[1]?.chatType).toBe('group');
     });
 
     it('persists quotedRef on records and resolves inbound/outbound references', () => {

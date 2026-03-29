@@ -6,6 +6,14 @@ import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, uploadMedia } from '../../src/media-utils';
 
+const mockLoadWebMedia = vi.fn();
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: () => ({
+        media: { loadWebMedia: mockLoadWebMedia },
+        channel: { media: { saveMediaBuffer: vi.fn() } },
+    }),
+}));
+
 vi.mock('axios', () => {
     const mockAxios = {
         get: vi.fn(),
@@ -79,14 +87,15 @@ describe('media-utils', () => {
         const mediaPath = createTempFile(Buffer.from('hello world'));
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_123' } } as any);
 
-        const mediaId = await uploadMedia(
+        const result = await uploadMedia(
             { clientId: 'id', clientSecret: 'sec' } as any,
             mediaPath,
             'file',
             vi.fn().mockResolvedValue('token_abc')
         );
 
-        expect(mediaId).toBe('media_123');
+        expect(result?.mediaId).toBe('media_123');
+        expect(result?.buffer).toEqual(Buffer.from('hello world'));
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
         expect(mockedAxiosPost.mock.calls[0]?.[0]).toContain('access_token=token_abc&type=file');
 
@@ -303,5 +312,92 @@ describe('media-utils', () => {
         ).toBe(true);
 
         fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+    });
+
+    it('falls back to runtime media bridge for sandbox paths (ENOENT on host)', async () => {
+        const sandboxPath = '/workspace/generated-image.png';
+        const fileContent = Buffer.from('sandbox-image-data');
+
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: fileContent,
+            fileName: 'generated-image.png',
+            contentType: 'image/png',
+        });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_1' } } as any);
+
+        const result = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+        );
+
+        expect(result?.mediaId).toBe('media_sandbox_1');
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: undefined });
+        expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes mediaLocalRoots to runtime media bridge', async () => {
+        const sandboxPath = '/workspace/output.pdf';
+        const fileContent = Buffer.from('pdf-data');
+        const localRoots = ['/workspace', '/tmp'];
+
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: fileContent,
+            fileName: 'output.pdf',
+            contentType: 'application/pdf',
+        });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_2' } } as any);
+
+        const result = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'file',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+            { mediaLocalRoots: localRoots },
+        );
+
+        expect(result?.mediaId).toBe('media_sandbox_2');
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { mediaLocalRoots: localRoots });
+    });
+
+    it('returns null when loadWebMedia returns null (sandbox bridge failure)', async () => {
+        const sandboxPath = '/workspace/missing.png';
+
+        mockLoadWebMedia.mockResolvedValueOnce(null);
+
+        const log = { error: vi.fn(), debug: vi.fn() };
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            log as any,
+        );
+
+        expect(mediaId).toBeNull();
+        expect(log.error).toHaveBeenCalled();
+        const errorMsg = String(log.error.mock.calls[0]?.[0] ?? '');
+        expect(errorMsg).toContain('not found');
+    });
+
+    it('returns null when loadWebMedia returns object without buffer', async () => {
+        const sandboxPath = '/workspace/empty.png';
+
+        mockLoadWebMedia.mockResolvedValueOnce({ fileName: 'empty.png' });
+
+        const log = { error: vi.fn(), debug: vi.fn() };
+        const mediaId = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sandboxPath,
+            'image',
+            vi.fn().mockResolvedValue('token_abc'),
+            log as any,
+        );
+
+        expect(mediaId).toBeNull();
+        expect(log.error).toHaveBeenCalled();
     });
 });

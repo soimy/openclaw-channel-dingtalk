@@ -13,10 +13,22 @@ English version: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 这份文档是贡献入口；更深入的钉钉平台细节请继续查看 `README.md` 和 `docs/` 下的文档。
 
+## 文档放置规范
+
+今后的文档更新请遵守分层约束：
+
+- `README.md` 只作为仓库入口页，不要继续把长篇功能说明、配置矩阵、深度排障、发布历史等内容塞回 `README`。
+- 面向用户的安装、配置、功能说明和故障排查，统一更新到 `docs/user/`。
+- 面向贡献者的架构、测试、开发和发布流程，统一更新到 `docs/contributor/`。
+- 版本发布说明统一放到 `docs/releases/`。
+- 新增版本发布说明时，同时更新 `docs/releases/latest.md`，保证 latest 入口和 `/releases/` 默认页始终指向最新版本。
+
+如果某次代码改动影响了用户可见行为、配置、权限、路由、卡片、媒体、引用链或排障方式，请在同一个 PR 里同步更新对应 `docs/` 页面，而不是把说明追加进 `README.md`。
+
 ## 架构边界
 
-仓库的整体架构说明、模块职责边界和增量迁移规则以 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 为准。
-中文版本见 [`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
+仓库的整体架构说明、模块职责边界和增量迁移规则以 [`docs/contributor/architecture.en.md`](docs/contributor/architecture.en.md) 为准。
+中文版本见 [`docs/contributor/architecture.zh-CN.md`](docs/contributor/architecture.zh-CN.md)。
 
 新增模块或扩展现有模块前，请先对齐以下规则：
 
@@ -102,12 +114,13 @@ openclaw plugins install -l .
 - 应用版本已发布到目标租户，否则回调测试可能无效
 - 已在 OpenClaw 配置中填入必需的钉钉凭证
 
-完整配置步骤请参考 `README.md`：
+完整配置步骤请优先参考结构化文档：
 
-- 安装与本地链接：`README.md`
-- 钉钉应用配置与权限说明：`README.md`
-- 英文连接排障文档：`docs/connection-troubleshooting.md`
-- 中文连接排障文档：`docs/connection-troubleshooting.zh-CN.md`
+- 安装与本地链接：`docs/user/getting-started/install.md`
+- 钉钉应用配置与权限说明：`docs/user/getting-started/permissions.md`
+- 配置说明：`docs/user/getting-started/configure.md`
+- 英文连接排障文档：`docs/user/troubleshooting/connection.en.md`
+- 中文连接排障文档：`docs/user/troubleshooting/connection.zh-CN.md`
 
 ## 提交前验证清单
 
@@ -186,6 +199,20 @@ npm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 
 ## 如何提交高质量 Issue
 
+优先使用 `.github/ISSUE_TEMPLATE/` 下的 GitHub Issue 模板。
+考虑到本仓库的主要用户与贡献者以中文为主，Issue 标题和描述优先使用简体中文，便于更高效地沟通和定位。
+
+推荐的 Issue 提交方式：
+
+- bug、回归、兼容性或运行异常，使用 `问题反馈` 模板
+- 功能需求、体验改进或设计建议，使用 `功能建议` 模板
+- 标题尽量直接概括问题或目标，避免只有“有问题”“求支持”这类信息量过低的标题
+- bug 类问题尽量补齐 `背景`、`复现步骤`、`期望行为`、`实际行为`、`环境信息`
+- 功能建议尽量补齐 `背景`、`目标`、可选的 `建议实现`，以及 `验收标准或预期效果`
+- 如果日志、截图、payload 样本或关联 issue/PR 能帮助判断，请一并附上
+- 发布前请先脱敏，不要提交 token、secret、租户凭证或私有客户数据
+- 空白 Issue 仍然可用，但按模板结构补齐信息，通常能更快获得有效响应
+
 提交 bug report 时，请至少包含：
 
 - 插件版本
@@ -210,10 +237,23 @@ npm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 请尽量让 PR 聚焦、易审阅：
 
 - 一个 PR 只解决一个问题，或一组紧密相关的改动
+- PR 标题使用英文 Conventional 风格，例如 `fix(targeting): normalize learned display names`
+- 标题中的 type、可选 scope 和 summary 均使用英文，不要写中文标题
+- PR 描述统一使用简体中文
+- PR 描述需要清晰写出 `背景`、`目标`、`实现`
+- PR 描述中必须包含 `实现 TODO` 和 `验证 TODO` 两组 checklist
 - 在 PR 描述里链接相关 issue
 - 说明改了什么，以及为什么这样改
 - 列出你跑过的自动化验证
 - 如果做了手工验证，也一并写清楚
+
+推荐的 PR 描述结构：
+
+- `背景`：说明为什么要改、对应什么问题或上下文
+- `目标`：说明这个 PR 预期达成什么结果
+- `实现`：说明主要实现思路和关键取舍
+- `实现 TODO`：用 checkbox 列出已完成和待完成的实现项
+- `验证 TODO`：用 checkbox 列出自动化验证和手工验证项
 
 如果改动了状态管理相关逻辑，请明确说明是否影响：
 
@@ -248,9 +288,9 @@ npm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
 ## 参考资料
 
 - `README.md`
-- `docs/connection-troubleshooting.md`
-- `docs/connection-troubleshooting.zh-CN.md`
-- `docs/cardTemplate.json`
+- `docs/user/troubleshooting/connection.en.md`
+- `docs/user/troubleshooting/connection.zh-CN.md`
+- `docs/assets/card-template.json`
 - issue `#104`
 - issue `#264`
 - issue `#268`

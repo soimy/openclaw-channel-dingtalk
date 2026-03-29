@@ -87,7 +87,7 @@ function createStartContext() {
         cfg: {},
         account: {
             accountId: 'main',
-            config: { clientId: 'ding_id', clientSecret: 'ding_secret', robotCode: 'robot_1' },
+            config: { clientId: 'ding_id', clientSecret: 'ding_secret' },
         },
         log: {
             info: vi.fn(),
@@ -146,7 +146,7 @@ describe('gateway inbound callback pipeline', () => {
 
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(1);
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_1', { success: true });
-        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('robot_1:msg_1');
+        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('ding_id:msg_1');
         expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
         expect(shared.handleDingTalkMessageMock).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -208,15 +208,18 @@ describe('gateway inbound callback pipeline', () => {
 
         await shared.listeners.TOPIC_ROBOT?.(payload);
         expect(shared.markMessageProcessedMock).not.toHaveBeenCalled();
-        expect(shared.socketCallBackResponseMock).not.toHaveBeenCalled();
+        // Early ack: acknowledge() is called before the handler, so even on failure the callback is acked
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(1);
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_retry', { success: true });
         expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('Inbound counters (failed)'));
 
         await shared.listeners.TOPIC_ROBOT?.(payload);
         expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
         expect(shared.markMessageProcessedMock).toHaveBeenCalledTimes(1);
-        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('robot_1:msg_retry');
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(1);
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_retry', { success: true });
+        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('ding_id:msg_retry');
+        // Both attempts ack immediately
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(2);
+        expect(shared.socketCallBackResponseMock).toHaveBeenNthCalledWith(2, 'stream_msg_retry', { success: true });
     });
 
     it('does not acknowledge malformed payloads when parse fails', async () => {
@@ -277,10 +280,11 @@ describe('gateway inbound callback pipeline', () => {
         await second;
 
         expect(shared.markMessageProcessedMock).toHaveBeenCalledTimes(1);
-        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('robot_1:msg_inflight');
-        expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(1);
+        expect(shared.markMessageProcessedMock).toHaveBeenCalledWith('ding_id:msg_inflight');
+        // Both the first message and the in-flight duplicate are acked immediately
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledTimes(2);
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_inflight_1', { success: true });
-        expect(shared.socketCallBackResponseMock).not.toHaveBeenCalledWith('stream_msg_inflight_2', { success: true });
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('stream_msg_inflight_2', { success: true });
     });
 
     it('releases stale in-flight lock after ttl and allows reprocessing', async () => {

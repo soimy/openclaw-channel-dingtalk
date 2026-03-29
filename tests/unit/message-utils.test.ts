@@ -48,6 +48,8 @@ describe('message-utils', () => {
 
         expect(content.text).toBe('当前消息');
         expect(content.quoted?.msgId).toBe('quoted_text_1');
+        expect(content.quoted?.previewText).toBe('被引用内容');
+        expect(content.quoted?.previewMessageType).toBeUndefined();
     });
 
     it('引用文字（text msgType）— quoted prefix and current text', () => {
@@ -101,6 +103,8 @@ describe('message-utils', () => {
 
         expect(content.quoted?.mediaDownloadCode).toBe('dl_pic_123');
         expect(content.quoted?.mediaType).toBe('image');
+        expect(content.quoted?.previewText).toBe('<media:image>');
+        expect(content.quoted?.previewMessageType).toBe('picture');
     });
 
     it('引用文件/视频/语音（unknownMsgType）— isQuotedFile, fileCreatedAt, msgId', () => {
@@ -131,6 +135,112 @@ describe('message-utils', () => {
         expect(content.quoted?.msgId).toBe('msg123');
     });
 
+    it('引用普通文件（file）— isQuotedFile, fileCreatedAt, msgId, previewFileName', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '看这个文件',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'file',
+                    msgId: 'msg456',
+                    createdAt: 1774356117207,
+                    content: {
+                        spaceId: '28414449789',
+                        fileName: 'report.pdf',
+                        downloadCode: 'DOWNLOAD_CODE_ABC',
+                        fileId: '215330128705',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774356117207);
+        expect(content.quoted?.msgId).toBe('msg456');
+        expect(content.quoted?.previewFileName).toBe('report.pdf');
+        expect(content.quoted?.previewMessageType).toBe('file');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('DOWNLOAD_CODE_ABC');
+    });
+
+    it('引用音频（audio）— isQuotedFile, fileDownloadCode, previewMessageType', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '听这段',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'audio',
+                    msgId: 'msg_audio_1',
+                    createdAt: 1774508519673,
+                    content: {
+                        duration: '2000',
+                        downloadCode: 'AUDIO_DL_CODE',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774508519673);
+        expect(content.quoted?.msgId).toBe('msg_audio_1');
+        expect(content.quoted?.previewMessageType).toBe('audio');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('AUDIO_DL_CODE');
+    });
+
+    it('引用视频（video）— isQuotedFile, fileDownloadCode, previewMessageType', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '看这段',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'video',
+                    msgId: 'msg_video_1',
+                    createdAt: 1774508952829,
+                    content: {
+                        duration: '1',
+                        downloadCode: 'VIDEO_DL_CODE',
+                        videoType: 'mp4',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.isQuotedFile).toBe(true);
+        expect(content.quoted?.fileCreatedAt).toBe(1774508952829);
+        expect(content.quoted?.msgId).toBe('msg_video_1');
+        expect(content.quoted?.previewMessageType).toBe('video');
+        expect((content.quoted as any)?.fileDownloadCode).toBe('VIDEO_DL_CODE');
+    });
+
     it('引用 AI 卡片（interactiveCard）— isQuotedCard, processQueryKey', () => {
         const message = {
             msgId: 'test',
@@ -156,6 +266,9 @@ describe('message-utils', () => {
 
         expect(content.quoted?.isQuotedCard).toBe(true);
         expect(content.quoted?.processQueryKey).toBe('carrier_123');
+        expect(content.quoted?.previewText).toBe('[interactiveCard消息]');
+        expect(content.quoted?.previewMessageType).toBe('interactiveCard');
+        expect(content.quoted?.previewSenderId).toBe('bot');
     });
 
     it('引用钉钉文档卡片（interactiveCard from user）— isQuotedDocCard and msgId', () => {
@@ -381,6 +494,7 @@ describe('message-utils', () => {
         const content = extractMessageContent(message);
 
         expect(content.quoted?.msgId).toBe('legacy_quote_message_1');
+        expect(content.quoted?.previewText).toBe('旧引用');
     });
 
     it('content.quoteContent 旧格式 — no longer injects legacy quote text', () => {
@@ -424,6 +538,29 @@ describe('message-utils', () => {
         expect(content.docSpaceId).toBe('28299679864');
         expect(content.docFileId).toBe('211213307938');
         expect(content.text).toContain('钉钉文档');
+    });
+
+    it('引用消息正文为空时使用 quoted previewText 兜底', () => {
+        const message = {
+            msgtype: 'text',
+            text: {
+                content: ' ',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'text',
+                    msgId: 'msgbVA2Abf4IB/d2lvXE1utZg==',
+                    content: { text: '如果你能看到这条消息，请回复"我看到了"' },
+                },
+            },
+            isInAtList: true,
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.text).toBeTruthy();
+        expect(content.text).toContain('如果你能看到这条消息');
+        expect(content.quoted?.msgId).toBe('msgbVA2Abf4IB/d2lvXE1utZg==');
+        expect(content.quoted?.previewText).toBe('如果你能看到这条消息，请回复"我看到了"');
     });
 
     it('原始钉钉文档消息 URL 缺少必需参数时安全降级', () => {

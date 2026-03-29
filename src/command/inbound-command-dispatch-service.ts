@@ -43,7 +43,6 @@ type InboundCommandDispatchParams = {
   accountId: string;
   dingtalkConfig: DingTalkConfig;
   senderId: string;
-  senderName: string;
   isDirect: boolean;
   extractedText: string;
   data: {
