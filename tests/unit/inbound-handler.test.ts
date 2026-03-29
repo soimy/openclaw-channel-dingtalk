@@ -3806,7 +3806,7 @@ describe("inbound-handler", () => {
     expect(shared.sendMessageMock.mock.calls.map((call: any[]) => call[2])).toEqual([
       "Turn 1 summary",
       "Turn 2 short summary",
-      "with detail",
+      " with detail",
     ]);
   });
 

@@ -96,6 +96,19 @@ describe("reply-strategy-markdown", () => {
         ]);
     });
 
+    it("onPartialReply preserves leading spaces in English incremental suffixes", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+        const opts = strategy.getReplyOptions();
+
+        await opts.onPartialReply?.({ text: "The answer is" });
+        await opts.onPartialReply?.({ text: "The answer is 42" });
+
+        expect(sentTexts()).toEqual([
+            "The answer is",
+            " 42",
+        ]);
+    });
+
     it("deliver(final) only sends the unsent answer tail", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
         const opts = strategy.getReplyOptions();
@@ -111,7 +124,7 @@ describe("reply-strategy-markdown", () => {
         expect(sentTexts()).toEqual([
             "结论：",
             "主要改动在 reply strategy",
-            "和测试",
+            " 和测试",
         ]);
     });
 
@@ -123,6 +136,17 @@ describe("reply-strategy-markdown", () => {
         await strategy.deliver({ text: "最终结论", mediaUrls: [], kind: "final" });
 
         expect(sentTexts()).toEqual(["最终结论"]);
+    });
+
+    it("deliver(final) with empty text preserves the previously accumulated answer", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+        const opts = strategy.getReplyOptions();
+
+        await opts.onPartialReply?.({ text: "阶段性总结" });
+        await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+
+        expect(sentTexts()).toEqual(["阶段性总结"]);
+        expect(strategy.getFinalText()).toBe("阶段性总结");
     });
 
     it("onAssistantMessageStart resets the answer cursor for the next turn", async () => {
@@ -138,6 +162,20 @@ describe("reply-strategy-markdown", () => {
             "第一轮结论",
             "第二轮总结",
             "和补充",
+        ]);
+    });
+
+    it("deliver(tool) with empty text still resets the thinking cursor boundary", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+        const opts = strategy.getReplyOptions();
+
+        await opts.onReasoningStream?.({ text: "继续检查" });
+        await strategy.deliver({ text: "", mediaUrls: [], kind: "tool" });
+        await opts.onReasoningStream?.({ text: "继续检查" });
+
+        expect(sentTexts()).toEqual([
+            "> 继续检查",
+            "> 继续检查",
         ]);
     });
 

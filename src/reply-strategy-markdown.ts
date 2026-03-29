@@ -28,7 +28,8 @@ function computeIncrementalSuffix(previous: string, next: string): string {
   if (!current.startsWith(prev)) {
     return "";
   }
-  return current.slice(prev.length).trimStart();
+  const suffix = current.slice(prev.length);
+  return suffix.trim() ? suffix : "";
 }
 
 export function createMarkdownReplyStrategy(
@@ -75,7 +76,9 @@ export function createMarkdownReplyStrategy(
 
   const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
     const current = typeof text === "string" ? text : "";
-    activeAnswerText = current;
+    if (current.length > 0) {
+      activeAnswerText = current;
+    }
     const suffix = computeIncrementalSuffix(lastSentAnswerText, current);
     if (suffix) {
       await sendMarkdownSegment(suffix);
@@ -98,6 +101,8 @@ export function createMarkdownReplyStrategy(
           await emitAnswerSuffix(payload.text);
         },
         onAssistantMessageStart: async () => {
+          // Markdown answer turns reset independently. Thinking boundaries are
+          // still sealed by tool events so we do not clear the thinking cursor here.
           activeAnswerText = "";
           lastSentAnswerText = "";
         },
@@ -110,16 +115,20 @@ export function createMarkdownReplyStrategy(
       }
 
       if (payload.kind === "tool") {
+        lastSentThinkingText = "";
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           return;
         }
-        lastSentThinkingText = "";
         await sendMarkdownSegment(renderQuotedSegment(text));
         return;
       }
 
-      if (payload.kind === "final" && typeof payload.text === "string") {
+      if (
+        payload.kind === "final"
+        && typeof payload.text === "string"
+        && payload.text.length > 0
+      ) {
         finalText = payload.text;
         await emitAnswerSuffix(payload.text);
       }
