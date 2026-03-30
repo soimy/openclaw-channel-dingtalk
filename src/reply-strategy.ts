@@ -20,10 +20,6 @@ export interface DeliverPayload {
 
 export interface ReplyOptions {
   disableBlockStreaming: boolean;
-  onBlockReply?: (
-    payload: { text?: string; mediaUrls?: string[]; isReasoning?: boolean; [key: string]: unknown },
-    context?: { abortSignal?: AbortSignal; timeoutMs?: number },
-  ) => void | Promise<void>;
   onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
   onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;

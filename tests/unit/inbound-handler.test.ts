@@ -1910,13 +1910,13 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage markdown flow sends reasoning-on block replies via onBlockReply", async () => {
+  it("handleDingTalkMessage markdown flow sends block answers through dispatcher delivery", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockImplementation(async ({ replyOptions }) => {
-        await replyOptions?.onBlockReply?.({ text: "Reasoning:\n_thinking_", isReasoning: true });
-        await replyOptions?.onBlockReply?.({ text: "final output" });
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver({ text: "阶段性总结" }, { kind: "block" });
+        await dispatcherOptions.deliver({ text: "阶段性总结和补充" }, { kind: "final" });
         return { queuedFinal: false };
       });
     runtime.channel.session.resolveStorePath = vi
@@ -1948,7 +1948,7 @@ describe("inbound-handler", () => {
       1,
       expect.anything(),
       "user_1",
-      "> Reasoning:\n> _thinking_",
+      "阶段性总结",
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
         quotedRef: {
@@ -1962,7 +1962,7 @@ describe("inbound-handler", () => {
       2,
       expect.anything(),
       "user_1",
-      "final output",
+      "和补充",
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
       }),
@@ -3769,13 +3769,12 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("markdown flow still sends final answer when reasoning-on uses only block replies", async () => {
+  it("markdown flow still sends answer when reasoning-on collapses to answer-only block delivery", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockImplementation(async ({ replyOptions }) => {
-        await replyOptions?.onBlockReply?.({ text: "Reasoning:\n_step_", isReasoning: true });
-        await replyOptions?.onBlockReply?.({ text: "reasoning on正常" });
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver({ text: "reasoning on正常" }, { kind: "block" });
         return { queuedFinal: false };
       });
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
@@ -3799,10 +3798,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.sendMessageMock.mock.calls.map((call: any[]) => call[2])).toEqual([
-      "> Reasoning:\n> _step_",
-      "reasoning on正常",
-    ]);
+    expect(shared.sendMessageMock.mock.calls.map((call: any[]) => call[2])).toEqual(["reasoning on正常"]);
   });
 
   it("card mode + media bypasses finalContent accumulation and still finalizes with text", async () => {

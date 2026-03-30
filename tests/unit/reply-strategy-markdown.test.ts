@@ -37,37 +37,27 @@ describe("reply-strategy-markdown", () => {
         sendMessageMock.mockReset().mockResolvedValue({ ok: true });
     });
 
-    it("getReplyOptions enables block reply handling and disables reasoning stream callbacks", () => {
+    it("getReplyOptions enables block streaming and keeps markdown callbacks disabled", () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
         const opts = strategy.getReplyOptions();
 
         expect(opts.disableBlockStreaming).toBe(false);
-        expect(opts.onBlockReply).toBeDefined();
+        expect("onBlockReply" in opts).toBe(false);
         expect(opts.onPartialReply).toBeUndefined();
         expect(opts.onReasoningStream).toBeUndefined();
         expect(opts.onAssistantMessageStart).toBeUndefined();
     });
 
-    it("onBlockReply sends reasoning as quoted markdown", async () => {
+    it("deliver(block) sends answer text as plain markdown", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "Reasoning:\n_step_", isReasoning: true });
-
-        expect(sentTexts()).toEqual(["> Reasoning:\n> _step_"]);
-    });
-
-    it("onBlockReply sends answer text as plain markdown", async () => {
-        const strategy = createMarkdownReplyStrategy(buildCtx());
-        const opts = strategy.getReplyOptions();
-
-        await opts.onBlockReply?.({ text: "The answer is 42" });
+        await strategy.deliver({ text: "The answer is 42", mediaUrls: [], kind: "block" });
 
         expect(sentTexts()).toEqual(["The answer is 42"]);
         expect(strategy.getFinalText()).toBe("The answer is 42");
     });
 
-    it("onBlockReply sends media before answer text", async () => {
+    it("deliver(block) sends media before answer text", async () => {
         const events: string[] = [];
         const deliverMedia = vi.fn(async (urls: string[]) => {
             events.push(`media:${urls.join(",")}`);
@@ -78,9 +68,12 @@ describe("reply-strategy-markdown", () => {
         });
 
         const strategy = createMarkdownReplyStrategy(buildCtx({ deliverMedia }));
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "final block", mediaUrls: ["/tmp/report.pdf"] });
+        await strategy.deliver({
+            text: "final block",
+            mediaUrls: ["/tmp/report.pdf"],
+            kind: "block",
+        });
 
         expect(events).toEqual([
             "media:/tmp/report.pdf",
@@ -100,11 +93,14 @@ describe("reply-strategy-markdown", () => {
         ]);
     });
 
-    it("deliver(final) only sends the unsent answer tail after an answer block reply", async () => {
+    it("deliver(final) only sends the unsent answer tail after a block answer", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "结论：主要改动在 reply strategy" });
+        await strategy.deliver({
+            text: "结论：主要改动在 reply strategy",
+            mediaUrls: [],
+            kind: "block",
+        });
         await strategy.deliver({
             text: "结论：主要改动在 reply strategy 和测试",
             mediaUrls: [],
@@ -117,11 +113,10 @@ describe("reply-strategy-markdown", () => {
         ]);
     });
 
-    it("deliver(final) does not resend content already emitted by block reply", async () => {
+    it("deliver(final) does not resend content already emitted by block delivery", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "最终结论" });
+        await strategy.deliver({ text: "最终结论", mediaUrls: [], kind: "block" });
         await strategy.deliver({ text: "最终结论", mediaUrls: [], kind: "final" });
 
         expect(sentTexts()).toEqual(["最终结论"]);
@@ -129,9 +124,8 @@ describe("reply-strategy-markdown", () => {
 
     it("deliver(final) with empty text preserves the previously accumulated answer", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "阶段性总结" });
+        await strategy.deliver({ text: "阶段性总结", mediaUrls: [], kind: "block" });
         await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
 
         expect(sentTexts()).toEqual(["阶段性总结"]);
@@ -149,9 +143,8 @@ describe("reply-strategy-markdown", () => {
         });
 
         const strategy = createMarkdownReplyStrategy(buildCtx({ deliverMedia }));
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "结论：" });
+        await strategy.deliver({ text: "结论：", mediaUrls: [], kind: "block" });
         await strategy.deliver({
             text: "结论：见附件说明",
             mediaUrls: ["/tmp/report.pdf"],
@@ -170,14 +163,14 @@ describe("reply-strategy-markdown", () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
         await expect(
-            strategy.deliver({ text: "hello", mediaUrls: [], kind: "final" }),
+            strategy.deliver({ text: "hello", mediaUrls: [], kind: "block" }),
         ).rejects.toThrow("send failed");
     });
 
-    it("deliver(block) is silently ignored when it has no media", async () => {
+    it("deliver(block) is silently ignored when it has no text or media", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
-        await strategy.deliver({ text: "block content", mediaUrls: [], kind: "block" });
+        await strategy.deliver({ text: " ", mediaUrls: [], kind: "block" });
 
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
@@ -201,9 +194,8 @@ describe("reply-strategy-markdown", () => {
 
     it("passes atUserId for group (isDirect=false)", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx({ isDirect: false }));
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "group reply" });
+        await strategy.deliver({ text: "group reply", mediaUrls: [], kind: "block" });
 
         expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
             atUserId: "sender_1",
@@ -212,9 +204,8 @@ describe("reply-strategy-markdown", () => {
 
     it("does not pass atUserId for direct message", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx({ isDirect: true }));
-        const opts = strategy.getReplyOptions();
 
-        await opts.onBlockReply?.({ text: "dm reply" });
+        await strategy.deliver({ text: "dm reply", mediaUrls: [], kind: "block" });
 
         expect(sendMessageMock.mock.calls[0][3]?.atUserId).toBeNull();
     });

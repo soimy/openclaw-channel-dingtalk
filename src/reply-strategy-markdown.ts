@@ -1,9 +1,9 @@
 /**
  * Markdown / text reply strategy.
  *
- * DingTalk cannot edit prior messages in place, so this strategy uses block
- * replies for stable reasoning-on behavior and keeps final delivery as a
- * tail-only fallback. Live reasoning streams are intentionally unsupported.
+ * DingTalk cannot edit prior messages in place, so markdown mode emits
+ * incremental answer tails from dispatcher-delivered block/final payloads.
+ * Reasoning display is intentionally unsupported on DingTalk markdown.
  */
 
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
@@ -57,34 +57,31 @@ export function createMarkdownReplyStrategy(
     }
   };
 
-  const sendAnswerText = async (text: string): Promise<void> => {
-    if (!text.trim()) {
+  const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
+    const current = typeof text === "string" ? text : "";
+    if (current.length > 0) {
+      activeAnswerText = current;
+      finalText = current;
+    }
+
+    const suffix = computeIncrementalSuffix(lastSentAnswerText, current);
+    if (suffix) {
+      await sendMarkdownSegment(suffix);
+      lastSentAnswerText = current;
       return;
     }
-    activeAnswerText = text;
-    finalText = text;
-    await sendMarkdownSegment(text);
-    lastSentAnswerText = text;
+
+    if (current.trim() && lastSentAnswerText && !current.startsWith(lastSentAnswerText)) {
+      lastSentAnswerText = "";
+      await sendMarkdownSegment(current);
+      lastSentAnswerText = current;
+    }
   };
 
   return {
     getReplyOptions(): ReplyOptions {
       return {
         disableBlockStreaming: false,
-        onBlockReply: async (payload) => {
-          if (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0) {
-            await ctx.deliverMedia(payload.mediaUrls);
-          }
-          const text = typeof payload.text === "string" ? payload.text : "";
-          if (!text.trim()) {
-            return;
-          }
-          if (payload.isReasoning === true) {
-            await sendMarkdownSegment(renderQuotedSegment(text));
-            return;
-          }
-          await sendAnswerText(text);
-        },
       };
     },
 
@@ -103,23 +100,15 @@ export function createMarkdownReplyStrategy(
       }
 
       if (
-        payload.kind === "final"
+        (payload.kind === "block" || payload.kind === "final")
         && typeof payload.text === "string"
-        && payload.text.length > 0
       ) {
-        activeAnswerText = payload.text;
-        finalText = payload.text;
-        const suffix = computeIncrementalSuffix(lastSentAnswerText, payload.text);
-        if (!suffix) {
-          return;
-        }
-        await sendMarkdownSegment(suffix);
-        lastSentAnswerText = payload.text;
+        await emitAnswerSuffix(payload.text);
       }
     },
 
     async finalize(): Promise<void> {
-      // Markdown mode delivers through block replies and final tails.
+      // Markdown mode delivers incrementally during block/final delivery.
     },
 
     async abort(): Promise<void> {
