@@ -59,7 +59,9 @@
 ### `card` 模式
 
 - AI Card 会更适合承载 reasoning / tool / answer 的单时间线显示
-- `/reasoning on` 与 `/verbose on` 在 card 模式下通常更容易形成连续、可见的过程反馈
+- `/reasoning on` 会把 reasoning 作为 think block 纳入卡片时间线，再接上 tool / answer
+- `/reasoning stream` 在 DingTalk card 下也会走同样的 think block 时间线，但会等到形成完整块后再刷新卡片，而不是按 token 级别实时预览
+- `/verbose on` 在 card 模式下通常更容易形成连续、可见的过程反馈
 - 如果更关注过程可视化体验，优先考虑 `card`
 
 ## 实时中止

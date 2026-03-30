@@ -10,6 +10,7 @@ import {
   finishAICard,
   isCardInTerminalState,
 } from "./card-service";
+import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
@@ -26,6 +27,7 @@ export function createCardReplyStrategy(
   const { card, config, log, isStopRequested } = ctx;
 
   const controller = createCardDraftController({ card, log });
+  const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
     attachCardRunController(card.outTrackId, controller);
   }
@@ -38,6 +40,34 @@ export function createCardReplyStrategy(
       fallbackAnswer,
       overrideAnswer: options.preferFinalAnswer ? finalTextForFallback : undefined,
     });
+  };
+
+  const appendAssembledThinkingBlocks = async (blocks: string[]): Promise<void> => {
+    for (const block of blocks) {
+      if (!block.trim() || isStopRequested?.()) {
+        continue;
+      }
+      await controller.appendThinkingBlock(block);
+    }
+  };
+
+  const ingestReasoningSnapshot = async (text: string | undefined): Promise<void> => {
+    const blocks = reasoningAssembler.ingestSnapshot(text);
+    if (
+      blocks.length === 0
+      && typeof text === "string"
+      && text.trim()
+      && !text.trimStart().startsWith("Reasoning:")
+    ) {
+      await appendAssembledThinkingBlocks([text.trim()]);
+      return;
+    }
+    await appendAssembledThinkingBlocks(blocks);
+  };
+
+  const flushPendingReasoning = async (): Promise<void> => {
+    const blocks = reasoningAssembler.flushPendingAtBoundary();
+    await appendAssembledThinkingBlocks(blocks);
   };
 
   return {
@@ -64,7 +94,7 @@ export function createCardReplyStrategy(
 
         onReasoningStream: async (payload) => {
           if (payload.text && !isStopRequested?.()) {
-            await controller.updateThinking(payload.text);
+            await ingestReasoningSnapshot(payload.text);
           }
         },
       };
@@ -82,6 +112,7 @@ export function createCardReplyStrategy(
 
       // ---- final: defer to finalize, just save text ----
       if (payload.kind === "final") {
+        await flushPendingReasoning();
         sawFinalDelivery = true;
         log?.info?.(
           `[DingTalk][Finalize] deliver(final) received — cardState=${card.state} ` +
@@ -106,6 +137,7 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk] Card failed, skipping tool result (will send full reply on final)");
           return;
         }
+        await flushPendingReasoning();
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
         );
@@ -113,7 +145,12 @@ export function createCardReplyStrategy(
         return;
       }
 
-      // ---- block: only handle media (text blocks are unused) ----
+      const isReasoningBlock = (payload as DeliverPayload & { isReasoning?: boolean }).isReasoning === true;
+      if (isReasoningBlock) {
+        await ingestReasoningSnapshot(textToSend);
+      }
+
+      // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
         await ctx.deliverMedia(payload.mediaUrls);
       }
@@ -173,6 +210,7 @@ export function createCardReplyStrategy(
 
       // Normal finalize.
       try {
+        await flushPendingReasoning();
         await controller.flush();
         await controller.waitForInFlight();
         const finalText = getRenderedTimeline() || "✅ Done";

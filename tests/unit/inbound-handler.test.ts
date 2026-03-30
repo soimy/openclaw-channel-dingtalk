@@ -5314,6 +5314,161 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("card flow renders reasoning-on blocks before the final answer", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          { text: "Reasoning:\n_Reason: 先检查当前目录_", isReasoning: true },
+          { kind: "block" },
+        );
+        await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_reasoning_on_block",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_reasoning_on_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("最终答案");
+    expect(finalContent.indexOf("Reason: 先检查当前目录")).toBeLessThan(
+      finalContent.indexOf("最终答案"),
+    );
+  });
+
+  it("card flow buffers reasoning stream snapshots until a complete think block is formed", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查" });
+        await replyOptions?.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查当前目录_" });
+        await dispatcherOptions.deliver({ text: "done" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_reasoning_stream_block",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardRealTimeStream: true,
+      } as any,
+      data: {
+        msgId: "m_reasoning_stream_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.streamAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.streamAICardMock.mock.calls[0][1]).toContain("Reason: 先检查当前目录");
+    expect(shared.streamAICardMock.mock.calls[0][1]).not.toContain("Reasoning:");
+  });
+
+  it("card flow flushes pending reasoning stream before final answer", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReasoningStream?.({
+          text: "Reasoning:\n_Reason: 先检查当前目录\n还在整理发送链路",
+        });
+        await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_reasoning_pending_final",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardRealTimeStream: true,
+      } as any,
+      data: {
+        msgId: "m_reasoning_pending_final",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("> 还在整理发送链路");
+    expect(finalContent).toContain("最终答案");
+  });
+
   it("sends proactive permission hint when proactive API risk was observed", async () => {
     recordProactiveRiskObservation({
       accountId: "main",

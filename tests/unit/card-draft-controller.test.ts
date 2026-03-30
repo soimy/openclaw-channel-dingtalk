@@ -355,6 +355,22 @@ describe("card-draft-controller", () => {
         expect(rendered).not.toContain("第一版思考");
     });
 
+    it("appends completed thinking blocks without live replacement semantics", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        expect(typeof ctrl.appendThinkingBlock).toBe("function");
+
+        await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.appendThinkingBlock("Reason: 再确认 reply strategy 入口");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("> Reason: 先检查当前目录");
+        expect(rendered).toContain("> Reason: 再确认 reply strategy 入口");
+    });
+
     it("notifyNewAssistantTurn keeps earlier answer text and appends the next answer turn", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;

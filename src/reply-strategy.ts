@@ -16,6 +16,7 @@ export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
   kind: "block" | "final" | "tool";
+  isReasoning?: boolean;
 }
 
 export interface ReplyOptions {

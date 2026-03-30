@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCardReplyStrategy } from "../../src/reply-strategy-card";
 import * as cardService from "../../src/card-service";
 import * as sendService from "../../src/send-service";
@@ -26,6 +26,7 @@ vi.mock("../../src/send-service", async (importOriginal) => {
 });
 
 const finishAICardMock = vi.mocked(cardService.finishAICard);
+const streamAICardMock = vi.mocked(cardService.streamAICard);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 
 function makeCard(overrides: Partial<AICardInstance> = {}): AICardInstance {
@@ -61,8 +62,14 @@ function buildCtx(
 
 describe("reply-strategy-card", () => {
     beforeEach(() => {
+        vi.useFakeTimers();
         finishAICardMock.mockClear();
+        streamAICardMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     describe("getReplyOptions", () => {
@@ -92,6 +99,22 @@ describe("reply-strategy-card", () => {
             const opts = createCardReplyStrategy(buildCtx(card)).getReplyOptions();
             expect(opts.onReasoningStream).toBeDefined();
             expect(opts.onAssistantMessageStart).toBeDefined();
+        });
+
+        it("buffers reasoning stream snapshots until a complete think block is formed", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).not.toHaveBeenCalled();
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查当前改动_" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前改动");
         });
     });
 
@@ -164,6 +187,22 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.pdf"], kind: "block" });
             expect(deliverMedia).toHaveBeenCalledWith(["/tmp/file.pdf"]);
             expect(sendMessageMock).not.toHaveBeenCalled();
+        });
+
+        it("deliver(block) routes reasoning-on blocks into the card timeline", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                text: "Reasoning:\n_Reason: 先检查当前目录_",
+                mediaUrls: [],
+                kind: "block",
+                isReasoning: true,
+            } as any);
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前目录");
         });
 
         it("deliver(final) with empty text still falls through for card finalize", async () => {
@@ -319,6 +358,41 @@ describe("reply-strategy-card", () => {
             const rendered = finishAICardMock.mock.calls[0][1];
             expect(rendered).toContain("> 我来发附件");
             expect(rendered).toContain("附件已发送，请查收。");
+        });
+
+        it("flushes pending reasoning before appending a tool block", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({
+                text: "Reasoning:\n_Reason: 先检查当前目录\n还在整理发送链路",
+            });
+            await strategy.deliver({ text: "git diff --stat", mediaUrls: [], kind: "tool" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            const rendered = streamAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> Reason: 先检查当前目录");
+            expect(rendered).toContain("> 还在整理发送链路");
+            expect(rendered).toContain("> git diff --stat");
+        });
+
+        it("flushes pending reasoning before final answer is finalized", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({
+                text: "Reasoning:\n_Reason: 先检查当前目录\n还在整理发送链路",
+            });
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> Reason: 先检查当前目录");
+            expect(rendered).toContain("> 还在整理发送链路");
+            expect(rendered).toContain("最终答案");
         });
     });
 
