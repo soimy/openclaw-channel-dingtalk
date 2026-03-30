@@ -45,6 +45,7 @@ type InboundCommandDispatchParams = {
   senderId: string;
   isDirect: boolean;
   extractedText: string;
+  messageType: MessageContent["messageType"];
   data: {
     conversationId: string;
     senderId?: string;
@@ -446,7 +447,7 @@ export async function handleInboundCommandDispatch(
 
   const forcedContent: MessageContent = {
     text: params.extractedText,
-    messageType: "text",
+    messageType: params.messageType,
   };
   const manualForcedReply = resolveManualForcedReply({
     storePath: params.accountStorePath,

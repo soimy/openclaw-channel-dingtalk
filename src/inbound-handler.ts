@@ -596,6 +596,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     senderId,
     isDirect,
     extractedText: extractedContent.text,
+    messageType: extractedContent.messageType,
     data: {
       conversationId: data.conversationId,
       senderId: data.senderId,
