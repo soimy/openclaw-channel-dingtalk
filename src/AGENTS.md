@@ -35,6 +35,13 @@ src/
 └── types.ts               # Shared types/constants
 ```
 
+Domain subtrees used by current refactors:
+
+```text
+src/targeting/
+└── group-members-store.ts # Group member cache/persistence
+```
+
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
