@@ -62,6 +62,10 @@ import type {
 } from "./types";
 import { ConnectionState } from "./types";
 import {
+  buildExecApprovalText,
+  buildPluginApprovalText,
+} from "./approval-message-builder";
+import {
   closePluginDebugLog,
   cleanupOrphanedTempFiles,
   createResolve4FallbackLookup,
@@ -1181,6 +1185,14 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         probe,
       };
     },
+  },
+  execApprovals: {
+    buildPendingPayload: ({ request, nowMs }: { request: any; nowMs: number }) => ({
+      text: buildExecApprovalText(request, nowMs),
+    }),
+    buildPluginPendingPayload: ({ request, nowMs }: { request: any; nowMs: number }) => ({
+      text: buildPluginApprovalText(request, nowMs),
+    }),
   },
 };
 
