@@ -42,18 +42,9 @@ message=auth level of org is not enough
 - 单聊文件引用通常仍可工作
 - 群聊首次恢复可能失败并降级为提示文本
 
-## 4. 建立卡片模板（可选）
+## 4. 卡片模式（可选）
 
-如果要启用 `messageType: "card"`：
-
-1. 访问 <https://open-dev.dingtalk.com/fe/card>
-2. 创建模板
-3. 场景选择 “AI 卡片”
-4. 保存并发布
-5. 记录模板 ID
-6. 记录内容字段名
-
-如果使用 DingTalk 官方 AI 卡片模板，`cardTemplateKey` 通常为 `content`。
+如果要启用 `messageType: “card”`，插件使用内置预设模板，无需手动创建卡片模板。
 
 ## 5. 准备凭证
 

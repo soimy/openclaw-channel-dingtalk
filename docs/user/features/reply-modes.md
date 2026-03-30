@@ -73,9 +73,7 @@
 {
   "channels": {
     "dingtalk": {
-      "messageType": "card",
-      "cardTemplateId": "your-template-id.schema",
-      "cardTemplateKey": "content"
+      "messageType": "card"
     }
   }
 }

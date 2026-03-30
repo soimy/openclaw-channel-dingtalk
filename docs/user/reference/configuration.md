@@ -23,8 +23,6 @@
 | `journalTTLDays` | number | `7` | 引用回溯日志保留天数 |
 | `ackReaction` | string | - | 原生处理中表情反馈 |
 | `messageType` | string | `markdown` | 回复模式：`markdown` 或 `card` |
-| `cardTemplateId` | string | - | AI 卡片模板 ID |
-| `cardTemplateKey` | string | `content` | 卡片内容字段名 |
 | `cardRealTimeStream` | boolean | `false` | 是否启用真流式卡片更新 |
 | `aicardDegradeMs` | number | `1800000` | 卡片连续失败后的降级时间 |
 | `debug` | boolean | `false` | 是否输出调试日志 |

@@ -62,7 +62,7 @@ describe('send-service advanced branches', () => {
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_123' } } as any);
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'manager123',
             'text',
             { accountId: 'main' } as any,
@@ -82,7 +82,7 @@ describe('send-service advanced branches', () => {
         });
 
         const result = await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'manager123',
             'text',
             { accountId: 'main' } as any,
@@ -109,7 +109,7 @@ describe('send-service advanced branches', () => {
         });
 
         await sendMessage(
-            { clientId: 'id', clientSecret: 'sec', messageType: 'card', cardTemplateId: 'tmpl' } as any,
+            { clientId: 'id', clientSecret: 'sec', messageType: 'card' } as any,
             'manager123',
             'card proactive text',
             {

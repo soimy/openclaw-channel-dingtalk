@@ -13,7 +13,7 @@ import {
 import { createCardDraftController } from "./card-draft-controller";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendBySession, sendMessage } from "./send-service";
-import { getSessionState, getTaskTimeSeconds, updateSessionState } from "./session-state";
+import { getSessionState, getTaskTimeSeconds, updateSessionState, clearSessionState } from "./session-state";
 import type { AICardInstance, CardBlock, CardTaskInfo } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
@@ -159,6 +159,7 @@ export function createCardReplyStrategy(
         } else {
           log?.debug?.("[DingTalk] Card failed but no content to fallback with");
         }
+        clearSessionState(ctx.accountId, card.conversationId);
         return;
       }
 
@@ -210,6 +211,9 @@ export function createCardReplyStrategy(
           quotedRef: ctx.replyQuotedRef,
         });
 
+        // Clean up session state after successful finalize
+        clearSessionState(ctx.accountId, card.conversationId);
+
         // In group chats, send a lightweight @mention via session webhook
         // so the sender gets a notification — card API doesn't support @mention.
         const cardAtSenderText = (ctx.config.cardAtSender || "").trim();
@@ -255,6 +259,8 @@ export function createCardReplyStrategy(
           card.lastUpdated = Date.now();
         }
       }
+      // Clear session state after abort (success or failure)
+      clearSessionState(ctx.accountId, card.conversationId);
     },
 
     getFinalText(): string | undefined {

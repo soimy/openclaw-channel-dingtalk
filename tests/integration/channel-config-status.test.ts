@@ -76,7 +76,6 @@ describe("channel config + status helpers", () => {
           dmPolicy: "allowlist",
           allowFrom: ["user1"],
           messageType: "card",
-          cardTemplateId: "tpl.schema",
           ackReaction: "",
           accounts: {
             main: { clientId: "id1", clientSecret: "sec1", name: "Main" },
@@ -91,7 +90,6 @@ describe("channel config + status helpers", () => {
     expect(main.config.dmPolicy).toBe("allowlist");
     expect(main.config.allowFrom).toEqual(["user1"]);
     expect(main.config.messageType).toBe("card");
-    expect(main.config.cardTemplateId).toBe("tpl.schema");
     expect(main.config.ackReaction).toBe("");
 
     const custom = plugin.config.resolveAccount(cfg, "custom");

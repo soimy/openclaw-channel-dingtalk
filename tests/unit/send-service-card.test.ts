@@ -103,7 +103,6 @@ describe('sendMessage card mode', () => {
                 clientId: 'id',
                 clientSecret: 'sec',
                 messageType: 'card',
-                cardTemplateId: 'tmpl.schema',
             } as any,
             'cidA1B2C3',
             'new terminal content',
@@ -112,7 +111,7 @@ describe('sendMessage card mode', () => {
 
         expect(cardMocks.streamAICardMock).not.toHaveBeenCalled();
         expect(cardMocks.sendProactiveCardTextMock).toHaveBeenCalledWith(
-            expect.objectContaining({ cardTemplateId: 'tmpl.schema' }),
+            expect.objectContaining({ clientId: 'id', clientSecret: 'sec' }),
             'cidA1B2C3',
             'new terminal content',
             undefined,
