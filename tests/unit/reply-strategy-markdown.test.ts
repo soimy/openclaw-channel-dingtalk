@@ -93,6 +93,20 @@ describe("reply-strategy-markdown", () => {
         ]);
     });
 
+    it("deliver(tool) preserves leading indentation in quoted output", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+
+        await strategy.deliver({
+            text: "  first line\n\tsecond line",
+            mediaUrls: [],
+            kind: "tool",
+        });
+
+        expect(sentTexts()).toEqual([
+            ">   first line\n> \tsecond line",
+        ]);
+    });
+
     it("deliver(final) only sends the unsent answer tail after a block answer", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
@@ -122,6 +136,20 @@ describe("reply-strategy-markdown", () => {
         expect(sentTexts()).toEqual(["最终结论"]);
     });
 
+    it("deliver(final) falls back to the shared-prefix tail instead of resending the full answer", async () => {
+        const log = { warn: vi.fn(), debug: vi.fn() } as any;
+        const strategy = createMarkdownReplyStrategy(buildCtx({ log }));
+
+        await strategy.deliver({ text: "The path is /Users/sym/clawd", mediaUrls: [], kind: "block" });
+        await strategy.deliver({ text: "The path is `/Users/sym/clawd`\nverbose on正常", mediaUrls: [], kind: "final" });
+
+        expect(sentTexts()).toEqual([
+            "The path is /Users/sym/clawd",
+            "`/Users/sym/clawd`\nverbose on正常",
+        ]);
+        expect(log.warn).toHaveBeenCalled();
+    });
+
     it("deliver(final) with empty text preserves the previously accumulated answer", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
@@ -130,6 +158,25 @@ describe("reply-strategy-markdown", () => {
 
         expect(sentTexts()).toEqual(["阶段性总结"]);
         expect(strategy.getFinalText()).toBe("阶段性总结");
+    });
+
+    it("finalize sends DONE when no visible content was emitted", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+
+        await strategy.finalize();
+
+        expect(sentTexts()).toEqual(["✅ Done"]);
+        expect(strategy.getFinalText()).toBe("✅ Done");
+    });
+
+    it("finalize does not send DONE when a tool event was already emitted", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+
+        await strategy.deliver({ text: "🛠️ Exec: uuidgen", mediaUrls: [], kind: "tool" });
+        await strategy.finalize();
+
+        expect(sentTexts()).toEqual(["> 🛠️ Exec: uuidgen"]);
+        expect(strategy.getFinalText()).toBeUndefined();
     });
 
     it("deliver(final) with media sends media before the final text tail", async () => {

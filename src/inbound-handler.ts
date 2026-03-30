@@ -99,20 +99,39 @@ const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
 const MAX_DYNAMIC_ACK_DISPOSE_WAIT_MS = 500;
 const ATTACHMENT_TEXT_PREFIX = "[附件内容摘录]";
 const proactiveHintLastSentAt = new Map<string, number>();
+const sessionReasoningLevelCache = new Map<string, {
+  updatedAt?: number;
+  reasoningLevel?: string;
+}>();
 
 function readSessionReasoningLevel(params: {
   storePath?: string;
   sessionKey: string;
+  sessionUpdatedAt?: number;
   log?: Logger;
 }): string | undefined {
   if (!params.storePath || !params.sessionKey) {
     return undefined;
   }
+  const cacheKey = `${params.storePath}:${params.sessionKey}`;
+  const cached = sessionReasoningLevelCache.get(cacheKey);
+  if (
+    cached
+    && params.sessionUpdatedAt !== undefined
+    && cached.updatedAt === params.sessionUpdatedAt
+  ) {
+    return cached.reasoningLevel;
+  }
   try {
     const raw = fs.readFileSync(params.storePath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, { reasoningLevel?: unknown }>;
     const value = parsed?.[params.sessionKey]?.reasoningLevel;
-    return typeof value === "string" ? value.trim().toLowerCase() : undefined;
+    const reasoningLevel = typeof value === "string" ? value.trim().toLowerCase() : undefined;
+    sessionReasoningLevelCache.set(cacheKey, {
+      updatedAt: params.sessionUpdatedAt,
+      reasoningLevel,
+    });
+    return reasoningLevel;
   } catch (err: unknown) {
     params.log?.debug?.(
       `[DingTalk][Markdown] Failed to read session reasoning level from ${params.storePath}: ${getErrorMessage(err)}`,
@@ -125,6 +144,7 @@ function shouldDisableMarkdownBlockStreaming(params: {
   messageType?: string;
   storePath?: string;
   sessionKey: string;
+  sessionUpdatedAt?: number;
   log?: Logger;
 }): boolean {
   if (params.messageType !== "markdown") {
@@ -133,6 +153,7 @@ function shouldDisableMarkdownBlockStreaming(params: {
   const reasoningLevel = readSessionReasoningLevel({
     storePath: params.storePath,
     sessionKey: params.sessionKey,
+    sessionUpdatedAt: params.sessionUpdatedAt,
     log: params.log,
   });
   const shouldDisable = reasoningLevel === "on" || reasoningLevel === "stream";
@@ -1915,6 +1936,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         messageType: dingtalkConfig.messageType,
         storePath,
         sessionKey: route.sessionKey,
+        sessionUpdatedAt: previousTimestamp,
         log,
       }),
       groupId,

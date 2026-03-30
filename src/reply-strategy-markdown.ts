@@ -9,10 +9,12 @@
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendMessage } from "./send-service";
 
+const EMPTY_FINAL_FALLBACK_TEXT = "✅ Done";
+
 function renderQuotedSegment(text: string): string {
   return text
     .split("\n")
-    .map((line) => line.trim() ? `> ${line.trim()}` : ">")
+    .map((line) => line.length > 0 ? `> ${line}` : ">")
     .join("\n");
 }
 
@@ -32,20 +34,36 @@ function computeIncrementalSuffix(previous: string, next: string): string {
   return suffix.trim() ? suffix : "";
 }
 
+function computeSharedPrefixTail(previous: string, next: string): string {
+  const prev = previous || "";
+  const current = next || "";
+  if (!prev || !current.trim()) {
+    return "";
+  }
+  const limit = Math.min(prev.length, current.length);
+  let sharedPrefixLength = 0;
+  while (sharedPrefixLength < limit && prev[sharedPrefixLength] === current[sharedPrefixLength]) {
+    sharedPrefixLength += 1;
+  }
+  if (sharedPrefixLength === 0) {
+    return "";
+  }
+  const suffix = current.slice(sharedPrefixLength);
+  return suffix.trim() ? suffix : "";
+}
+
 export function createMarkdownReplyStrategy(
   ctx: ReplyStrategyContext,
 ): ReplyStrategy {
   let finalText: string | undefined;
   let activeAnswerText = "";
   let lastSentAnswerText = "";
+  let sentVisibleContent = false;
 
   const sendMarkdownSegment = async (text: string): Promise<void> => {
     if (!text.trim()) {
       return;
     }
-    ctx.log?.debug?.(
-      `[DingTalk][Markdown] send segment len=${text.length} preview=${JSON.stringify(text.slice(0, 160))}`,
-    );
     const sendResult = await sendMessage(ctx.config, ctx.to, text, {
       sessionWebhook: ctx.sessionWebhook,
       atUserId: !ctx.isDirect ? ctx.senderId : null,
@@ -58,6 +76,7 @@ export function createMarkdownReplyStrategy(
     if (!sendResult.ok) {
       throw new Error(sendResult.error || "Reply send failed");
     }
+    sentVisibleContent = true;
   };
 
   const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
@@ -75,7 +94,17 @@ export function createMarkdownReplyStrategy(
     }
 
     if (current.trim() && lastSentAnswerText && !current.startsWith(lastSentAnswerText)) {
+      const suffix = computeSharedPrefixTail(lastSentAnswerText, current);
+      ctx.log?.warn?.(
+        `[DingTalk][Markdown] answer prefix drift detected; falling back to shared-prefix tail ` +
+        `prevLen=${lastSentAnswerText.length} currentLen=${current.length}`,
+      );
       lastSentAnswerText = "";
+      if (suffix) {
+        await sendMarkdownSegment(suffix);
+        lastSentAnswerText = current;
+        return;
+      }
       await sendMarkdownSegment(current);
       lastSentAnswerText = current;
     }
@@ -89,18 +118,14 @@ export function createMarkdownReplyStrategy(
     },
 
     async deliver(payload: DeliverPayload): Promise<void> {
-      ctx.log?.debug?.(
-        `[DingTalk][Markdown] deliver kind=${payload.kind} media=${payload.mediaUrls.length} ` +
-        `textLen=${typeof payload.text === "string" ? payload.text.length : 0} ` +
-        `preview=${typeof payload.text === "string" ? JSON.stringify(payload.text.slice(0, 160)) : "\"\""}`,
-      );
       if (payload.mediaUrls.length > 0) {
         await ctx.deliverMedia(payload.mediaUrls);
+        sentVisibleContent = true;
       }
 
       if (payload.kind === "tool") {
-        const text = typeof payload.text === "string" ? payload.text.trim() : "";
-        if (!text) {
+        const text = typeof payload.text === "string" ? payload.text : "";
+        if (!text.trim()) {
           return;
         }
         await sendMarkdownSegment(renderQuotedSegment(text));
@@ -116,7 +141,12 @@ export function createMarkdownReplyStrategy(
     },
 
     async finalize(): Promise<void> {
-      // Markdown mode delivers incrementally during block/final delivery.
+      if (sentVisibleContent) {
+        return;
+      }
+      finalText = EMPTY_FINAL_FALLBACK_TEXT;
+      activeAnswerText = EMPTY_FINAL_FALLBACK_TEXT;
+      await sendMarkdownSegment(EMPTY_FINAL_FALLBACK_TEXT);
     },
 
     async abort(): Promise<void> {
