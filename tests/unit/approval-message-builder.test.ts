@@ -63,14 +63,14 @@ describe("buildExecApprovalText", () => {
     expect(text).not.toContain("Agent");
   });
 
-  it("包含 /approve 使用说明", () => {
+  it("审批指令包含 request.id", () => {
     const text = buildExecApprovalText(makeExecRequest(), NOW_MS);
-    expect(text).toContain("/approve");
-    expect(text).toContain("allow-once");
-    expect(text).toContain("deny");
+    expect(text).toContain("/approve exec-id-1 allow-once");
+    expect(text).toContain("/approve exec-id-1 allow-always");
+    expect(text).toContain("/approve exec-id-1 deny");
   });
 
-  it("过期时间为 0 时显示 0 秒", () => {
+  it("过期时间为 0 时显示 0秒", () => {
     const req = makeExecRequest();
     const text = buildExecApprovalText(req, req.expiresAtMs + 5000);
     expect(text).toContain("0秒");
@@ -102,10 +102,10 @@ describe("buildPluginApprovalText", () => {
     expect(text).not.toContain("工具:");
   });
 
-  it("包含 /approve 使用说明", () => {
+  it("审批指令包含 request.id", () => {
     const text = buildPluginApprovalText(makePluginRequest(), NOW_MS);
-    expect(text).toContain("/approve");
-    expect(text).toContain("allow-once");
-    expect(text).toContain("deny");
+    expect(text).toContain("/approve plugin-id-1 allow-once");
+    expect(text).toContain("/approve plugin-id-1 allow-always");
+    expect(text).toContain("/approve plugin-id-1 deny");
   });
 });
