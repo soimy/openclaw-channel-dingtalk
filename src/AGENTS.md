@@ -35,7 +35,6 @@ src/
 └── types.ts               # Shared types/constants
 ```
 
-<<<<<<< HEAD
 Domain subtrees used by current refactors:
 
 ```text
