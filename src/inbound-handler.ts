@@ -5,7 +5,7 @@ import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from ".
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
-import { extractAttachmentText } from "./attachment-text-extractor";
+import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";

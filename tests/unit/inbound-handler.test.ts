@@ -46,7 +46,7 @@ vi.mock("../../src/message-utils", () => ({
   extractMessageContent: shared.extractMessageContentMock,
 }));
 
-vi.mock("../../src/attachment-text-extractor", () => ({
+vi.mock("../../src/messaging/attachment-text-extractor", () => ({
   extractAttachmentText: shared.extractAttachmentTextMock,
 }));
 

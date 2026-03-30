@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { extractAttachmentText } from "../../src/attachment-text-extractor";
+import { extractAttachmentText } from "../../src/messaging/attachment-text-extractor";
 
 vi.mock("pdf-parse", () => ({
   PDFParse: vi.fn().mockImplementation(() => ({
