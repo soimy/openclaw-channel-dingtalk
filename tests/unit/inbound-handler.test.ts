@@ -96,7 +96,7 @@ vi.mock("../../src/message-context-store", async () => {
   };
 });
 
-vi.mock("../../src/quoted-file-service", () => ({
+vi.mock("../../src/messaging/quoted-file-service", () => ({
   downloadGroupFile: shared.downloadGroupFileMock,
   getUnionIdByStaffId: shared.getUnionIdByStaffIdMock,
   resolveQuotedFile: shared.resolveQuotedFileMock,
