@@ -35,13 +35,16 @@ src/
 └── types.ts               # Shared types/constants
 ```
 
+<<<<<<< HEAD
 Domain subtrees used by current refactors:
 
 ```text
+src/messaging/
+└── quoted-file-service.ts # Quote/file recovery helpers
+
 src/targeting/
 └── group-members-store.ts # Group member cache/persistence
 ```
-
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
