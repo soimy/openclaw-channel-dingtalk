@@ -32,6 +32,26 @@ function computeIncrementalSuffix(previous: string, next: string): string {
   return suffix.trim() ? suffix : "";
 }
 
+function computeReasoningIncrementalSuffix(previous: string, next: string): string {
+  const strictSuffix = computeIncrementalSuffix(previous, next);
+  if (strictSuffix || !previous || !(next || "").trim()) {
+    return strictSuffix;
+  }
+
+  const prev = previous || "";
+  const current = next || "";
+  const limit = Math.min(prev.length, current.length);
+  let sharedPrefixLength = 0;
+  while (sharedPrefixLength < limit && prev[sharedPrefixLength] === current[sharedPrefixLength]) {
+    sharedPrefixLength += 1;
+  }
+  if (sharedPrefixLength === 0) {
+    return "";
+  }
+  const suffix = current.slice(sharedPrefixLength);
+  return suffix.trim() ? suffix : "";
+}
+
 export function createMarkdownReplyStrategy(
   ctx: ReplyStrategyContext,
 ): ReplyStrategy {
@@ -60,7 +80,7 @@ export function createMarkdownReplyStrategy(
 
   const emitThinkingSuffix = async (text: string | undefined): Promise<void> => {
     const current = typeof text === "string" ? text : "";
-    const suffix = computeIncrementalSuffix(lastSentThinkingText, current);
+    const suffix = computeReasoningIncrementalSuffix(lastSentThinkingText, current);
     if (suffix) {
       await sendMarkdownSegment(renderQuotedSegment(suffix));
       lastSentThinkingText = current;

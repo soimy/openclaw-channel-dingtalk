@@ -71,6 +71,25 @@ describe("reply-strategy-markdown", () => {
         expect(sentTexts()).toEqual(["> 先检查当前分支"]);
     });
 
+    it("onReasoningStream falls back to a stable shared-prefix diff when formatting drifts", async () => {
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+        const opts = strategy.getReplyOptions();
+
+        await opts.onReasoningStream?.({ text: "Reasoning: The user\n1. First step" });
+        await opts.onReasoningStream?.({
+            text: "Reasoning: The user is asking me to think in steps\n1. First step",
+        });
+        await opts.onReasoningStream?.({
+            text: "Reasoning: The user is asking me to think in steps\n1. First step\n2. Then answer",
+        });
+
+        expect(sentTexts()).toEqual([
+            "> Reasoning: The user\n> 1. First step",
+            "> is asking me to think in steps\n> 1. First step",
+            ">\n> 2. Then answer",
+        ]);
+    });
+
     it("deliver(tool) sends one quoted message per tool event", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
