@@ -90,7 +90,6 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
-import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
