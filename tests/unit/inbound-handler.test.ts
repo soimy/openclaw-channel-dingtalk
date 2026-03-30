@@ -1914,15 +1914,18 @@ describe("inbound-handler", () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockImplementation(async ({ dispatcherOptions }) => {
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.disableBlockStreaming).toBe(false);
         await dispatcherOptions.deliver({ text: "阶段性总结" }, { kind: "block" });
         await dispatcherOptions.deliver({ text: "阶段性总结和补充" }, { kind: "final" });
         return { queuedFinal: false };
       });
+    fs.rmSync("/tmp/account-store-no-reasoning.json", { force: true });
+    fs.rmSync("/tmp/agent-store-no-reasoning.json", { force: true });
     runtime.channel.session.resolveStorePath = vi
       .fn()
-      .mockReturnValueOnce("/tmp/account-store.json")
-      .mockReturnValueOnce("/tmp/agent-store.json");
+      .mockReturnValueOnce("/tmp/account-store-no-reasoning.json")
+      .mockReturnValueOnce("/tmp/agent-store-no-reasoning.json");
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
 
     await handleDingTalkMessage({
@@ -1950,7 +1953,7 @@ describe("inbound-handler", () => {
       "user_1",
       "阶段性总结",
       expect.objectContaining({
-        storePath: "/tmp/account-store.json",
+        storePath: "/tmp/account-store-no-reasoning.json",
         quotedRef: {
           targetDirection: "inbound",
           key: "msgId",
@@ -1964,7 +1967,7 @@ describe("inbound-handler", () => {
       "user_1",
       "和补充",
       expect.objectContaining({
-        storePath: "/tmp/account-store.json",
+        storePath: "/tmp/account-store-no-reasoning.json",
       }),
     );
   });
@@ -3769,15 +3772,36 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("markdown flow still sends answer when reasoning-on collapses to answer-only block delivery", async () => {
+  it("markdown flow disables block streaming when session reasoning is on", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockImplementation(async ({ dispatcherOptions }) => {
-        await dispatcherOptions.deliver({ text: "reasoning on正常" }, { kind: "block" });
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.disableBlockStreaming).toBe(true);
+        if (replyOptions?.disableBlockStreaming) {
+          await dispatcherOptions.deliver({ text: "reasoning on正常" }, { kind: "final" });
+        } else {
+          await dispatcherOptions.deliver({
+            text: "Reasoning:\n_用户再次要求分步思考后回答\"reasoning on正常\"。系统标注 `Reasoning ON`，需要显式输出内部推理。_",
+          }, { kind: "block" });
+        }
         return { queuedFinal: false };
       });
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/account-store-reasoning-on.json")
+      .mockReturnValueOnce("/tmp/agent-store-reasoning-on.json");
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    fs.writeFileSync(
+      "/tmp/agent-store-reasoning-on.json",
+      JSON.stringify({
+        s1: {
+          sessionId: "session-1",
+          updatedAt: Date.now(),
+          reasoningLevel: "on",
+        },
+      }),
+    );
 
     await handleDingTalkMessage({
       cfg: {},

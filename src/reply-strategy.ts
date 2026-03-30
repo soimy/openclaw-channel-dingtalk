@@ -51,6 +51,7 @@ export interface ReplyStrategyContext {
   isDirect: boolean;
   accountId: string;
   storePath: string;
+  disableBlockStreaming?: boolean;
   groupId?: string;
   log?: Logger;
   replyQuotedRef?: QuotedRef;

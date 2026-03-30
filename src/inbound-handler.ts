@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import axios from "axios";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
@@ -84,7 +85,7 @@ import {
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
 import { AICardStatus } from "./types";
-import type { DingTalkConfig, HandleDingTalkMessageParams, MediaFile } from "./types";
+import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 
@@ -93,6 +94,50 @@ const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
 const MAX_DYNAMIC_ACK_DISPOSE_WAIT_MS = 500;
 const ATTACHMENT_TEXT_PREFIX = "[附件内容摘录]";
 const proactiveHintLastSentAt = new Map<string, number>();
+
+function readSessionReasoningLevel(params: {
+  storePath?: string;
+  sessionKey: string;
+  log?: Logger;
+}): string | undefined {
+  if (!params.storePath || !params.sessionKey) {
+    return undefined;
+  }
+  try {
+    const raw = fs.readFileSync(params.storePath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, { reasoningLevel?: unknown }>;
+    const value = parsed?.[params.sessionKey]?.reasoningLevel;
+    return typeof value === "string" ? value.trim().toLowerCase() : undefined;
+  } catch (err: unknown) {
+    params.log?.debug?.(
+      `[DingTalk][Markdown] Failed to read session reasoning level from ${params.storePath}: ${getErrorMessage(err)}`,
+    );
+    return undefined;
+  }
+}
+
+function shouldDisableMarkdownBlockStreaming(params: {
+  messageType?: string;
+  storePath?: string;
+  sessionKey: string;
+  log?: Logger;
+}): boolean {
+  if (params.messageType !== "markdown") {
+    return false;
+  }
+  const reasoningLevel = readSessionReasoningLevel({
+    storePath: params.storePath,
+    sessionKey: params.sessionKey,
+    log: params.log,
+  });
+  const shouldDisable = reasoningLevel === "on" || reasoningLevel === "stream";
+  if (shouldDisable) {
+    params.log?.debug?.(
+      `[DingTalk][Markdown] Disable block streaming for reasoningLevel=${reasoningLevel} sessionKey=${params.sessionKey}`,
+    );
+  }
+  return shouldDisable;
+}
 
 function resolvePinnedMainDmOwner(params: {
   dmScope?: string;
@@ -1838,6 +1883,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       isDirect,
       accountId,
       storePath: accountStorePath,
+      disableBlockStreaming: shouldDisableMarkdownBlockStreaming({
+        messageType: dingtalkConfig.messageType,
+        storePath,
+        sessionKey: route.sessionKey,
+        log,
+      }),
       groupId,
       log,
       replyQuotedRef,

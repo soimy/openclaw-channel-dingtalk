@@ -552,6 +552,10 @@ export async function sendBySession(
       body.at = { atUserIds: [options.atUserId], isAtAll: false };
     }
 
+    log?.debug?.(
+      `[DingTalk][SessionSend] msgtype=${body.msgtype} chunk=${idx + 1}/${chunks.length} ` +
+      `len=${chunk.length} preview=${JSON.stringify(chunk.slice(0, 160))}`,
+    );
     const result = await axios({
       url: sessionWebhook,
       method: "POST",

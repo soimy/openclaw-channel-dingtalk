@@ -43,6 +43,9 @@ export function createMarkdownReplyStrategy(
     if (!text.trim()) {
       return;
     }
+    ctx.log?.debug?.(
+      `[DingTalk][Markdown] send segment len=${text.length} preview=${JSON.stringify(text.slice(0, 160))}`,
+    );
     const sendResult = await sendMessage(ctx.config, ctx.to, text, {
       sessionWebhook: ctx.sessionWebhook,
       atUserId: !ctx.isDirect ? ctx.senderId : null,
@@ -81,11 +84,16 @@ export function createMarkdownReplyStrategy(
   return {
     getReplyOptions(): ReplyOptions {
       return {
-        disableBlockStreaming: false,
+        disableBlockStreaming: ctx.disableBlockStreaming === true,
       };
     },
 
     async deliver(payload: DeliverPayload): Promise<void> {
+      ctx.log?.debug?.(
+        `[DingTalk][Markdown] deliver kind=${payload.kind} media=${payload.mediaUrls.length} ` +
+        `textLen=${typeof payload.text === "string" ? payload.text.length : 0} ` +
+        `preview=${typeof payload.text === "string" ? JSON.stringify(payload.text.slice(0, 160)) : "\"\""}`,
+      );
       if (payload.mediaUrls.length > 0) {
         await ctx.deliverMedia(payload.mediaUrls);
       }
