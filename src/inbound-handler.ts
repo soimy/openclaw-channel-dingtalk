@@ -33,7 +33,7 @@ import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
-import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./quoted-file-service";
+import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./messaging/quoted-file-service";
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy";
 import { getDingTalkRuntime } from "./runtime";

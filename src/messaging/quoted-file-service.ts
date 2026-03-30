@@ -1,10 +1,10 @@
 import http from "node:http";
 import https from "node:https";
 import axios from "axios";
-import { getAccessToken } from "./auth";
-import { getDingTalkRuntime } from "./runtime";
-import type { DingTalkConfig, Logger, MediaFile } from "./types";
-import { formatDingTalkErrorPayload, formatDingTalkErrorPayloadLog } from "./utils";
+import { getAccessToken } from "../auth";
+import { getDingTalkRuntime } from "../runtime";
+import type { DingTalkConfig, Logger, MediaFile } from "../types";
+import { formatDingTalkErrorPayload, formatDingTalkErrorPayloadLog } from "../utils";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
     if (!value || typeof value !== "object" || Array.isArray(value)) {

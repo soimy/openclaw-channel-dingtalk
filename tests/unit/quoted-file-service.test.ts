@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
     clearQuotedFileServiceCachesForTest,
     parseDingTalkFileTime,
-} from '../../src/quoted-file-service';
+} from '../../src/messaging/quoted-file-service';
 
 describe('quoted-file-service', () => {
     beforeEach(() => {
