@@ -1,9 +1,9 @@
 /**
  * Markdown / text reply strategy.
  *
- * Consumes reasoning / tool / answer events directly and emits new markdown
- * session messages for each incremental segment. Unlike card mode, webhook
- * messages cannot be edited in place, so this strategy only sends new tails.
+ * DingTalk cannot edit prior messages in place, so this strategy uses block
+ * replies for stable reasoning-on behavior and keeps final delivery as a
+ * tail-only fallback. Live reasoning streams are intentionally unsupported.
  */
 
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
@@ -32,31 +32,10 @@ function computeIncrementalSuffix(previous: string, next: string): string {
   return suffix.trim() ? suffix : "";
 }
 
-function computeReasoningIncrementalSuffix(previous: string, next: string): string {
-  const strictSuffix = computeIncrementalSuffix(previous, next);
-  if (strictSuffix || !previous || !(next || "").trim()) {
-    return strictSuffix;
-  }
-
-  const prev = previous || "";
-  const current = next || "";
-  const limit = Math.min(prev.length, current.length);
-  let sharedPrefixLength = 0;
-  while (sharedPrefixLength < limit && prev[sharedPrefixLength] === current[sharedPrefixLength]) {
-    sharedPrefixLength += 1;
-  }
-  if (sharedPrefixLength === 0) {
-    return "";
-  }
-  const suffix = current.slice(sharedPrefixLength);
-  return suffix.trim() ? suffix : "";
-}
-
 export function createMarkdownReplyStrategy(
   ctx: ReplyStrategyContext,
 ): ReplyStrategy {
   let finalText: string | undefined;
-  let lastSentThinkingText = "";
   let activeAnswerText = "";
   let lastSentAnswerText = "";
 
@@ -78,53 +57,33 @@ export function createMarkdownReplyStrategy(
     }
   };
 
-  const emitThinkingSuffix = async (text: string | undefined): Promise<void> => {
-    const current = typeof text === "string" ? text : "";
-    const suffix = computeReasoningIncrementalSuffix(lastSentThinkingText, current);
-    if (suffix) {
-      await sendMarkdownSegment(renderQuotedSegment(suffix));
-      lastSentThinkingText = current;
+  const sendAnswerText = async (text: string): Promise<void> => {
+    if (!text.trim()) {
       return;
     }
-    if (current.trim() && lastSentThinkingText && !current.startsWith(lastSentThinkingText)) {
-      // Markdown messages cannot be edited in place. If runtime rewrites prior
-      // thinking content instead of extending it, drop this update and let the
-      // next monotonic growth start from a clean cursor.
-      lastSentThinkingText = "";
-    }
-  };
-
-  const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
-    const current = typeof text === "string" ? text : "";
-    if (current.length > 0) {
-      activeAnswerText = current;
-    }
-    const suffix = computeIncrementalSuffix(lastSentAnswerText, current);
-    if (suffix) {
-      await sendMarkdownSegment(suffix);
-      lastSentAnswerText = current;
-      return;
-    }
-    if (current.trim() && lastSentAnswerText && !current.startsWith(lastSentAnswerText)) {
-      lastSentAnswerText = "";
-    }
+    activeAnswerText = text;
+    finalText = text;
+    await sendMarkdownSegment(text);
+    lastSentAnswerText = text;
   };
 
   return {
     getReplyOptions(): ReplyOptions {
       return {
         disableBlockStreaming: false,
-        onReasoningStream: async (payload) => {
-          await emitThinkingSuffix(payload.text);
-        },
-        onPartialReply: async (payload) => {
-          await emitAnswerSuffix(payload.text);
-        },
-        onAssistantMessageStart: async () => {
-          // Markdown answer turns reset independently. Thinking boundaries are
-          // still sealed by tool events so we do not clear the thinking cursor here.
-          activeAnswerText = "";
-          lastSentAnswerText = "";
+        onBlockReply: async (payload) => {
+          if (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0) {
+            await ctx.deliverMedia(payload.mediaUrls);
+          }
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (!text.trim()) {
+            return;
+          }
+          if (payload.isReasoning === true) {
+            await sendMarkdownSegment(renderQuotedSegment(text));
+            return;
+          }
+          await sendAnswerText(text);
         },
       };
     },
@@ -135,7 +94,6 @@ export function createMarkdownReplyStrategy(
       }
 
       if (payload.kind === "tool") {
-        lastSentThinkingText = "";
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           return;
@@ -149,13 +107,19 @@ export function createMarkdownReplyStrategy(
         && typeof payload.text === "string"
         && payload.text.length > 0
       ) {
+        activeAnswerText = payload.text;
         finalText = payload.text;
-        await emitAnswerSuffix(payload.text);
+        const suffix = computeIncrementalSuffix(lastSentAnswerText, payload.text);
+        if (!suffix) {
+          return;
+        }
+        await sendMarkdownSegment(suffix);
+        lastSentAnswerText = payload.text;
       }
     },
 
     async finalize(): Promise<void> {
-      // Markdown mode delivers incrementally during callbacks / deliver(final).
+      // Markdown mode delivers through block replies and final tails.
     },
 
     async abort(): Promise<void> {

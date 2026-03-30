@@ -1910,8 +1910,15 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("handleDingTalkMessage markdown flow sends thinking, tool, and final outputs incrementally", async () => {
+  it("handleDingTalkMessage markdown flow sends reasoning-on block replies via onBlockReply", async () => {
     const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ replyOptions }) => {
+        await replyOptions?.onBlockReply?.({ text: "Reasoning:\n_thinking_", isReasoning: true });
+        await replyOptions?.onBlockReply?.({ text: "final output" });
+        return { queuedFinal: false };
+      });
     runtime.channel.session.resolveStorePath = vi
       .fn()
       .mockReturnValueOnce("/tmp/account-store.json")
@@ -1941,7 +1948,7 @@ describe("inbound-handler", () => {
       1,
       expect.anything(),
       "user_1",
-      "> thinking",
+      "> Reasoning:\n> _thinking_",
       expect.objectContaining({
         storePath: "/tmp/account-store.json",
         quotedRef: {
@@ -1953,15 +1960,6 @@ describe("inbound-handler", () => {
     );
     expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
       2,
-      expect.anything(),
-      "user_1",
-      "> tool output",
-      expect.objectContaining({
-        storePath: "/tmp/account-store.json",
-      }),
-    );
-    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
-      3,
       expect.anything(),
       "user_1",
       "final output",
@@ -3771,15 +3769,13 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("markdown flow resets answer incremental cursor after assistant turn start", async () => {
+  it("markdown flow still sends final answer when reasoning-on uses only block replies", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
-      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
-        await replyOptions?.onPartialReply?.({ text: "Turn 1 summary" });
-        await replyOptions?.onAssistantMessageStart?.();
-        await replyOptions?.onPartialReply?.({ text: "Turn 2 short summary" });
-        await dispatcherOptions.deliver({ text: "Turn 2 short summary with detail" }, { kind: "final" });
+      .mockImplementation(async ({ replyOptions }) => {
+        await replyOptions?.onBlockReply?.({ text: "Reasoning:\n_step_", isReasoning: true });
+        await replyOptions?.onBlockReply?.({ text: "reasoning on正常" });
         return { queuedFinal: false };
       });
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
@@ -3804,9 +3800,8 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.sendMessageMock.mock.calls.map((call: any[]) => call[2])).toEqual([
-      "Turn 1 summary",
-      "Turn 2 short summary",
-      " with detail",
+      "> Reasoning:\n> _step_",
+      "reasoning on正常",
     ]);
   });
 
