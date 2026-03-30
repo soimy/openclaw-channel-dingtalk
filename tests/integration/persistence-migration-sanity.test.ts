@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
     formatGroupMembers,
     noteGroupMember,
-} from '../../src/group-members-store';
+} from '../../src/targeting/group-members-store';
 import {
     clearCardContentCacheForTest,
 } from '../../src/card-service';
