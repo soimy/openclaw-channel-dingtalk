@@ -19,7 +19,7 @@ openclaw configure --section channels
 1. 选择 `dingtalk`
 2. 输入 `Client ID`
 3. 输入 `Client Secret`
-4. 视情况补充 `Robot Code`、`Corp ID`、`Agent ID`
+4. 确认凭证与钉钉开放平台一致（`clientId` 同时用作钉钉 API 中的 robot code；无需单独填写企业 ID 或钉钉应用 ID）
 5. 选择消息模式
 6. 选择私聊与群聊策略
 
@@ -40,9 +40,6 @@ openclaw configure --section channels
       "enabled": true,
       "clientId": "dingxxxxxx",
       "clientSecret": "your-app-secret",
-      "robotCode": "dingxxxxxx",
-      "corpId": "dingxxxxxx",
-      "agentId": "123456789",
       "dmPolicy": "open",
       "groupPolicy": "open",
       "messageType": "markdown"

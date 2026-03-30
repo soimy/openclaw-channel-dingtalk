@@ -35,6 +35,34 @@
   display: inline-block;
 }
 
+.VPSidebar {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.VPSidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.VPSidebar.is-scrolling {
+  scrollbar-width: thin;
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-c-text-3) 72%, transparent);
+}
+
+.VPSidebar.is-scrolling::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .dark .readme-banner-theme-switch .banner-light {
   display: none;
 }

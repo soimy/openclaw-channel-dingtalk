@@ -149,4 +149,36 @@ describe("dynamic-ack-reaction-controller", () => {
       "[DingTalk] onAgentEvent not available, dynamic reaction tracking disabled",
     );
   });
+
+  it("does not switch reactions when no initial ack reaction was attached", async () => {
+    const runtimeEvents = createRuntimeEvents();
+    const controller = createDynamicAckReactionController({
+      enabled: true,
+      initialReaction: "🤔思考中",
+      initialAttached: false,
+      initialAttachedAt: 0,
+      dingtalkConfig: { clientId: "id", clientSecret: "secret" } as any,
+      msgId: "msg_4",
+      conversationId: "cid_4",
+      sessionKey: "s1",
+      runtimeEvents: runtimeEvents.surface,
+    });
+
+    await runtimeEvents.emit({
+      stream: "lifecycle",
+      sessionKey: "s1",
+      runId: "run_4",
+      data: { phase: "start", sessionKey: "s1", runId: "run_4" },
+    });
+    await runtimeEvents.emit({
+      stream: "tool",
+      sessionKey: "s1",
+      runId: "run_4",
+      data: { phase: "start", name: "exec", toolCallId: "tool_4", sessionKey: "s1", runId: "run_4" },
+    });
+    await controller.awaitDrain();
+
+    expect(shared.recallNativeAckReactionWithRetryMock).not.toHaveBeenCalled();
+    expect(shared.attachNativeAckReactionMock).not.toHaveBeenCalled();
+  });
 });

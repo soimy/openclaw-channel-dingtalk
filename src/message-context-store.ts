@@ -13,6 +13,15 @@ const MAX_RECORDS_PER_SCOPE = 1000;
 export type MessageContextDirection = "inbound" | "outbound";
 export type MessageAliasKind = "inboundMsgId" | "messageId" | "processQueryKey" | "outTrackId" | "cardInstanceId";
 export type MessageDeliveryKind = "session" | "proactive-text" | "proactive-card" | "proactive-media";
+export const DEFAULT_OUTBOUND_SENDER = {
+  senderId: "bot",
+  senderName: "OpenClaw",
+} as const;
+
+/** DingTalk conversation ids usually start with "cid" for group chats; treat this as a heuristic. */
+export function inferConversationChatType(conversationId: string): "direct" | "group" {
+  return conversationId.startsWith("cid") ? "group" : "direct";
+}
 
 export interface MessageRecord {
   msgId: string;
@@ -30,6 +39,12 @@ export interface MessageRecord {
   attachmentTextTruncated?: boolean;
   attachmentFileName?: string;
   quotedRef?: QuotedRef;
+  senderId?: string;
+  senderName?: string;
+  mentions?: string[];
+  chatType?: "direct" | "group";
+  /** Flat quoted target for summary/history lookups; quotedRef remains the authoritative structured link. */
+  quotedMessageId?: string;
   media?: {
     downloadCode?: string;
     spaceId?: string;
@@ -74,6 +89,11 @@ interface BaseUpsertParams {
   attachmentTextTruncated?: boolean;
   attachmentFileName?: string;
   quotedRef?: QuotedRef;
+  senderId?: string;
+  senderName?: string;
+  mentions?: string[];
+  chatType?: "direct" | "group";
+  quotedMessageId?: string;
   media?: {
     downloadCode?: string;
     spaceId?: string;
@@ -214,6 +234,15 @@ function normalizeDelivery(value: unknown): MessageRecord["delivery"] | undefine
   return { messageId, processQueryKey, outTrackId, cardInstanceId, kind };
 }
 
+function normalizeMentions(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  // Preserve the original mention token casing because DingTalk ids may be case-sensitive.
+  const normalized = [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))];
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function normalizeMessageRecord(value: unknown): MessageRecord | null {
   const candidate = asRecord(value);
   if (!candidate) {
@@ -256,6 +285,14 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
     attachmentFileName:
       typeof candidate.attachmentFileName === "string" ? candidate.attachmentFileName : undefined,
     quotedRef: normalizeQuotedRef(candidate.quotedRef),
+    senderId: typeof candidate.senderId === "string" && candidate.senderId.trim() ? candidate.senderId.trim() : undefined,
+    senderName: typeof candidate.senderName === "string" && candidate.senderName.trim() ? candidate.senderName.trim() : undefined,
+    mentions: normalizeMentions(candidate.mentions),
+    chatType: candidate.chatType === "direct" || candidate.chatType === "group" ? candidate.chatType : undefined,
+    quotedMessageId:
+      typeof candidate.quotedMessageId === "string" && candidate.quotedMessageId.trim()
+        ? candidate.quotedMessageId.trim()
+        : undefined,
     media: normalizeMedia(candidate.media),
     delivery: normalizeDelivery(candidate.delivery),
   };
@@ -411,6 +448,20 @@ function mergeQuotedRef(existing: QuotedRef | undefined, next: QuotedRef | undef
   };
 }
 
+function mergeStringField(existing: string | undefined, next: string | undefined): string | undefined {
+  if (typeof next !== "string" || !next.trim()) {
+    return existing;
+  }
+  return next.trim();
+}
+
+function mergeMentions(existing: string[] | undefined, next: string[] | undefined): string[] | undefined {
+  if (!next) {
+    return existing;
+  }
+  return normalizeMentions(next) || existing;
+}
+
 function mergeMedia(
   existing: MessageRecord["media"] | undefined,
   next: MessageRecord["media"] | undefined,
@@ -556,6 +607,11 @@ function upsertRecord(
     attachmentTextTruncated?: boolean;
     attachmentFileName?: string;
     quotedRef?: QuotedRef;
+    senderId?: string;
+    senderName?: string;
+    mentions?: string[];
+    chatType?: "direct" | "group";
+    quotedMessageId?: string;
     media?: MessageRecord["media"];
     delivery?: MessageRecord["delivery"];
     cleanupCreatedAtTtlDays?: number;
@@ -611,6 +667,11 @@ function upsertRecord(
       params.attachmentFileName,
     ),
     quotedRef: mergeQuotedRef(existing?.quotedRef, normalizedQuotedRef),
+    senderId: mergeStringField(existing?.senderId, params.senderId),
+    senderName: mergeStringField(existing?.senderName, params.senderName),
+    mentions: mergeMentions(existing?.mentions, params.mentions),
+    chatType: params.chatType || existing?.chatType,
+    quotedMessageId: mergeStringField(existing?.quotedMessageId, params.quotedMessageId),
     media: mergeMedia(existing?.media, params.media),
     delivery: mergeDelivery(existing?.delivery, params.delivery),
   };
@@ -784,4 +845,17 @@ export function cleanupExpiredMessageContexts(
 
 export function clearMessageContextCacheForTest(): void {
   stateCache.clear();
+}
+
+/**
+ * Lists non-expired message-context records for one account/conversation scope in createdAt ascending order.
+ */
+export function listMessageContexts(
+  params: ScopeParams & { nowMs?: number },
+): MessageRecord[] {
+  const nowMs = params.nowMs ?? Date.now();
+  const state = loadState(params, nowMs);
+  return state.recentByCreatedAt
+    .map((msgId) => state.records[msgId])
+    .filter((record): record is MessageRecord => Boolean(record) && !isRecordExpired(record, nowMs));
 }

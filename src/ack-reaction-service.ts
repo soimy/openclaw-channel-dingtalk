@@ -23,7 +23,6 @@ type AckReactionLogger = {
 type AckReactionTarget = {
   msgId: string;
   conversationId: string;
-  robotCode?: string;
   reactionName?: string;
 };
 
@@ -50,7 +49,7 @@ function resolveAckReactionRequest(
   config: DingTalkConfig,
   data: AckReactionTarget,
 ): ResolvedAckReactionRequest | null {
-  const robotCode = (data.robotCode || config.robotCode || config.clientId || "").trim();
+  const robotCode = (config.clientId || "").trim();
   const reactionName =
     (data.reactionName || DINGTALK_NATIVE_ACK_REACTION).trim() || DINGTALK_NATIVE_ACK_REACTION;
   if (!robotCode || !data.msgId || !data.conversationId) {

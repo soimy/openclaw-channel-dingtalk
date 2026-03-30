@@ -4,10 +4,11 @@
 
 ## 建议阅读顺序
 
-1. [本地开发](development.md)
-2. [测试与验证](testing.md)
-3. [架构说明（中文详版）](architecture.zh-CN.md)
-4. [NPM 发布](npm-publish.md)
+1. [仓库 TODO](todo.md)
+2. [本地开发](development.md)
+3. [测试与验证](testing.md)
+4. [架构说明（中文详版）](architecture.zh-CN.md)
+5. [NPM 发布](npm-publish.md)
 
 ## 范围说明
 
@@ -15,6 +16,7 @@
 
 ## 贡献入口
 
+- [仓库 TODO](todo.md)
 - [本地开发](development.md)
 - [测试与验证](testing.md)
 - [架构说明（中文详版）](architecture.zh-CN.md)

@@ -113,15 +113,16 @@ describe("reply-strategy-card", () => {
             expect(deliverMedia).toHaveBeenCalledWith(["/img.png"]);
         });
 
-        it("deliver(tool) sends via sendMessage with cardUpdateMode=append", async () => {
+        it("deliver(tool) appends to the controller instead of sendMessage append mode", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "tool output", mediaUrls: [], kind: "tool" });
-            expect(sendMessageMock).toHaveBeenCalledTimes(1);
-            expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
-                card,
-                cardUpdateMode: "append",
-            });
+            expect(sendMessageMock).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+                expect.objectContaining({ cardUpdateMode: "append" }),
+            );
         });
 
         it("deliver(tool) skips when card is FAILED", async () => {
@@ -138,13 +139,14 @@ describe("reply-strategy-card", () => {
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
-        it("deliver(tool) throws when sendMessage returns not ok", async () => {
+        it("deliver(tool) does not depend on sendMessage append mode success", async () => {
             const card = makeCard();
             sendMessageMock.mockResolvedValueOnce({ ok: false, error: "tool send failed" });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await expect(
                 strategy.deliver({ text: "tool output", mediaUrls: [], kind: "tool" }),
-            ).rejects.toThrow("tool send failed");
+            ).resolves.toBeUndefined();
+            expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
         it("deliver(tool) skips when tool text is empty after formatting", async () => {
@@ -168,20 +170,65 @@ describe("reply-strategy-card", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            // Should not throw; finalTextForFallback stays undefined
-            expect(strategy.getFinalText()).toBeUndefined();
+            expect(strategy.getFinalText()).toBe("附件已发送，请查收。");
         });
     });
 
     describe("finalize", () => {
-        it("calls finishAICard with lastAnswerContent or fallback text", async () => {
+        it("calls finishAICard with the rendered timeline instead of answer-only text", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
+            strategy.getReplyOptions().onReasoningStream?.({ text: "先检查差异" });
+            await strategy.deliver({ text: "git diff --stat", mediaUrls: [], kind: "tool" });
             await strategy.deliver({ text: "the answer", mediaUrls: [], kind: "final" });
             await strategy.finalize();
+
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            // finalTextForFallback is "the answer" since onPartialReply is not registered
-            expect(finishAICardMock.mock.calls[0][1]).toBe("the answer");
+            const rendered = finishAICardMock.mock.calls[0][1];
+            expect(rendered).toContain("> 先检查差异");
+            expect(rendered).toContain("> git diff --stat");
+            expect(rendered).toContain("the answer");
+            expect(rendered).not.toContain("> the answer");
+        });
+
+        it("preserves answer and tool blocks in event order during finalize", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(
+                buildCtx(card, {
+                    config: {
+                        clientId: "id",
+                        clientSecret: "secret",
+                        messageType: "card",
+                        cardRealTimeStream: true,
+                    } as any,
+                }),
+            );
+            const replyOptions = strategy.getReplyOptions();
+
+            await replyOptions.onPartialReply?.({ text: "阶段1答案：准备先检查当前目录" });
+            await strategy.deliver({ text: "🛠️ Exec: pwd", mediaUrls: [], kind: "tool" });
+
+            await replyOptions.onAssistantMessageStart?.();
+            await replyOptions.onPartialReply?.({ text: "阶段2答案：pwd 已返回结果" });
+            await strategy.deliver({ text: "🛠️ Exec: printf ok", mediaUrls: [], kind: "tool" });
+
+            await replyOptions.onAssistantMessageStart?.();
+            await replyOptions.onPartialReply?.({ text: "阶段3答案：两次工具都已完成" });
+            await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
+            const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
+            const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
+            const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
+            const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+
+            expect(phase1Index).toBeGreaterThanOrEqual(0);
+            expect(tool1Index).toBeGreaterThan(phase1Index);
+            expect(phase2Index).toBeGreaterThan(tool1Index);
+            expect(tool2Index).toBeGreaterThan(phase2Index);
+            expect(phase3Index).toBeGreaterThan(tool2Index);
         });
 
         it("skips finalize when card is already FINISHED", async () => {
@@ -191,14 +238,21 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
         });
 
-        it("sends markdown fallback with forceMarkdown when card FAILED", async () => {
-            const card = makeCard({ state: AICardStatus.FAILED, lastStreamedContent: "partial" });
+        it("sends markdown fallback with the rendered timeline when card FAILED", async () => {
+            const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
+            strategy.getReplyOptions().onReasoningStream?.({ text: "分析上下文" });
+            await strategy.deliver({ text: "git status", mediaUrls: [], kind: "tool" });
             await strategy.deliver({ text: "full answer", mediaUrls: [], kind: "final" });
+            card.state = AICardStatus.FAILED;
             await strategy.finalize();
+
             expect(finishAICardMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
-            expect(sendMessageMock.mock.calls[0][2]).toBe("full answer");
+            const fallbackText = sendMessageMock.mock.calls[0][2];
+            expect(fallbackText).toContain("> 分析上下文");
+            expect(fallbackText).toContain("> git status");
+            expect(fallbackText).toContain("full answer");
             expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
                 forceMarkdown: true,
             });
@@ -254,13 +308,17 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
         });
 
-        it("uses fallback Done text when no content is available", async () => {
+        it("uses a file-only placeholder answer when no answer text is available", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
-            // No deliver(final) called → finalTextForFallback is undefined
+            strategy.getReplyOptions().onReasoningStream?.({ text: "我来发附件" });
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
+
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls[0][1]).toContain("Done");
+            const rendered = finishAICardMock.mock.calls[0][1];
+            expect(rendered).toContain("> 我来发附件");
+            expect(rendered).toContain("附件已发送，请查收。");
         });
     });
 

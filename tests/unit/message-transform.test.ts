@@ -22,7 +22,6 @@ const mockedAxios = vi.mocked(axios);
 const config: DingTalkConfig = {
     clientId: 'ding-client-id',
     clientSecret: 'client-secret',
-    robotCode: 'ding-client-id',
 } as DingTalkConfig;
 
 describe('message payload transform', () => {

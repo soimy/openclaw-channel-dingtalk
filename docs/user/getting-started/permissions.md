@@ -59,11 +59,8 @@ message=auth level of org is not enough
 
 从开发者后台获取：
 
-- `Client ID`
+- `Client ID`（与开放平台 AppKey 一致；插件将其同时用作钉钉 API 请求中的 `robotCode`）
 - `Client Secret`
-- `Robot Code`
-- `Corp ID`
-- `Agent ID`
 
 ## 6. 配置联动
 

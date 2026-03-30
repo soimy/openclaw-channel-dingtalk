@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { applyTaskListPlugin } from './task-list-plugin'
 
 const siteBase = '/openclaw-channel-dingtalk/'
 
@@ -68,6 +69,8 @@ export default defineConfig({
   srcExclude: ['archive/**', 'assets/**', 'plans/**', 'spec/**'],
   markdown: {
     config(md) {
+      applyTaskListPlugin(md)
+
       const defaultImageRenderer =
         md.renderer.rules.image ??
         ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
@@ -161,6 +164,7 @@ export default defineConfig({
           text: '参与贡献',
           items: [
             { text: '概览', link: '/contributor/' },
+            { text: '仓库 TODO', link: '/contributor/todo' },
             { text: '本地开发', link: '/contributor/development' },
             { text: '测试与验证', link: '/contributor/testing' },
             { text: 'NPM 发布', link: '/contributor/npm-publish' },

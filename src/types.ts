@@ -32,7 +32,6 @@ export type AckReactionConfigValue = string;
 export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
   clientSecret: string;
-  robotCode?: string;
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
@@ -95,7 +94,6 @@ export interface DingTalkChannelConfig {
   enabled?: boolean;
   clientId: string;
   clientSecret: string;
-  robotCode?: string;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist" | "disabled";
@@ -761,7 +759,6 @@ export function resolveDingTalkAccount(
     const config: DingTalkConfig = {
       clientId: dingtalk?.clientId ?? "",
       clientSecret: dingtalk?.clientSecret ?? "",
-      robotCode: dingtalk?.robotCode,
       name: dingtalk?.name,
       enabled: dingtalk?.enabled,
       dmPolicy: dingtalk?.dmPolicy,

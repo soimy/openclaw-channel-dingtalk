@@ -113,16 +113,17 @@ describe("dingtalk setup wizard", () => {
             throw new Error("Expected dingtalk config to be present");
         }
 
-        expect(result.accountId).toBe('default');
-        expect(dingtalkConfig.clientId).toBe('ding_client');
-        expect(dingtalkConfig.clientSecret).toBe('ding_secret');
-        expect(dingtalkConfig.robotCode).toBeUndefined();
-        expect(dingtalkConfig.messageType).toBe('card');
+        expect(result.accountId).toBe("default");
+        expect(dingtalkConfig.clientId).toBe("ding_client");
+        expect(dingtalkConfig.clientSecret).toBe("ding_secret");
+        expect((dingtalkConfig as any).corpId).toBeUndefined();
+        expect((dingtalkConfig as any).agentId).toBeUndefined();
+        expect(dingtalkConfig.messageType).toBe("card");
         expect(dingtalkConfig.cardTemplateId).toBeUndefined();
         expect(dingtalkConfig.cardTemplateKey).toBeUndefined();
-        expect(dingtalkConfig.allowFrom).toEqual(['user_a', 'user_b']);
-        expect(dingtalkConfig.groupAllowFrom).toEqual(['grp_user1', 'grp_user2']);
-        expect(dingtalkConfig.displayNameResolution).toBe('all');
+        expect(dingtalkConfig.allowFrom).toEqual(["user_a", "user_b"]);
+        expect(dingtalkConfig.groupAllowFrom).toEqual(["grp_user1", "grp_user2"]);
+        expect(dingtalkConfig.displayNameResolution).toBe("all");
         expect(dingtalkConfig.mediaUrlAllowlist).toBeUndefined();
         expect(dingtalkConfig.maxReconnectCycles).toBe(7);
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
@@ -134,7 +135,7 @@ describe("dingtalk setup wizard", () => {
         );
     });
 
-    it("generic setup input no longer stores legacy code as robotCode", () => {
+    it("generic setup input stores clientId and clientSecret without legacy fields", () => {
         const cfg = dingtalkSetupAdapter.applyAccountConfig({
             cfg: {} as any,
             accountId: "default",
@@ -148,7 +149,6 @@ describe("dingtalk setup wizard", () => {
         const dingtalkConfig = cfg.channels?.dingtalk;
         expect(dingtalkConfig?.clientId).toBe("ding_client");
         expect(dingtalkConfig?.clientSecret).toBe("ding_secret");
-        expect((dingtalkConfig as any)?.robotCode).toBeUndefined();
     });
 
     it("configure with disabled groupPolicy skips groupAllowFrom prompt", async () => {

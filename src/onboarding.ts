@@ -115,7 +115,6 @@ function applyAccountConfig(params: {
   const payload: Partial<DingTalkConfig> = {
     ...(input.clientId ? { clientId: input.clientId } : {}),
     ...(input.clientSecret ? { clientSecret: input.clientSecret } : {}),
-    ...(input.robotCode ? { robotCode: input.robotCode } : {}),
     ...(input.dmPolicy ? { dmPolicy: input.dmPolicy } : {}),
     ...(input.groupPolicy ? { groupPolicy: input.groupPolicy } : {}),
     ...(input.allowFrom && input.allowFrom.length > 0 ? { allowFrom: input.allowFrom } : {}),

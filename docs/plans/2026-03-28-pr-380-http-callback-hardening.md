@@ -172,7 +172,7 @@ Expected: FAIL because HTTP currently bypasses dedup and in-flight protection.
 - [ ] **Step 4: Extract the reusable guard**
 
 Create `src/inbound-dispatch-guard.ts` with one helper that:
-- derives `dedupKey` from `robotCode || clientId || accountId` and `msgId`
+- derives `dedupKey` from `clientId || accountId` (same scope as `resolveRobotCode` / API `robotCode`) and `msgId`
 - checks `isMessageProcessed()`
 - manages the existing in-flight TTL map behavior
 - calls `handleDingTalkMessage()`

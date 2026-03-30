@@ -48,7 +48,7 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).toHaveBeenCalledWith(card, "Hello world", false, undefined);
     });
 
-    it("updateReasoning sends formatted thinking text", async () => {
+    it("updateReasoning sends a rendered thinking block", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
@@ -56,12 +56,10 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(sentContent).toContain("🤔");
-        expect(sentContent).toContain("思考中");
-        expect(sentContent).toContain("Analyzing...");
+        expect(sentContent).toContain("> Analyzing...");
     });
 
-    it("phase flows idle -> reasoning -> answer (one-way)", async () => {
+    it("answer rendering keeps the latest thinking block in the same timeline", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
@@ -77,7 +75,9 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
         expect(streamAICardMock).toHaveBeenCalledTimes(1);
-        expect(streamAICardMock.mock.calls[0]?.[1]).toBe("answer");
+        const rendered = streamAICardMock.mock.calls[0]?.[1] as string;
+        expect(rendered).toContain("> think");
+        expect(rendered).toContain("answer");
     });
 
     it("reasoning is ignored once in answer phase", async () => {
@@ -93,7 +93,7 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).not.toHaveBeenCalled();
     });
 
-    it("reasoning -> answer switch resets pending so reasoning does not leak", async () => {
+    it("reasoning -> answer switch seals only the latest thinking snapshot into the timeline", async () => {
         const sent: string[] = [];
         let resolveInFlight!: () => void;
         streamAICardMock.mockImplementation(async (_card, content) => {
@@ -118,8 +118,9 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(300);
 
         const lastSent = sent[sent.length - 1];
-        expect(lastSent).toBe("Hello");
-        expect(lastSent).not.toContain("thinking");
+        expect(lastSent).toContain("> still thinking...");
+        expect(lastSent).not.toContain("> thinking...");
+        expect(lastSent).toContain("Hello");
     });
 
     it("isFailed becomes true when streamAICard throws", async () => {
@@ -258,7 +259,7 @@ describe("card-draft-controller", () => {
 
         expect(streamAICardMock).toHaveBeenCalledWith(
             card,
-            "Turn 1 content\n\nTurn 2",
+            "Turn 1 content\nTurn 2",
             false,
             undefined,
         );
@@ -297,8 +298,7 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(sentContent).toContain("思考中");
-        expect(sentContent).toContain("new thinking");
+        expect(sentContent).toContain("> new thinking");
     });
 
     it("getLastAnswerContent only tracks answer phase sends", async () => {
@@ -308,10 +308,255 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("thinking");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("");
-        expect(ctrl.getLastContent()).toContain("思考中");
+        expect(ctrl.getLastContent()).toContain("> thinking");
 
         ctrl.updateAnswer("answer text");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("answer text");
+    });
+
+    it("renders thinking and tool blocks as plain blockquotes while leaving answer plain", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateReasoning("先检查改动");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.updateTool).toBe("function");
+
+        await ctrl.updateTool("git diff --stat");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.updateAnswer("这里是最终回复");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("> 先检查改动");
+        expect(rendered).toContain("> git diff --stat");
+        expect(rendered).toContain("这里是最终回复");
+        expect(rendered).not.toContain("> 这里是最终回复");
+    });
+
+    it("replaces the live thinking block instead of appending multiple reasoning snapshots", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+
+        ctrl.updateReasoning("第一版思考");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.updateReasoning("第二版思考");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("第二版思考");
+        expect(rendered).not.toContain("第一版思考");
+    });
+
+    it("notifyNewAssistantTurn keeps earlier answer text and appends the next answer turn", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        expect(typeof ctrl.getRenderedContent).toBe("function");
+
+        ctrl.updateAnswer("Turn 1 content");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("Turn 2 short summary");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("Turn 1 content");
+        expect(rendered).toContain("Turn 2 short summary");
+    });
+
+    it("getFinalAnswerContent returns answer-only text without process block prefixes", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateReasoning("我先看看");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateTool("git status");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.updateAnswer("最终答案");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(typeof ctrl.getFinalAnswerContent).toBe("function");
+        const answerOnly = ctrl.getFinalAnswerContent?.() ?? "";
+        expect(answerOnly).toBe("最终答案");
+        expect(answerOnly).not.toContain("思考");
+        expect(answerOnly).not.toContain("工具");
+    });
+
+    it("keeps html-sensitive tool text inside quoted markdown lines", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("<div>hello</div>");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("> <div>hello</div>");
+    });
+
+    it("uses a tighter separator between process blocks and answer text", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
+        expect(streamed).toContain("> Exec: pwd\n当前工作目录是 /Users/sym/clawd");
+        expect(streamed).not.toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
+        expect(rendered).toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
+    });
+
+    it("uses tight separators across thinking, tool, and answer while streaming", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateReasoning("Reason: 先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
+        expect(streamed).toContain(
+            "> Reason: 先检查当前目录\n> Exec: pwd\n当前工作目录是 /Users/sym/clawd",
+        );
+        expect(streamed).not.toContain(
+            "> Reason: 先检查当前目录\n\n> Exec: pwd",
+        );
+        expect(streamed).not.toContain(
+            "> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd",
+        );
+    });
+
+    it("uses tight separators between adjacent tool blocks while streaming", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateTool("Exec: printf ok");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
+        expect(streamed).toContain("> Exec: pwd\n> Exec: printf ok");
+        expect(streamed).not.toContain("> Exec: pwd\n\n> Exec: printf ok");
+    });
+
+    it("final rendered timeline keeps a blank line between process blocks and answer text", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const finalRendered = ctrl.getRenderedContent?.() ?? "";
+        expect(finalRendered).toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
+        expect(finalRendered).not.toContain("> Exec: pwd\n当前工作目录是 /Users/sym/clawd");
+    });
+
+    it("preserves interleaved answer and tool blocks in event order", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateAnswer("阶段1答案：准备先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("阶段2答案：pwd 已返回结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateTool("🛠️ Exec: printf ok");
+        await vi.advanceTimersByTimeAsync(0);
+
+        ctrl.notifyNewAssistantTurn();
+        ctrl.updateAnswer("阶段3答案：两次工具都已完成");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
+        const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
+        const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
+        const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
+        const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+
+        expect(phase1Index).toBeGreaterThanOrEqual(0);
+        expect(tool1Index).toBeGreaterThan(phase1Index);
+        expect(phase2Index).toBeGreaterThan(tool1Index);
+        expect(tool2Index).toBeGreaterThan(phase2Index);
+        expect(phase3Index).toBeGreaterThan(tool2Index);
+    });
+
+    it("flushes the latest answer frame before appending a new tool block", async () => {
+        const sent: string[] = [];
+        streamAICardMock.mockImplementation(async (_card, content) => {
+            sent.push(content);
+        });
+
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 300 }) as any;
+
+        await ctrl.updateAnswer("阶段1答案：初版");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.updateAnswer("阶段1答案：完整版");
+        await ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent).toHaveLength(3);
+        expect(sent[1]).toContain("阶段1答案：完整版");
+        expect(sent[1]).not.toContain("🛠️ Exec: pwd");
+        expect(sent[2]).toContain("阶段1答案：完整版");
+        expect(sent[2]).toContain("🛠️ Exec: pwd");
+    });
+
+    it("waits for the tool boundary frame before starting the next answer block", async () => {
+        const sent: string[] = [];
+        let resolveToolFrame!: () => void;
+        streamAICardMock.mockImplementation(async (_card, content) => {
+            sent.push(content);
+            if (content.includes("🛠️ Exec: pwd") && !content.includes("阶段2答案")) {
+                await new Promise<void>((r) => { resolveToolFrame = r; });
+            }
+        });
+
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 300 }) as any;
+
+        await ctrl.updateAnswer("阶段1答案：准备先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const toolPromise = ctrl.updateTool("🛠️ Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const answerPromise = ctrl.updateAnswer("阶段2答案：pwd 已返回结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent.at(-1)).toContain("🛠️ Exec: pwd");
+        expect(sent.at(-1)).not.toContain("阶段2答案：pwd 已返回结果");
+
+        resolveToolFrame();
+        await toolPromise;
+        await answerPromise;
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
     });
 });

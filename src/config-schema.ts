@@ -20,9 +20,6 @@ const DingTalkAccountConfigShape = {
   /** DingTalk App Secret (Client Secret) - required for authentication */
   clientSecret: z.string().optional(),
 
-  /** DingTalk Robot Code for media download */
-  robotCode: z.string().optional(),
-
   /** Direct message policy: open, pairing, or allowlist */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 

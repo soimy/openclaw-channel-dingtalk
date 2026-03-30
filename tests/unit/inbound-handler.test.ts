@@ -239,7 +239,7 @@ describe("inbound-handler", () => {
     } as any);
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -258,7 +258,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -281,7 +281,7 @@ describe("inbound-handler", () => {
     });
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -297,7 +297,7 @@ describe("inbound-handler", () => {
     mockedGetAccessToken.mockRejectedValueOnce(new Error("token failed"));
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -318,7 +318,7 @@ describe("inbound-handler", () => {
     });
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -337,7 +337,7 @@ describe("inbound-handler", () => {
     mockedAxiosGet.mockRejectedValueOnce(new Error("plain failure"));
 
     const result = await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
       log as any,
     );
@@ -361,7 +361,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1", mediaMaxMb: 50 } as any,
+      { clientId: "id", clientSecret: "sec", mediaMaxMb: 50 } as any,
       "download_code_1",
     );
 
@@ -386,7 +386,7 @@ describe("inbound-handler", () => {
     } as any);
 
     await downloadMedia(
-      { clientId: "id", clientSecret: "sec", robotCode: "robot_1" } as any,
+      { clientId: "id", clientSecret: "sec" } as any,
       "download_code_1",
     );
 
@@ -395,7 +395,7 @@ describe("inbound-handler", () => {
     expect(call[2]).toBe("inbound");
   });
 
-  it("downloadMedia falls back to clientId when robotCode is missing", async () => {
+  it("downloadMedia uses clientId as robotCode", async () => {
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValue(runtime);
 
@@ -1568,9 +1568,7 @@ describe("inbound-handler", () => {
 
     expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.sendMessageMock).toHaveBeenCalled();
-    const cardSends = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
-    expect(cardSends.length).toBeGreaterThan(0);
+    expect(shared.streamAICardMock).toHaveBeenCalled();
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalled();
   });
 
@@ -2547,7 +2545,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_quote_1",
         msgtype: "text",
@@ -2594,7 +2592,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg",
         msgtype: "interactiveCard",
@@ -2661,7 +2659,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg_extract",
         msgtype: "interactiveCard",
@@ -2729,7 +2727,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_origin_msg_extract_error",
         msgtype: "interactiveCard",
@@ -2794,7 +2792,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg",
         msgtype: "text",
@@ -2872,7 +2870,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg_filename",
         msgtype: "text",
@@ -2938,7 +2936,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_msg_cached_filename",
         msgtype: "text",
@@ -2994,7 +2992,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_name",
         msgtype: "text",
@@ -3057,7 +3055,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_name_conflict",
         msgtype: "text",
@@ -3127,7 +3125,7 @@ describe("inbound-handler", () => {
         dingtalkConfig: {
           groupPolicy: "open",
           messageType: "markdown",
-          robotCode: "robot_1",
+          clientId: "robot_1",
           journalTTLDays: 30,
         } as any,
         data: {
@@ -3193,7 +3191,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_doc_name_conflict",
         msgtype: "text",
@@ -3240,7 +3238,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "doc_quote_group_msg",
         msgtype: "text",
@@ -3294,7 +3292,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "group_doc_quote",
         msgtype: "text",
@@ -3379,7 +3377,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_group_file_quote_2",
         msgtype: "text",
@@ -3505,19 +3503,21 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, expect.any(String), undefined, {
       quotedRef: {
         targetDirection: "inbound",
         key: "msgId",
         value: "m6_tool",
       },
     });
-    expect(shared.sendMessageMock.mock.calls[0]?.[3]?.quotedRef).toBeUndefined();
-    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(finalizeContent).toContain("> tool output");
+    expect(finalizeContent).not.toContain("🛠 工具");
+    expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
       expect.anything(),
       "user_1",
       "tool output",
-      expect.objectContaining({ card, cardUpdateMode: "append" }),
+      expect.objectContaining({ cardUpdateMode: "append" }),
     );
   });
 
@@ -4383,6 +4383,94 @@ describe("inbound-handler", () => {
     }
   });
 
+  it("keeps ackReaction tool progress independent from visible tool blocks", async () => {
+    vi.useFakeTimers();
+    mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
+
+    const runtime = buildRuntime();
+    let agentEventListener: ((event: unknown) => void) | undefined;
+    runtime.events = {
+      onAgentEvent: vi.fn((listener: (event: unknown) => void) => {
+        agentEventListener = listener;
+        return () => {
+          agentEventListener = undefined;
+        };
+      }),
+    } as any;
+
+    const card = { cardInstanceId: "card_tool_hidden", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        agentEventListener?.({
+          stream: "lifecycle",
+          data: {
+            phase: "start",
+            runId: "run_hidden_tool",
+          },
+        });
+        agentEventListener?.({
+          stream: "tool",
+          data: {
+            phase: "start",
+            name: "exec",
+            args: { cmd: "pwd" },
+            runId: "run_hidden_tool",
+            toolCallId: "tool_hidden",
+          },
+        });
+        await dispatcherOptions.deliver({ text: "final answer only" }, { kind: "final" });
+        return { queuedFinal: "final answer only" };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "hello",
+      messageType: "text",
+    });
+
+    try {
+      const handlePromise = handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          clientId: "ding_client",
+          clientSecret: "secret",
+          dmPolicy: "open",
+          messageType: "card",
+          ackReaction: "emoji",
+        } as any,
+        data: {
+          msgId: "m5_hidden_tool_ackreaction",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as any);
+      await vi.advanceTimersByTimeAsync(1200);
+      await handlePromise;
+
+      expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+      const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+      expect(finalizeContent).toContain("final answer only");
+      expect(finalizeContent).not.toContain("🛠 工具");
+
+      const reactionNames = mockedAxiosPost.mock.calls.map((call: any[]) => call[1]?.emotionName);
+      expect(reactionNames).toContain("🤔思考中");
+      expect(reactionNames).toContain("🛠️");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handleDingTalkMessage attaches default ack reaction (👀) when config and agent identity ackReaction are absent", async () => {
     vi.useFakeTimers();
     mockedAxiosPost.mockResolvedValue({ data: { success: true } } as any);
@@ -4918,7 +5006,7 @@ describe("inbound-handler", () => {
         groupPolicy: "allowlist",
         allowFrom: ["cid_group_1"],
         messageType: "card",
-        robotCode: "robot_1",
+        clientId: "robot_1",
         groups: { cid_group_1: { systemPrompt: "group prompt" } },
       } as any,
       data: {
@@ -5306,7 +5394,7 @@ describe("inbound-handler", () => {
     expect(finishedCardIds).toContain("card_B");
   });
 
-  it("concurrent messages pass correct card reference to sendMessage", async () => {
+  it("concurrent messages keep tool streaming bound to the correct card", async () => {
     let resolveA!: () => void;
     const gateA = new Promise<void>((r) => {
       resolveA = r;
@@ -5378,15 +5466,13 @@ describe("inbound-handler", () => {
     resolveA();
     await promiseA;
 
-    const sendCalls = shared.sendMessageMock.mock.calls;
-    const toolCallA = sendCalls.find((call: any[]) => call[2] === "tool A");
-    const toolCallB = sendCalls.find((call: any[]) => call[2] === "tool B");
+    const streamCalls = shared.streamAICardMock.mock.calls;
+    const toolCallA = streamCalls.find((call: any[]) => String(call[1]).includes("tool A"));
+    const toolCallB = streamCalls.find((call: any[]) => String(call[1]).includes("tool B"));
     expect(toolCallA).toBeTruthy();
     expect(toolCallB).toBeTruthy();
-    expect(toolCallA![3]?.card?.cardInstanceId).toBe("card_A");
-    expect(toolCallB![3]?.card?.cardInstanceId).toBe("card_B");
-    expect(toolCallA![3]?.cardUpdateMode).toBe("append");
-    expect(toolCallB![3]?.cardUpdateMode).toBe("append");
+    expect(toolCallA![0]?.cardInstanceId).toBe("card_A");
+    expect(toolCallB![0]?.cardInstanceId).toBe("card_B");
   });
 
   it("message A card in terminal state still finalizes without affecting message B", async () => {
@@ -5480,7 +5566,7 @@ describe("inbound-handler", () => {
       (call: any[]) => call[3]?.forceMarkdown === true,
     );
     expect(fallbackCalls.length).toBeGreaterThanOrEqual(1);
-    expect(fallbackCalls[0][2]).toBe("complete final answer");
+    expect(fallbackCalls[0][2]).toContain("complete final answer");
   });
 
   it("acquires session lock with the resolved sessionKey", async () => {
@@ -5671,7 +5757,7 @@ describe("inbound-handler", () => {
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
   });
 
-  it("cardRealTimeStream=false: finalize uses rawFinalText not reasoning content from controller", async () => {
+  it("cardRealTimeStream=false: finalize keeps the rendered timeline", async () => {
     const card = { cardInstanceId: "card_no_realtime", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
     shared.isCardInTerminalStateMock.mockReturnValue(false);
@@ -5712,11 +5798,13 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toBe("Here is the final answer.");
-    expect(finalizeContent).not.toContain("思考中");
+    expect(finalizeContent).toContain("> deep thinking about the problem");
+    expect(finalizeContent).toContain("Here is the final answer.");
+    expect(finalizeContent).not.toContain("> Here is the final answer.");
+    expect(finalizeContent).not.toContain("🤔 思考");
   });
 
-  it("file-only response finalizes card with Done instead of reasoning content", async () => {
+  it("file-only response finalizes card with a placeholder answer and preserved process blocks", async () => {
     const card = { cardInstanceId: "card_file_only", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
     shared.isCardInTerminalStateMock.mockReturnValue(false);
@@ -5758,8 +5846,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).not.toContain("思考中");
-    expect(finalizeContent).not.toContain("send");
+    expect(finalizeContent).toContain("> Let me send the file");
+    expect(finalizeContent).toContain("附件已发送，请查收。");
+    expect(finalizeContent).not.toContain("🤔 思考");
   });
 
   it("learns group/user targets from inbound displayName metadata", async () => {
@@ -6330,7 +6419,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "msg_attach_concat",
         msgtype: "interactiveCard",
@@ -6396,7 +6485,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_dl_777",
         msgtype: "text",
@@ -6470,7 +6559,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { groupPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_step1_guard",
         msgtype: "text",
@@ -6729,7 +6818,7 @@ describe("inbound-handler", () => {
       accountId: "main",
       sessionWebhook: "https://session.webhook",
       log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", robotCode: "robot_1" } as any,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", clientId: "robot_1" } as any,
       data: {
         msgId: "m_file_sandbox",
         msgtype: "file",

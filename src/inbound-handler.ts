@@ -288,7 +288,7 @@ export async function downloadMedia(
   const robotCode = resolveRobotCode(config);
   if (!robotCode) {
     if (log?.error) {
-      log.error("[DingTalk] downloadMedia requires clientId or robotCode to be configured.");
+      log.error("[DingTalk] downloadMedia requires clientId to be configured.");
     }
     return null;
   }

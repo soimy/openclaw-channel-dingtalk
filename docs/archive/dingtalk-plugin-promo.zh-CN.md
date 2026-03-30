@@ -103,9 +103,8 @@ openclaw configure --section channels
 
 建议按向导填写：
 
-- `Client ID` = AppKey
+- `Client ID` = AppKey（同时作为钉钉 API 中的 robot code，无需单独配置）
 - `Client Secret` = AppSecret
-- 进阶项（推荐填全以获得更好的兼容性）：`Robot Code`、`Corp ID`、`Agent ID`
 - 选择回复模式：
   - 常规场景：`markdown`
   - AI 对话沉浸体验：`card`（需配置 `cardTemplateId` / `cardTemplateKey`）
