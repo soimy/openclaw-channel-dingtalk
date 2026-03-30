@@ -1,0 +1,12 @@
+# Default-deny: only publish the runtime package surface.
+*
+
+!LICENSE
+!README.md
+!index.ts
+!openclaw.plugin.json
+!package.json
+
+!src/
+!src/**/
+!src/**/*.ts

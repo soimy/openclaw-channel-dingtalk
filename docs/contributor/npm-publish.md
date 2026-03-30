@@ -1,10 +1,12 @@
 # NPM 发布流程
 
-本文档说明如何将 DingTalk 频道插件发布到 npm 供 OpenClaw 用户安装使用。
+本文档说明如何将 DingTalk 频道插件发布到 npm，并同步发布到 ClawHub 插件包仓库。
 
 ## GitHub CI 自动发布（推荐）
 
-仓库已提供自动发布工作流：`.github/workflows/npm-publish.yml`
+仓库已提供两条相互独立的自动发布工作流：
+- `.github/workflows/npm-publish.yml`
+- `.github/workflows/clawhub-publish.yml`
 
 触发条件：
 - 推送任意新 tag 时触发
@@ -16,12 +18,36 @@
 - 运行 `type-check`、`lint`、`test`
 - 通过后自动执行 `npm publish --access public`
 
+ClawHub 自动执行内容：
+- 安装依赖
+- 校验 tag 与 `package.json` 的 `version` 同步
+- 当 tag 版本为标准 semver 预发布格式（如 `v2.8.0-beta.0`）时，自动使用 `beta` tag 发布到 ClawHub
+- 运行 `type-check`、`lint`、`test`
+- 通过后自动执行 `clawhub package publish`
+
+说明：
+- 两条 workflow 都由同一个 tag push 触发
+- 两条 workflow 相互独立，不存在 job 级依赖
+- 任一发布渠道失败，不会阻止另一条 workflow 被 GitHub 触发
+- ClawHub workflow 还支持 `workflow_dispatch` 手动触发，并要求显式输入一个已有 tag
+
 需要在 npm 与 GitHub 完成 Trusted publisher 绑定：
 1. 在 npm 包设置中配置 GitHub Actions Trusted publisher
 2. 确保工作流具备 `id-token: write` 权限（已在本仓库 workflow 配置）
 
 说明：Trusted publisher 模式下，发布步骤不再需要 `NPM_TOKEN` Secret。
 同时不要在仓库/组织变量里注入 `NODE_AUTH_TOKEN` 或 `NPM_TOKEN`，否则 npm 会优先尝试 token 认证，可能导致 OIDC 不生效。
+
+ClawHub 自动发布额外要求：
+1. 配置仓库 Secret：`CLAWHUB_TOKEN`
+2. 该 token 需要具备目标 ClawHub publisher 的 package publish 权限
+3. 当前 ClawHub 发布逻辑位于独立 workflow：`.github/workflows/clawhub-publish.yml`
+
+说明：
+- 上游官方 reusable workflow 主干已经切到依赖 `--dry-run` / `--json` 的新 CLI 参数
+- 截至 `clawhub@0.9.0`，npm 已发布 CLI 还未包含这些参数
+- 为避免在本仓库 CI 中直接调用官方 workflow 时因版本错位失败，当前实现改为使用兼容 `clawhub@0.9.0` 的独立本地 workflow
+- 待上游发布版本对齐后，可再切换为直接 `uses: openclaw/clawhub/.github/workflows/package-publish.yml@main`
 
 推荐发布命令：
 
@@ -101,6 +127,11 @@ npm pack --dry-run
 这会显示哪些文件会被包含在 npm 包中。确保：
 - ✅ 包含必要文件：`index.ts`, `src/`, `utils.ts`, `package.json`, `README.md`, `openclaw.plugin.json`
 - ❌ 排除开发文件：`node_modules/`, `docs/`, `.git/`, 配置文件等
+
+> [!IMPORTANT]
+> ClawHub plugin 发布不读取 `.npmignore`。
+> `clawhub package publish` 会直接扫描目录，并只应用 `.clawhubignore` / `.clawdhubignore`
+> 以及内置忽略项。因此仓库内开发产物的排除规则需要单独维护在 `.clawhubignore` 中。
 
 ### 3. 执行发布前检查
 
@@ -188,6 +219,12 @@ npm install @soimy/dingtalk
 - `.git/` - Git 仓库
 - 各类配置文件（`.eslintrc.json`, `tsconfig.json` 等）
 - 开发工具文件（`AGENTS.md`, `TODO.md` 等）
+
+ClawHub 发布范围由 `.clawhubignore` 控制，目标是尽量与 npm 包保持一致，但两者不是同一套机制：
+
+- `.npmignore` 只影响 `npm publish`
+- `.clawhubignore` 只影响 `clawhub package publish`
+- 若仓库新增开发产物目录，需要同时评估两份 ignore 文件是否都要更新
 
 ## 常见问题
 

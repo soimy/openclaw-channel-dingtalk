@@ -11,6 +11,7 @@ import {
   isCardInTerminalState,
 } from "./card-service";
 import { createCardDraftController } from "./card-draft-controller";
+import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendBySession, sendMessage } from "./send-service";
 import type { AICardInstance } from "./types";
@@ -20,11 +21,14 @@ import { formatDingTalkErrorPayloadLog } from "./utils";
 const FILE_ONLY_FALLBACK_ANSWER = "附件已发送，请查收。";
 
 export function createCardReplyStrategy(
-  ctx: ReplyStrategyContext & { card: AICardInstance },
+  ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
-  const { card, config, log } = ctx;
+  const { card, config, log, isStopRequested } = ctx;
 
   const controller = createCardDraftController({ card, log });
+  if (card.outTrackId) {
+    attachCardRunController(card.outTrackId, controller);
+  }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
 
@@ -44,19 +48,22 @@ export function createCardReplyStrategy(
         disableBlockStreaming: true,
 
         onAssistantMessageStart: async () => {
+          if (isStopRequested?.()) {
+            return;
+          }
           await controller.notifyNewAssistantTurn();
         },
 
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
-              if (payload.text) {
+              if (payload.text && !isStopRequested?.()) {
                 await controller.updateAnswer(payload.text);
               }
             }
           : undefined,
 
         onReasoningStream: async (payload) => {
-          if (payload.text) {
+          if (payload.text && !isStopRequested?.()) {
             await controller.updateThinking(payload.text);
           }
         },
@@ -122,8 +129,18 @@ export function createCardReplyStrategy(
         `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
       );
 
+      if (isStopRequested?.()) {
+        log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
+        return;
+      }
+
       if (card.state === AICardStatus.FINISHED) {
         log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED");
+        return;
+      }
+
+      if (card.state === AICardStatus.STOPPED) {
+        log?.info?.("[DingTalk][Finalize] Skipping — card already STOPPED");
         return;
       }
 

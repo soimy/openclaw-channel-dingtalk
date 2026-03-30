@@ -1,0 +1,119 @@
+name: Publish to ClawHub
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Existing git tag to publish, for example v3.5.0
+                required: true
+                type: string
+    push:
+        tags:
+            - "*"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: clawhub-publish-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+                  fetch-depth: 0
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Resolve publish mode and verify version
+              id: release
+              shell: bash
+              env:
+                  TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+              run: |
+                  set -euo pipefail
+                  TAG="${TARGET_TAG}"
+                  RAW_VERSION="${TAG#v}"
+                  CLAWHUB_TAG="latest"
+                  PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+                  if [[ "$RAW_VERSION" != "$PACKAGE_VERSION" ]]; then
+                    echo "Tag version and package version are not synchronized."
+                    echo "tag: ${TAG}"
+                    echo "expected package.json version: ${RAW_VERSION}"
+                    echo "actual package.json version: ${PACKAGE_VERSION}"
+                    exit 1
+                  fi
+
+                  if [[ "$RAW_VERSION" =~ -beta(\.|$) ]]; then
+                    CLAWHUB_TAG="beta"
+                  fi
+
+                  echo "Version check passed: ${TAG} -> ${PACKAGE_VERSION} (ClawHub tag: ${CLAWHUB_TAG})"
+                  echo "clawhub_tag=${CLAWHUB_TAG}" >> "$GITHUB_OUTPUT"
+
+            - name: Install ClawHub CLI
+              run: npm install --global clawhub@0.9.0
+
+            - name: Authenticate ClawHub CLI
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "${CLAWHUB_TOKEN:-}" ]]; then
+                    echo "::error::CLAWHUB_TOKEN secret is required for ClawHub publish."
+                    exit 1
+                  fi
+
+                  clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
+
+            - name: Type check
+              run: pnpm run type-check
+
+            - name: Lint
+              run: pnpm run lint
+
+            - name: Run tests
+              run: pnpm test
+
+            - name: Publish package to ClawHub
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  CLAWHUB_TAGS: ${{ steps.release.outputs.clawhub_tag }}
+                  SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+
+                  clawhub package publish . \
+                    --tags "${CLAWHUB_TAGS}" \
+                    --source-repo "${GITHUB_REPOSITORY}" \
+                    --source-commit "${GITHUB_SHA}" \
+                    --source-ref "${SOURCE_REF}" \
+                    --source-path "."

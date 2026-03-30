@@ -7,6 +7,7 @@ import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
+import { handleCardAction } from "./card/card-action-handler";
 import {
   createAICard,
   streamAICard,
@@ -836,6 +837,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                   `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack: ${sendErr?.message || String(sendErr)}`,
                 );
               }
+            }
+            const actionResult = await handleCardAction({
+              analysis,
+              cfg,
+              accountId: account.accountId,
+              config,
+              log: ctx.log,
+            });
+            if (!actionResult.handled && analysis.actionId && analysis.actionId !== "feedback_up" && analysis.actionId !== "feedback_down") {
+              ctx.log?.debug?.(
+                `[${account.accountId}] [DingTalk][CardCallback] Unhandled actionId=${analysis.actionId}`,
+              );
             }
           } catch (error: any) {
             ctx.log?.error?.(

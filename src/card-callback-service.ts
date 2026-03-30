@@ -1,10 +1,18 @@
+import axios from "axios";
+import { getProxyBypassOption } from "./utils";
+
+const DINGTALK_API = "https://api.dingtalk.com";
+
 export interface CardCallbackAnalysis {
   summary: string;
   actionId?: string;
   feedbackTarget?: string;
   feedbackAckText?: string;
   userId?: string;
+  spaceId?: string;
   processQueryKey?: string;
+  outTrackId?: string;
+  cardInstanceId?: string;
 }
 
 function stringifyCandidate(value: unknown): string {
@@ -89,20 +97,58 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   const actionId = extractCardActionId(data);
   const embeddedValue = asRecord(parseEmbeddedJson(record?.value));
   const embeddedContent = asRecord(parseEmbeddedJson(record?.content));
+  const embeddedCardPrivateData = asRecord(parseEmbeddedJson(record?.cardPrivateData));
+  const embeddedValuePrivateData = asRecord(parseEmbeddedJson(embeddedValue?.cardPrivateData));
+  const embeddedContentPrivateData = asRecord(parseEmbeddedJson(embeddedContent?.cardPrivateData));
+  const candidateRecords = [
+    record,
+    embeddedValue,
+    embeddedContent,
+    embeddedCardPrivateData,
+    embeddedValuePrivateData,
+    embeddedContentPrivateData,
+  ].filter(Boolean) as Array<Record<string, unknown>>;
+  const pickString = (...keys: string[]): string | undefined => {
+    for (const source of candidateRecords) {
+      for (const key of keys) {
+        const value = source[key];
+        if (typeof value === "string" && value.trim()) {
+          return value.trim();
+        }
+      }
+    }
+    return undefined;
+  };
   const processQueryKey =
-    (typeof record?.processQueryKey === "string" && record.processQueryKey.trim()) ||
-    (typeof embeddedValue?.processQueryKey === "string" && embeddedValue.processQueryKey.trim()) ||
-    (typeof embeddedContent?.processQueryKey === "string" && embeddedContent.processQueryKey.trim()) ||
-    undefined;
+    pickString("processQueryKey");
+  const outTrackId = pickString("outTrackId");
+  const cardInstanceId = pickString("cardInstanceId");
+  // For non-feedback paths, pickString is fine for spaceId/userId (broad search).
+  // For feedback paths, use precise extraction from record to avoid picking a
+  // same-named but different-valued spaceId from nested embedded objects.
+  const spaceId = pickString("spaceId");
+  const userId = pickString("userId");
 
   if (actionId !== "feedback_up" && actionId !== "feedback_down") {
-    return { summary, actionId, processQueryKey };
+    return {
+      summary,
+      actionId,
+      userId,
+      spaceId,
+      processQueryKey,
+      outTrackId,
+      cardInstanceId,
+    };
   }
 
+  // Feedback path: use precise extraction for spaceId/userId to avoid misrouting
+  // feedbackTarget when nested objects contain same-named fields with different values.
+  const preciseSpaceId =
+    (typeof record?.spaceId === "string" && record.spaceId.trim()) || spaceId;
+  const preciseUserId =
+    (typeof record?.userId === "string" && record.userId.trim()) || userId;
   const spaceType = typeof record?.spaceType === "string" ? record.spaceType.trim().toLowerCase() : "";
-  const spaceId = typeof record?.spaceId === "string" ? record.spaceId.trim() : "";
-  const userId = typeof record?.userId === "string" ? record.userId.trim() : "";
-  const feedbackTarget = spaceType === "im" ? userId : spaceId;
+  const feedbackTarget = spaceType === "im" ? preciseUserId : preciseSpaceId;
   const feedbackAckText =
     actionId === "feedback_up"
       ? "✅ 已收到你的点赞（反馈已记录）"
@@ -114,6 +160,42 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
     feedbackTarget: feedbackTarget || undefined,
     feedbackAckText,
     userId: userId || undefined,
+    spaceId: spaceId || undefined,
     processQueryKey,
+    outTrackId,
+    cardInstanceId,
   };
+}
+
+/**
+ * Update card variables via PUT /v1.0/card/instances.
+ * Echoes params back into cardParamMap so the template can use conditional
+ * rendering (e.g. hiding buttons when a param is set).
+ */
+export async function updateCardVariables(
+  outTrackId: string,
+  params: Record<string, unknown>,
+  token: string,
+  config?: { bypassProxyForSend?: boolean },
+): Promise<number> {
+  const stringMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params)) {
+    stringMap[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+  const resp = await axios.put(
+    `${DINGTALK_API}/v1.0/card/instances`,
+    {
+      outTrackId,
+      cardData: { cardParamMap: stringMap },
+      cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-acs-dingtalk-access-token": token,
+      },
+      ...getProxyBypassOption(config),
+    },
+  );
+  return resp.status;
 }

@@ -31,6 +31,7 @@ import {
     sendProactiveCardText,
     streamAICard,
 } from '../../src/card-service';
+import { BUILTIN_DINGTALK_CARD_TEMPLATE_ID } from '../../src/card/card-template';
 import { getAccessToken } from '../../src/auth';
 import { resolveByAlias } from '../../src/message-context-store';
 import { resolveNamespacePath } from '../../src/persistence-store';
@@ -86,14 +87,17 @@ describe('card-service', () => {
         );
 
         expect(card).toBeTruthy();
-        expect(card?.state).toBe(AICardStatus.PROCESSING);
+        // Card is kicked into INPUTING (streaming) immediately after creation
+        expect(card?.state).toBe(AICardStatus.INPUTING);
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
         const body = mockedAxios.post.mock.calls[0]?.[1];
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
+            stop_action: 'true',
         });
+        expect(body.cardTemplateId).toBe(BUILTIN_DINGTALK_CARD_TEMPLATE_ID);
         expect(body.imGroupOpenDeliverModel).toEqual({
             robotCode: 'id',
             extension: { dynamicSummary: 'true' },
@@ -134,14 +138,20 @@ describe('card-service', () => {
         expect(requestConfig?.proxy).toBe(false);
     });
 
-    it('createAICard returns null when templateId is missing', async () => {
+    it('createAICard uses built-in template when legacy template config is missing', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { result: { deliverResults: [{ carrierId: 'carrier_builtin' }] } },
+        });
+
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec' } as any,
             'cidA1B2C3'
         );
 
-        expect(card).toBeNull();
-        expect(mockedAxios.post).not.toHaveBeenCalled();
+        expect(card).toBeTruthy();
+        const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.cardTemplateId).toBe(BUILTIN_DINGTALK_CARD_TEMPLATE_ID);
     });
 
     it('createAICard skips create during degrade window', async () => {
@@ -214,7 +224,7 @@ describe('card-service', () => {
     });
 
     it('streamAICard updates state to INPUTING on success', async () => {
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = {
             cardInstanceId: 'card_1',
@@ -253,8 +263,25 @@ describe('card-service', () => {
         expect(card.state).toBe(AICardStatus.INPUTING);
     });
 
+    it('streamAICard skips updates when card is already STOPPED', async () => {
+        const card = {
+            cardInstanceId: 'card_stopped',
+            accessToken: 'token_abc',
+            conversationId: 'cidA1B2C3',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.STOPPED,
+            config: { cardTemplateKey: 'content' },
+        } as any;
+
+        await streamAICard(card, 'ignored', false);
+
+        expect(mockedAxios.put).not.toHaveBeenCalled();
+        expect(card.state).toBe(AICardStatus.STOPPED);
+    });
+
     it('finishAICard finalizes with FINISHED status', async () => {
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = {
             cardInstanceId: 'card_3',
@@ -269,10 +296,11 @@ describe('card-service', () => {
         await finishAICard(card, 'final text');
 
         expect(card.state).toBe(AICardStatus.FINISHED);
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
     });
 
     it('finishAICard persists card content by processQueryKey', async () => {
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = {
             cardInstanceId: 'card_quoted',
@@ -441,7 +469,7 @@ describe('card-service', () => {
 
     it('refreshes aged token before streaming', async () => {
         mockedGetAccessToken.mockResolvedValueOnce('token_new');
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = {
             cardInstanceId: 'card_6',
@@ -477,7 +505,7 @@ describe('card-service', () => {
 
     it('persists pending card and removes it after finish', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -517,7 +545,7 @@ describe('card-service', () => {
         };
         fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
         fs.writeFileSync(stateFilePath, JSON.stringify(pending, null, 2));
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -551,7 +579,7 @@ describe('card-service', () => {
         };
         fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
         fs.writeFileSync(stateFilePath, JSON.stringify(pending, null, 2));
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const finalized = await finalizeActiveCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -580,7 +608,7 @@ describe('card-service', () => {
                 },
             },
         });
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const result = await sendProactiveCardText(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -595,7 +623,8 @@ describe('card-service', () => {
             cardInstanceId: 'card_instance_1',
         });
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+        // 3 PUTs: kick to streaming + content isFinalize=true + hide stop button
+        expect(mockedAxios.put).toHaveBeenCalledTimes(3);
         expect(fs.existsSync(stateFilePath)).toBe(false);
         expect(fs.existsSync(legacyStateFilePath)).toBe(false);
     });
@@ -617,7 +646,7 @@ describe('card-service', () => {
         };
         fs.mkdirSync(path.dirname(legacyStateFilePath), { recursive: true });
         fs.writeFileSync(legacyStateFilePath, JSON.stringify(pending, null, 2));
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -641,7 +670,7 @@ describe('card-service', () => {
                 },
             },
         });
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -656,7 +685,7 @@ describe('card-service', () => {
         expect(persisted.pendingCards[0].cardInstanceId).toBe('card_instance_distinct_1');
 
         mockedAxios.put.mockClear();
-        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
         const recovered = await recoverPendingCardsForAccount(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -665,6 +694,8 @@ describe('card-service', () => {
         );
 
         expect(recovered).toBe(1);
+        // 2 PUTs: content isFinalize=true + hide stop button
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
         expect(putBody.outTrackId).toBe('track_distinct_1');
     });

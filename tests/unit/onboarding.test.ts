@@ -80,16 +80,14 @@ describe("dingtalk setup wizard", () => {
         const note = vi.fn();
         const text = vi
             .fn()
-            .mockResolvedValueOnce("ding_client")
-            .mockResolvedValueOnce("ding_secret")
-            .mockResolvedValueOnce("tmpl.schema")
-            .mockResolvedValueOnce("")
-            .mockResolvedValueOnce("user_a, user_b")
-            .mockResolvedValueOnce("")
-            .mockResolvedValueOnce("grp_user1, grp_user2")
-            .mockResolvedValueOnce("7")
-            .mockResolvedValueOnce("20")
-            .mockResolvedValueOnce("14");
+            .mockResolvedValueOnce('ding_client')       // clientId
+            .mockResolvedValueOnce('ding_secret')        // clientSecret
+            .mockResolvedValueOnce('user_a, user_b')     // allowFrom (dmPolicy=allowlist)
+            .mockResolvedValueOnce('')                   // mediaUrlAllowlist
+            .mockResolvedValueOnce('grp_user1, grp_user2') // groupAllowFrom
+            .mockResolvedValueOnce('7')                  // maxReconnectCycles
+            .mockResolvedValueOnce('20')                 // mediaMaxMb
+            .mockResolvedValueOnce('14');                // journalTTLDays
 
         const confirm = vi
             .fn()
@@ -121,8 +119,8 @@ describe("dingtalk setup wizard", () => {
         expect((dingtalkConfig as any).corpId).toBeUndefined();
         expect((dingtalkConfig as any).agentId).toBeUndefined();
         expect(dingtalkConfig.messageType).toBe("card");
-        expect(dingtalkConfig.cardTemplateId).toBe("tmpl.schema");
-        expect(dingtalkConfig.cardTemplateKey).toBe("content");
+        expect(dingtalkConfig.cardTemplateId).toBeUndefined();
+        expect(dingtalkConfig.cardTemplateKey).toBeUndefined();
         expect(dingtalkConfig.allowFrom).toEqual(["user_a", "user_b"]);
         expect(dingtalkConfig.groupAllowFrom).toEqual(["grp_user1", "grp_user2"]);
         expect(dingtalkConfig.displayNameResolution).toBe("all");
@@ -131,6 +129,10 @@ describe("dingtalk setup wizard", () => {
         expect(dingtalkConfig.mediaMaxMb).toBe(20);
         expect(dingtalkConfig.journalTTLDays).toBe(14);
         expect(note).toHaveBeenCalled();
+        expect(note).toHaveBeenCalledWith(
+            expect.stringContaining('built-in DingTalk template contract'),
+            'Built-in AI Card Template',
+        );
     });
 
     it("generic setup input stores clientId and clientSecret without legacy fields", () => {

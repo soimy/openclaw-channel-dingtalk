@@ -108,6 +108,7 @@ import {
   resetProactivePermissionHintStateForTest,
 } from "../../src/inbound-handler";
 import * as messageContextStore from "../../src/message-context-store";
+import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 import { recordProactiveRiskObservation } from "../../src/proactive-risk-registry";
 import {
   clearTargetDirectoryStateCache,
@@ -219,6 +220,7 @@ describe("inbound-handler", () => {
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
     shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
     resetProactivePermissionHintStateForTest();
+    clearCardRunRegistryForTest();
     messageContextStore.clearMessageContextCacheForTest();
     shared.createAICardMock.mockResolvedValue({
       cardInstanceId: "card_1",
@@ -5966,6 +5968,7 @@ describe("inbound-handler", () => {
     expect(users).toHaveLength(1);
     expect(users[0]?.canonicalUserId).toBe("staff_user_1");
   });
+
 
   // ==================== @Sub-Agent 回归测试 ====================
   describe('@sub-agent feature', () => {

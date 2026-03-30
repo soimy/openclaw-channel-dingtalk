@@ -56,6 +56,7 @@ export interface ReplyStrategyContext {
   log?: Logger;
   replyQuotedRef?: QuotedRef;
   deliverMedia: (urls: string[]) => Promise<void>;
+  isStopRequested?: () => boolean;
 }
 
 // ---- Factory -----------------------------------------------------
