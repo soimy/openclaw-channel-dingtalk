@@ -47,9 +47,10 @@ export function buildExecApprovalCardParamMap(
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
   return {
     content: lines.join("\n"),
-    buttonValueOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
-    buttonValueAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
-    buttonValueDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
+    status: "",
+    actionIdOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
+    actionIdAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
+    actionIdDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
   };
 }
 
@@ -73,9 +74,10 @@ export function buildPluginApprovalCardParamMap(
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
   return {
     content: lines.join("\n"),
-    buttonValueOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
-    buttonValueAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
-    buttonValueDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
+    status: "",
+    actionIdOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
+    actionIdAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
+    actionIdDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
   };
 }
 
@@ -201,8 +203,8 @@ export async function updateApprovalCardResolved(
         outTrackId,
         cardData: {
           cardParamMap: {
-            content: resolvedText,
-            isResolved: "true",
+            // Update status variable: hides action buttons, shows result button with this text
+            status: resolvedText,
           },
         },
       },

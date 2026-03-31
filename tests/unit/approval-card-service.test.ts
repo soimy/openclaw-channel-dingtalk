@@ -50,26 +50,25 @@ function makePluginRequest() {
 }
 
 describe("buildApprovalCardParamMap", () => {
-  it("exec approval: encodes button values as JSON with correct type prefix", async () => {
+  it("exec approval: encodes actionId vars as JSON with correct type prefix", async () => {
     const { buildExecApprovalCardParamMap } = await import("../../src/approval-card-service");
     const req = makeExecRequest();
     const params = buildExecApprovalCardParamMap(req, NOW_MS);
-    const once = JSON.parse(params.buttonValueOnce);
-    expect(once).toEqual({ t: "approval", d: "allow-once", id: "exec:test-id-1" });
-    const always = JSON.parse(params.buttonValueAlways);
-    expect(always).toEqual({ t: "approval", d: "allow-always", id: "exec:test-id-1" });
-    const deny = JSON.parse(params.buttonValueDeny);
-    expect(deny).toEqual({ t: "approval", d: "deny", id: "exec:test-id-1" });
+    // Template uses ${actionIdOnce/Always/Deny} variable interpolation
+    expect(JSON.parse(params.actionIdOnce)).toEqual({ t: "approval", d: "allow-once", id: "exec:test-id-1" });
+    expect(JSON.parse(params.actionIdAlways)).toEqual({ t: "approval", d: "allow-always", id: "exec:test-id-1" });
+    expect(JSON.parse(params.actionIdDeny)).toEqual({ t: "approval", d: "deny", id: "exec:test-id-1" });
+    expect(params.status).toBe("");
     expect(params.content).toContain("trash ~/Downloads/file.csv");
     expect(params.content).toContain("120");
   });
 
-  it("plugin approval: encodes button values with plugin prefix", async () => {
+  it("plugin approval: encodes actionId vars with plugin prefix", async () => {
     const { buildPluginApprovalCardParamMap } = await import("../../src/approval-card-service");
     const req = makePluginRequest();
     const params = buildPluginApprovalCardParamMap(req, NOW_MS);
-    const once = JSON.parse(params.buttonValueOnce);
-    expect(once).toEqual({ t: "approval", d: "allow-once", id: "plugin:test-uuid-1" });
+    expect(JSON.parse(params.actionIdOnce)).toEqual({ t: "approval", d: "allow-once", id: "plugin:test-uuid-1" });
+    expect(params.status).toBe("");
     expect(params.content).toContain("Test: exec");
   });
 });
