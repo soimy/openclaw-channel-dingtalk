@@ -21,6 +21,21 @@ import type {
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
 import { mergeAccountWithDefaults } from "./config";
 
+/**
+ * Interactive button for AI Card (PR #448 spec)
+ * event.type = "sendCardRequest": DingTalk delivers event.params via cardPrivateData in TOPIC_CARD callback
+ * Note: DingTalk appends button index to actionId (e.g., "approval" → "approval0" for first button)
+ */
+export interface CardBtn {
+  text: string;
+  color: string;
+  status: string;
+  event: {
+    type: "openLink" | "sendCardRequest";
+    params: Record<string, unknown>;
+  };
+}
+
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
 // explicit modes remain: "off" | "emoji" | "kaomoji".
