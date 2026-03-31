@@ -537,7 +537,7 @@ export async function sendBySession(
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 
   // Auto-resolve @中文名 in text to atUserIds via contact directory.
-  const mentionPattern = /(?:^|[\s\n,，。.;；:：!！?？(（)）])@([\u4e00-\u9fff]{2,4})(?=[\s\n,，。.;；:：!！?？(（)）]|$)/g;
+  const mentionPattern = /@([\u4e00-\u9fff]{2,4})(?=[^a-zA-Z\u4e00-\u9fff]|$)/g;
   const mentionNames: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = mentionPattern.exec(normalizedText)) !== null) {
