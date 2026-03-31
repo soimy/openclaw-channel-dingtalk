@@ -1,8 +1,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ChannelDirectoryEntry } from "openclaw/plugin-sdk/directory-runtime";
 import { getConfig, stripTargetPrefix } from "../config";
+import { getLogger } from "../logger-context";
 import { resolveOriginalPeerId } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
+import { searchDingTalkUsers } from "./directory-live-service";
 import { listKnownGroupTargets, listKnownUserTargets } from "./target-directory-store";
 
 export type DirectoryListParams = {
@@ -145,6 +147,42 @@ export function listDingTalkDirectoryUsers(params: DirectoryListParams): Channel
     rank: entry.lastSeenAt,
     raw: entry,
   }));
+}
+
+export async function listDingTalkDirectoryUsersLive(
+  params: DirectoryListParams,
+): Promise<ChannelDirectoryEntry[]> {
+  const query = params.query?.trim();
+  if (!query) {
+    return listDingTalkDirectoryUsers(params);
+  }
+
+  const config = getConfig(params.cfg, params.accountId ?? undefined);
+  if (!config.clientId || !config.clientSecret) {
+    return listDingTalkDirectoryUsers(params);
+  }
+
+  const log = getLogger();
+  try {
+    const limit = normalizeDirectoryLimit(params.limit);
+    const users = await searchDingTalkUsers(config, query, log, limit);
+    if (users.length > 0) {
+      return users.map((user) => ({
+        kind: "user" as const,
+        id: user.userid,
+        name: user.name,
+        handle: user.userid,
+        rank: Date.now(),
+        raw: user,
+      }));
+    }
+  } catch (err: unknown) {
+    log?.debug?.(
+      `[DingTalk][DirectoryLive] Live search failed, falling back to learned directory: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return listDingTalkDirectoryUsers(params);
 }
 
 export function normalizeResolvedDingTalkTarget(raw: string): string {

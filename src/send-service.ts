@@ -535,21 +535,26 @@ export async function sendBySession(
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "Clawdbot 消息");
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 
+  const mergedAtUserIds = [
+    ...(options.atUserId ? [options.atUserId] : []),
+    ...(options.atUserIds || []),
+  ].filter(Boolean);
+
   let lastResult: any = null;
   for (const [idx, chunk] of chunks.entries()) {
     let body: SessionWebhookResponse;
     if (useMarkdown) {
       let finalText = chunk;
-      if (options.atUserId && idx === chunks.length - 1) {
-        finalText = `${finalText} @${options.atUserId}`;
+      if (mergedAtUserIds.length > 0 && idx === chunks.length - 1) {
+        finalText = `${finalText} ${mergedAtUserIds.map((id) => `@${id}`).join(" ")}`;
       }
       body = { msgtype: "markdown", markdown: { title: chunks.length > 1 ? `${title} (${idx + 1}/${chunks.length})` : title, text: finalText } };
     } else {
       body = { msgtype: "text", text: { content: chunk } };
     }
 
-    if (options.atUserId && idx === chunks.length - 1) {
-      body.at = { atUserIds: [options.atUserId], isAtAll: false };
+    if (mergedAtUserIds.length > 0 && idx === chunks.length - 1) {
+      body.at = { atUserIds: mergedAtUserIds, isAtAll: false };
     }
 
     const result = await axios({

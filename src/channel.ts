@@ -48,8 +48,10 @@ import {
 import {
   listDingTalkDirectoryGroups,
   listDingTalkDirectoryUsers,
+  listDingTalkDirectoryUsersLive,
   normalizeResolvedDingTalkTarget,
 } from "./targeting/target-directory-adapter";
+import { resolveAtMentionUserIds } from "./targeting/directory-live-service";
 import { looksLikeDingTalkTargetId, normalizeDingTalkTarget } from "./targeting/target-input";
 import type {
   DingTalkInboundMessage,
@@ -261,6 +263,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
 
     const asVoice = readBooleanLikeParam(params, "asVoice") === true;
     const requestedMediaType = readStringParam(params, "mediaType");
+    const atParam = readStringParam(params, "at", { allowEmpty: true });
 
     const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
 
@@ -321,9 +324,18 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       throw new Error("send requires message when media is not provided");
     }
 
+    const atUserIds = atParam
+      ? await resolveAtMentionUserIds(
+          config,
+          atParam.split(",").map((n: string) => n.trim()).filter(Boolean),
+          log,
+        )
+      : undefined;
+
     const result = await sendMessage(config, target, message, {
       log,
       accountId: accountId ?? undefined,
+      atUserIds: atUserIds?.length ? atUserIds : undefined,
     });
 
     if (!result.ok) {
@@ -439,7 +451,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     listGroups: async (params) => listDingTalkDirectoryGroups(params),
     listGroupsLive: async (params) => listDingTalkDirectoryGroups(params),
     listPeers: async (params) => listDingTalkDirectoryUsers(params),
-    listPeersLive: async (params) => listDingTalkDirectoryUsers(params),
+    listPeersLive: async (params) => listDingTalkDirectoryUsersLive(params),
   },
   actions: dingtalkMessageActions,
   outbound: {

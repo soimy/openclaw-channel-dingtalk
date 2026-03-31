@@ -49,6 +49,10 @@ export function looksLikeDingTalkTargetId(raw: string, normalized?: string): boo
   if (/^\+?\d{6,}$/.test(candidate)) {
     return true;
   }
+  // Pinyin-style staffId with dots: mou.y, zhang.san, li.ming.yu
+  if (/^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/.test(candidate)) {
+    return true;
+  }
   if (/^[A-Za-z0-9+/=]{16,}$/.test(candidate) && /[+/=]/.test(candidate)) {
     return true;
   }
