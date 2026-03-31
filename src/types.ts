@@ -51,6 +51,7 @@ export interface DingTalkConfig extends OpenClawConfig {
   cardTemplateId?: string;
   /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
+  approvalCardTemplateId?: string;
   groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
@@ -120,6 +121,7 @@ export interface DingTalkChannelConfig {
   cardTemplateId?: string;
   /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
+  approvalCardTemplateId?: string;
   groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
   accounts?: Record<string, DingTalkConfig>;
   maxConnectionAttempts?: number;
@@ -128,7 +130,7 @@ export interface DingTalkChannelConfig {
   reconnectJitter?: number;
   /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
   maxReconnectCycles?: number;
-  /** Maximum time (ms) for a single reconnect cycle before giving up and starting a new cycle (default: 50000) */
+  /** Maximum time (ms) for a single reconnect cycle before starting a new cycle (default: 50000) */
   reconnectDeadlineMs?: number;
   /** Whether to use ConnectionManager; when false, use DWClient native keepAlive+autoReconnect */
   useConnectionManager?: boolean;
