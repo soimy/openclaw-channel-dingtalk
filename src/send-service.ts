@@ -9,6 +9,7 @@ import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
 import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
 import { convertMarkdownTablesToPlainText, detectMarkdownAndExtractTitle } from "./message-utils";
+import { resolveAtMentionUserIds } from "./targeting/directory-live-service";
 import {
   DEFAULT_MESSAGE_CONTEXT_TTL_DAYS,
   DEFAULT_OUTBOUND_SENDER,
@@ -535,9 +536,28 @@ export async function sendBySession(
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "Clawdbot 消息");
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 
+  // Auto-resolve @中文名 in text to atUserIds via contact directory.
+  const mentionPattern = /(?:^|[\s\n])@([\u4e00-\u9fff]{2,4})(?=[\s\n,，。.:：!！?？)）]|$)/g;
+  const mentionNames: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = mentionPattern.exec(normalizedText)) !== null) {
+    mentionNames.push(match[1]);
+  }
+  let autoResolvedAtUserIds: string[] = [];
+  if (mentionNames.length > 0) {
+    log?.debug?.(`[DingTalk][AtResolve] Detected @mentions in text: ${mentionNames.join(", ")}`);
+    try {
+      autoResolvedAtUserIds = await resolveAtMentionUserIds(config, mentionNames, log);
+      log?.debug?.(`[DingTalk][AtResolve] Resolved ${autoResolvedAtUserIds.length}/${mentionNames.length} mentions to userIds: ${autoResolvedAtUserIds.join(", ")}`);
+    } catch (err: unknown) {
+      log?.debug?.(`[DingTalk][AtResolve] Failed to resolve @mentions: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const mergedAtUserIds = [
     ...(options.atUserId ? [options.atUserId] : []),
     ...(options.atUserIds || []),
+    ...autoResolvedAtUserIds,
   ].filter(Boolean);
 
   let lastResult: any = null;
