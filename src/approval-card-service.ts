@@ -8,7 +8,7 @@ import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import { getProxyBypassOption } from "./utils";
-import type { DingTalkConfig } from "./types";
+import type { CardBtn, DingTalkConfig } from "./types";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
@@ -32,25 +32,44 @@ function cleanupExpiredApprovalCards(): void {
 
 // --- Card param map builders ---
 
+function makeApprovalBtns(approvalId: string): CardBtn[] {
+  return [
+    {
+      text: "✅ 允许一次",
+      color: "green",
+      status: "normal",
+      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "allow-once", id: approvalId } } },
+    },
+    {
+      text: "🔒 永久允许",
+      color: "blue",
+      status: "normal",
+      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "allow-always", id: approvalId } } },
+    },
+    {
+      text: "❌ 拒绝",
+      color: "red",
+      status: "normal",
+      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "deny", id: approvalId } } },
+    },
+  ];
+}
+
 export function buildExecApprovalCardParamMap(
   request: ExecApprovalRequest,
   nowMs: number,
 ): Record<string, string> {
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const lines = ["## 🔒 命令审批请求", "", "```bash", request.request.command, "```"];
-  if (request.request.cwd) {
-    lines.push(`\n**目录:** \`${request.request.cwd}\``);
-  }
-  if (request.request.agentId) {
-    lines.push(`**Agent:** \`${request.request.agentId}\``);
-  }
+  if (request.request.cwd) lines.push(`\n**目录:** \`${request.request.cwd}\``);
+  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
+
   return {
     content: lines.join("\n"),
     status: "",
-    actionIdOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
-    actionIdAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
-    actionIdDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
+    btns: JSON.stringify(makeApprovalBtns(request.id)),
+    hasAction: "true",
   };
 }
 
@@ -88,15 +107,15 @@ async function createApprovalCard(
   conversationId: string,
   cardParamMap: Record<string, string>,
   outTrackId: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; effectiveOutTrackId?: string; error?: string }> {
   const log = getLogger();
   try {
     const token = await getAccessToken(config, log);
     const isGroup = conversationId.startsWith("cid");
-    // Approval card uses AI Card template structure — must initialize with same params as AI cards
+    // AI Card template: initialize with button variables only (content is populated via streaming)
+    const { content, ...buttonParamMap } = cardParamMap;
     const enrichedParamMap = {
-      ...cardParamMap,
-      flowStatus: "3", // done state: skip pending/writing animation, show content + buttons immediately
+      ...buttonParamMap,
       config: JSON.stringify({ autoLayout: true, enableForward: false }),
     };
     const body = {
@@ -121,15 +140,36 @@ async function createApprovalCard(
           }
         : undefined,
     };
-    log?.debug?.(`[DingTalk][ApprovalCard] POST createAndDeliver outTrackId=${outTrackId}`);
-    await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, body, {
+    log?.info?.(`[DingTalk][ApprovalCard] POST createAndDeliver outTrackId=${outTrackId}`);
+    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, body, {
       headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
       ...getProxyBypassOption(config),
     });
-    return { ok: true };
+    // DingTalk may return a different outTrackId; use it for subsequent streaming updates
+    const respData = createResp.data as { result?: { outTrackId?: string }; outTrackId?: string } | undefined;
+    const effectiveOutTrackId =
+      (typeof respData?.result?.outTrackId === "string" && respData.result.outTrackId) ||
+      (typeof respData?.outTrackId === "string" && respData.outTrackId) ||
+      outTrackId;
+    if (effectiveOutTrackId !== outTrackId) {
+      log?.info?.(`[DingTalk][ApprovalCard] Response outTrackId differs: sent=${outTrackId} got=${effectiveOutTrackId}`);
+    }
+    // AI Card content must be populated via streaming endpoint (cardParamMap is ignored for content key)
+    // isFinalize: true → card enters done state, action buttons become visible
+    if (content) {
+      await axios.put(
+        `${DINGTALK_API}/v1.0/card/streaming`,
+        { outTrackId: effectiveOutTrackId, guid: randomUUID(), key: "content", content, isFull: true, isFinalize: true },
+        {
+          headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+          ...getProxyBypassOption(config),
+        },
+      );
+    }
+    return { ok: true, effectiveOutTrackId };
   } catch (err: unknown) {
     log?.error?.(`[DingTalk][ApprovalCard] Card creation failed: ${(err as Error).message}`);
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, effectiveOutTrackId: outTrackId, error: (err as Error).message };
   }
 }
 
@@ -150,16 +190,17 @@ export async function sendExecApprovalCard(
   const cardParamMap = buildExecApprovalCardParamMap(request, nowMs);
   const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
   if (result.ok) {
+    const storedOutTrackId = result.effectiveOutTrackId ?? outTrackId;
     cleanupExpiredApprovalCards();
     approvalCardStore.set(request.id, {
-      outTrackId,
+      outTrackId: storedOutTrackId,
       conversationId,
       accountId,
       expiresAt: request.expiresAtMs + 30_000,
     });
-    log?.info?.(`[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${outTrackId}`);
+    log?.info?.(`[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${storedOutTrackId}`);
   }
-  return { ok: result.ok, outTrackId: result.ok ? outTrackId : undefined, error: result.error };
+  return { ok: result.ok, outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined, error: result.error };
 }
 
 export async function sendPluginApprovalCard(
@@ -179,16 +220,17 @@ export async function sendPluginApprovalCard(
   const cardParamMap = buildPluginApprovalCardParamMap(request, nowMs);
   const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
   if (result.ok) {
+    const storedOutTrackId = result.effectiveOutTrackId ?? outTrackId;
     cleanupExpiredApprovalCards();
     approvalCardStore.set(request.id, {
-      outTrackId,
+      outTrackId: storedOutTrackId,
       conversationId,
       accountId,
       expiresAt: request.expiresAtMs + 30_000,
     });
-    log?.info?.(`[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${outTrackId}`);
+    log?.info?.(`[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${storedOutTrackId}`);
   }
-  return { ok: result.ok, outTrackId: result.ok ? outTrackId : undefined, error: result.error };
+  return { ok: result.ok, outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined, error: result.error };
 }
 
 // --- Card update after resolution ---
@@ -208,15 +250,11 @@ export async function updateApprovalCardResolved(
   try {
     const token = await getAccessToken(config, log);
     await axios.put(
-      `${DINGTALK_API}/v1.0/card/instances/${outTrackId}`,
+      `${DINGTALK_API}/v1.0/card/instances`,
       {
         outTrackId,
-        cardData: {
-          cardParamMap: {
-            // Update status variable: hides action buttons, shows result button with this text
-            status: resolvedText,
-          },
-        },
+        cardData: { cardParamMap: { status: resolvedText } },
+        cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
       },
       {
         headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
@@ -266,10 +304,12 @@ function getGatewayClient(cfg: OpenClawConfig): Promise<GatewayClient | null> {
         const { createOperatorApprovalsGatewayClient } = await import(
           "openclaw/plugin-sdk/gateway-runtime"
         );
-        return await createOperatorApprovalsGatewayClient({
+        const client = await createOperatorApprovalsGatewayClient({
           config: cfg,
           clientDisplayName: "dingtalk-approval",
         });
+        client.start();
+        return client;
       } catch {
         getLogger()?.warn?.("[DingTalk][ApprovalCard] Gateway client unavailable (old OpenClaw?)");
         return null;
@@ -279,6 +319,11 @@ function getGatewayClient(cfg: OpenClawConfig): Promise<GatewayClient | null> {
   return _gatewayClientPromise;
 }
 
+// Prewarm: trigger gateway client init early so connection is ready before button click
+export function prewarmGatewayClient(cfg: OpenClawConfig): void {
+  void getGatewayClient(cfg);
+}
+
 // --- Resolve approval via gateway ---
 
 export async function resolveApprovalDecision(
@@ -286,7 +331,7 @@ export async function resolveApprovalDecision(
   client: GatewayClient,
 ): Promise<void> {
   const method = action.id.startsWith("exec:") ? "exec.approval.resolve" : "plugin.approval.resolve";
-  await client.request(method, { approvalId: action.id, decision: action.d }, { expectFinal: true });
+  await client.request(method, { id: action.id, decision: action.d }, { expectFinal: true });
 }
 
 export async function handleApprovalCardCallback(
@@ -300,11 +345,24 @@ export async function handleApprovalCardCallback(
     log?.warn?.(`[DingTalk][ApprovalCard] No gateway client, cannot resolve ${action.id}`);
     return;
   }
-  try {
-    await resolveApprovalDecision(action, client);
-    log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d}`);
-  } catch (err: unknown) {
-    log?.error?.(`[DingTalk][ApprovalCard] Gateway resolve failed: ${(err as Error).message}`);
+  const maxAttempts = 5;
+  let resolved = false;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await resolveApprovalDecision(action, client);
+      log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d}`);
+      resolved = true;
+      break;
+    } catch (err: unknown) {
+      if (attempt === maxAttempts) {
+        log?.error?.(`[DingTalk][ApprovalCard] Gateway resolve failed after ${maxAttempts} attempts: ${(err as Error).message}`);
+      } else {
+        log?.warn?.(`[DingTalk][ApprovalCard] Resolve attempt ${attempt} failed, retrying in 500ms: ${(err as Error).message}`);
+        await new Promise<void>((r) => setTimeout(r, 500));
+      }
+    }
+  }
+  if (!resolved) {
     return;
   }
   // Update card UI (best-effort)

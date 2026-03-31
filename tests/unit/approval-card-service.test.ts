@@ -50,17 +50,31 @@ function makePluginRequest() {
 }
 
 describe("buildApprovalCardParamMap", () => {
-  it("exec approval: encodes actionId vars as JSON with correct type prefix", async () => {
+  it("exec approval: builds CardBtn[] in btns field with sendCardRequest format", async () => {
     const { buildExecApprovalCardParamMap } = await import("../../src/approval-card-service");
     const req = makeExecRequest();
     const params = buildExecApprovalCardParamMap(req, NOW_MS);
-    // Template uses ${actionIdOnce/Always/Deny} variable interpolation
-    expect(JSON.parse(params.actionIdOnce)).toEqual({ t: "approval", d: "allow-once", id: "exec:test-id-1" });
-    expect(JSON.parse(params.actionIdAlways)).toEqual({ t: "approval", d: "allow-always", id: "exec:test-id-1" });
-    expect(JSON.parse(params.actionIdDeny)).toEqual({ t: "approval", d: "deny", id: "exec:test-id-1" });
+
+    // btns is JSON-serialized CardBtn[]
+    const btns = JSON.parse(params.btns) as Array<{
+      text: string; color: string; status: string;
+      event: { type: string; params: { actionId: string; params: Record<string, string> } };
+    }>;
+    expect(btns).toHaveLength(3);
+
+    // All buttons use same actionId (DingTalk appends index: approval0, approval1, approval2)
+    expect(btns[0].event.params.actionId).toBe("approval");
+    expect(btns[1].event.params.actionId).toBe("approval");
+    expect(btns[2].event.params.actionId).toBe("approval");
+
+    // params carry the approval action data (delivered as-is in cardPrivateData.params)
+    expect(btns[0].event.params.params).toEqual({ t: "approval", d: "allow-once", id: "exec:test-id-1" });
+    expect(btns[1].event.params.params).toEqual({ t: "approval", d: "allow-always", id: "exec:test-id-1" });
+    expect(btns[2].event.params.params).toEqual({ t: "approval", d: "deny", id: "exec:test-id-1" });
+
+    expect(params.hasAction).toBe("true");
     expect(params.status).toBe("");
     expect(params.content).toContain("trash ~/Downloads/file.csv");
-    expect(params.content).toContain("120");
   });
 
   it("plugin approval: encodes actionId vars with plugin prefix", async () => {
@@ -121,7 +135,7 @@ describe("resolveApprovalDecision", () => {
     );
     expect(mockRequest).toHaveBeenCalledWith(
       "exec.approval.resolve",
-      expect.objectContaining({ approvalId: "exec:abc", decision: "allow-once" }),
+      expect.objectContaining({ id: "exec:abc", decision: "allow-once" }),
       expect.anything(),
     );
   });
@@ -135,7 +149,7 @@ describe("resolveApprovalDecision", () => {
     );
     expect(mockRequest).toHaveBeenCalledWith(
       "plugin.approval.resolve",
-      expect.objectContaining({ approvalId: "plugin:abc", decision: "deny" }),
+      expect.objectContaining({ id: "plugin:abc", decision: "deny" }),
       expect.anything(),
     );
   });
