@@ -77,12 +77,17 @@ describe("buildApprovalCardParamMap", () => {
     expect(params.content).toContain("trash ~/Downloads/file.csv");
   });
 
-  it("plugin approval: encodes actionId vars with plugin prefix", async () => {
+  it("plugin approval: builds CardBtn[] with sendCardRequest format", async () => {
     const { buildPluginApprovalCardParamMap } = await import("../../src/approval-card-service");
     const req = makePluginRequest();
     const params = buildPluginApprovalCardParamMap(req, NOW_MS);
-    expect(JSON.parse(params.actionIdOnce)).toEqual({ t: "approval", d: "allow-once", id: "plugin:test-uuid-1" });
-    expect(params.status).toBe("");
+
+    const btns = JSON.parse(params.btns) as Array<{ event: { params: { params: Record<string, string> } } }>;
+    expect(btns).toHaveLength(3);
+    expect(btns[0].event.params.params).toEqual({ t: "approval", d: "allow-once", id: "plugin:test-uuid-1" });
+    expect(btns[1].event.params.params).toEqual({ t: "approval", d: "allow-always", id: "plugin:test-uuid-1" });
+    expect(btns[2].event.params.params).toEqual({ t: "approval", d: "deny", id: "plugin:test-uuid-1" });
+    expect(params.hasAction).toBe("true");
     expect(params.content).toContain("Test: exec");
   });
 });

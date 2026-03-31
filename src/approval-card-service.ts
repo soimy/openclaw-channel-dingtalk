@@ -80,23 +80,17 @@ export function buildPluginApprovalCardParamMap(
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const icon = request.request.severity === "critical" ? "🚨" : "⚠️";
   const lines = [`## ${icon} 操作审批请求 — ${request.request.title}`, ""];
-  if (request.request.toolName) {
-    lines.push(`**工具:** \`${request.request.toolName}\``);
-  }
-  if (request.request.pluginId) {
-    lines.push(`**Plugin:** \`${request.request.pluginId}\``);
-  }
-  if (request.request.agentId) {
-    lines.push(`**Agent:** \`${request.request.agentId}\``);
-  }
+  if (request.request.toolName) lines.push(`**工具:** \`${request.request.toolName}\``);
+  if (request.request.pluginId) lines.push(`**Plugin:** \`${request.request.pluginId}\``);
+  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
   lines.push("", "```", request.request.description, "```");
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
+
   return {
     content: lines.join("\n"),
     status: "",
-    actionIdOnce: JSON.stringify({ t: "approval", d: "allow-once", id: request.id }),
-    actionIdAlways: JSON.stringify({ t: "approval", d: "allow-always", id: request.id }),
-    actionIdDeny: JSON.stringify({ t: "approval", d: "deny", id: request.id }),
+    btns: JSON.stringify(makeApprovalBtns(request.id)),
+    hasAction: "true",
   };
 }
 
