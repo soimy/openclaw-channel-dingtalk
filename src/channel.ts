@@ -62,6 +62,12 @@ import type {
 } from "./types";
 import { ConnectionState } from "./types";
 import {
+  sendExecApprovalCard,
+  sendPluginApprovalCard,
+  handleApprovalCardCallback,
+  parseApprovalActionValue,
+} from "./approval-card-service";
+import {
   buildExecApprovalText,
   buildPluginApprovalText,
 } from "./approval-message-builder";
@@ -825,6 +831,18 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               `[${account.accountId}] [DingTalk][CardCallback] action=${analysis.summary} raw=${JSON.stringify(payload)}`,
             );
 
+            // Approval card callback — detect before feedback branch
+            if (analysis.actionId) {
+              const approvalAction = parseApprovalActionValue(analysis.actionId);
+              if (approvalAction) {
+                ctx.log?.info?.(
+                  `[${account.accountId}] [DingTalk][ApprovalCard] approval callback id=${approvalAction.id} decision=${approvalAction.d}`,
+                );
+                await handleApprovalCardCallback(approvalAction, cfg, config);
+                return;
+              }
+            }
+
             if (analysis.feedbackTarget && analysis.feedbackAckText) {
               recordExplicitFeedbackLearning({
                 enabled: isLearningEnabled(config),
@@ -1187,12 +1205,30 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
   },
   execApprovals: {
-    buildPendingPayload: ({ request, nowMs }: { request: any; nowMs: number }) => ({
-      text: buildExecApprovalText(request, nowMs),
-    }),
-    buildPluginPendingPayload: ({ request, nowMs }: { request: any; nowMs: number }) => ({
-      text: buildPluginApprovalText(request, nowMs),
-    }),
+    buildPendingPayload: ({ request, nowMs, cfg, target }) => {
+      const config = getConfig(cfg, target.accountId ?? undefined);
+      if (config.approvalCardTemplateId) {
+        void sendExecApprovalCard(config, target.to, target.accountId, request, nowMs).catch(
+          (err: any) => {
+            getLogger()?.error?.(`[DingTalk][ApprovalCard] Exec card send error: ${err.message}`);
+          },
+        );
+        return null;
+      }
+      return { text: buildExecApprovalText(request, nowMs) };
+    },
+    buildPluginPendingPayload: ({ request, nowMs, cfg, target }) => {
+      const config = getConfig(cfg, target.accountId ?? undefined);
+      if (config.approvalCardTemplateId) {
+        void sendPluginApprovalCard(config, target.to, target.accountId, request, nowMs).catch(
+          (err: any) => {
+            getLogger()?.error?.(`[DingTalk][ApprovalCard] Plugin card send error: ${err.message}`);
+          },
+        );
+        return null;
+      }
+      return { text: buildPluginApprovalText(request, nowMs) };
+    },
   },
 };
 
