@@ -29,9 +29,15 @@ export function buildExecApprovalText(
   lines.push("```bash", request.request.command, "```");
 
   const meta: string[] = [];
-  if (request.request.cwd) meta.push(`> **目录:** \`${request.request.cwd}\``);
-  if (request.request.agentId) meta.push(`> **Agent:** \`${request.request.agentId}\``);
-  if (meta.length > 0) lines.push("", ...meta);
+  if (request.request.cwd) {
+    meta.push(`> **目录:** \`${request.request.cwd}\``);
+  }
+  if (request.request.agentId) {
+    meta.push(`> **Agent:** \`${request.request.agentId}\``);
+  }
+  if (meta.length > 0) {
+    lines.push("", ...meta);
+  }
 
   lines.push("", buildApproveSection(request.id, expiresInSec, "加入白名单"));
   return lines.join("\n");
@@ -49,9 +55,15 @@ export function buildPluginApprovalText(
     "### 🛠️ 指令详情",
   ];
 
-  if (request.request.toolName) lines.push(`> **工具:** \`${request.request.toolName}\``);
-  if (request.request.pluginId) lines.push(`> **Plugin:** \`${request.request.pluginId}\``);
-  if (request.request.agentId) lines.push(`> **Agent:** \`${request.request.agentId}\``);
+  if (request.request.toolName) {
+    lines.push(`> **工具:** \`${request.request.toolName}\``);
+  }
+  if (request.request.pluginId) {
+    lines.push(`> **Plugin:** \`${request.request.pluginId}\``);
+  }
+  if (request.request.agentId) {
+    lines.push(`> **Agent:** \`${request.request.agentId}\``);
+  }
 
   lines.push("", "```", request.request.description, "```");
   lines.push("", buildApproveSection(request.id, expiresInSec, "始终允许该插件"));

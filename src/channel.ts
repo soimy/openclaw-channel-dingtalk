@@ -1217,8 +1217,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               });
             }
           },
-          async (err: any) => {
-            getLogger()?.error?.(`[DingTalk][ApprovalCard] Exec card send error: ${err.message}`);
+          async (err: unknown) => {
+            getLogger()?.error?.(`[DingTalk][ApprovalCard] Exec card send error: ${(err as Error).message}`);
             await sendProactiveTextOrMarkdown(config, target.to, buildExecApprovalText(request, nowMs), {
               accountId: target.accountId ?? undefined,
             });
@@ -1240,8 +1240,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               });
             }
           },
-          async (err: any) => {
-            getLogger()?.error?.(`[DingTalk][ApprovalCard] Plugin card send error: ${err.message}`);
+          async (err: unknown) => {
+            getLogger()?.error?.(`[DingTalk][ApprovalCard] Plugin card send error: ${(err as Error).message}`);
             await sendProactiveTextOrMarkdown(config, target.to, buildPluginApprovalText(request, nowMs), {
               accountId: target.accountId ?? undefined,
             });
