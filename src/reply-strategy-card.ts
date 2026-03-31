@@ -73,15 +73,23 @@ export function createCardReplyStrategy(
   return {
     getReplyOptions(): ReplyOptions {
       return {
-        // Card mode: intermediate blocks are unused — card updates go through
-        // onPartialReply (real-time) or deliver(final) -> finishAICard.
+        // Card mode keeps runtime block streaming disabled, but still consumes
+        // reasoning blocks through explicit callbacks and delivery metadata.
         disableBlockStreaming: true,
 
         onAssistantMessageStart: async () => {
           if (isStopRequested?.()) {
             return;
           }
-          await controller.notifyNewAssistantTurn();
+          const pendingReasoningBlocks = reasoningAssembler.flushPendingAtBoundary();
+          reasoningAssembler.reset();
+          const turnBoundary = controller.notifyNewAssistantTurn();
+          if (pendingReasoningBlocks.length > 0) {
+            await turnBoundary;
+            await appendAssembledThinkingBlocks(pendingReasoningBlocks);
+            return;
+          }
+          await turnBoundary;
         },
 
         onPartialReply: config.cardRealTimeStream
@@ -145,7 +153,7 @@ export function createCardReplyStrategy(
         return;
       }
 
-      const isReasoningBlock = (payload as DeliverPayload & { isReasoning?: boolean }).isReasoning === true;
+      const isReasoningBlock = payload.isReasoning === true;
       if (isReasoningBlock) {
         await ingestReasoningSnapshot(textToSend);
       }

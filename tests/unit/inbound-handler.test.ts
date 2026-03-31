@@ -5469,6 +5469,65 @@ describe("inbound-handler", () => {
     expect(finalContent).toContain("最终答案");
   });
 
+  it("card flow flushes pending reasoning and resets assembly across assistant turns", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReasoningStream?.({
+          text: "Reasoning:\n_Reason: 第一轮未封口",
+        });
+        await replyOptions?.onAssistantMessageStart?.();
+        await replyOptions?.onReasoningStream?.({
+          text: "Reasoning:\n_Reason: 第二轮新思考_",
+        });
+        await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_reasoning_multi_turn",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardRealTimeStream: true,
+      } as any,
+      data: {
+        msgId: "m_reasoning_multi_turn",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(finalContent).toContain("> Reason: 第一轮未封口");
+    expect(finalContent).toContain("> Reason: 第二轮新思考");
+    expect(finalContent).toContain("最终答案");
+    expect(finalContent.indexOf("Reason: 第一轮未封口")).toBeLessThan(
+      finalContent.indexOf("Reason: 第二轮新思考"),
+    );
+  });
+
   it("sends proactive permission hint when proactive API risk was observed", async () => {
     recordProactiveRiskObservation({
       accountId: "main",

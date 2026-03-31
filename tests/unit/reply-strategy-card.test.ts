@@ -116,6 +116,39 @@ describe("reply-strategy-card", () => {
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
             expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前改动");
         });
+
+        it("resets reasoning assembly on a new assistant turn so later turns can emit fresh think blocks", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第一轮思考_" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+
+            await opts.onAssistantMessageStart?.();
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第二轮新思考_" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).toHaveBeenCalledTimes(2);
+            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("> Reason: 第二轮新思考");
+        });
+
+        it("flushes unfinished reasoning before resetting on a new assistant turn", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第一轮未封口" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).not.toHaveBeenCalled();
+
+            await opts.onAssistantMessageStart?.();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 第一轮未封口");
+        });
     });
 
     describe("deliver", () => {
@@ -198,7 +231,7 @@ describe("reply-strategy-card", () => {
                 mediaUrls: [],
                 kind: "block",
                 isReasoning: true,
-            } as any);
+            });
             await vi.advanceTimersByTimeAsync(0);
 
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
