@@ -62,6 +62,11 @@ describe("buildApprovalCardParamMap", () => {
     }>;
     expect(btns).toHaveLength(3);
 
+    // Verify button structure (text, color, status, event type)
+    expect(btns[0]).toMatchObject({ text: "✅ 允许一次", color: "green", status: "normal", event: { type: "sendCardRequest" } });
+    expect(btns[1]).toMatchObject({ text: "🔒 永久允许", color: "blue", status: "normal", event: { type: "sendCardRequest" } });
+    expect(btns[2]).toMatchObject({ text: "❌ 拒绝", color: "red", status: "normal", event: { type: "sendCardRequest" } });
+
     // All buttons use same actionId (DingTalk appends index: approval0, approval1, approval2)
     expect(btns[0].event.params.actionId).toBe("approval");
     expect(btns[1].event.params.actionId).toBe("approval");
@@ -84,6 +89,8 @@ describe("buildApprovalCardParamMap", () => {
 
     const btns = JSON.parse(params.btns) as Array<{ event: { params: { params: Record<string, string> } } }>;
     expect(btns).toHaveLength(3);
+    // Verify first button structure
+    expect(btns[0]).toMatchObject({ text: "✅ 允许一次", color: "green", status: "normal", event: { type: "sendCardRequest" } });
     expect(btns[0].event.params.params).toEqual({ t: "approval", d: "allow-once", id: "plugin:test-uuid-1" });
     expect(btns[1].event.params.params).toEqual({ t: "approval", d: "allow-always", id: "plugin:test-uuid-1" });
     expect(btns[2].event.params.params).toEqual({ t: "approval", d: "deny", id: "plugin:test-uuid-1" });
@@ -151,6 +158,14 @@ describe("parseApprovalFromCardPrivateData", () => {
   it("returns null for missing params", async () => {
     const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
     expect(parseApprovalFromCardPrivateData({ actionIds: ["approval0"] })).toBeNull();
+  });
+
+  it("returns null for invalid decision value", async () => {
+    const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
+    expect(parseApprovalFromCardPrivateData({
+      actionIds: ["approval0"],
+      params: { t: "approval", d: "invalid-value", id: "exec:123" },
+    })).toBeNull();
   });
 
   it("returns null for undefined input", async () => {

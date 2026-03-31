@@ -284,8 +284,9 @@ export function parseApprovalFromCardPrivateData(
   const actionId = cardPrivateData.actionIds[0];
   if (typeof actionId !== "string" || !actionId.startsWith("approval")) return null;
   const params = cardPrivateData.params;
-  if (!params || params.t !== "approval" || typeof params.d !== "string" || typeof params.id !== "string") return null;
-  return { t: params.t as "approval", d: params.d as ApprovalAction["d"], id: params.id };
+  const validDecisions = ["allow-once", "allow-always", "deny"];
+  if (!params || params.t !== "approval" || typeof params.d !== "string" || !validDecisions.includes(params.d) || typeof params.id !== "string") return null;
+  return { t: "approval", d: params.d as ApprovalAction["d"], id: params.id };
 }
 
 export function parseApprovalActionValue(raw: string): ApprovalAction | null {

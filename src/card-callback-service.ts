@@ -183,6 +183,7 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
     processQueryKey,
     outTrackId,
     cardInstanceId,
+    cardPrivateData,
   };
 }
 
