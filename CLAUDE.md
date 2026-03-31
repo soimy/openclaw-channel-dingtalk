@@ -97,6 +97,7 @@ New code should align with these logical boundaries (physical moves are incremen
 - Unit tests for parser, config, auth, dedup, and service logic
 - Integration tests when behavior crosses module boundaries (gateway start, inbound dispatch, send lifecycle, persistence migration)
 - `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
+- When work involves DingTalk real-device validation, PR-scoped test checklist generation, `验证 TODO` drafting, or contributor guidance for that workflow, read and follow `skills/dingtalk-real-device-testing/SKILL.md` first.
 
 ## Important Anti-Patterns
 

@@ -30,7 +30,7 @@ import {
   listScopedLearningRules,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
-import { formatGroupMembers, noteGroupMember } from "./group-members-store";
+import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
 import {
   formatLearnAppliedReply,
   formatLearnCommandHelp,

@@ -66,7 +66,6 @@ Planned domain summary:
 │   ├── session-peer-store.ts       # Session peer persistence
 │   ├── session-lock.ts             # Per-session dispatch locking
 │   ├── peer-id-registry.ts         # Preserve case-sensitive conversationId mapping
-│   ├── group-members-store.ts      # Group member cache/persistence
 │   ├── proactive-risk-registry.ts  # Proactive send risk tracking
 │   ├── logger-context.ts           # Shared logger getter/setter
 │   ├── onboarding.ts               # Channel onboarding adapter
@@ -80,6 +79,7 @@ Planned domain summary:
 │   └── targeting/
 │       ├── agent-name-matcher.ts   # @agent name matching
 │       ├── agent-routing.ts        # Sub-agent routing helpers
+│       ├── group-members-store.ts  # Group member cache/persistence
 │       ├── target-directory-adapter.ts # Learned directory bridge + displayNameResolution gate
 │       ├── target-directory-store.ts   # Learned group/user target persistence
 │       └── target-input.ts         # DingTalk target normalization + id heuristics
@@ -298,3 +298,4 @@ pnpm test:coverage
 - Network calls are mocked in tests (`vi.mock`), no real DingTalk API requests are made
 - CI should run `pnpm test` on every push and pull request
 - Coverage can be generated with `pnpm test:coverage`
+- When the task involves DingTalk real-device validation, PR-scoped test checklists, `验证 TODO` drafting, or contributor-workflow updates for that process, read and follow `skills/dingtalk-real-device-testing/SKILL.md` first.

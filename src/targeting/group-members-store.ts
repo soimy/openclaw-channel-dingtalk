@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
+import { readNamespaceJson, writeNamespaceJsonAtomic } from "../persistence-store";
 
 const GROUP_MEMBERS_NAMESPACE = "members.group-roster";
 
