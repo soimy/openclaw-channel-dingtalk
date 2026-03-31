@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { DEFAULT_HTTP_TIMEOUT_MS } from "./http-client";
 import { getAccessToken } from "./auth";
 import { getLogger } from "./logger-context";
 import { getProxyBypassOption } from "./utils";
@@ -103,7 +103,7 @@ export async function createDoc(
     },
     {
       headers,
-      timeout: 10_000,
+      timeout: DEFAULT_HTTP_TIMEOUT_MS,
       ...getProxyBypassOption(config),
     },
   );
@@ -141,7 +141,7 @@ export async function appendToDoc(
     },
     {
       headers,
-      timeout: 10_000,
+      timeout: DEFAULT_HTTP_TIMEOUT_MS,
       ...getProxyBypassOption(config),
     },
   );
@@ -167,7 +167,7 @@ export async function searchDocs(
     },
     {
       headers,
-      timeout: 10_000,
+      timeout: DEFAULT_HTTP_TIMEOUT_MS,
       ...getProxyBypassOption(config),
     },
   );
@@ -189,7 +189,7 @@ export async function listDocs(
       maxResults: 50,
       ...(parentId ? { parentDentryId: parentId } : {}),
     },
-    timeout: 10_000,
+    timeout: DEFAULT_HTTP_TIMEOUT_MS,
     ...getProxyBypassOption(config),
   });
   return Array.isArray(resp.data?.items)

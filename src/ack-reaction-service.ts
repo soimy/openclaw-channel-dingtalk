@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import type { DingTalkConfig } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getProxyBypassOption } from "./utils";

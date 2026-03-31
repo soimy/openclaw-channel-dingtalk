@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios from "./http-client";
 import { getProxyBypassOption } from "./utils";
 
 const DINGTALK_API = "https://api.dingtalk.com";

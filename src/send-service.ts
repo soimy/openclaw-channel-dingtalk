@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import axios from "axios";
+import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import {
   isCardInTerminalState,

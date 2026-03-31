@@ -1,6 +1,6 @@
 import http from "node:http";
 import https from "node:https";
-import axios from "axios";
+import axios from "../http-client";
 import { getAccessToken } from "../auth";
 import { getDingTalkRuntime } from "../runtime";
 import type { DingTalkConfig, Logger, MediaFile } from "../types";
