@@ -93,22 +93,32 @@ async function createApprovalCard(
   try {
     const token = await getAccessToken(config, log);
     const isGroup = conversationId.startsWith("cid");
+    // Approval card uses AI Card template structure — must initialize with same params as AI cards
+    const enrichedParamMap = {
+      ...cardParamMap,
+      flowStatus: "3", // done state: skip pending/writing animation, show content + buttons immediately
+      config: JSON.stringify({ autoLayout: true, enableForward: false }),
+    };
     const body = {
       cardTemplateId: config.approvalCardTemplateId,
       outTrackId,
-      cardData: { cardParamMap },
+      cardData: { cardParamMap: enrichedParamMap },
       callbackType: "STREAM",
-      imGroupOpenSpaceModel: isGroup ? { supportForward: false } : undefined,
-      imRobotOpenSpaceModel: !isGroup ? { supportForward: false } : undefined,
+      imGroupOpenSpaceModel: { supportForward: false },
+      imRobotOpenSpaceModel: { supportForward: false },
       openSpaceId: isGroup
         ? `dtv1.card//IM_GROUP.${conversationId}`
         : `dtv1.card//IM_ROBOT.${conversationId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
-        ? { robotCode: config.robotCode || config.clientId }
+        ? { robotCode: config.robotCode || config.clientId, extension: { dynamicSummary: "true" } }
         : undefined,
       imRobotOpenDeliverModel: !isGroup
-        ? { spaceType: "IM_ROBOT", robotCode: config.robotCode || config.clientId }
+        ? {
+            spaceType: "IM_ROBOT",
+            robotCode: config.robotCode || config.clientId,
+            extension: { dynamicSummary: "true" },
+          }
         : undefined,
     };
     log?.debug?.(`[DingTalk][ApprovalCard] POST createAndDeliver outTrackId=${outTrackId}`);
