@@ -12,6 +12,10 @@ import type { CardBtn, DingTalkConfig } from "./types";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
+// Current approval card template (same ID, updated to support btns/hasAction)
+// When PR #448 merges: replace with PRESET_CARD_TEMPLATE_ID
+const APPROVAL_CARD_TEMPLATE_ID = "bd04e9b9-832c-42b9-9d4f-a8361acebc09.schema";
+
 // Process-local store: approvalId → card metadata
 export type ApprovalCardEntry = {
   outTrackId: string;
@@ -113,7 +117,7 @@ async function createApprovalCard(
       config: JSON.stringify({ autoLayout: true, enableForward: false }),
     };
     const body = {
-      cardTemplateId: config.approvalCardTemplateId,
+      cardTemplateId: APPROVAL_CARD_TEMPLATE_ID,
       outTrackId,
       cardData: { cardParamMap: enrichedParamMap },
       callbackType: "STREAM",
@@ -175,9 +179,6 @@ export async function sendExecApprovalCard(
   nowMs: number,
 ): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
   const log = getLogger();
-  if (!config.approvalCardTemplateId) {
-    return { ok: false, error: "approvalCardTemplateId not configured" };
-  }
   const { targetId } = stripTargetPrefix(target);
   const conversationId = resolveOriginalPeerId(targetId);
   const outTrackId = `approval_${randomUUID()}`;
@@ -205,9 +206,6 @@ export async function sendPluginApprovalCard(
   nowMs: number,
 ): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
   const log = getLogger();
-  if (!config.approvalCardTemplateId) {
-    return { ok: false, error: "approvalCardTemplateId not configured" };
-  }
   const { targetId } = stripTargetPrefix(target);
   const conversationId = resolveOriginalPeerId(targetId);
   const outTrackId = `approval_${randomUUID()}`;
