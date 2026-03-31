@@ -245,7 +245,13 @@ export async function updateApprovalCardResolved(
       `${DINGTALK_API}/v1.0/card/instances`,
       {
         outTrackId,
-        cardData: { cardParamMap: { status: resolvedText } },
+        cardData: {
+          cardParamMap: {
+            status: resolvedText,
+            btns: JSON.stringify([]),
+            hasAction: "false",
+          },
+        },
         cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
       },
       {
