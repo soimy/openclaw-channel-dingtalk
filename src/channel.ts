@@ -213,23 +213,26 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
   return undefined;
 }
 
-function describeDingTalkMessageTool(cfg: OpenClawConfig): {
-  actions: readonly ["send"] | readonly [];
-  capabilities: readonly ["cards"] | readonly [];
-  schema: null;
-} {
+function describeDingTalkMessageTool(cfg: OpenClawConfig) {
   const config = getConfig(cfg);
   const configured = Boolean(config.clientId && config.clientSecret);
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
-    return { actions: [], capabilities: [], schema: null };
+    return { actions: [] as const, capabilities: [] as const, schema: null };
   }
   const hasCardMode =
     config.messageType === "card" ||
     (config.accounts && Object.values(config.accounts).some((a) => a?.messageType === "card"));
   return {
     actions: ["send"] as const,
-    capabilities: hasCardMode ? (["cards"] as const) : [],
-    schema: null,
+    capabilities: hasCardMode ? (["cards"] as const) : ([] as const),
+    schema: {
+      properties: {
+        at: {
+          type: "string" as const,
+          description: "在群聊中 @mention 指定用户（逗号分隔多人姓名，如 '张三' 或 '张三,李四'）。插件会通过通讯录查找用户并在消息中 @ 他们。仅群聊有效。",
+        },
+      },
+    },
   };
 }
 
