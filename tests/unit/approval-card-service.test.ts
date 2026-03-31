@@ -130,6 +130,35 @@ describe("parseApprovalActionValue", () => {
   });
 });
 
+describe("parseApprovalFromCardPrivateData", () => {
+  it("parses valid sendCardRequest callback", async () => {
+    const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
+    const result = parseApprovalFromCardPrivateData({
+      actionIds: ["approval0"],
+      params: { t: "approval", d: "allow-once", id: "exec:test-123" },
+    });
+    expect(result).toEqual({ t: "approval", d: "allow-once", id: "exec:test-123" });
+  });
+
+  it("returns null for non-approval actionId", async () => {
+    const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
+    expect(parseApprovalFromCardPrivateData({
+      actionIds: ["feedback_up"],
+      params: { rating: "good" },
+    })).toBeNull();
+  });
+
+  it("returns null for missing params", async () => {
+    const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
+    expect(parseApprovalFromCardPrivateData({ actionIds: ["approval0"] })).toBeNull();
+  });
+
+  it("returns null for undefined input", async () => {
+    const { parseApprovalFromCardPrivateData } = await import("../../src/approval-card-service");
+    expect(parseApprovalFromCardPrivateData(undefined)).toBeNull();
+  });
+});
+
 describe("resolveApprovalDecision", () => {
   it("calls gateway with correct method for exec approval", async () => {
     const mockRequest = vi.fn().mockResolvedValue({ ok: true });

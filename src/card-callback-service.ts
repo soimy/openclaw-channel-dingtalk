@@ -13,6 +13,10 @@ export interface CardCallbackAnalysis {
   processQueryKey?: string;
   outTrackId?: string;
   cardInstanceId?: string;
+  cardPrivateData?: {
+    actionIds?: string[];
+    params?: Record<string, unknown>;
+  };
 }
 
 function stringifyCandidate(value: unknown): string {
@@ -129,6 +133,20 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   const spaceId = pickString("spaceId");
   const userId = pickString("userId");
 
+  // Extract cardPrivateData from sendCardRequest callbacks
+  let cardPrivateData: CardCallbackAnalysis["cardPrivateData"];
+  for (const source of [embeddedContent, embeddedValue, record].filter(Boolean)) {
+    const sourceRecord = asRecord(source);
+    const cpd = asRecord(sourceRecord?.cardPrivateData);
+    if (cpd && Array.isArray(cpd.actionIds)) {
+      cardPrivateData = {
+        actionIds: cpd.actionIds as string[],
+        params: asRecord(cpd.params),
+      };
+      break;
+    }
+  }
+
   if (actionId !== "feedback_up" && actionId !== "feedback_down") {
     return {
       summary,
@@ -138,6 +156,7 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
       processQueryKey,
       outTrackId,
       cardInstanceId,
+      cardPrivateData,
     };
   }
 

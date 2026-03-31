@@ -269,6 +269,21 @@ export type ApprovalAction = {
   id: string;
 };
 
+/**
+ * Parse approval action from sendCardRequest callback (cardPrivateData format).
+ * DingTalk appends button index to actionId: "approval" → "approval0"/"approval1"/"approval2"
+ */
+export function parseApprovalFromCardPrivateData(
+  cardPrivateData: { actionIds?: string[]; params?: Record<string, unknown> } | undefined,
+): ApprovalAction | null {
+  if (!cardPrivateData?.actionIds?.length) return null;
+  const actionId = cardPrivateData.actionIds[0];
+  if (typeof actionId !== "string" || !actionId.startsWith("approval")) return null;
+  const params = cardPrivateData.params;
+  if (!params || params.t !== "approval" || typeof params.d !== "string" || typeof params.id !== "string") return null;
+  return { t: params.t as "approval", d: params.d as ApprovalAction["d"], id: params.id };
+}
+
 export function parseApprovalActionValue(raw: string): ApprovalAction | null {
   try {
     const parsed = JSON.parse(raw);
