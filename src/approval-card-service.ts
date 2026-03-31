@@ -38,8 +38,12 @@ export function buildExecApprovalCardParamMap(
 ): Record<string, string> {
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const lines = ["## 🔒 命令审批请求", "", "```bash", request.request.command, "```"];
-  if (request.request.cwd) lines.push(`\n**目录:** \`${request.request.cwd}\``);
-  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
+  if (request.request.cwd) {
+    lines.push(`\n**目录:** \`${request.request.cwd}\``);
+  }
+  if (request.request.agentId) {
+    lines.push(`**Agent:** \`${request.request.agentId}\``);
+  }
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
   return {
     content: lines.join("\n"),
@@ -56,9 +60,15 @@ export function buildPluginApprovalCardParamMap(
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const icon = request.request.severity === "critical" ? "🚨" : "⚠️";
   const lines = [`## ${icon} 操作审批请求 — ${request.request.title}`, ""];
-  if (request.request.toolName) lines.push(`**工具:** \`${request.request.toolName}\``);
-  if (request.request.pluginId) lines.push(`**Plugin:** \`${request.request.pluginId}\``);
-  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
+  if (request.request.toolName) {
+    lines.push(`**工具:** \`${request.request.toolName}\``);
+  }
+  if (request.request.pluginId) {
+    lines.push(`**Plugin:** \`${request.request.pluginId}\``);
+  }
+  if (request.request.agentId) {
+    lines.push(`**Agent:** \`${request.request.agentId}\``);
+  }
   lines.push("", "```", request.request.description, "```");
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
   return {
@@ -74,7 +84,6 @@ export function buildPluginApprovalCardParamMap(
 async function createApprovalCard(
   config: DingTalkConfig,
   conversationId: string,
-  accountId: string | null | undefined,
   cardParamMap: Record<string, string>,
   outTrackId: string,
 ): Promise<{ ok: boolean; error?: string }> {
@@ -106,9 +115,9 @@ async function createApprovalCard(
       ...getProxyBypassOption(config),
     });
     return { ok: true };
-  } catch (err: any) {
-    log?.error?.(`[DingTalk][ApprovalCard] Card creation failed: ${err.message}`);
-    return { ok: false, error: err.message };
+  } catch (err: unknown) {
+    log?.error?.(`[DingTalk][ApprovalCard] Card creation failed: ${(err as Error).message}`);
+    return { ok: false, error: (err as Error).message };
   }
 }
 
@@ -127,7 +136,7 @@ export async function sendExecApprovalCard(
   const conversationId = resolveOriginalPeerId(targetId);
   const outTrackId = `approval_${randomUUID()}`;
   const cardParamMap = buildExecApprovalCardParamMap(request, nowMs);
-  const result = await createApprovalCard(config, conversationId, accountId, cardParamMap, outTrackId);
+  const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
   if (result.ok) {
     cleanupExpiredApprovalCards();
     approvalCardStore.set(request.id, {
@@ -156,7 +165,7 @@ export async function sendPluginApprovalCard(
   const conversationId = resolveOriginalPeerId(targetId);
   const outTrackId = `approval_${randomUUID()}`;
   const cardParamMap = buildPluginApprovalCardParamMap(request, nowMs);
-  const result = await createApprovalCard(config, conversationId, accountId, cardParamMap, outTrackId);
+  const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
   if (result.ok) {
     cleanupExpiredApprovalCards();
     approvalCardStore.set(request.id, {
@@ -203,8 +212,8 @@ export async function updateApprovalCardResolved(
       },
     );
     log?.info?.(`[DingTalk][ApprovalCard] Card updated to resolved: ${resolvedText} outTrackId=${outTrackId}`);
-  } catch (err: any) {
-    log?.warn?.(`[DingTalk][ApprovalCard] Card update failed (non-critical): ${err.message}`);
+  } catch (err: unknown) {
+    log?.warn?.(`[DingTalk][ApprovalCard] Card update failed (non-critical): ${(err as Error).message}`);
   }
 }
 
@@ -236,25 +245,26 @@ export function parseApprovalActionValue(raw: string): ApprovalAction | null {
 
 // --- Gateway client singleton ---
 
-let _gatewayClient: GatewayClient | null | undefined; // undefined = not yet initialized
+let _gatewayClientPromise: Promise<GatewayClient | null> | undefined;
 
-async function getGatewayClient(cfg: OpenClawConfig): Promise<GatewayClient | null> {
-  if (_gatewayClient !== undefined) {
-    return _gatewayClient;
+function getGatewayClient(cfg: OpenClawConfig): Promise<GatewayClient | null> {
+  if (!_gatewayClientPromise) {
+    _gatewayClientPromise = (async () => {
+      try {
+        const { createOperatorApprovalsGatewayClient } = await import(
+          "openclaw/plugin-sdk/gateway-runtime"
+        );
+        return await createOperatorApprovalsGatewayClient({
+          config: cfg,
+          clientDisplayName: "dingtalk-approval",
+        });
+      } catch {
+        getLogger()?.warn?.("[DingTalk][ApprovalCard] Gateway client unavailable (old OpenClaw?)");
+        return null;
+      }
+    })();
   }
-  try {
-    const { createOperatorApprovalsGatewayClient } = await import(
-      "openclaw/plugin-sdk/gateway-runtime"
-    );
-    _gatewayClient = await createOperatorApprovalsGatewayClient({
-      config: cfg,
-      clientDisplayName: "dingtalk-approval",
-    });
-  } catch {
-    _gatewayClient = null;
-    getLogger()?.warn?.("[DingTalk][ApprovalCard] Gateway client unavailable (old OpenClaw?)");
-  }
-  return _gatewayClient;
+  return _gatewayClientPromise;
 }
 
 // --- Resolve approval via gateway ---
@@ -281,8 +291,8 @@ export async function handleApprovalCardCallback(
   try {
     await resolveApprovalDecision(action, client);
     log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d}`);
-  } catch (err: any) {
-    log?.error?.(`[DingTalk][ApprovalCard] Gateway resolve failed: ${err.message}`);
+  } catch (err: unknown) {
+    log?.error?.(`[DingTalk][ApprovalCard] Gateway resolve failed: ${(err as Error).message}`);
     return;
   }
   // Update card UI (best-effort)

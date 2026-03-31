@@ -1208,9 +1208,20 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     buildPendingPayload: ({ request, nowMs, cfg, target }) => {
       const config = getConfig(cfg, target.accountId ?? undefined);
       if (config.approvalCardTemplateId) {
-        void sendExecApprovalCard(config, target.to, target.accountId, request, nowMs).catch(
-          (err: any) => {
+        void sendExecApprovalCard(config, target.to, target.accountId, request, nowMs).then(
+          async (result) => {
+            if (!result.ok) {
+              getLogger()?.warn?.(`[DingTalk][ApprovalCard] Exec card failed, sending text fallback: ${result.error}`);
+              await sendProactiveTextOrMarkdown(config, target.to, buildExecApprovalText(request, nowMs), {
+                accountId: target.accountId ?? undefined,
+              });
+            }
+          },
+          async (err: any) => {
             getLogger()?.error?.(`[DingTalk][ApprovalCard] Exec card send error: ${err.message}`);
+            await sendProactiveTextOrMarkdown(config, target.to, buildExecApprovalText(request, nowMs), {
+              accountId: target.accountId ?? undefined,
+            });
           },
         );
         return null;
@@ -1220,9 +1231,20 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     buildPluginPendingPayload: ({ request, nowMs, cfg, target }) => {
       const config = getConfig(cfg, target.accountId ?? undefined);
       if (config.approvalCardTemplateId) {
-        void sendPluginApprovalCard(config, target.to, target.accountId, request, nowMs).catch(
-          (err: any) => {
+        void sendPluginApprovalCard(config, target.to, target.accountId, request, nowMs).then(
+          async (result) => {
+            if (!result.ok) {
+              getLogger()?.warn?.(`[DingTalk][ApprovalCard] Plugin card failed, sending text fallback: ${result.error}`);
+              await sendProactiveTextOrMarkdown(config, target.to, buildPluginApprovalText(request, nowMs), {
+                accountId: target.accountId ?? undefined,
+              });
+            }
+          },
+          async (err: any) => {
             getLogger()?.error?.(`[DingTalk][ApprovalCard] Plugin card send error: ${err.message}`);
+            await sendProactiveTextOrMarkdown(config, target.to, buildPluginApprovalText(request, nowMs), {
+              accountId: target.accountId ?? undefined,
+            });
           },
         );
         return null;
