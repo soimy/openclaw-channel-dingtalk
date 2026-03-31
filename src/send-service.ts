@@ -537,6 +537,7 @@ export async function sendBySession(
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 
   // Auto-resolve @中文名 in text to atUserIds via contact directory.
+  log?.debug?.(`[DingTalk][AtResolve] sendBySession text (first 200 chars): ${normalizedText.slice(0, 200)}`);
   const mentionPattern = /@([\u4e00-\u9fff]{2,4})/g;
   const mentionNames: string[] = [];
   let match: RegExpExecArray | null;
