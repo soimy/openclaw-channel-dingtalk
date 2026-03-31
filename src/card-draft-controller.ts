@@ -83,7 +83,7 @@ export function createCardDraftController(params: {
 
     const getFinalAnswerContent = (): string => {
         return timelineEntries
-            .filter((entry) => !entry.isTool && entry.text)
+            .filter((entry) => entry.type === 0 && entry.text)
             .map((entry) => entry.text)
             .join("\n\n");
     };
@@ -106,8 +106,8 @@ export function createCardDraftController(params: {
         }
     };
 
-    const appendTimelineEntry = (isTool: boolean, text: string): number => {
-        timelineEntries.push({ text, markdown: text, isTool });
+    const appendTimelineEntry = (type: 0 | 1 | 2, text: string): number => {
+        timelineEntries.push({ text, markdown: text, type, mediaId: "", btns: [] });
         return timelineEntries.length - 1;
     };
 
@@ -123,16 +123,16 @@ export function createCardDraftController(params: {
             const lastAnswerIndex = [...entries]
                 .map((entry, index) => ({ entry, index }))
                 .toReversed()
-                .find(({ entry }) => !entry.isTool)?.index;
+                .find(({ entry }) => entry.type === 0)?.index;
             if (lastAnswerIndex !== undefined) {
-                entries[lastAnswerIndex] = { text: overrideAnswer, markdown: overrideAnswer, isTool: false };
+                entries[lastAnswerIndex] = { text: overrideAnswer, markdown: overrideAnswer, type: 0, mediaId: "", btns: [] };
             } else {
-                entries.push({ text: overrideAnswer, markdown: overrideAnswer, isTool: false });
+                entries.push({ text: overrideAnswer, markdown: overrideAnswer, type: 0, mediaId: "", btns: [] });
             }
-        } else if (!entries.some((entry) => !entry.isTool && entry.text)) {
+        } else if (!entries.some((entry) => entry.type === 0 && entry.text)) {
             const fallbackAnswer = normalizeAnswerText(options.fallbackAnswer);
             if (fallbackAnswer) {
-                entries.push({ text: fallbackAnswer, markdown: fallbackAnswer, isTool: false });
+                entries.push({ text: fallbackAnswer, markdown: fallbackAnswer, type: 0, mediaId: "", btns: [] });
             }
         }
 
@@ -143,16 +143,18 @@ export function createCardDraftController(params: {
             if (!entry?.text) {
                 continue;
             }
-            const part = entry.isTool
+            const isProcess = entry.type === 1 || entry.type === 2;
+            const part = isProcess
                 ? renderProcessBlock(entry.text)
                 : entry.text;
             if (!rendered) {
                 rendered = part;
                 continue;
             }
-            const previousIsTool = entries[index - 1]?.isTool;
+            const previousEntry = entries[index - 1];
+            const previousIsProcess = previousEntry && (previousEntry.type === 1 || previousEntry.type === 2);
             const separator =
-                compactProcessAnswerSpacing && previousIsTool !== undefined
+                compactProcessAnswerSpacing && previousIsProcess !== undefined
                     ? "\n"
                     : "\n\n";
             rendered += `${separator}${part}`;
@@ -233,15 +235,15 @@ export function createCardDraftController(params: {
             return;
         }
         if (activeProcessIndex === null && timelineEntries.length > 0) {
-            const lastIsTool = timelineEntries.at(-1)?.isTool;
-            if (lastIsTool === false) {
+            const lastType = timelineEntries.at(-1)?.type;
+            if (lastType === 0) {
                 await flushBoundaryFrame();
             }
         }
         if (activeProcessIndex !== null) {
-            timelineEntries[activeProcessIndex] = { text: normalized, markdown: normalized, isTool: true };
+            timelineEntries[activeProcessIndex] = { text: normalized, markdown: normalized, type: 1, mediaId: "", btns: [] };
         } else {
-            activeProcessIndex = appendTimelineEntry(true, normalized);
+            activeProcessIndex = appendTimelineEntry(1, normalized);
         }
         queueRender();
     };
@@ -256,16 +258,16 @@ export function createCardDraftController(params: {
             return;
         }
         if (activeAnswerIndex === null && timelineEntries.length > 0) {
-            const lastIsTool = timelineEntries.at(-1)?.isTool;
-            if (lastIsTool === true) {
+            const lastType = timelineEntries.at(-1)?.type;
+            if (lastType === 1 || lastType === 2) {
                 await flushBoundaryFrame();
             }
         }
         sealActiveProcess();
         if (activeAnswerIndex !== null) {
-            timelineEntries[activeAnswerIndex] = { text: normalized, markdown: normalized, isTool: false };
+            timelineEntries[activeAnswerIndex] = { text: normalized, markdown: normalized, type: 0, mediaId: "", btns: [] };
         } else {
-            activeAnswerIndex = appendTimelineEntry(false, normalized);
+            activeAnswerIndex = appendTimelineEntry(0, normalized);
         }
         queueRender();
     };
@@ -284,7 +286,7 @@ export function createCardDraftController(params: {
         }
         sealActiveProcess();
         sealCurrentAnswer();
-        appendTimelineEntry(true, normalized);
+        appendTimelineEntry(2, normalized);
         queueRender();
     };
 

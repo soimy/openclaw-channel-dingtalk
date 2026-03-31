@@ -334,9 +334,9 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         const blockList = ctrl.getBlockList();
-        expect(blockList.find((b: CardBlock) => b.text === "先检查改动")?.isTool).toBe(true);
-        expect(blockList.find((b: CardBlock) => b.text === "git diff --stat")?.isTool).toBe(true);
-        expect(blockList.find((b: CardBlock) => b.text === "这里是最终回复")?.isTool).toBe(false);
+        expect(blockList.find((b: CardBlock) => b.text === "先检查改动")?.type).toBe(1);
+        expect(blockList.find((b: CardBlock) => b.text === "git diff --stat")?.type).toBe(2);
+        expect(blockList.find((b: CardBlock) => b.text === "这里是最终回复")?.type).toBe(0);
     });
 
     it("replaces the live thinking block instead of appending multiple reasoning snapshots", async () => {

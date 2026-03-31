@@ -227,9 +227,9 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const blockList = finishAICardMock.mock.calls[0][1];
             // blockList is CardBlock[], check structure
-            expect(blockList.some((b: any) => b.isTool && b.text.includes("先检查差异"))).toBe(true);
-            expect(blockList.some((b: any) => b.isTool && b.text.includes("git diff --stat"))).toBe(true);
-            expect(blockList.some((b: any) => !b.isTool && b.text.includes("the answer"))).toBe(true);
+            expect(blockList.some((b: any) => (b.type === 1 || b.type === 2) && b.text.includes("先检查差异"))).toBe(true);
+            expect(blockList.some((b: any) => (b.type === 1 || b.type === 2) && b.text.includes("git diff --stat"))).toBe(true);
+            expect(blockList.some((b: any) => b.type === 0 && b.text.includes("the answer"))).toBe(true);
         });
 
         it("preserves answer and tool blocks in event order during finalize", async () => {
@@ -361,9 +361,9 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const blockList = finishAICardMock.mock.calls[0][1] as any[];
             // Tool block should contain the reasoning text
-            expect(blockList.some((b: any) => b.isTool && b.text.includes("我来发附件"))).toBe(true);
+            expect(blockList.some((b: any) => (b.type === 1 || b.type === 2) && b.text.includes("我来发附件"))).toBe(true);
             // Fallback answer block should be present
-            expect(blockList.some((b: any) => !b.isTool && b.text.includes("附件已发送，请查收。"))).toBe(true);
+            expect(blockList.some((b: any) => b.type === 0 && b.text.includes("附件已发送，请查收。"))).toBe(true);
         });
 
         it("clears session state after successful finalize", async () => {
@@ -414,7 +414,7 @@ describe("reply-strategy-card", () => {
             expect(taskInfoLog).toContain('"model":"claude-3"');
             expect(taskInfoLog).toContain('"effort":"high"');
             expect(taskInfoLog).toContain('"taskTime":5');
-            expect(taskInfoLog).toContain('"dapi_usage":5');
+            expect(taskInfoLog).toContain('"dap_usage":5');
         });
     });
 

@@ -3810,7 +3810,7 @@ describe("inbound-handler", () => {
     );
     expect(shared.finishAICardMock).toHaveBeenCalledWith(
       card,
-      [{ text: "final output", markdown: "final output", isTool: false }],
+      [{ text: "final output", markdown: "final output", type: 0, mediaId: "", btns: [] }],
       undefined,
       {
         quotedRef: {
@@ -5678,7 +5678,7 @@ describe("inbound-handler", () => {
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     expect(shared.finishAICardMock).toHaveBeenCalledWith(
       card,
-      [{ text: "❌ 处理失败", markdown: "❌ 处理失败", isTool: false }],
+      [{ text: "❌ 处理失败", markdown: "❌ 处理失败", type: 0, mediaId: "", btns: [] }],
       expect.anything(),
     );
   });
@@ -6774,7 +6774,7 @@ describe("inbound-handler", () => {
       expect(shared.sendBySessionMock).not.toHaveBeenCalled();
       expect(shared.finishAICardMock).toHaveBeenCalledWith(
         card,
-        [{ text: "⚙️ Agent was aborted.", markdown: "⚙️ Agent was aborted.", isTool: false }],
+        [{ text: "⚙️ Agent was aborted.", markdown: "⚙️ Agent was aborted.", type: 0, mediaId: "", btns: [] }],
         undefined,
       );
     });

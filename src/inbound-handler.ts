@@ -1687,7 +1687,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         const abortBlockList: CardBlock[] = [{
           text: abortConfirmationText ?? "已停止",
           markdown: abortConfirmationText ?? "已停止",
-          isTool: false,
+          type: 0,
+          mediaId: "",
+          btns: [],
         }];
         await finishAICard(currentAICard, abortBlockList, log);
       } catch (cardErr) {

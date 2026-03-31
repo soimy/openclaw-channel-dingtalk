@@ -176,29 +176,31 @@ export function createCardReplyStrategy(
           model: sessionState?.model,
           effort: sessionState?.effort,
           taskTime,
-          dapi_usage: sessionState?.dapiCount,
+          dap_usage: sessionState?.dapiCount,
         };
         log?.debug?.(`[DingTalk][AICard] Finalizing with taskInfo: ${JSON.stringify(taskInfo)}`);
 
         // Get blockList from controller and ensure answer block is present
         const blockList = controller.getBlockList();
-        const hasAnswerBlock = blockList.some((b) => !b.isTool && b.text.trim().length > 0);
+        const hasAnswerBlock = blockList.some((b) => b.type === 0 && b.text.trim().length > 0);
 
         // If no answer block, add finalTextForFallback or file-only fallback
         if (!hasAnswerBlock) {
           const answerText = finalTextForFallback || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
           if (answerText) {
-            blockList.push({ text: answerText, markdown: answerText, isTool: false });
+            blockList.push({ text: answerText, markdown: answerText, type: 0, mediaId: "", btns: [] });
           }
         } else if (finalTextForFallback) {
           // If there's an answer block but we also have finalTextForFallback,
           // override the last answer block with the final text (for streaming case)
-          const lastAnswerIndex = blockList.findLastIndex((b) => !b.isTool);
+          const lastAnswerIndex = blockList.findLastIndex((b) => b.type === 0);
           if (lastAnswerIndex >= 0 && finalTextForFallback) {
             blockList[lastAnswerIndex] = {
               text: finalTextForFallback,
               markdown: finalTextForFallback,
-              isTool: false,
+              type: 0,
+              mediaId: "",
+              btns: [],
             };
           }
         }
@@ -250,7 +252,7 @@ export function createCardReplyStrategy(
           if (blockList.length > 0) {
             await finishAICard(card, blockList, log);
           } else {
-            const errorBlock: CardBlock[] = [{ text: "❌ 处理失败", markdown: "❌ 处理失败", isTool: false }];
+            const errorBlock: CardBlock[] = [{ text: "❌ 处理失败", markdown: "❌ 处理失败", type: 0, mediaId: "", btns: [] }];
             await finishAICard(card, errorBlock, log);
           }
         } catch (cardCloseErr: unknown) {

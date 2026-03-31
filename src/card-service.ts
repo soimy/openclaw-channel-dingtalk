@@ -407,7 +407,7 @@ export async function sendProactiveCardText(
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
-    const blockList: CardBlock[] = [{ text: content, markdown: content, isTool: false }];
+    const blockList: CardBlock[] = [{ text: content, markdown: content, type: 0, mediaId: "", btns: [] }];
     await finishAICard(card, blockList, log);
     return {
       ok: true,
@@ -495,7 +495,7 @@ async function finalizePendingCardsByAccount(
     };
     try {
       const recoveryBlockList: CardBlock[] = [
-        { text: reason, markdown: reason, isTool: false },
+        { text: reason, markdown: reason, type: 0, mediaId: "", btns: [] },
       ];
       await finishAICard(card, recoveryBlockList, log);
       finalizedCount += 1;
@@ -548,6 +548,10 @@ export async function createAICard(
       quoteContent: "",
       btns: JSON.stringify([]),
       hasAction: "false",
+      content: "",
+      topic: JSON.stringify({ text: "", color: "green" }),
+      hasTopic: "false",
+      version: "1",
     };
     const createAndDeliverBody = {
       cardTemplateId,
@@ -698,11 +702,14 @@ export async function streamAICard(
   }
 
   // Always use full replacement to make client rendering deterministic.
+  // Note: DingTalk streaming API expects:
+  // - key: the variable name to update (e.g., "blockList")
+  // - content: for array variables, must be JSON string, not raw array object
   const streamBody: AICardStreamingRequest = {
     outTrackId: card.outTrackId || card.cardInstanceId,
     guid: randomUUID(),
     key: "blockList",
-    content: JSON.stringify(blockList),
+    content: JSON.stringify(blockList), // JSON string for array variables
     isFull: true,
     isFinalize: finished,
     isError: false,

@@ -27,35 +27,50 @@ import { mergeAccountWithDefaults } from "./config";
 export const PRESET_CARD_TEMPLATE_ID = "301508cd-5ddd-4e86-85f0-6b5312032743.schema";
 
 /**
- * Card block for structured AI Card display
+ * Card block type enum — drives conditional rendering in the preset template.
+ *
+ * - 0: answer   — markdown body block
+ * - 1: think    — thinking/reasoning text block
+ * - 2: tool     — tool execution text block
+ * - 3: image    — image block (requires mediaId)
+ * - 4: approval — interactive approval buttons (requires btns)
+ * - 5: topic    — topic/tag text block
+ */
+export type CardBlockType = 0 | 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Card block for structured AI Card display.
+ * Each block is a row in the card's blockList array rendered by the template.
  */
 export interface CardBlock {
-  /** Block content (currently same as markdown, for future collapsed/expanded states) */
+  /** Plain text content (displayed in collapsed states or as fallback) */
   text: string;
   /** Full block content in markdown format */
   markdown: string;
-  /** true = thinking/tool block, false = answer block */
-  isTool: boolean;
+  /** Block type — controls which template component renders this block */
+  type: CardBlockType;
+  /** DingTalk mediaId for image blocks (type 3 only), empty string for other types */
+  mediaId: string;
+  /** Interactive buttons (type 4 approval blocks only), empty array for other types */
+  btns: CardBtn[];
 }
 
 /**
- * Task metadata for AI Card display
+ * Task metadata for AI Card footer display
  */
 export interface CardTaskInfo {
-  /** Task summary (optional) */
-  text?: string;
   /** Model name (from onModelSelected callback) */
   model?: string;
-  /** Task duration in seconds (plugin local timing) */
-  taskTime?: number;
   /** Thinking chain depth (from onModelSelected callback) */
   effort?: string;
   /** DingTalk API call count (plugin local counter) */
-  dapi_usage?: number;
+  dap_usage?: number;
+  /** Task duration in seconds (plugin local timing) */
+  taskTime?: number;
 }
 
 /**
- * Interactive button for AI Card
+ * Interactive button for AI Card (approval/action buttons)
  */
 export interface CardBtn {
   text: string;
@@ -68,16 +83,28 @@ export interface CardBtn {
 }
 
 /**
+ * Topic/tag for AI Card header display
+ */
+export interface CardTopic {
+  text: string;
+  color: string;
+}
+
+/**
  * Complete payload for AI Card streaming
  */
 export interface CardStreamPayload {
   blockList: CardBlock[];
   taskInfo: CardTaskInfo;
   hasAction: boolean;
+  /** Final answer markdown for card content copy */
   content: string;
   hasQuote: boolean;
   quoteContent?: string;
   btns: CardBtn[];
+  topic?: CardTopic;
+  hasTopic: boolean;
+  version: number;
 }
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";

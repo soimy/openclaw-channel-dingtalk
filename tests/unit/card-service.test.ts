@@ -41,7 +41,7 @@ const mockedAxios = axios as any;
 const mockedGetAccessToken = vi.mocked(getAccessToken);
 
 function makeBlockList(text: string): CardBlock[] {
-    return [{ text, markdown: text, isTool: false }];
+    return [{ text, markdown: text, type: 0, mediaId: "", btns: [] }];
 }
 
 describe('card-service', () => {
@@ -104,6 +104,10 @@ describe('card-service', () => {
             hasQuote: 'false',
             quoteContent: '',
             taskInfo: '{}',
+            content: '',
+            topic: '{"text":"","color":"green"}',
+            hasTopic: 'false',
+            version: '1',
         });
         expect(body.imGroupOpenDeliverModel).toEqual({
             robotCode: 'id',
@@ -561,8 +565,7 @@ describe('card-service', () => {
         expect(finalized).toBe(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
-        const blockList = JSON.parse(putBody.content ?? '[]');
-        expect(blockList).toEqual([{ text: 'stop-reason', markdown: 'stop-reason', isTool: false }]);
+        expect(JSON.parse(putBody.content ?? '[]')).toEqual([{ text: 'stop-reason', markdown: 'stop-reason', type: 0, mediaId: '', btns: [] }]);
         expect(putBody.isFinalize).toBe(true);
         const afterFinalize = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinalize.pendingCards).toHaveLength(0);
