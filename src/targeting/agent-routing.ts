@@ -8,6 +8,7 @@
  */
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { maybeResolveTextAlias } from "openclaw/plugin-sdk/command-auth";
 import { resolveAtAgents } from "./agent-name-matcher";
 import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
@@ -101,9 +102,7 @@ export async function resolveSubAgentRoute(params: {
   // routing so they reach the framework's own command handling layer.
   // Strip leading @mention tokens first since DM text may look like "@Agent /new".
   const textWithoutMentions = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
-  // NOTE: Keep in sync with OpenClaw framework commands.
-  // When new top-level slash commands are added, update this list.
-  const isSlashCommand = /^\/(?:new|stop|clear|compact|reasoning|model|config|session|whereami|whoami)\b/.test(textWithoutMentions);
+  const isSlashCommand = maybeResolveTextAlias(textWithoutMentions, cfg) !== null;
 
   if (
     atMentions.length === 0 ||

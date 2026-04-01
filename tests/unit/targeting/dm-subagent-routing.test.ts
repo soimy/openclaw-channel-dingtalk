@@ -19,6 +19,24 @@ vi.mock("../../../src/send-service", () => ({
   sendBySession: vi.fn(),
 }));
 
+const KNOWN_COMMANDS = new Set([
+  "/new", "/stop", "/clear", "/compact", "/reasoning", "/model",
+  "/config", "/session", "/session-alias", "/whoami", "/whereami",
+  "/help", "/status", "/tools", "/reset", "/think", "/verbose",
+  "/bash", "/activation", "/agents", "/restart", "/usage",
+]);
+
+vi.mock("openclaw/plugin-sdk/command-auth", () => ({
+  maybeResolveTextAlias: (raw: string) => {
+    const trimmed = raw.trim().toLowerCase();
+    if (!trimmed.startsWith("/")) return null;
+    const token = trimmed.match(/^\/([^\s:]+)(?:\s|$)/);
+    if (!token) return null;
+    const key = `/${token[1]}`;
+    return KNOWN_COMMANDS.has(key) ? key : null;
+  },
+}));
+
 function makeDmMessage(text: string): DingTalkInboundMessage {
   return {
     msgtype: "text",
