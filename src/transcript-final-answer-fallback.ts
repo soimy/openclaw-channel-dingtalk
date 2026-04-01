@@ -50,10 +50,11 @@ async function resolveSessionTranscriptPath(params: {
     }
 
     if (typeof session.sessionId === "string" && session.sessionId.trim()) {
-        return join(
+        const candidatePath = join(
             sessionsDir,
             `${session.sessionId}.jsonl`,
         );
+        return isPathWithinDirectory(candidatePath, sessionsDir) ? candidatePath : undefined;
     }
 
     return undefined;

@@ -40,6 +40,7 @@ export function createCardReplyStrategy(
   let sawFinalDelivery = false;
   let sawMediaDelivery = false;
   let sawProcessBlock = false;
+  let usedTranscriptFinalAnswerFallback = false;
   const readFinalAnswerFromTranscript =
     ctx.readFinalAnswerFromTranscript ?? readLatestAssistantTextFromTranscript;
 
@@ -254,6 +255,7 @@ export function createCardReplyStrategy(
           });
           if (transcriptFinalAnswer?.trim()) {
             finalTextForFallback = transcriptFinalAnswer;
+            usedTranscriptFinalAnswerFallback = true;
           }
         }
         await flushPendingReasoning();
@@ -263,7 +265,7 @@ export function createCardReplyStrategy(
         controller.stop();
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
-          `source=${finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
+          `source=${usedTranscriptFinalAnswerFallback ? "transcript.fallback" : finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
           `preview="${finalText.slice(0, 120)}"`,
         );
         await finishAICard(card, finalText, log, {

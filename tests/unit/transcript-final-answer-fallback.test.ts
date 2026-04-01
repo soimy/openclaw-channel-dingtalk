@@ -89,4 +89,30 @@ describe("transcript-final-answer-fallback", () => {
             "utf-8",
         );
     });
+
+    it("ignores sessionId values that resolve outside the expected sessions directory", async () => {
+        shared.readFileMock.mockImplementation(async (path: string) => {
+            if (path === "/virtual-home/.openclaw/agents/main/sessions/sessions.json") {
+                return JSON.stringify({
+                    "agent:main:direct:manager8031": {
+                        sessionId: "../../evil",
+                    },
+                });
+            }
+            throw new Error(`unexpected path: ${path}`);
+        });
+
+        await expect(
+            readLatestAssistantTextFromTranscript({
+                agentId: "main",
+                sessionKey: "agent:main:direct:manager8031",
+            }),
+        ).resolves.toBeUndefined();
+
+        expect(shared.readFileMock).toHaveBeenCalledTimes(1);
+        expect(shared.readFileMock).toHaveBeenCalledWith(
+            "/virtual-home/.openclaw/agents/main/sessions/sessions.json",
+            "utf-8",
+        );
+    });
 });

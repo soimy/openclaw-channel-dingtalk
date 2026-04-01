@@ -491,6 +491,7 @@ describe("reply-strategy-card", () => {
 
         it("uses transcript final-answer fallback as a temporary workaround when reasoning-on card finalize has no answer text", async () => {
             const card = makeCard();
+            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
             const readFinalAnswerFromTranscript = vi.fn().mockResolvedValue("/Users/sym/clawd");
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 disableBlockStreaming: false,
@@ -498,6 +499,7 @@ describe("reply-strategy-card", () => {
                 sessionAgentId: "main",
                 enableTemporaryTranscriptFinalAnswerFallback: true,
                 readFinalAnswerFromTranscript,
+                log: log as any,
             } as any) as any);
 
             await strategy.deliver({
@@ -519,6 +521,8 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("> pwd");
             expect(rendered).toContain("/Users/sym/clawd");
             expect(rendered).not.toContain("✅ Done");
+            const infoLogs = log.info.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(infoLogs.some((entry) => entry.includes("source=transcript.fallback"))).toBe(true);
         });
 
         it("does not read transcript fallback when a final answer payload is already available", async () => {
