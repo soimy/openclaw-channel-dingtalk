@@ -566,6 +566,34 @@ describe("reply-strategy-card", () => {
             expect(rendered).not.toContain("✅ Done");
         });
 
+        it("finalize keeps late pure-reasoning blocks before the current answer in the same segment", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+            }));
+
+            await strategy.deliver({
+                text: "收到！这是一条完全不需要工具的消息。",
+                mediaUrls: [],
+                kind: "block",
+            });
+            await strategy.deliver({
+                text: "Reasoning:\n_The user is asking me to send a message that doesn't require tools._",
+                mediaUrls: [],
+                kind: "block",
+                isReasoning: true,
+            });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> The user is asking me to send a message that doesn't require tools.");
+            expect(rendered).toContain("收到！这是一条完全不需要工具的消息。");
+            expect(rendered.indexOf("> The user is asking me to send a message that doesn't require tools.")).toBeLessThan(
+                rendered.indexOf("收到！这是一条完全不需要工具的消息。"),
+            );
+        });
+
         it("finalize prefers the final answer snapshot over an earlier partial answer", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
