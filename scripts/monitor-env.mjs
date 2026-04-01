@@ -64,9 +64,6 @@ export function parseArgs(argv) {
     } else if (arg === "--client-secret" && next) {
       out.clientSecret = next.trim();
       i += 1;
-    } else if (arg === "--client-secret" && next) {
-      out.clientSecret = next.trim();
-      i += 1;
     } else if (arg === "--summary-every" && next) {
       out.summaryEverySec = Number.parseInt(next, 10) || out.summaryEverySec;
       i += 1;
