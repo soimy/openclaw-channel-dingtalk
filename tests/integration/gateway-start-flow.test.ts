@@ -13,7 +13,7 @@ const shared = vi.hoisted(() => ({
     dwClientConfig: undefined as any,
 }));
 
-vi.mock('openclaw/plugin-sdk', () => ({
+vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 

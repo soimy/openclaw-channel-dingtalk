@@ -23,6 +23,7 @@ docs/
 AGENTS.md
 TODO.md
 RELEASES.md
+scripts/
 
 # Development-only configuration
 tsconfig.json

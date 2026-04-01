@@ -89,7 +89,6 @@ High-level changes currently only in local, uncommitted edits:
   - `dingtalk-state/plugin-debug.jsonl`
 - current implementation reuses existing `channels.dingtalk.debug`
 - helper was refactored into `src/utils.ts` so files stop duplicating debug helpers
-
 ## Verified Test Status
 
 Verified after the latest plugin-side fix:
@@ -228,7 +227,6 @@ New plugin-local finding from this continuation:
   - for card mode `/reasoning on`, `onPartialReply` is too permissive
   - it should not blindly feed partial text into `updateAnswer(...)`
   - at minimum, the plugin needs to suppress or classify reasoning-like partial text before it reaches the answer lane
-
 `/reasoning stream`
 
 - reasoning goes through a separate `onReasoningStream` path

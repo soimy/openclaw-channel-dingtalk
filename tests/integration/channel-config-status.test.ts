@@ -8,7 +8,7 @@ import {
   upsertObservedUserTarget,
 } from "../../src/targeting/target-directory-store";
 
-vi.mock("openclaw/plugin-sdk", () => ({
+vi.mock("openclaw/plugin-sdk/core", () => ({
   buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 

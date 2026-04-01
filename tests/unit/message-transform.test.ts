@@ -5,6 +5,14 @@ vi.mock('../../src/auth', () => ({
     getAccessToken: vi.fn().mockResolvedValue('mock-access-token'),
 }));
 
+vi.mock('../../src/media-utils', async () => {
+    const actual = await vi.importActual<typeof import('../../src/media-utils')>('../../src/media-utils');
+    return {
+        ...actual,
+        uploadMedia: vi.fn(),
+    };
+});
+
 vi.mock('axios', () => {
     const mockAxios = vi.fn();
     return {
@@ -15,9 +23,11 @@ vi.mock('axios', () => {
 
 import { convertMarkdownTablesToPlainText } from '../../src/message-utils';
 import { sendBySession, sendProactiveTextOrMarkdown } from '../../src/send-service';
+import { uploadMedia } from '../../src/media-utils';
 import type { DingTalkConfig } from '../../src/types';
 
 const mockedAxios = vi.mocked(axios);
+const mockedUploadMedia = vi.mocked(uploadMedia);
 
 const config: DingTalkConfig = {
     clientId: 'ding-client-id',
@@ -27,6 +37,7 @@ const config: DingTalkConfig = {
 describe('message payload transform', () => {
     beforeEach(() => {
         mockedAxios.mockReset();
+        mockedUploadMedia.mockReset();
     });
 
     it('should convert markdown reply to DingTalk session webhook payload', async () => {
@@ -144,5 +155,64 @@ describe('message payload transform', () => {
         const input = '```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```';
 
         expect(convertMarkdownTablesToPlainText(input)).toBe(input);
+    });
+
+    it('rewrites markdown local image syntax into uploaded media id before session send', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_local_1', buffer: Buffer.from('img') } as any);
+        mockedAxios.mockResolvedValue({ data: { success: true } });
+
+        await sendBySession(
+            config,
+            'https://example-session-webhook',
+            '![示意图](/tmp/demo.png)',
+            { useMarkdown: true },
+        );
+
+        expect(mockedUploadMedia).toHaveBeenCalledWith(
+            config,
+            '/tmp/demo.png',
+            'image',
+            expect.any(Function),
+            undefined,
+            { mediaLocalRoots: undefined },
+        );
+
+        const request = mockedAxios.mock.calls[0]?.[0] as {
+            data: { markdown?: { text: string } };
+        };
+        expect(request.data.markdown?.text).toBe('![示意图](media_img_local_1)');
+    });
+
+    it('preserves media ids containing replacement tokens like $&', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_$&_1', buffer: Buffer.from('img') } as any);
+        mockedAxios.mockResolvedValue({ data: { success: true } });
+
+        await sendBySession(
+            config,
+            'https://example-session-webhook',
+            '![示意图](/tmp/demo.png)',
+            { useMarkdown: true },
+        );
+
+        const request = mockedAxios.mock.calls[0]?.[0] as {
+            data: { markdown?: { text: string } };
+        };
+        expect(request.data.markdown?.text).toBe('![示意图](media_$&_1)');
+    });
+
+    it('does not rewrite bare local paths in plain text replies', async () => {
+        mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_plain' } });
+
+        await sendProactiveTextOrMarkdown(
+            config,
+            'cidA1B2C3',
+            '图片路径是 /tmp/demo.png，请检查',
+        );
+
+        expect(mockedUploadMedia).not.toHaveBeenCalled();
+        const request = mockedAxios.mock.calls[0]?.[0] as {
+            data: { msgParam: string };
+        };
+        expect(JSON.parse(request.data.msgParam)).toEqual({ content: '图片路径是 /tmp/demo.png，请检查' });
     });
 });

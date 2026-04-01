@@ -5,7 +5,7 @@ const { sendMessageMock, getRuntimeMock } = vi.hoisted(() => ({
     getRuntimeMock: vi.fn(),
 }));
 
-vi.mock('openclaw/plugin-sdk', () => ({
+vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 

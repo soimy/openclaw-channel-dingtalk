@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import axios from "axios";
+import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import {
   isCardInTerminalState,
@@ -36,6 +36,53 @@ import type {
 } from "./types";
 
 export { detectMediaTypeFromExtension } from "./media-utils";
+
+const MARKDOWN_LOCAL_IMAGE_RE =
+  /!\[([^\]]*)\]\((file:\/\/\/[^)]+|\/(?:tmp|var|private|Users|home|root)[^)]+|[A-Za-z]:[\\/][^)]+)\)/g;
+
+function decodeMarkdownLocalImagePath(rawPath: string): string {
+  const unescapedPath = rawPath.replace(/\\ /g, " ");
+  if (unescapedPath.startsWith("file://")) {
+    try {
+      return decodeURIComponent(unescapedPath.replace("file://", ""));
+    } catch {
+      return unescapedPath.replace("file://", "");
+    }
+  }
+  return unescapedPath;
+}
+
+async function replaceMarkdownLocalImages(params: {
+  config: DingTalkConfig;
+  text: string;
+  log?: Logger;
+  mediaLocalRoots?: string[];
+}): Promise<string> {
+  const matches = [...params.text.matchAll(MARKDOWN_LOCAL_IMAGE_RE)];
+  if (matches.length === 0) {
+    return params.text;
+  }
+
+  let result = params.text;
+  for (const match of matches) {
+    const [fullMatch, altText, rawPath] = match;
+    const mediaPath = decodeMarkdownLocalImagePath(rawPath);
+    const uploadResult = await uploadMedia(params.config, mediaPath, "image", params.log, {
+      mediaLocalRoots: params.mediaLocalRoots,
+    });
+
+    if (!uploadResult?.mediaId) {
+      params.log?.warn?.(
+        `[DingTalk] Markdown local image upload failed, keep original reference: ${mediaPath}`,
+      );
+      continue;
+    }
+
+    result = result.replace(fullMatch, () => `![${altText}](${uploadResult.mediaId})`);
+  }
+
+  return result;
+}
 
 type ProactiveTextSendResult = AxiosResponse | { tracking: DingTalkTrackingMetadata };
 
@@ -252,7 +299,16 @@ export async function sendProactiveTextOrMarkdown(
     ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
     : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
 
-  const normalizedText = config.convertMarkdownTables !== false ? convertMarkdownTablesToPlainText(text) : text;
+  const textWithUploadedLocalImages = await replaceMarkdownLocalImages({
+    config,
+    text,
+    log,
+    mediaLocalRoots: options.mediaLocalRoots,
+  });
+  const normalizedText =
+    config.convertMarkdownTables !== false
+      ? convertMarkdownTablesToPlainText(textWithUploadedLocalImages)
+      : textWithUploadedLocalImages;
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "OpenClaw 提醒");
 
   log?.debug?.(
@@ -531,7 +587,16 @@ export async function sendBySession(
   }
 
   // Fallback to text/markdown reply payload.
-  const normalizedText = config.convertMarkdownTables !== false ? convertMarkdownTablesToPlainText(text) : text;
+  const textWithUploadedLocalImages = await replaceMarkdownLocalImages({
+    config,
+    text,
+    log,
+    mediaLocalRoots: options.mediaLocalRoots,
+  });
+  const normalizedText =
+    config.convertMarkdownTables !== false
+      ? convertMarkdownTablesToPlainText(textWithUploadedLocalImages)
+      : textWithUploadedLocalImages;
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(normalizedText, options, "Clawdbot 消息");
   const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
 

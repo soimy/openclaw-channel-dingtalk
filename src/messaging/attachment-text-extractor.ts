@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AttachmentTextSource } from "./types";
+import type { AttachmentTextSource } from "../types";
 
 const MAX_EXTRACTED_TEXT_CHARS = 6000;
 const MAX_ATTACHMENT_EXTRACT_BYTES = 2 * 1024 * 1024;

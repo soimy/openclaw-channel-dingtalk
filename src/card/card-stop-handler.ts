@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getAccessToken } from "../auth";
 import { finishStoppedAICard, hideCardStopButton } from "../card-service";
 import { dispatchDingTalkCardStopCommand } from "../command/card-stop-command";

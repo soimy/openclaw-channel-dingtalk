@@ -39,8 +39,8 @@ Domain subtrees used by current refactors:
 
 ```text
 src/messaging/
+├── attachment-text-extractor.ts # Text extraction for supported attachments
 └── quoted-file-service.ts # Quote/file recovery helpers
-
 src/targeting/
 └── group-members-store.ts # Group member cache/persistence
 ```

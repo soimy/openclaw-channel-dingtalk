@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import axios from "axios";
+import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";

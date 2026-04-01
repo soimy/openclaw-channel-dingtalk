@@ -1,6 +1,9 @@
 # Default-deny: only publish the runtime package surface.
 *
 
+# Developer tooling stays out of plugin bundles.
+scripts/
+
 !LICENSE
 !README.md
 !index.ts

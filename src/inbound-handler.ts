@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import axios from "axios";
+import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
-import { extractAttachmentText } from "./attachment-text-extractor";
+import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
@@ -1276,13 +1276,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
   // rather than waiting for it to finish before the stop message is processed.
   //
-  // In group chats, DingTalk typically strips @BotName from text.content at the
-  // protocol level before delivery, but as a defensive measure we also strip leading
-  // @mention tokens here (e.g. "@Bot 停止" → "停止") to match the SDK's own behavior
-  // in tryFastAbortFromMessage (which calls stripMentions for group messages).
-  const textForAbortCheck = !isDirect
-    ? inboundText.replace(/^(?:@\S+\s+)*/u, "").trim()
-    : inboundText;
+  // Strip leading @mention tokens before the abort check so that messages like
+  // "@Agent /stop" are correctly recognised as abort requests in both DM and group
+  // chats. In groups DingTalk usually strips @BotName at the protocol level, but
+  // in DMs with multi-agent routing the @mention prefix survives all the way here.
+  const textForAbortCheck = inboundText.replace(/^(?:@\S+\s+)*/u, "").trim();
   if (isAbortRequestText(textForAbortCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,

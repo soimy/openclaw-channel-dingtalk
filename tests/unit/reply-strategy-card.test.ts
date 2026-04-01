@@ -363,7 +363,6 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("**结论：这项任务预计 3 天完成。** ✅");
             expect(rendered).not.toContain("> **分步思考过程**：");
         });
-
         it("deliver(block) preserves answer text even when card block streaming is disabled", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
@@ -685,7 +684,6 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("Reasoning:\n_1. 先计算每个人的效率_");
             expect(rendered).not.toContain("> 1. 先计算每个人的效率");
         });
-
         it("finalize prefers the final answer snapshot over an earlier partial answer", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
@@ -772,7 +770,6 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("Reasoning:\n_1. 设总任务量为1_");
             expect(rendered).not.toContain("> 1. 设总任务量为1");
         });
-
         it("flushes pending reasoning before appending a tool block", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));

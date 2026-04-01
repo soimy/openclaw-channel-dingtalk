@@ -46,7 +46,7 @@ vi.mock("../../src/message-utils", () => ({
   extractMessageContent: shared.extractMessageContentMock,
 }));
 
-vi.mock("../../src/attachment-text-extractor", () => ({
+vi.mock("../../src/messaging/attachment-text-extractor", () => ({
   extractAttachmentText: shared.extractAttachmentTextMock,
 }));
 
@@ -6824,8 +6824,8 @@ describe("inbound-handler", () => {
       // All should use the same sessionWebhook from the inbound message
       expect(webhookCalls.every(c => c.webhook === 'https://session.webhook')).toBe(true);
       // Response prefixes should be distinct for each agent
-      expect(webhookCalls[0].responsePrefix).toContain('[Agent1]');
-      expect(webhookCalls[1].responsePrefix).toContain('[Agent2]');
+      expect(webhookCalls[0].responsePrefix).toContain('**Agent1**');
+      expect(webhookCalls[1].responsePrefix).toContain('**Agent2**');
     });
 
     it('falls back to resolveAgentRoute with agentId suffix when buildAgentSessionKey is unavailable', async () => {
@@ -7371,6 +7371,46 @@ describe("inbound-handler", () => {
       } as any);
 
       // @mention stripped → "停止" matches → session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("strips leading @mention from DM message before abort check", async () => {
+      // In multi-agent DM, text like "@Agent /stop" must still bypass the session
+      // lock after resolveSubAgentRoute returns null for slash commands.
+      shared.extractMessageContentMock.mockReturnValue({
+        text: "@Agent /stop",
+        messageType: "text",
+        atMentions: [{ name: "Agent" }],
+      });
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "/stop");
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: {
+          ...baseData,
+          msgId: "abort_dm_mention",
+          text: { content: "@Agent /stop" },
+          conversationType: "1",
+          conversationId: "cid_dm_abort",
+        },
+      } as any);
+
+      // @mention stripped in DM → "/stop" matches → session lock should NOT be acquired
       expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
       expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
     });
