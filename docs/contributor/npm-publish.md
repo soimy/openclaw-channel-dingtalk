@@ -52,7 +52,7 @@ ClawHub 自动发布额外要求：
 推荐发布命令：
 
 ```bash
-# 仅在 release 流程里更新版本并提交
+# 先更新版本并提交
 npm version patch
 git push origin main --follow-tags
 ```
@@ -64,11 +64,6 @@ git push origin main --follow-tags
 git tag v2.7.1
 git push origin v2.7.1
 ```
-
-> [!IMPORTANT]
-> 日常功能 PR / 修复 PR 不要手改 `package.json` 的 `version`。
-> 版本号统一在 release 流程中通过 `npm version patch|minor|major` 生成，并由 tag push 触发 npm / ClawHub 自动发布。
-> 仓库 CI 会在普通分支/PR 中拦截 `package.json.version` 变更，避免把发布动作混进业务改动 PR。
 
 ## Beta 版本发布（CI）
 
@@ -120,11 +115,6 @@ npm version minor
 # 主要版本（破坏性更新）：2.6.1 -> 3.0.0
 npm version major
 ```
-
-注意：
-- 不要直接编辑 `package.json` 里的 `version` 字段
-- 必须使用 `npm version ...` 生成版本号与 git tag
-- 版本提交应作为 release 动作处理，不应混入普通功能 PR
 
 ### 2. 验证发布内容
 

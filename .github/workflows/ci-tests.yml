@@ -29,9 +29,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Reject manual version bump in PR branch
-        run: node scripts/check-no-manual-version-bump.mjs
-
       - name: Type check
         run: pnpm run type-check
 
