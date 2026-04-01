@@ -118,15 +118,6 @@ export function createCardDraftController(params: {
     };
 
     const findCurrentSegmentAnswerIndex = (): number | null => {
-        if (activeAnswerIndex === null) {
-            return null;
-        }
-        for (let index = activeAnswerIndex - 1; index >= 0; index -= 1) {
-            const entry = timelineEntries[index];
-            if (entry?.kind === "tool") {
-                return activeAnswerIndex;
-            }
-        }
         return activeAnswerIndex;
     };
 
