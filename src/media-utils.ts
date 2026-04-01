@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { promises as fsPromises } from "node:fs";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import axios from "axios";
+import axios from "./http-client";
 import FormData from "form-data";
 import type { DingTalkConfig, Logger } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";

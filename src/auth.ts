@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios from "./http-client";
 import type { DingTalkConfig, Logger, TokenInfo } from "./types";
 import { retryWithBackoff } from "./utils";
 

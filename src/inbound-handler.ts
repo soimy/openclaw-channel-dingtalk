@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import axios from "axios";
+import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
