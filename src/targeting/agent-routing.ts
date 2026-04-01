@@ -101,6 +101,8 @@ export async function resolveSubAgentRoute(params: {
   // routing so they reach the framework's own command handling layer.
   // Strip leading @mention tokens first since DM text may look like "@Agent /new".
   const textWithoutMentions = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
+  // NOTE: Keep in sync with OpenClaw framework commands.
+  // When new top-level slash commands are added, update this list.
   const isSlashCommand = /^\/(?:new|stop|clear|compact|reasoning|model|config|session|whereami|whoami)\b/.test(textWithoutMentions);
 
   if (

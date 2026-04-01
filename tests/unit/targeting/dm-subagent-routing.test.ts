@@ -175,7 +175,7 @@ describe("resolveSubAgentRoute in DM", () => {
     expect(mockedSendBySession).not.toHaveBeenCalled();
   });
 
-  it.each(["/new", "/stop", "/clear", "/compact", "/reasoning stream", "/reasoning on", "/model", "/config", "/session"])(
+  it.each(["/new", "/stop", "/clear", "/compact", "/reasoning stream", "/reasoning on", "/model", "/config", "/session", "/whoami", "/whereami", "/session-alias show", "/session-alias clear"])(
     "skips sub-agent routing for slash command '%s' with @mention",
     async (command) => {
       const extractedContent: MessageContent = {
