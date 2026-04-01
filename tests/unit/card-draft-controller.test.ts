@@ -93,6 +93,50 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).not.toHaveBeenCalled();
     });
 
+    it("late completed thinking blocks are inserted before the current answer in the same segment", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateAnswer("最终答案");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        expect(rendered).toContain("> Reason: 先检查当前目录");
+        expect(rendered).toContain("最终答案");
+        expect(rendered.indexOf("> Reason: 先检查当前目录")).toBeLessThan(
+            rendered.indexOf("最终答案"),
+        );
+    });
+
+    it("late completed thinking blocks stay after a tool boundary but before the current answer", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("pwd 输出是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.appendThinkingBlock("Reason: 再确认输出后给结论");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const rendered = ctrl.getRenderedContent?.() ?? "";
+        const firstThinkingIndex = rendered.indexOf("> Reason: 先检查当前目录");
+        const toolIndex = rendered.indexOf("> Exec: pwd");
+        const lateThinkingIndex = rendered.indexOf("> Reason: 再确认输出后给结论");
+        const answerIndex = rendered.indexOf("pwd 输出是 /Users/sym/clawd");
+
+        expect(firstThinkingIndex).toBeGreaterThanOrEqual(0);
+        expect(toolIndex).toBeGreaterThan(firstThinkingIndex);
+        expect(lateThinkingIndex).toBeGreaterThan(toolIndex);
+        expect(answerIndex).toBeGreaterThan(lateThinkingIndex);
+    });
+
     it("reasoning -> answer switch seals only the latest thinking snapshot into the timeline", async () => {
         const sent: string[] = [];
         let resolveInFlight!: () => void;

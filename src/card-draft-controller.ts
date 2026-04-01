@@ -117,6 +117,19 @@ export function createCardDraftController(params: {
         return timelineEntries.length - 1;
     };
 
+    const findCurrentSegmentAnswerIndex = (): number | null => {
+        if (activeAnswerIndex === null) {
+            return null;
+        }
+        for (let index = activeAnswerIndex - 1; index >= 0; index -= 1) {
+            const entry = timelineEntries[index];
+            if (entry?.kind === "tool") {
+                return activeAnswerIndex;
+            }
+        }
+        return activeAnswerIndex;
+    };
+
     const renderTimeline = (options: {
         fallbackAnswer?: string;
         overrideAnswer?: string;
@@ -306,8 +319,16 @@ export function createCardDraftController(params: {
             await flushBoundaryFrame();
         }
         sealLiveThinking();
-        sealCurrentAnswer();
-        appendTimelineEntry("thinking", normalized);
+        const currentSegmentAnswerIndex = findCurrentSegmentAnswerIndex();
+        if (currentSegmentAnswerIndex !== null) {
+            timelineEntries.splice(currentSegmentAnswerIndex, 0, { kind: "thinking", text: normalized });
+            if (activeAnswerIndex !== null && activeAnswerIndex >= currentSegmentAnswerIndex) {
+                activeAnswerIndex += 1;
+            }
+        } else {
+            sealCurrentAnswer();
+            appendTimelineEntry("thinking", normalized);
+        }
         queueRender();
     };
 

@@ -15,11 +15,16 @@ import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { sendBySession, sendMessage } from "./send-service";
+import { readLatestAssistantTextFromTranscript } from "./transcript-final-answer-fallback";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
 const FILE_ONLY_FALLBACK_ANSWER = "附件已发送，请查收。";
+
+function isVisibleReasoningBlockText(text: string | undefined): boolean {
+  return typeof text === "string" && text.trimStart().startsWith("Reasoning:");
+}
 
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
@@ -33,6 +38,11 @@ export function createCardReplyStrategy(
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
+  let sawMediaDelivery = false;
+  let sawProcessBlock = false;
+  let usedTranscriptFinalAnswerFallback = false;
+  const readFinalAnswerFromTranscript =
+    ctx.readFinalAnswerFromTranscript ?? readLatestAssistantTextFromTranscript;
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
     const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
@@ -47,6 +57,7 @@ export function createCardReplyStrategy(
       if (!block.trim() || isStopRequested?.()) {
         continue;
       }
+      sawProcessBlock = true;
       await controller.appendThinkingBlock(block);
     }
   };
@@ -75,7 +86,7 @@ export function createCardReplyStrategy(
       return {
         // Card mode keeps runtime block streaming disabled, but still consumes
         // reasoning blocks through explicit callbacks and delivery metadata.
-        disableBlockStreaming: true,
+        disableBlockStreaming: ctx.disableBlockStreaming ?? true,
 
         onAssistantMessageStart: async () => {
           if (isStopRequested?.()) {
@@ -130,6 +141,7 @@ export function createCardReplyStrategy(
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
         if (payload.mediaUrls.length > 0) {
+          sawMediaDelivery = true;
           await ctx.deliverMedia(payload.mediaUrls);
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
@@ -145,6 +157,7 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk] Card failed, skipping tool result (will send full reply on final)");
           return;
         }
+        sawProcessBlock = true;
         await flushPendingReasoning();
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
@@ -153,13 +166,18 @@ export function createCardReplyStrategy(
         return;
       }
 
-      const isReasoningBlock = payload.isReasoning === true;
-      if (isReasoningBlock) {
-        await ingestReasoningSnapshot(textToSend);
+      const isReasoningBlock = payload.isReasoning === true || isVisibleReasoningBlockText(textToSend);
+      if (typeof textToSend === "string" && textToSend.trim()) {
+        if (isReasoningBlock) {
+          await ingestReasoningSnapshot(textToSend);
+        } else {
+          await controller.updateAnswer(textToSend);
+        }
       }
 
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
+        sawMediaDelivery = true;
         await ctx.deliverMedia(payload.mediaUrls);
       }
     },
@@ -218,14 +236,36 @@ export function createCardReplyStrategy(
 
       // Normal finalize.
       try {
+        if (
+          ctx.enableTemporaryTranscriptFinalAnswerFallback
+          && !finalTextForFallback
+          && !controller.getFinalAnswerContent()
+          && !controller.getLastAnswerContent()
+          && sawProcessBlock
+          && !sawMediaDelivery
+          && ctx.sessionAgentId
+          && ctx.sessionKey
+        ) {
+          // Temporary workaround for upstream PR #58650. Once the upstream
+          // reply-runtime preserves final answers after block replies, remove
+          // or narrow this transcript-backed recovery path.
+          const transcriptFinalAnswer = await readFinalAnswerFromTranscript({
+            agentId: ctx.sessionAgentId,
+            sessionKey: ctx.sessionKey,
+          });
+          if (transcriptFinalAnswer?.trim()) {
+            finalTextForFallback = transcriptFinalAnswer;
+            usedTranscriptFinalAnswerFallback = true;
+          }
+        }
         await flushPendingReasoning();
         await controller.flush();
         await controller.waitForInFlight();
-        const finalText = getRenderedTimeline() || "✅ Done";
+        const finalText = getRenderedTimeline({ preferFinalAnswer: true }) || "✅ Done";
         controller.stop();
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
-          `source=${controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
+          `source=${usedTranscriptFinalAnswerFallback ? "transcript.fallback" : finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
           `preview="${finalText.slice(0, 120)}"`,
         );
         await finishAICard(card, finalText, log, {
@@ -274,8 +314,8 @@ export function createCardReplyStrategy(
     },
 
     getFinalText(): string | undefined {
-      return controller.getFinalAnswerContent()
-        || finalTextForFallback
+      return finalTextForFallback
+        || controller.getFinalAnswerContent()
         || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
     },
   };
