@@ -18,12 +18,54 @@ import { sendBySession, sendMessage } from "./send-service";
 import { readLatestAssistantTextFromTranscript } from "./transcript-final-answer-fallback";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
-import { formatDingTalkErrorPayloadLog } from "./utils";
+import { formatDingTalkErrorPayloadLog, previewDebugText, writePluginDebugLog } from "./utils";
 
 const FILE_ONLY_FALLBACK_ANSWER = "附件已发送，请查收。";
 
+function emitPluginDebug(
+  ctx: ReplyStrategyContext,
+  category: string,
+  event: string,
+  payload: Record<string, unknown>,
+): void {
+  writePluginDebugLog({
+    enabled: ctx.config.debug === true,
+    storePath: ctx.storePath,
+    accountId: ctx.accountId,
+    conversationId: ctx.groupId || ctx.to,
+    category,
+    event,
+    payload,
+  });
+}
+
 function isVisibleReasoningBlockText(text: string | undefined): boolean {
   return typeof text === "string" && text.trimStart().startsWith("Reasoning:");
+}
+
+function splitMixedFinalPayload(text: string): {
+  answerText: string;
+  reasoningText?: string;
+} {
+  const markerIndex = text.indexOf("Reasoning:");
+  if (markerIndex <= 0) {
+    return {
+      answerText: text,
+    };
+  }
+
+  const answerText = text.slice(0, markerIndex).trimEnd();
+  const reasoningText = text.slice(markerIndex).trimStart();
+  if (!answerText || !reasoningText.startsWith("Reasoning:")) {
+    return {
+      answerText: text,
+    };
+  }
+
+  return {
+    answerText,
+    reasoningText,
+  };
 }
 
 export function createCardReplyStrategy(
@@ -106,6 +148,14 @@ export function createCardReplyStrategy(
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
               if (payload.text && !isStopRequested?.()) {
+                emitPluginDebug(ctx, "partial", "onPartialReply", {
+                  textLen: payload.text.length,
+                  textPreview: previewDebugText(payload.text),
+                });
+                emitPluginDebug(ctx, "partial", "updateAnswer", {
+                  source: "partial",
+                  textPreview: previewDebugText(payload.text),
+                });
                 await controller.updateAnswer(payload.text);
               }
             }
@@ -146,7 +196,19 @@ export function createCardReplyStrategy(
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
-          finalTextForFallback = rawFinalText;
+          const { answerText, reasoningText } = splitMixedFinalPayload(rawFinalText);
+          emitPluginDebug(ctx, "finalize", "splitMixedFinalPayload", {
+            rawLen: rawFinalText.length,
+            answerLen: answerText.length,
+            reasoningLen: reasoningText?.length ?? 0,
+            rawPreview: previewDebugText(rawFinalText),
+            answerPreview: previewDebugText(answerText),
+            reasoningPreview: previewDebugText(reasoningText),
+          });
+          if (reasoningText) {
+            await ingestReasoningSnapshot(reasoningText);
+          }
+          finalTextForFallback = answerText || rawFinalText;
         }
         return;
       }
@@ -168,9 +230,19 @@ export function createCardReplyStrategy(
 
       const isReasoningBlock = payload.isReasoning === true || isVisibleReasoningBlockText(textToSend);
       if (typeof textToSend === "string" && textToSend.trim()) {
+        emitPluginDebug(ctx, "deliver", "block", {
+          kind: payload.kind,
+          isReasoning: isReasoningBlock,
+          textLen: textToSend.length,
+          textPreview: previewDebugText(textToSend),
+        });
         if (isReasoningBlock) {
           await ingestReasoningSnapshot(textToSend);
         } else {
+          emitPluginDebug(ctx, "deliver", "updateAnswer", {
+            source: "block",
+            textPreview: previewDebugText(textToSend),
+          });
           await controller.updateAnswer(textToSend);
         }
       }
@@ -261,8 +333,16 @@ export function createCardReplyStrategy(
         await flushPendingReasoning();
         await controller.flush();
         await controller.waitForInFlight();
-        const finalText = getRenderedTimeline({ preferFinalAnswer: true }) || "✅ Done";
+        const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });
+        const finalText = renderedTimeline || "✅ Done";
         controller.stop();
+        emitPluginDebug(ctx, "finalize", "pre_finish", {
+          lastAnswerPreview: previewDebugText(controller.getLastAnswerContent()),
+          finalAnswerPreview: previewDebugText(controller.getFinalAnswerContent()),
+          finalTextForFallbackPreview: previewDebugText(finalTextForFallback),
+          renderedTimelinePreview: previewDebugText(renderedTimeline),
+          finalTextPreview: previewDebugText(finalText),
+        });
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
           `source=${usedTranscriptFinalAnswerFallback ? "transcript.fallback" : finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +

@@ -594,6 +594,57 @@ describe("reply-strategy-card", () => {
             );
         });
 
+        it("finalize keeps late visible Reasoning text before an earlier answer block", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+            }));
+
+            await strategy.deliver({
+                text: "经过分步计算，结论如下：任务预计 3 天完成。",
+                mediaUrls: [],
+                kind: "block",
+            });
+            await strategy.deliver({
+                text: "Reasoning:\n_1. 先计算每个人的效率_\n_2. 再汇总总效率_",
+                mediaUrls: [],
+                kind: "block",
+            });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> 1. 先计算每个人的效率");
+            expect(rendered).toContain("> 2. 再汇总总效率");
+            expect(rendered).toContain("经过分步计算，结论如下：任务预计 3 天完成。");
+            expect(rendered.indexOf("> 1. 先计算每个人的效率")).toBeLessThan(
+                rendered.indexOf("经过分步计算，结论如下：任务预计 3 天完成。"),
+            );
+        });
+
+        it("finalize splits mixed final payloads so trailing Reasoning text stays before the answer", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+            }));
+
+            await strategy.deliver({
+                text: "经过分步计算，结论如下：任务预计 3 天完成。\n\nReasoning:\n_1. 先计算每个人的效率_\n_2. 再汇总总效率_",
+                mediaUrls: [],
+                kind: "final",
+            });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> 1. 先计算每个人的效率");
+            expect(rendered).toContain("> 2. 再汇总总效率");
+            expect(rendered).toContain("经过分步计算，结论如下：任务预计 3 天完成。");
+            expect(rendered.indexOf("> 1. 先计算每个人的效率")).toBeLessThan(
+                rendered.indexOf("经过分步计算，结论如下：任务预计 3 天完成。"),
+            );
+        });
+
         it("finalize prefers the final answer snapshot over an earlier partial answer", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {

@@ -132,6 +132,58 @@ export function getProxyBypassOption(config?: { bypassProxyForSend?: boolean }):
   return config?.bypassProxyForSend ? { proxy: false } : {};
 }
 
+const PLUGIN_DEBUG_FILE = "plugin-debug.jsonl";
+const DEBUG_PREVIEW_LIMIT = 240;
+
+export function previewDebugText(text: string | undefined, limit = DEBUG_PREVIEW_LIMIT): string {
+  if (typeof text !== "string" || text.length === 0) {
+    return "";
+  }
+  return text.slice(0, limit).replace(/\n/g, "\\n");
+}
+
+export function writePluginDebugLog(params: {
+  enabled?: boolean;
+  storePath?: string;
+  accountId?: string;
+  conversationId?: string;
+  category: string;
+  event: string;
+  payload: Record<string, unknown>;
+}): void {
+  if (!params.enabled) {
+    return;
+  }
+
+  const entry = {
+    timestamp: new Date().toISOString(),
+    accountId: params.accountId || null,
+    conversationId: params.conversationId || null,
+    category: params.category,
+    event: params.event,
+    payload: params.payload,
+  };
+
+  const consoleLine = `[DingTalk][PluginDebug][${params.category}][${params.event}] ${JSON.stringify(entry.payload)}\n`;
+  try {
+    process.stdout.write(consoleLine);
+  } catch {
+    // Best-effort diagnostics only; never break the message path.
+  }
+
+  if (!params.storePath) {
+    return;
+  }
+
+  try {
+    const filePath = path.join(path.dirname(params.storePath), "dingtalk-state", PLUGIN_DEBUG_FILE);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, `${JSON.stringify(entry)}\n`);
+  } catch {
+    // Best-effort diagnostics only; never break the message path.
+  }
+}
+
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
   address: string | dns.LookupAddress[],

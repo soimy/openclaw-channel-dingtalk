@@ -31,7 +31,7 @@ import type {
   QuotedRef,
 } from "./types";
 import { AICardStatus } from "./types";
-import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption, writePluginDebugLog } from "./utils";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 // Thinking/tool stream snippets are truncated to keep card updates compact.
@@ -880,6 +880,17 @@ export async function finishAICard(
   options: { quotedRef?: QuotedRef } = {},
 ): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
+  writePluginDebugLog({
+    enabled: card.config?.debug === true,
+    storePath: card.storePath,
+    accountId: card.accountId,
+    conversationId: card.contextConversationId || card.conversationId,
+    category: "aicard",
+    event: "finishAICard",
+    payload: {
+      contentPreview: content.slice(0, 240).replace(/\n/g, "\\n"),
+    },
+  });
   await streamAICard(card, content, true, log);
   // Hide stop button on normal completion (symmetric with card-stop-handler).
   if (card.outTrackId && card.config) {
@@ -892,6 +903,18 @@ export async function finishAICard(
   }
   if (card.conversationId && content.trim() && card.accountId && card.processQueryKey) {
     const primaryConversationId = card.contextConversationId || card.conversationId;
+    writePluginDebugLog({
+      enabled: card.config?.debug === true,
+      storePath: card.storePath,
+      accountId: card.accountId,
+      conversationId: primaryConversationId,
+      category: "aicard",
+      event: "cacheCardContentByProcessQueryKey",
+      payload: {
+        processQueryKey: card.processQueryKey,
+        contentPreview: content.slice(0, 240).replace(/\n/g, "\\n"),
+      },
+    });
     cacheCardContentByProcessQueryKey(
       card.accountId,
       primaryConversationId,
