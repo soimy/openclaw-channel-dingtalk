@@ -174,4 +174,71 @@ describe("resolveSubAgentRoute in DM", () => {
     expect(result).toBeNull();
     expect(mockedSendBySession).not.toHaveBeenCalled();
   });
+
+  it.each(["/new", "/stop", "/clear", "/compact", "/reasoning stream", "/reasoning on", "/model", "/config", "/session"])(
+    "skips sub-agent routing for slash command '%s' with @mention",
+    async (command) => {
+      const extractedContent: MessageContent = {
+        text: `@agent-alpha ${command}`,
+        messageType: "text",
+        atMentions: [{ name: "agent-alpha" }],
+      };
+
+      const result = await resolveSubAgentRoute({
+        extractedContent,
+        cfg,
+        isGroup: false,
+        dingtalkConfig,
+        sessionWebhook: "https://session.webhook",
+        senderId: "user-001",
+        log,
+      });
+
+      expect(result).toBeNull();
+      expect(mockedSendBySession).not.toHaveBeenCalled();
+    },
+  );
+
+  it("skips sub-agent routing for slash commands in group chat", async () => {
+    const extractedContent: MessageContent = {
+      text: "/new",
+      messageType: "text",
+      atMentions: [{ name: "agent-alpha" }],
+      atUserDingtalkIds: [],
+    };
+
+    const result = await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: true,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
+
+    expect(result).toBeNull();
+    expect(mockedSendBySession).not.toHaveBeenCalled();
+  });
+
+  it("still routes to sub-agent for normal @mention messages", async () => {
+    const extractedContent: MessageContent = {
+      text: "@agent-alpha 你好",
+      messageType: "text",
+      atMentions: [{ name: "agent-alpha" }],
+    };
+
+    const result = await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: false,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.matchedAgents[0]?.agentId).toBe("agent-alpha");
+  });
 });

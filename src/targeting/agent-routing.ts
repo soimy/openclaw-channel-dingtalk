@@ -93,16 +93,22 @@ export async function resolveSubAgentRoute(params: {
   const atMentions = extractedContent.atMentions || [];
   // DM has no @picker list from DingTalk; only group chats provide atUsers for real-user hints.
   const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
-  // Strip quoted prefix before checking /learn to avoid false positives
-  // when the quoted message itself contains a /learn command.
+  // Strip quoted prefix before checking commands to avoid false positives
+  // when the quoted message itself contains a command.
   const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
   const isLearnCommand = parseLearnCommand(textForCommandCheck).scope !== "unknown";
+  // Slash commands like /new, /stop, /reasoning etc. must bypass sub-agent
+  // routing so they reach the framework's own command handling layer.
+  // Strip leading @mention tokens first since DM text may look like "@Agent /new".
+  const textWithoutMentions = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
+  const isSlashCommand = /^\/(?:new|stop|clear|compact|reasoning|model|config|session|whereami|whoami)\b/.test(textWithoutMentions);
 
   if (
     atMentions.length === 0 ||
     !cfg.agents?.list ||
     cfg.agents.list.length === 0 ||
-    isLearnCommand
+    isLearnCommand ||
+    isSlashCommand
   ) {
     return null;
   }
