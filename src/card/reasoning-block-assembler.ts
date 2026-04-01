@@ -51,13 +51,14 @@ function parseReasoningSnapshot(text: string | undefined): {
 
     const completeBlocks: string[] = [];
     let currentLines: string[] = [];
+    let currentMode: "explicit" | "implicit" | null = null;
     let currentComplete = true;
 
     const finalizeCurrent = () => {
         if (currentLines.length === 0) {
             return;
         }
-        if (currentComplete) {
+        if (currentMode === "explicit" && currentComplete) {
             completeBlocks.push(currentLines.join("\n"));
         }
     };
@@ -66,16 +67,30 @@ function parseReasoningSnapshot(text: string | undefined): {
         if (startsReasonBlock(line)) {
             finalizeCurrent();
             currentLines = [cleanReasoningLine(line)];
+            currentMode = "explicit";
             currentComplete = isClosedReasoningLine(line);
             continue;
         }
 
         if (currentLines.length === 0) {
+            const trimmedLine = line.trim();
+            const cleanedLine = cleanReasoningLine(line);
+            if (!cleanedLine) {
+                continue;
+            }
+            if (!trimmedLine.startsWith("_")) {
+                continue;
+            }
+            currentLines = [cleanedLine];
+            currentMode = "implicit";
+            currentComplete = false;
             continue;
         }
 
         currentLines.push(cleanReasoningLine(line));
-        currentComplete = currentComplete && isClosedReasoningLine(line);
+        currentComplete = currentMode === "explicit"
+            ? currentComplete && isClosedReasoningLine(line)
+            : false;
     }
 
     if (currentLines.length === 0) {
@@ -85,7 +100,7 @@ function parseReasoningSnapshot(text: string | undefined): {
         };
     }
 
-    if (currentComplete) {
+    if (currentMode === "explicit" && currentComplete) {
         completeBlocks.push(currentLines.join("\n"));
         return {
             completeBlocks,

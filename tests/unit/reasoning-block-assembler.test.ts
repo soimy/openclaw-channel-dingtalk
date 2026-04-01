@@ -26,6 +26,20 @@ describe("reasoning-block-assembler", () => {
         ]);
     });
 
+    it("buffers completed unprefixed reasoning lines until a boundary flush", () => {
+        const assembler = createReasoningBlockAssembler();
+
+        expect(
+            assembler.ingestSnapshot(
+                "Reasoning:\n_先检查当前目录_\n_再确认 reply strategy 入口_",
+            ),
+        ).toEqual([]);
+
+        expect(assembler.flushPendingAtBoundary()).toEqual([
+            "先检查当前目录\n再确认 reply strategy 入口",
+        ]);
+    });
+
     it("does not re-emit blocks already consumed from a repeated snapshot", () => {
         const assembler = createReasoningBlockAssembler();
         const snapshot = "Reasoning:\n_Reason: 先检查当前目录_\n_Reason: 再确认入口_";
@@ -67,6 +81,35 @@ describe("reasoning-block-assembler", () => {
             "Reason: 先检查当前目录\n还在整理发送链路",
         ]);
         expect(assembler.flushPendingAtBoundary()).toEqual([]);
+    });
+
+    it("flushes unfinished unprefixed reasoning lines as a final think block at boundaries", () => {
+        const assembler = createReasoningBlockAssembler();
+
+        expect(
+            assembler.ingestSnapshot(
+                "Reasoning:\n_先检查当前目录\n还在整理发送链路",
+            ),
+        ).toEqual([]);
+
+        expect(assembler.flushPendingAtBoundary()).toEqual([
+            "先检查当前目录\n还在整理发送链路",
+        ]);
+    });
+
+    it("keeps the latest unprefixed reasoning snapshot and flushes the grown content at boundaries", () => {
+        const assembler = createReasoningBlockAssembler();
+
+        expect(
+            assembler.ingestSnapshot("Reasoning:\n_用户再次_"),
+        ).toEqual([]);
+        expect(
+            assembler.ingestSnapshot("Reasoning:\n_用户再次要求分步思考后给出结论_"),
+        ).toEqual([]);
+
+        expect(assembler.flushPendingAtBoundary()).toEqual([
+            "用户再次要求分步思考后给出结论",
+        ]);
     });
 
     it("ignores empty or malformed snapshots", () => {

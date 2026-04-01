@@ -5368,6 +5368,140 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("card flow enables block streaming for reasoning-on sessions so runtime can emit reasoning blocks", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.disableBlockStreaming).toBe(false);
+        if (replyOptions?.disableBlockStreaming) {
+          await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "final" });
+        } else {
+          await dispatcherOptions.deliver(
+            { text: "Reasoning:\n_Reason: 先检查当前目录_", isReasoning: true },
+            { kind: "block" },
+          );
+          await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "final" });
+        }
+        return { queuedFinal: false };
+      });
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/account-store-card-reasoning-on.json")
+      .mockReturnValueOnce("/tmp/agent-store-card-reasoning-on.json");
+    runtime.channel.session.readSessionUpdatedAt = vi.fn().mockReturnValue(1234567890);
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    fs.writeFileSync(
+      "/tmp/agent-store-card-reasoning-on.json",
+      JSON.stringify({
+        s1: {
+          sessionId: "session-card-1",
+          updatedAt: 1234567890,
+          reasoningLevel: "on",
+        },
+      }),
+    );
+
+    const card = {
+      cardInstanceId: "card_reasoning_on_session_gate",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_card_reasoning_on_gate",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("最终答案");
+  });
+
+  it("card flow keeps answer text when reasoning-on sessions deliver answer blocks without a final payload", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.disableBlockStreaming).toBe(false);
+        await dispatcherOptions.deliver({ text: "最终答案" }, { kind: "block" });
+        return { queuedFinal: false };
+      });
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/account-store-card-answer-block.json")
+      .mockReturnValueOnce("/tmp/agent-store-card-answer-block.json");
+    runtime.channel.session.readSessionUpdatedAt = vi.fn().mockReturnValue(1234567890);
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    fs.writeFileSync(
+      "/tmp/agent-store-card-answer-block.json",
+      JSON.stringify({
+        s1: {
+          sessionId: "session-card-answer-block",
+          updatedAt: 1234567890,
+          reasoningLevel: "on",
+        },
+      }),
+    );
+
+    const card = {
+      cardInstanceId: "card_reasoning_on_answer_block",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_card_reasoning_on_answer_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(finalContent).toContain("最终答案");
+    expect(finalContent).not.toContain("✅ Done");
+  });
+
   it("card flow buffers reasoning stream snapshots until a complete think block is formed", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi

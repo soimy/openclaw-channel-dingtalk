@@ -69,6 +69,7 @@ const sessionReasoningLevelCache = new Map<string, {
   updatedAt?: number;
   reasoningLevel?: string;
 }>();
+type ReplyMode = "card" | "markdown";
 
 function readSessionReasoningLevel(params: {
   storePath?: string;
@@ -106,26 +107,26 @@ function readSessionReasoningLevel(params: {
   }
 }
 
-function shouldDisableMarkdownBlockStreaming(params: {
-  messageType?: string;
-  storePath?: string;
+function shouldDisableBlockStreamingForReplyMode(params: {
+  replyMode: ReplyMode;
+  reasoningLevel?: string;
   sessionKey: string;
-  sessionUpdatedAt?: number;
   log?: Logger;
 }): boolean {
-  if (params.messageType !== "markdown") {
-    return false;
+  if (params.replyMode === "markdown") {
+    const shouldDisable = params.reasoningLevel === "on" || params.reasoningLevel === "stream";
+    if (shouldDisable) {
+      params.log?.debug?.(
+        `[DingTalk][Markdown] Disable block streaming for reasoningLevel=${params.reasoningLevel} sessionKey=${params.sessionKey}`,
+      );
+    }
+    return shouldDisable;
   }
-  const reasoningLevel = readSessionReasoningLevel({
-    storePath: params.storePath,
-    sessionKey: params.sessionKey,
-    sessionUpdatedAt: params.sessionUpdatedAt,
-    log: params.log,
-  });
-  const shouldDisable = reasoningLevel === "on" || reasoningLevel === "stream";
-  if (shouldDisable) {
+
+  const shouldDisable = params.reasoningLevel !== "on";
+  if (!shouldDisable) {
     params.log?.debug?.(
-      `[DingTalk][Markdown] Disable block streaming for reasoningLevel=${reasoningLevel} sessionKey=${params.sessionKey}`,
+      `[DingTalk][Card] Enable block streaming for reasoningLevel=${params.reasoningLevel} sessionKey=${params.sessionKey}`,
     );
   }
   return shouldDisable;
@@ -1497,23 +1498,33 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
 
     // ---- Create reply strategy (card or markdown) ----
+    const replyMode: ReplyMode = useCardMode && !!currentAICard ? "card" : "markdown";
+    const sessionReasoningLevel = readSessionReasoningLevel({
+      storePath,
+      sessionKey: route.sessionKey,
+      sessionUpdatedAt: previousTimestamp,
+      log,
+    });
     const strategy = createReplyStrategy({
       config: dingtalkConfig,
       card: currentAICard,
-      useCardMode: useCardMode && !!currentAICard,
+      useCardMode: replyMode === "card",
       to,
       sessionWebhook,
       senderId,
       isDirect,
       accountId,
       storePath: accountStorePath,
-      disableBlockStreaming: shouldDisableMarkdownBlockStreaming({
-        messageType: dingtalkConfig.messageType,
-        storePath,
+      sessionKey: route.sessionKey,
+      sessionAgentId: route.agentId,
+      disableBlockStreaming: shouldDisableBlockStreamingForReplyMode({
+        replyMode,
         sessionKey: route.sessionKey,
-        sessionUpdatedAt: previousTimestamp,
+        reasoningLevel: sessionReasoningLevel,
         log,
       }),
+      enableTemporaryTranscriptFinalAnswerFallback:
+        replyMode === "card" && sessionReasoningLevel === "on",
       groupId,
       log,
       replyQuotedRef,
