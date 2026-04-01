@@ -39,35 +39,6 @@ function emitPluginDebug(
   });
 }
 
-function isVisibleReasoningBlockText(text: string | undefined): boolean {
-  return typeof text === "string" && text.trimStart().startsWith("Reasoning:");
-}
-
-function splitMixedFinalPayload(text: string): {
-  answerText: string;
-  reasoningText?: string;
-} {
-  const markerIndex = text.indexOf("Reasoning:");
-  if (markerIndex <= 0) {
-    return {
-      answerText: text,
-    };
-  }
-
-  const answerText = text.slice(0, markerIndex).trimEnd();
-  const reasoningText = text.slice(markerIndex).trimStart();
-  if (!answerText || !reasoningText.startsWith("Reasoning:")) {
-    return {
-      answerText: text,
-    };
-  }
-
-  return {
-    answerText,
-    reasoningText,
-  };
-}
-
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
@@ -148,14 +119,6 @@ export function createCardReplyStrategy(
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
               if (payload.text && !isStopRequested?.()) {
-                emitPluginDebug(ctx, "partial", "onPartialReply", {
-                  textLen: payload.text.length,
-                  textPreview: previewDebugText(payload.text),
-                });
-                emitPluginDebug(ctx, "partial", "updateAnswer", {
-                  source: "partial",
-                  textPreview: previewDebugText(payload.text),
-                });
                 await controller.updateAnswer(payload.text);
               }
             }
@@ -196,19 +159,7 @@ export function createCardReplyStrategy(
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
-          const { answerText, reasoningText } = splitMixedFinalPayload(rawFinalText);
-          emitPluginDebug(ctx, "finalize", "splitMixedFinalPayload", {
-            rawLen: rawFinalText.length,
-            answerLen: answerText.length,
-            reasoningLen: reasoningText?.length ?? 0,
-            rawPreview: previewDebugText(rawFinalText),
-            answerPreview: previewDebugText(answerText),
-            reasoningPreview: previewDebugText(reasoningText),
-          });
-          if (reasoningText) {
-            await ingestReasoningSnapshot(reasoningText);
-          }
-          finalTextForFallback = answerText || rawFinalText;
+          finalTextForFallback = rawFinalText;
         }
         return;
       }
@@ -228,21 +179,11 @@ export function createCardReplyStrategy(
         return;
       }
 
-      const isReasoningBlock = payload.isReasoning === true || isVisibleReasoningBlockText(textToSend);
+      const isReasoningBlock = payload.isReasoning === true;
       if (typeof textToSend === "string" && textToSend.trim()) {
-        emitPluginDebug(ctx, "deliver", "block", {
-          kind: payload.kind,
-          isReasoning: isReasoningBlock,
-          textLen: textToSend.length,
-          textPreview: previewDebugText(textToSend),
-        });
         if (isReasoningBlock) {
           await ingestReasoningSnapshot(textToSend);
         } else {
-          emitPluginDebug(ctx, "deliver", "updateAnswer", {
-            source: "block",
-            textPreview: previewDebugText(textToSend),
-          });
           await controller.updateAnswer(textToSend);
         }
       }
