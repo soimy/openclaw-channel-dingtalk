@@ -68,7 +68,7 @@ Verified after the latest plugin-side fix:
 
 - `npm run type-check` passed
 - `pnpm test` passed
-- latest full suite result: `68` test files, `763` tests passed
+- latest full suite result on the current followup branch: `70` test files, `781` tests passed
 
 This means the current remaining problem is not covered by the existing local test surface yet. It is a real-device/runtime-contract problem, not an obvious failing unit test in this repo.
 
@@ -89,13 +89,19 @@ This means the current remaining problem is not covered by the existing local te
 - block-delivered answer text is preserved
 - final card no longer prefers stale partial answer over newer final payload
 
+3. Temporary transcript fallback on DingTalk `/reasoning on`
+
+- pure reasoning now restores the final answer instead of dropping it entirely
+- tool-success path now preserves the final answer `/Users/sym/clawd`
+- plugin-side outbound persistence confirms the main regression is fixed: the final answer is present in `messages.context`
+
 ### What is still broken
 
-The remaining failure is specifically:
+The remaining failure is now narrower:
 
 - DingTalk card mode
 - `/reasoning on`
-- especially when the channel depends on assembled final payload instead of preview lanes
+- pure reasoning path can still render blocks in the wrong final order
 
 Observed behavior on DingTalk card:
 
@@ -104,8 +110,9 @@ Observed behavior on DingTalk card:
 - transcript contains:
   - `thinking`
   - final assistant `text`
-- final card only shows the reasoning/thinking line
-- final answer is missing
+- final answer is now visible
+- but DingTalk shows `answer` before `think`
+- plugin-side persisted outbound text in `messages.context` shows the same `answer -> think` order, so this is not just a client-side reorder
 
 2. Reasoning plus tool
 
@@ -113,16 +120,17 @@ Observed behavior on DingTalk card:
   - reasoning
   - tool call
   - final assistant answer text
-- DingTalk card shows:
+- DingTalk card now shows:
   - reasoning
   - tool block
-  - sometimes another reasoning/interstitial line
-- but the actual final answer text is missing
+  - final answer
+- tested `pwd` case ended with `/Users/sym/clawd`, and DingTalk-side order was correct
 
-Example observed on DingTalk:
+Updated real-device outcome:
 
-- expected final answer: `/Users/sym/clawd`
-- actual card output ended at an interstitial line like `执行完毕，输出结果。`
+- `/reasoning on` pure reasoning: final answer restored, order still wrong
+- `/reasoning on` + `pwd`: final answer restored and order correct
+- `/reasoning stream` + `pwd`: still correct as control case
 
 ### Important control result
 
@@ -234,6 +242,12 @@ Temporary workaround note:
 - upstream fix is now being tracked in PR `openclaw/openclaw#58650`
 - until that PR or an equivalent upstream chain fix lands, plugin-side transcript fallback is acceptable only as a temporary compatibility path
 - keep code comments and docs explicit that this path should be removed or narrowed once upstream reliably preserves final answers after block replies
+
+4. Investigate the remaining `/reasoning on` pure-reasoning order issue
+
+- compare the final persisted outbound `messages.context` text with DingTalk display order
+- inspect whether pure-reasoning finalize is appending thinking blocks after answer assembly in plugin strategy state
+- keep scope narrow so the temporary fallback continues to fix answer loss without perturbing the already-correct tool-success and `/reasoning stream` paths
 
 3. Add regression coverage around the fallback if implemented
 
