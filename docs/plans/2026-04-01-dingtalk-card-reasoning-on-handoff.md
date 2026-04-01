@@ -13,19 +13,19 @@ Main focus:
 
 ## Worktree And Environment
 
-- Repo root: `/Users/sym/Repo/openclaw-channel-dingtalk`
-- Active worktree for the latest continuation: `/Users/sym/Repo/openclaw-channel-dingtalk/.worktrees/review-card-reasoning-followup`
+- Repo root: `<repo-root>`
+- Active worktree for the latest continuation: `<repo-root>/.worktrees/review-card-reasoning-followup`
 - Active branch now tracks PR #474 branch: `fix/card-reasoning-on-transcript-fallback`
 - Latest committed branch head: `cc3fc66`
 - Current uncommitted local edits exist on top of `cc3fc66`
-- `~/.openclaw/openclaw.json` currently points plugin loading to `/Users/sym/Repo/openclaw-channel-dingtalk/.worktrees/review-card-reasoning-followup`
+- `~/.openclaw/openclaw.json` currently points plugin loading to `<repo-root>/.worktrees/review-card-reasoning-followup`
 - `~/.openclaw/openclaw.json` currently has:
   - `logging.consoleLevel = "debug"`
   - `logging.level = "debug"`
 - Gateway was restarted after switching plugin path / logging config
 - Current local evidence files:
   - plugin debug log: `~/.openclaw/agents/default/sessions/dingtalk-state/plugin-debug.jsonl`
-  - outbound context store: `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-ZGVmYXVsdA.conversation-Y2lkS3pIbGtsV0lHWExGZVBES05WazBmcWpBYlhKekkrOHZoTTVYUzJpS0hFVT0.json`
+  - outbound context store: `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-<account-id>.conversation-<conversation-id>.json`
   - active session index: `~/.openclaw/agents/main/sessions/sessions.json`
 
 ## Local Code Changes Already In This Worktree
@@ -122,7 +122,7 @@ This means the current remaining problem is not covered by the existing local te
 3. Temporary transcript fallback on DingTalk `/reasoning on`
 
 - pure reasoning now restores the final answer instead of dropping it entirely
-- tool-success path now preserves the final answer `/Users/sym/clawd`
+- tool-success path now preserves the final answer `<pwd-output>`
 - plugin-side outbound persistence confirms the main regression is fixed: the final answer is present in `messages.context`
 
 ### What is still broken
@@ -320,7 +320,7 @@ If upstream lands a fix:
    - `tests/unit/reply-strategy-card.test.ts`
 3. Inspect plugin-local debug evidence first:
    - `~/.openclaw/agents/default/sessions/dingtalk-state/plugin-debug.jsonl`
-   - `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-ZGVmYXVsdA.conversation-Y2lkS3pIbGtsV0lHWExGZVBES05WazBmcWpBYlhKekkrOHZoTTVYUzJpS0hFVT0.json`
+   - `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-<account-id>.conversation-<conversation-id>.json`
 4. Confirm runtime session file:
    - `~/.openclaw/agents/main/sessions/sessions.json`
    - currently points to session `6e63b13b-bf5d-4ee6-95a5-57073cee526a.jsonl`
