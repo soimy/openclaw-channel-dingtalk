@@ -173,7 +173,7 @@ export async function dispatchSubAgents(params: {
         dingtalkConfig,
         subAgentOptions: {
           agentId: agentMatch.agentId,
-          responsePrefix: `[${sanitizeAgentName(agentMatch.matchedName)}] `,
+          responsePrefix: `> 🤖 **${sanitizeAgentName(agentMatch.matchedName)}**:\n\n`,
           matchedName: agentMatch.matchedName,
         },
         preDownloadedMedia,
