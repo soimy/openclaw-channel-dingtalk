@@ -29,14 +29,6 @@
     "useDefineForClassFields": false,
     "types": ["node", "vitest/globals"],
     "paths": {
-      "openclaw/plugin-sdk": [
-        "../openclaw/dist/plugin-sdk/index.d.ts",
-        "../../dist/plugin-sdk/index.d.ts",
-        "../openclaw/dist/plugin-sdk/plugin-sdk/index.d.ts",
-        "../../dist/plugin-sdk/plugin-sdk/index.d.ts",
-        "../openclaw/src/plugin-sdk/index.ts",
-        "../../src/plugin-sdk/index.ts"
-      ],
       "openclaw/plugin-sdk/*": [
         "../openclaw/dist/plugin-sdk/*.d.ts",
         "../../dist/plugin-sdk/*.d.ts",

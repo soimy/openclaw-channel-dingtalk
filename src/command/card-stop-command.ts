@@ -1,25 +1,7 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { resolveNativeCommandSessionTargets } from "openclaw/plugin-sdk/command-auth";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getDingTalkRuntime } from "../runtime";
 import type { Logger } from "../types";
-
-/**
- * Local implementation of the same logic as
- * `resolveNativeCommandSessionTargets` from `openclaw/plugin-sdk/command-auth`.
- *
- * Inlined because the CI openclaw package does not yet export that sub-path.
- * Replace with a direct import once the upstream package is updated.
- */
-function resolveNativeCommandSessionTargets(params: {
-  agentId: string;
-  sessionPrefix: string;
-  userId: string;
-  targetSessionKey: string;
-}): { sessionKey: string; commandTargetSessionKey: string } {
-  return {
-    sessionKey: `agent:${params.agentId}:${params.sessionPrefix}:${params.userId}`,
-    commandTargetSessionKey: params.targetSessionKey,
-  };
-}
 
 /**
  * Dispatch a native targeted `/stop` command through the OpenClaw SDK,
@@ -35,8 +17,8 @@ function resolveNativeCommandSessionTargets(params: {
  * and executes `abortEmbeddedPiRun` + `clearSessionQueues`.
  *
  * Accesses SDK functions via `getDingTalkRuntime().channel.reply` — the same
- * pattern used by `inbound-handler.ts` — to avoid direct sub-path imports
- * that may not be available in the CI openclaw package version.
+ * pattern used by `inbound-handler.ts` — while reusing the upstream native
+ * command session-target helper exported by the plugin SDK.
  */
 export async function dispatchDingTalkCardStopCommand(params: {
   cfg: OpenClawConfig;
