@@ -6644,8 +6644,8 @@ describe("inbound-handler", () => {
       // All should use the same sessionWebhook from the inbound message
       expect(webhookCalls.every(c => c.webhook === 'https://session.webhook')).toBe(true);
       // Response prefixes should be distinct for each agent
-      expect(webhookCalls[0].responsePrefix).toContain('[Agent1]');
-      expect(webhookCalls[1].responsePrefix).toContain('[Agent2]');
+      expect(webhookCalls[0].responsePrefix).toContain('**Agent1**');
+      expect(webhookCalls[1].responsePrefix).toContain('**Agent2**');
     });
 
     it('falls back to resolveAgentRoute with agentId suffix when buildAgentSessionKey is unavailable', async () => {
