@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import * as os from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { getLogger } from "./logger-context";
 
 type SessionIndexEntry = {
@@ -18,19 +18,26 @@ type TranscriptContentItem = {
     text?: unknown;
 };
 
-function resolveSessionTranscriptPath(params: {
+function isPathWithinDirectory(targetPath: string, directoryPath: string): boolean {
+    const resolvedTarget = resolve(targetPath);
+    const resolvedDirectory = resolve(directoryPath);
+    const relativePath = relative(resolvedDirectory, resolvedTarget);
+    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
+async function resolveSessionTranscriptPath(params: {
     agentId: string;
     sessionKey: string;
-}): string | undefined {
-    const sessionsPath = join(
+}): Promise<string | undefined> {
+    const sessionsDir = join(
         os.homedir(),
         ".openclaw",
         "agents",
         params.agentId,
         "sessions",
-        "sessions.json",
     );
-    const raw = readFileSync(sessionsPath, "utf-8");
+    const sessionsPath = join(sessionsDir, "sessions.json");
+    const raw = await readFile(sessionsPath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, SessionIndexEntry> | null;
     const session = parsed?.[params.sessionKey];
     if (!session || typeof session !== "object") {
@@ -38,16 +45,13 @@ function resolveSessionTranscriptPath(params: {
     }
 
     if (typeof session.sessionFile === "string" && session.sessionFile.trim()) {
-        return session.sessionFile;
+        const candidatePath = resolve(session.sessionFile);
+        return isPathWithinDirectory(candidatePath, sessionsDir) ? candidatePath : undefined;
     }
 
     if (typeof session.sessionId === "string" && session.sessionId.trim()) {
         return join(
-            os.homedir(),
-            ".openclaw",
-            "agents",
-            params.agentId,
-            "sessions",
+            sessionsDir,
             `${session.sessionId}.jsonl`,
         );
     }
@@ -62,12 +66,12 @@ export async function readLatestAssistantTextFromTranscript(params: {
     const log = getLogger();
 
     try {
-        const transcriptPath = resolveSessionTranscriptPath(params);
+        const transcriptPath = await resolveSessionTranscriptPath(params);
         if (!transcriptPath) {
             return undefined;
         }
 
-        const lines = readFileSync(transcriptPath, "utf-8")
+        const lines = (await readFile(transcriptPath, "utf-8"))
             .split(/\r?\n/)
             .filter((line) => line.trim().length > 0);
 

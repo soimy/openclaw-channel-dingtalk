@@ -101,7 +101,7 @@ function readSessionReasoningLevel(params: {
     return reasoningLevel;
   } catch (err: unknown) {
     params.log?.debug?.(
-      `[DingTalk][Markdown] Failed to read session reasoning level from ${params.storePath}: ${getErrorMessage(err)}`,
+      `[DingTalk][Session] Failed to read session reasoning level from ${params.storePath}: ${getErrorMessage(err)}`,
     );
     return undefined;
   }

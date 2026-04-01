@@ -3942,6 +3942,52 @@ describe("inbound-handler", () => {
     expect(readsForAgentStore).toHaveLength(1);
   });
 
+  it("logs session reasoning read failures with a neutral session prefix", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver({ text: "最终答案", mediaUrls: [] }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/account-store-reasoning-log.json")
+      .mockReturnValueOnce("/tmp/missing-agent-store-reasoning-log.json");
+    runtime.channel.session.readSessionUpdatedAt = vi.fn().mockReturnValue(1234567890);
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: log as any,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_card_reasoning_log_prefix",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
+    expect(
+      debugLogs.some((entry) => entry.includes("[DingTalk][Session] Failed to read session reasoning level")),
+    ).toBe(true);
+  });
+
   it("card mode + media bypasses finalContent accumulation and still finalizes with text", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
