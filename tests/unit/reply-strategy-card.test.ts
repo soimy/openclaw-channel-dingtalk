@@ -535,17 +535,10 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("附件已发送，请查收。");
         });
 
-        it("uses transcript final-answer fallback as a temporary workaround when reasoning-on card finalize has no answer text", async () => {
+        it("uses the file-only placeholder when process blocks exist but no answer text was delivered", async () => {
             const card = makeCard();
-            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-            const readFinalAnswerFromTranscript = vi.fn().mockResolvedValue("/Users/sym/clawd");
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 disableBlockStreaming: false,
-                sessionKey: "agent:main:direct:manager8031",
-                sessionAgentId: "main",
-                enableTemporaryTranscriptFinalAnswerFallback: true,
-                readFinalAnswerFromTranscript,
-                log: log as any,
             } as any) as any);
 
             await strategy.deliver({
@@ -555,23 +548,19 @@ describe("reply-strategy-card", () => {
                 isReasoning: true,
             });
             await strategy.deliver({ text: "pwd", mediaUrls: [], kind: "tool" });
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(readFinalAnswerFromTranscript).toHaveBeenCalledWith({
-                agentId: "main",
-                sessionKey: "agent:main:direct:manager8031",
-            });
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
             expect(rendered).toContain("> Reason: 先执行 pwd");
             expect(rendered).toContain("> pwd");
-            expect(rendered).toContain("/Users/sym/clawd");
+            expect(rendered).toContain("附件已发送，请查收。");
+            expect(rendered).not.toContain("/Users/sym/clawd");
             expect(rendered).not.toContain("✅ Done");
-            const infoLogs = log.info.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(infoLogs.some((entry) => entry.includes("source=transcript.fallback"))).toBe(true);
         });
 
-        it("does not read transcript fallback when a final answer payload is already available", async () => {
+        it("ignores legacy transcript fallback inputs even when they are present on the strategy context", async () => {
             const card = makeCard();
             const readFinalAnswerFromTranscript = vi.fn().mockResolvedValue("/Users/sym/clawd");
             const strategy = createCardReplyStrategy(buildCtx(card, {
@@ -588,13 +577,15 @@ describe("reply-strategy-card", () => {
                 kind: "block",
                 isReasoning: true,
             });
-            await strategy.deliver({ text: "/Users/sym/clawd", mediaUrls: [], kind: "final" });
+            await strategy.deliver({ text: "pwd", mediaUrls: [], kind: "tool" });
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
             expect(readFinalAnswerFromTranscript).not.toHaveBeenCalled();
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("/Users/sym/clawd");
+            expect(rendered).toContain("附件已发送，请查收。");
+            expect(rendered).not.toContain("/Users/sym/clawd");
         });
 
         it("finalize preserves answer text that only arrived through block delivery", async () => {
