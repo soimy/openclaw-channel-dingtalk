@@ -50,6 +50,10 @@ const { prepareMediaInputMock } = vi.hoisted(() => ({
     prepareMediaInputMock: vi.fn(),
 }));
 
+const { resolvePluginDebugLogMock } = vi.hoisted(() => ({
+    resolvePluginDebugLogMock: vi.fn(),
+}));
+
 vi.mock('dingtalk-stream', () => ({
     TOPIC_CARD: 'TOPIC_CARD',
     DWClient: vi.fn(),
@@ -71,6 +75,14 @@ vi.mock('../../src/media-utils', async () => {
     };
 });
 
+vi.mock('../../src/utils', async () => {
+    const actual = await vi.importActual<typeof import('../../src/utils')>('../../src/utils');
+    return {
+        ...actual,
+        resolvePluginDebugLog: resolvePluginDebugLogMock,
+    };
+});
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('dingtalkPlugin.actions.send', () => {
@@ -83,6 +95,8 @@ describe('dingtalkPlugin.actions.send', () => {
         sendMessageMock.mockReset();
         sendProactiveMediaMock.mockReset();
         prepareMediaInputMock.mockReset();
+        resolvePluginDebugLogMock.mockReset();
+        resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
         prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
     });
 
@@ -109,6 +123,10 @@ describe('dingtalkPlugin.actions.send', () => {
             'voice',
             expect.objectContaining({ accountId: 'default' })
         );
+        expect(resolvePluginDebugLogMock).toHaveBeenCalledWith(expect.objectContaining({
+            accountId: 'default',
+            baseLog: undefined,
+        }));
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 

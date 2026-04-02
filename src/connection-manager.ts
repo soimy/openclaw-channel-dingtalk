@@ -14,7 +14,7 @@ import type {
   ConnectionState,
   ConnectionManagerConfig,
   ConnectionAttemptResult,
-  Logger,
+  ChannelLogSink,
   StreamClientFactory,
 } from "./types";
 import { ConnectionState as ConnectionStateEnum } from "./types";
@@ -35,7 +35,7 @@ export class ReconnectDeadlineError extends Error {
  */
 export class ConnectionManager {
   private config: ConnectionManagerConfig;
-  private log?: Logger;
+  private log?: ChannelLogSink;
   private accountId: string;
 
   // Connection state tracking
@@ -98,7 +98,7 @@ export class ConnectionManager {
   // Old client pending cleanup after a warm reconnect swap.
   private pendingOldClient?: DWClient;
 
-  constructor(client: DWClient, accountId: string, config: ConnectionManagerConfig, log?: Logger, clientFactory?: StreamClientFactory) {
+  constructor(client: DWClient, accountId: string, config: ConnectionManagerConfig, log?: ChannelLogSink, clientFactory?: StreamClientFactory) {
     this.client = client;
     this.accountId = accountId;
     this.config = config;

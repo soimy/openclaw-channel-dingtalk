@@ -1,5 +1,5 @@
 import type { MessageRecord } from "../message-context-store";
-import type { Logger, QuotedRef } from "../types";
+import type { ChannelLogSink, QuotedRef } from "../types";
 import { resolveQuotedRecord } from "./quoted-ref";
 
 const DEFAULT_MAX_DEPTH = 3;
@@ -153,7 +153,7 @@ export function resolveQuotedRuntimeContext(params: {
   quotedRef?: QuotedRef;
   firstRecord?: MessageRecord | null;
   firstPreview?: QuotedRuntimePreview;
-  log?: Logger;
+  log?: ChannelLogSink;
   maxDepth?: number;
   perHopBodyLimit?: number;
   totalBodyLimit?: number;

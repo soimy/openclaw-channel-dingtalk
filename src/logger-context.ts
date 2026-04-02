@@ -1,17 +1,17 @@
-import type { Logger } from "./types";
+import type { ChannelLogSink } from "./types";
 
-let currentLogger: Logger | undefined;
+let currentLogger: ChannelLogSink | undefined;
 
 /**
  * Persist current request logger for shared services invoked outside handler scope.
  */
-export function setCurrentLogger(log?: Logger): void {
+export function setCurrentLogger(log?: ChannelLogSink): void {
   currentLogger = log;
 }
 
 /**
  * Read current logger bound by inbound handler.
  */
-export function getLogger(): Logger | undefined {
+export function getLogger(): ChannelLogSink | undefined {
   return currentLogger;
 }

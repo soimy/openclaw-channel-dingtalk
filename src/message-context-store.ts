@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "./persistence-store";
-import type { AttachmentTextSource, Logger, QuotedRef } from "./types";
+import type { AttachmentTextSource, ChannelLogSink, QuotedRef } from "./types";
 
 const MESSAGE_CONTEXT_NAMESPACE = "messages.context";
 const MESSAGE_CONTEXT_VERSION = 1;
@@ -735,7 +735,7 @@ export function resolveByAlias(
 }
 
 export function resolveByQuotedRef(
-  params: ScopeParams & { quotedRef: QuotedRef; nowMs?: number; log?: Logger },
+  params: ScopeParams & { quotedRef: QuotedRef; nowMs?: number; log?: ChannelLogSink },
 ): MessageRecord | null {
   const nowMs = params.nowMs ?? Date.now();
   const quotedRef = normalizeQuotedRef(params.quotedRef);

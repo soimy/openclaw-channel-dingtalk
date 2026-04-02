@@ -2,7 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getAccessToken } from "../auth";
 import { finishStoppedAICard, hideCardStopButton } from "../card-service";
 import { dispatchDingTalkCardStopCommand } from "../command/card-stop-command";
-import type { DingTalkConfig, Logger } from "../types";
+import type { DingTalkConfig, ChannelLogSink } from "../types";
 import { AICardStatus } from "../types";
 import { markCardRunStopRequested, resolveCardRun } from "./card-run-registry";
 
@@ -20,7 +20,7 @@ export async function stopCardRun(params: {
   outTrackId: string;
   config?: DingTalkConfig;
   clickerUserId?: string;
-  log?: Logger;
+  log?: ChannelLogSink;
 }): Promise<StopCardRunResult> {
   const record = resolveCardRun(params.outTrackId);
   if (!record) {

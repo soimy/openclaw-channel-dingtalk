@@ -3,7 +3,149 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Logger, RetryOptions } from "./types";
+import type { ChannelLogSink, RetryOptions } from "./types";
+
+type PluginDebugLogParams = {
+  accountId: string;
+  storePath?: string;
+  debug?: boolean;
+  baseLog?: ChannelLogSink;
+  now?: () => Date;
+  fsImpl?: Pick<typeof fs, "appendFileSync" | "mkdirSync">;
+};
+
+type PluginDebugWriter = {
+  filePath: string;
+  warned: boolean;
+};
+
+const pluginDebugWriters = new Map<string, PluginDebugWriter>();
+
+function padNumber(value: number, width = 2): string {
+  return String(value).padStart(width, "0");
+}
+
+function formatTimezoneOffset(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  return `${sign}${padNumber(hours)}:${padNumber(minutes)}`;
+}
+
+function formatPluginDebugTimestamp(date: Date): string {
+  return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())} ${padNumber(date.getHours())}:${padNumber(date.getMinutes())}:${padNumber(date.getSeconds())}.${padNumber(date.getMilliseconds(), 3)}${formatTimezoneOffset(date)}`;
+}
+
+function formatPluginDebugDate(date: Date): string {
+  return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+}
+
+function resolvePluginDebugLogFilePath(params: { storePath: string; accountId: string; date: Date }): string {
+  return path.join(
+    path.dirname(params.storePath),
+    "logs",
+    "dingtalk",
+    params.accountId,
+    `debug-${formatPluginDebugDate(params.date)}.log`,
+  );
+}
+
+function formatPluginDebugLine(params: { accountId: string; date: Date; message: string }): string {
+  return `[${formatPluginDebugTimestamp(params.date)}] [debug] [dingtalk] [account:${params.accountId}] ${params.message}`;
+}
+
+function buildPluginDebugWriterKey(params: { storePath: string; accountId: string; date: Date }): string {
+  return JSON.stringify([params.storePath, params.accountId, formatPluginDebugDate(params.date)]);
+}
+
+function resolvePluginDebugWriter(params: {
+  storePath: string;
+  accountId: string;
+  date: Date;
+}): PluginDebugWriter {
+  const key = buildPluginDebugWriterKey(params);
+  const existing = pluginDebugWriters.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const created = {
+    filePath: resolvePluginDebugLogFilePath(params),
+    warned: false,
+  };
+  pluginDebugWriters.set(key, created);
+  return created;
+}
+
+export function resolvePluginDebugLog(params: PluginDebugLogParams): ChannelLogSink {
+  const baseLog = params.baseLog;
+  const fsImpl = params.fsImpl ?? fs;
+
+  return {
+    debug: (message: string) => {
+      if (!params.debug) {
+        baseLog?.debug?.(message);
+        return;
+      }
+
+      const date = params.now ? params.now() : new Date();
+      const line = formatPluginDebugLine({
+        accountId: params.accountId,
+        date,
+        message,
+      });
+
+      try {
+        process.stdout.write(`${line}\n`);
+      } catch {
+        // Ignore stdout failures so plugin debug logging never breaks message handling.
+      }
+
+      if (params.storePath) {
+        const writer = resolvePluginDebugWriter({
+          storePath: params.storePath,
+          accountId: params.accountId,
+          date,
+        });
+        try {
+          fsImpl.mkdirSync(path.dirname(writer.filePath), { recursive: true });
+          fsImpl.appendFileSync(writer.filePath, `${line}\n`, "utf8");
+        } catch (err) {
+          if (!writer.warned) {
+            writer.warned = true;
+            baseLog?.warn?.(
+              `[DingTalk] Plugin debug log file unavailable: accountId=${params.accountId} path=${writer.filePath} error=${getErrorMessage(err)}`,
+            );
+          }
+        }
+      }
+
+      try {
+        baseLog?.debug?.(message);
+      } catch {
+        // Ignore upstream debug failures so plugin-owned debug remains best-effort.
+      }
+    },
+    info: (message: string) => baseLog?.info?.(message),
+    warn: (message: string) => baseLog?.warn?.(message),
+    error: (message: string) => baseLog?.error?.(message),
+  };
+}
+
+export function closePluginDebugLog(params: { accountId: string; storePath?: string }): void {
+  if (!params.storePath) {
+    return;
+  }
+
+  const prefix = JSON.stringify([params.storePath, params.accountId]);
+  for (const key of pluginDebugWriters.keys()) {
+    if (key.startsWith(prefix.slice(0, -1))) {
+      pluginDebugWriters.delete(key);
+    }
+  }
+}
 
 /**
  * Mask sensitive fields in data for safe logging
@@ -140,12 +282,12 @@ type LookupCallback = (
 
 type LookupOptions = dns.LookupOneOptions | dns.LookupAllOptions;
 
-export function createResolve4FallbackLookup(log?: Logger, accountId?: string) {
+export function createResolve4FallbackLookup(log?: ChannelLogSink, accountId?: string) {
   return createResolve4FallbackLookupWithDeps(log, accountId, dns, net);
 }
 
 export function createResolve4FallbackLookupWithDeps(
-  log: Logger | undefined,
+  log: ChannelLogSink | undefined,
   accountId: string | undefined,
   dnsImpl: Pick<typeof dns, "lookup" | "resolve4">,
   netImpl: Pick<typeof net, "isIP">,
@@ -309,7 +451,7 @@ export function formatDingTalkConnectionErrorLog(
  * Cleanup orphaned temp files from dingtalk media
  * Run at startup to clean up files from crashed processes
  */
-export function cleanupOrphanedTempFiles(log?: Logger): number {
+export function cleanupOrphanedTempFiles(log?: ChannelLogSink): number {
   const tempDir = os.tmpdir();
   const dingtalkPattern = /^dingtalk_\d+\..+$/;
   let cleaned = 0;

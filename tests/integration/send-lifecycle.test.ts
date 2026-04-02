@@ -5,6 +5,10 @@ const { sendMessageMock, getRuntimeMock } = vi.hoisted(() => ({
     getRuntimeMock: vi.fn(),
 }));
 
+const { resolvePluginDebugLogMock } = vi.hoisted(() => ({
+    resolvePluginDebugLogMock: vi.fn(),
+}));
+
 vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
@@ -28,12 +32,22 @@ vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: getRuntimeMock,
 }));
 
+vi.mock('../../src/utils', async () => {
+    const actual = await vi.importActual<typeof import('../../src/utils')>('../../src/utils');
+    return {
+        ...actual,
+        resolvePluginDebugLog: resolvePluginDebugLogMock,
+    };
+});
+
 import { dingtalkPlugin } from '../../src/channel';
 
 describe('plugin outbound lifecycle', () => {
     beforeEach(() => {
         sendMessageMock.mockReset();
         getRuntimeMock.mockReset();
+        resolvePluginDebugLogMock.mockReset();
+        resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
         getRuntimeMock.mockReturnValue({
             channel: {
                 session: {
@@ -72,6 +86,11 @@ describe('plugin outbound lifecycle', () => {
             'hello',
             expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
+        expect(resolvePluginDebugLogMock).toHaveBeenCalledWith(expect.objectContaining({
+            accountId: 'default',
+            baseLog: undefined,
+            storePath: '/tmp/default-store.json',
+        }));
         expect(result.channel).toBe('dingtalk');
         expect(result.messageId).toBe('m_123');
     });

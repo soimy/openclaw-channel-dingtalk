@@ -361,7 +361,7 @@ export interface SendMessageOptions {
   title?: string;
   useMarkdown?: boolean;
   atUserId?: string | null;
-  log?: Logger;
+  log?: ChannelLogSink;
   conversationId?: string;
   mediaPath?: string;
   filePath?: string;
@@ -422,7 +422,7 @@ export interface HandleDingTalkMessageParams {
   accountId: string;
   data: DingTalkInboundMessage;
   sessionWebhook: string;
-  log?: Logger;
+  log?: ChannelLogSink;
   dingtalkConfig: DingTalkConfig;
   /**
    * When set, routes message to the specified sub-agent instead of main agent.
@@ -524,18 +524,13 @@ export interface ReplyDispatcherResult {
 export interface RetryOptions {
   maxRetries?: number;
   baseDelayMs?: number;
-  log?: Logger;
+  log?: ChannelLogSink;
 }
 
 /**
  * Channel log sink
  */
 export type ChannelLogSink = SDKChannelLogSink;
-
-/**
- * @deprecated Use ChannelLogSink instead
- */
-export type Logger = ChannelLogSink;
 
 /**
  * Channel account snapshot

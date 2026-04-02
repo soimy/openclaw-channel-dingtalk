@@ -14,7 +14,7 @@ import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";
 import { sendBySession } from "../send-service";
-import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, Logger, MessageContent } from "../types";
+import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, ChannelLogSink, MessageContent } from "../types";
 
 /**
  * Build a session key for a specific agent using the runtime API.
@@ -84,7 +84,7 @@ export async function resolveSubAgentRoute(params: {
   dingtalkConfig: DingTalkConfig;
   sessionWebhook: string;
   senderId: string;
-  log?: Logger;
+  log?: ChannelLogSink;
 }): Promise<{
   matchedAgents: AgentNameMatch[];
   preDownloadedMedia?: { mediaPath?: string; mediaType?: string };
@@ -155,8 +155,8 @@ export async function dispatchSubAgents(params: {
   sessionWebhook: string;
   extractedContent: MessageContent;
   handleMessage: (params: HandleDingTalkMessageParams) => Promise<void>;
-  downloadMedia: (config: DingTalkConfig, mediaPath: string, log?: Logger) => Promise<{ path: string; mimeType: string } | null>;
-  log?: Logger;
+  downloadMedia: (config: DingTalkConfig, mediaPath: string, log?: ChannelLogSink) => Promise<{ path: string; mimeType: string } | null>;
+  log?: ChannelLogSink;
 }): Promise<void> {
   const { matchedAgents, cfg, accountId, data, dingtalkConfig, sessionWebhook, extractedContent, handleMessage, downloadMedia: download, log } = params;
 

@@ -27,7 +27,7 @@ import type {
   AICardStreamingRequest,
   DingTalkConfig,
   DingTalkTrackingMetadata,
-  Logger,
+  ChannelLogSink,
   QuotedRef,
 } from "./types";
 import { AICardStatus } from "./types";
@@ -177,7 +177,7 @@ export function activateAICardDegrade(
   accountId: string,
   reason: string,
   config?: DingTalkConfig,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): void {
   const durationMs = getAICardDegradeMs(config);
   const untilMs = Date.now() + durationMs;
@@ -195,7 +195,7 @@ export function activateAICardDegrade(
   }
 }
 
-export function clearAICardDegrade(accountId: string, log?: Logger): void {
+export function clearAICardDegrade(accountId: string, log?: ChannelLogSink): void {
   if (!aicardDegradeByAccount.has(accountId)) {
     return;
   }
@@ -225,7 +225,7 @@ async function putAICardStreamingField(
   key: string,
   content: string,
   finished: boolean,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<void> {
   const tokenAge = Date.now() - card.createdAt;
   const tokenRefreshThreshold = 90 * 60 * 1000;
@@ -377,7 +377,7 @@ function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCa
   };
 }
 
-function readPendingCardState(storePath?: string, log?: Logger): PendingCardStateFile {
+function readPendingCardState(storePath?: string, log?: ChannelLogSink): PendingCardStateFile {
   if (!storePath) {
     return { version: CARD_STATE_FILE_VERSION, updatedAt: Date.now(), pendingCards: [] };
   }
@@ -416,7 +416,7 @@ function readPendingCardState(storePath?: string, log?: Logger): PendingCardStat
 function writePendingCardState(
   state: PendingCardStateFile,
   storePath?: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): void {
   if (!storePath) {
     return;
@@ -429,7 +429,7 @@ function writePendingCardState(
   });
 }
 
-function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logger): void {
+function upsertPendingCard(card: AICardInstance, storePath?: string, log?: ChannelLogSink): void {
   if (!card.accountId || !storePath) {
     return;
   }
@@ -454,14 +454,14 @@ function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logge
   writePendingCardState(state, storePath, log);
 }
 
-function removePendingCard(card: AICardInstance, log?: Logger): void {
+function removePendingCard(card: AICardInstance, log?: ChannelLogSink): void {
   if (!card.accountId || !card.storePath) {
     return;
   }
   removePendingCardById(card.cardInstanceId, card.storePath, log);
 }
 
-function removePendingCardById(cardInstanceId: string, storePath?: string, log?: Logger): void {
+function removePendingCardById(cardInstanceId: string, storePath?: string, log?: ChannelLogSink): void {
   if (!storePath) {
     return;
   }
@@ -478,7 +478,7 @@ function removePendingCardById(cardInstanceId: string, storePath?: string, log?:
 function listPendingCardsByAccount(
   accountId: string,
   storePath?: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): PendingCardRecord[] {
   const state = readPendingCardState(storePath, log);
   return state.pendingCards.filter((item) => item.accountId === accountId);
@@ -519,7 +519,7 @@ export function formatContentForCard(content: string | undefined, type: "thinkin
 async function sendTemplateMismatchNotification(
   card: AICardInstance,
   text: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<void> {
   const config = card.config;
   if (!config) {
@@ -566,7 +566,7 @@ export async function sendProactiveCardText(
   config: DingTalkConfig,
   conversationId: string,
   content: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<{ ok: boolean; error?: string } & DingTalkTrackingMetadata> {
   try {
     const card = await createAICard(config, conversationId, log, { persistPending: false });
@@ -590,7 +590,7 @@ export async function recoverPendingCardsForAccount(
   config: DingTalkConfig,
   accountId: string,
   storePath?: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<number> {
   return finalizePendingCardsByAccount(
     config,
@@ -607,7 +607,7 @@ export async function finalizeActiveCardsForAccount(
   accountId: string,
   reason: string,
   storePath?: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<number> {
   return finalizePendingCardsByAccount(config, accountId, reason, storePath, "finalize", log);
 }
@@ -618,7 +618,7 @@ async function finalizePendingCardsByAccount(
   reason: string,
   storePath: string | undefined,
   mode: "recover" | "finalize",
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<number> {
   if (!storePath) {
     return 0;
@@ -675,7 +675,7 @@ async function finalizePendingCardsByAccount(
 export async function createAICard(
   config: DingTalkConfig,
   conversationId: string,
-  log?: Logger,
+  log?: ChannelLogSink,
   options: CreateAICardOptions = {},
 ): Promise<AICardInstance | null> {
   const accountId = options.accountId ?? "default";
@@ -840,7 +840,7 @@ export async function streamAICard(
   card: AICardInstance,
   content: string,
   finished: boolean = false,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<void> {
   if (isCardInTerminalState(card.state)) {
     log?.debug?.(
@@ -876,7 +876,7 @@ export async function streamAICard(
 export async function finishAICard(
   card: AICardInstance,
   content: string,
-  log?: Logger,
+  log?: ChannelLogSink,
   options: { quotedRef?: QuotedRef } = {},
 ): Promise<void> {
   log?.debug?.(`[DingTalk][AICard] Starting finish, final content length=${content.length}`);
@@ -907,7 +907,7 @@ export async function finishAICard(
 export async function finishStoppedAICard(
   card: AICardInstance,
   content: string,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): Promise<void> {
   if (isCardInTerminalState(card.state)) {
     log?.debug?.(
@@ -935,7 +935,7 @@ function cacheCardContentByProcessQueryKey(
   content: string,
   storePath?: string,
   quotedRef?: QuotedRef,
-  log?: Logger,
+  log?: ChannelLogSink,
 ): void {
   if (!processQueryKey.trim() || !content.trim() || !storePath) {
     return;

@@ -25,7 +25,7 @@
  */
 
 import type { DeliverPayload, ReplyOptions, ReplyStrategy } from "./reply-strategy";
-import type { DingTalkConfig, Logger } from "./types";
+import type { DingTalkConfig, ChannelLogSink } from "./types";
 
 const TOOL_REACTION_SILENCE_MS = 55_000;
 const TOOL_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -47,7 +47,7 @@ export interface DynamicReactionParams {
    * does not attempt to recall the same (already-removed) reaction.
    */
   onReactionDisposed?: () => void;
-  log?: Logger;
+  log?: ChannelLogSink;
 }
 
 function resolveToolReactionEmoji(toolName: unknown): string {

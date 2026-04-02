@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Logger } from "./types";
+import type { ChannelLogSink } from "./types";
 
 type NamespaceFormat = "json";
 
@@ -20,12 +20,12 @@ export interface ResolveNamespacePathOptions {
 
 export interface ReadNamespaceJsonOptions<T> extends ResolveNamespacePathOptions {
   fallback: T;
-  log?: Logger;
+  log?: ChannelLogSink;
 }
 
 export interface WriteNamespaceJsonOptions<T> extends ResolveNamespacePathOptions {
   data: T;
-  log?: Logger;
+  log?: ChannelLogSink;
 }
 
 const NAMESPACE_ROOT_DIR = "dingtalk-state";
