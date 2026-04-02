@@ -66,6 +66,11 @@
   "peerDependencies": {
     "openclaw": ">=2026.3.24"
   },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
   "openclaw": {
     "compat": {
       "pluginApi": ">=2026.3.24"
