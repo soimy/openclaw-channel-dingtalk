@@ -13,7 +13,7 @@ import { resolveSubAgentRoute } from "../../../src/targeting/agent-routing";
 import { extractMessageContent } from "../../../src/message-utils";
 import { sendBySession } from "../../../src/send-service";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import type { DingTalkConfig, DingTalkInboundMessage, ChannelLogSink, MessageContent } from "../../../src/types";
+import type { DingTalkConfig, DingTalkInboundMessage, Logger, MessageContent } from "../../../src/types";
 
 vi.mock("../../../src/send-service", () => ({
   sendBySession: vi.fn(),
@@ -69,7 +69,7 @@ const log = {
   debug: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
-} as ChannelLogSink;
+} as Logger;
 
 describe("DM sub-agent @mention routing", () => {
   it("extractMessageContent populates atMentions in DM text messages", () => {

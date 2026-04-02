@@ -13,7 +13,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import axios from "./http-client";
 import FormData from "form-data";
-import type { DingTalkConfig, ChannelLogSink } from "./types";
+import type { DingTalkConfig, Logger } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import { getDingTalkRuntime } from "./runtime";
 
@@ -39,7 +39,7 @@ interface PluginRuntimeWithMedia {
  * @param log Optional logger
  * @returns Duration in seconds (0 if parsing fails)
  */
-export async function getMp3DurationSeconds(filePathOrBuffer: string | Buffer, log?: ChannelLogSink): Promise<number> {
+export async function getMp3DurationSeconds(filePathOrBuffer: string | Buffer, log?: Logger): Promise<number> {
   try {
     const buffer = typeof filePathOrBuffer === "string"
       ? await fsPromises.readFile(filePathOrBuffer)
@@ -211,7 +211,7 @@ const DEFAULT_VOICE_DURATION_MS = 1000;
 export async function getVoiceDurationMs(
   filePath: string,
   mediaType: DingTalkMediaType,
-  log?: ChannelLogSink,
+  log?: Logger,
   options?: { mediaLocalRoots?: string[]; preReadBuffer?: Buffer },
 ): Promise<number> {
   if (mediaType !== "voice") {
@@ -481,7 +481,7 @@ function detectExtensionFromContentType(contentType?: string): string {
 
 export async function prepareMediaInput(
   input: string,
-  log?: ChannelLogSink,
+  log?: Logger,
   mediaUrlAllowlist?: string[],
 ): Promise<PreparedMediaInput> {
   const trimmed = input.trim();
@@ -643,7 +643,7 @@ const FILE_SIZE_LIMITS: Record<DingTalkMediaType, number> = {
 async function readMediaBuffer(
   mediaPath: string,
   options?: { mediaLocalRoots?: string[] },
-  log?: ChannelLogSink,
+  log?: Logger,
 ): Promise<{ buffer: Buffer; size: number }> {
   // Try direct host filesystem first
   try {
@@ -693,8 +693,8 @@ export async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: DingTalkMediaType,
-  getAccessToken: (config: DingTalkConfig, log?: ChannelLogSink) => Promise<string>,
-  log?: ChannelLogSink,
+  getAccessToken: (config: DingTalkConfig, log?: Logger) => Promise<string>,
+  log?: Logger,
   options?: { mediaLocalRoots?: string[] },
 ): Promise<UploadMediaResult | null> {
   try {

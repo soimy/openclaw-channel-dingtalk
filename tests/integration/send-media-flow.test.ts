@@ -8,10 +8,6 @@ const { resolveOutboundMediaTypeMock, prepareMediaInputMock, sendProactiveMediaM
     getRuntimeMock: vi.fn(),
 }));
 
-const { resolvePluginDebugLogMock } = vi.hoisted(() => ({
-    resolvePluginDebugLogMock: vi.fn(),
-}));
-
 vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
@@ -38,14 +34,6 @@ vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: getRuntimeMock,
 }));
 
-vi.mock('../../src/utils', async () => {
-    const actual = await vi.importActual<typeof import('../../src/utils')>('../../src/utils');
-    return {
-        ...actual,
-        resolvePluginDebugLog: resolvePluginDebugLogMock,
-    };
-});
-
 import { dingtalkPlugin } from '../../src/channel';
 
 function requireSendMedia() {
@@ -62,8 +50,6 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         prepareMediaInputMock.mockReset();
         sendProactiveMediaMock.mockReset();
         getRuntimeMock.mockReset();
-        resolvePluginDebugLogMock.mockReset();
-        resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
         getRuntimeMock.mockReturnValue({
             channel: {
                 session: {
@@ -104,11 +90,6 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             'image',
             expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
         );
-        expect(resolvePluginDebugLogMock).toHaveBeenCalledWith(expect.objectContaining({
-            accountId: 'default',
-            baseLog: undefined,
-            storePath: '/tmp/default-store.json',
-        }));
         expect(result).toEqual(
             expect.objectContaining({
                 channel: 'dingtalk',

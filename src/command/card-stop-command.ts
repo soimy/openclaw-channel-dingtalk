@@ -1,7 +1,7 @@
 import { resolveNativeCommandSessionTargets } from "openclaw/plugin-sdk/command-auth";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getDingTalkRuntime } from "../runtime";
-import type { ChannelLogSink } from "../types";
+import type { Logger } from "../types";
 
 /**
  * Dispatch a native targeted `/stop` command through the OpenClaw SDK,
@@ -26,7 +26,7 @@ export async function dispatchDingTalkCardStopCommand(params: {
   agentId: string;
   targetSessionKey: string;
   clickerUserId: string;
-  log?: ChannelLogSink;
+  log?: Logger;
 }): Promise<{ ok: boolean }> {
   const rt = getDingTalkRuntime();
 

@@ -2,11 +2,11 @@ import axios, { DEFAULT_HTTP_TIMEOUT_MS } from "./http-client";
 import { getAccessToken } from "./auth";
 import { getLogger } from "./logger-context";
 import { getProxyBypassOption } from "./utils";
-import type { DingTalkConfig, DocInfo, ChannelLogSink } from "./types";
+import type { DingTalkConfig, DocInfo, Logger } from "./types";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
-async function buildHeaders(config: DingTalkConfig, log?: ChannelLogSink): Promise<Record<string, string>> {
+async function buildHeaders(config: DingTalkConfig, log?: Logger): Promise<Record<string, string>> {
   const token = await getAccessToken(config, log);
   return {
     "x-acs-dingtalk-access-token": token,

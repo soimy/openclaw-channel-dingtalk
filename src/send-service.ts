@@ -28,7 +28,7 @@ import type {
   AxiosResponse,
   DingTalkConfig,
   DingTalkTrackingMetadata,
-  ChannelLogSink,
+  Logger,
   ProactiveMessagePayload,
   QuotedRef,
   SendMessageOptions,
@@ -55,7 +55,7 @@ function decodeMarkdownLocalImagePath(rawPath: string): string {
 async function replaceMarkdownLocalImages(params: {
   config: DingTalkConfig;
   text: string;
-  log?: ChannelLogSink;
+  log?: Logger;
   mediaLocalRoots?: string[];
 }): Promise<string> {
   const matches = [...params.text.matchAll(MARKDOWN_LOCAL_IMAGE_RE)];
@@ -128,7 +128,7 @@ function persistOutboundMessageContext(params: {
   messageType?: string;
   createdAt?: number;
   quotedRef?: QuotedRef;
-  log?: ChannelLogSink;
+  log?: Logger;
   senderId?: string;
   senderName?: string;
   chatType?: "direct" | "group";
@@ -245,7 +245,7 @@ export async function uploadMedia(
   config: DingTalkConfig,
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
-  log?: ChannelLogSink,
+  log?: Logger,
   options?: { mediaLocalRoots?: string[] },
 ): Promise<UploadMediaResult | null> {
   return uploadMediaUtil(config, mediaPath, mediaType, getAccessToken, log, options);

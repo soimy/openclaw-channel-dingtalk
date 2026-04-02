@@ -56,7 +56,7 @@ import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
-import type { DingTalkConfig, HandleDingTalkMessageParams, ChannelLogSink, MediaFile } from "./types";
+import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 
@@ -75,7 +75,7 @@ function readSessionReasoningLevel(params: {
   storePath?: string;
   sessionKey: string;
   sessionUpdatedAt?: number;
-  log?: ChannelLogSink;
+  log?: Logger;
 }): string | undefined {
   if (!params.storePath || !params.sessionKey) {
     return undefined;
@@ -111,7 +111,7 @@ function shouldDisableBlockStreamingForReplyMode(params: {
   replyMode: ReplyMode;
   reasoningLevel?: string;
   sessionKey: string;
-  log?: ChannelLogSink;
+  log?: Logger;
 }): boolean {
   if (params.replyMode === "markdown") {
     const shouldDisable = params.reasoningLevel === "on" || params.reasoningLevel === "stream";

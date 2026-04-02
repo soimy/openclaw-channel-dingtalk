@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { CardCallbackAnalysis } from "../card-callback-service";
-import type { DingTalkConfig, ChannelLogSink } from "../types";
+import type { DingTalkConfig, Logger } from "../types";
 import { resolveCardRun } from "./card-run-registry";
 import { stopCardRun } from "./card-stop-handler";
 
@@ -13,7 +13,7 @@ export async function handleCardAction(params: {
   cfg: OpenClawConfig;
   accountId: string;
   config: DingTalkConfig;
-  log?: ChannelLogSink;
+  log?: Logger;
 }): Promise<CardActionResult> {
   if (params.analysis.actionId !== "btn_stop") {
     return { handled: false };

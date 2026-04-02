@@ -6,7 +6,7 @@
  * their own state and lifecycle independently.
  */
 
-import type { AICardInstance, DingTalkConfig, ChannelLogSink, QuotedRef } from "./types";
+import type { AICardInstance, DingTalkConfig, Logger, QuotedRef } from "./types";
 import { createCardReplyStrategy } from "./reply-strategy-card";
 import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 
@@ -65,7 +65,7 @@ export interface ReplyStrategyContext {
     sessionKey: string;
   }) => Promise<string | undefined>;
   groupId?: string;
-  log?: ChannelLogSink;
+  log?: Logger;
   replyQuotedRef?: QuotedRef;
   deliverMedia: (urls: string[]) => Promise<void>;
   isStopRequested?: () => boolean;

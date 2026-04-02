@@ -3,7 +3,7 @@ import https from "node:https";
 import axios from "../http-client";
 import { getAccessToken } from "../auth";
 import { getDingTalkRuntime } from "../runtime";
-import type { DingTalkConfig, ChannelLogSink, MediaFile } from "../types";
+import type { DingTalkConfig, Logger, MediaFile } from "../types";
 import { formatDingTalkErrorPayload, formatDingTalkErrorPayloadLog } from "../utils";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -93,7 +93,7 @@ export function parseDingTalkFileTime(timeStr: string): number {
 export async function getUnionIdByStaffId(
     config: DingTalkConfig,
     staffId: string,
-    log?: ChannelLogSink,
+    log?: Logger,
 ): Promise<string> {
     const cacheKey = `${config.clientId}:${staffId}`;
     const cached = lruGet(unionIdCache, cacheKey);
@@ -130,7 +130,7 @@ export async function getGroupFileSpaceId(
     config: DingTalkConfig,
     openConversationId: string,
     unionId: string,
-    log?: ChannelLogSink,
+    log?: Logger,
 ): Promise<string> {
     const cacheKey = `${config.clientId}:${openConversationId}`;
     const cached = lruGet(spaceIdCache, cacheKey);
@@ -172,7 +172,7 @@ export async function findFileByTimestamp(
     spaceId: string,
     unionId: string,
     createdAt: number,
-    log?: ChannelLogSink,
+    log?: Logger,
 ): Promise<DentryMatch | null> {
     const token = await getAccessToken(config, log);
 
@@ -228,7 +228,7 @@ export async function downloadGroupFile(
     spaceId: string,
     dentryId: string,
     unionId: string,
-    log?: ChannelLogSink,
+    log?: Logger,
 ): Promise<MediaFile | null> {
     const rt = getDingTalkRuntime();
     const token = await getAccessToken(config, log);
@@ -327,7 +327,7 @@ export interface ResolveQuotedFileParams {
 export async function resolveQuotedFile(
     config: DingTalkConfig,
     params: ResolveQuotedFileParams,
-    log?: ChannelLogSink,
+    log?: Logger,
 ): Promise<ResolvedQuotedFile | null> {
     const { openConversationId, senderStaffId, fileCreatedAt } = params;
     let stage = "init";

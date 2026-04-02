@@ -3,13 +3,13 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ChannelLogSink, RetryOptions } from "./types";
+import type { Logger, RetryOptions } from "./types";
 
 type PluginDebugLogParams = {
   accountId: string;
   storePath?: string;
   debug?: boolean;
-  baseLog?: ChannelLogSink;
+  baseLog?: Logger;
   now?: () => Date;
   fsImpl?: Pick<typeof fs, "appendFileSync" | "mkdirSync">;
 };
@@ -84,7 +84,7 @@ function resolvePluginDebugWriter(params: {
   return created;
 }
 
-export function resolvePluginDebugLog(params: PluginDebugLogParams): ChannelLogSink {
+export function resolvePluginDebugLog(params: PluginDebugLogParams): Logger {
   const baseLog = params.baseLog;
   const fsImpl = params.fsImpl ?? fs;
   const scopeKey = params.storePath
@@ -300,12 +300,12 @@ type LookupCallback = (
 
 type LookupOptions = dns.LookupOneOptions | dns.LookupAllOptions;
 
-export function createResolve4FallbackLookup(log?: ChannelLogSink, accountId?: string) {
+export function createResolve4FallbackLookup(log?: Logger, accountId?: string) {
   return createResolve4FallbackLookupWithDeps(log, accountId, dns, net);
 }
 
 export function createResolve4FallbackLookupWithDeps(
-  log: ChannelLogSink | undefined,
+  log: Logger | undefined,
   accountId: string | undefined,
   dnsImpl: Pick<typeof dns, "lookup" | "resolve4">,
   netImpl: Pick<typeof net, "isIP">,
@@ -469,7 +469,7 @@ export function formatDingTalkConnectionErrorLog(
  * Cleanup orphaned temp files from dingtalk media
  * Run at startup to clean up files from crashed processes
  */
-export function cleanupOrphanedTempFiles(log?: ChannelLogSink): number {
+export function cleanupOrphanedTempFiles(log?: Logger): number {
   const tempDir = os.tmpdir();
   const dingtalkPattern = /^dingtalk_\d+\..+$/;
   let cleaned = 0;

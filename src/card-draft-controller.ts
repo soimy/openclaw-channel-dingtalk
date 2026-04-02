@@ -12,7 +12,7 @@
 
 import { streamAICard } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
-import type { AICardInstance, ChannelLogSink } from "./types";
+import type { AICardInstance, Logger } from "./types";
 
 type TimelineEntryKind = "thinking" | "tool" | "answer";
 
@@ -73,7 +73,7 @@ export function createCardDraftController(params: {
     throttleMs?: number;
     /** Legacy compatibility: verbose mode previously lowered the throttle. */
     verboseMode?: boolean;
-    log?: ChannelLogSink;
+    log?: Logger;
 }): CardDraftController {
     let failed = false;
     let stopped = false;

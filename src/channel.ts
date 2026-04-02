@@ -33,7 +33,7 @@ import {
   recordExplicitFeedbackLearning,
 } from "./feedback-learning-service";
 import { handleDingTalkMessage } from "./inbound-handler";
-import { getLogger } from "./logger-context";
+import { getLogger, setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
@@ -213,17 +213,6 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
   return undefined;
 }
 
-function resolveAccountStorePathSafely(cfg: OpenClawConfig, accountId?: string | null): string | undefined {
-  try {
-    const rt = getDingTalkRuntime();
-    return rt.channel.session.resolveStorePath(cfg.session?.store, {
-      agentId: accountId ?? undefined,
-    });
-  } catch {
-    return undefined;
-  }
-}
-
 function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   actions: readonly ["send"] | readonly [];
   capabilities: readonly ["cards"] | readonly [];
@@ -287,14 +276,8 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       });
     }
 
+    const log = getLogger();
     const config = getConfig(cfg, accountId ?? undefined);
-    const storePath = resolveAccountStorePathSafely(cfg, accountId ?? undefined);
-    const log = resolvePluginDebugLog({
-      accountId: accountId ?? "default",
-      storePath,
-      debug: config.debug,
-      baseLog: getLogger(),
-    });
 
     if (hasMedia && mediaInput) {
       let preparedMedia;
@@ -475,21 +458,19 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     sendText: async ({ cfg, to, text, accountId, log }: any) => {
       const config = getConfig(cfg, accountId);
-      const storePath = resolveAccountStorePathSafely(cfg, accountId);
-      const pluginLog = resolvePluginDebugLog({
-        accountId: accountId ?? "default",
-        storePath,
-        debug: config.debug,
-        baseLog: log,
+      const rt = getDingTalkRuntime();
+      const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+        agentId: accountId,
       });
+      const effectiveLog = getLogger() || log;
       try {
         const result = await sendMessage(config, to, text, {
-          log: pluginLog,
+          log: effectiveLog,
           accountId,
           storePath,
           conversationId: to,
         });
-        pluginLog?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
+        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         if (!result.ok) {
           throw new Error(result.error || "sendText failed");
         }
@@ -509,7 +490,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          pluginLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));
+          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -532,13 +513,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       log,
     }: any) => {
       const config = getConfig(cfg, accountId);
-      const storePath = resolveAccountStorePathSafely(cfg, accountId);
-      const pluginLog = resolvePluginDebugLog({
-        accountId: accountId ?? "default",
-        storePath,
-        debug: config.debug,
-        baseLog: log,
+      const rt = getDingTalkRuntime();
+      const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+        agentId: accountId,
       });
+      const effectiveLog = getLogger() || log;
       if (!config.clientId) {
         throw new Error("DingTalk not configured");
       }
@@ -546,7 +525,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       // Support mediaPath/filePath/mediaUrl aliases for better CLI compatibility.
       const rawMediaPath = mediaPath || filePath || mediaUrl;
 
-      pluginLog?.debug?.(
+      getLogger()?.debug?.(
         `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, rawMediaPath=${rawMediaPath}`,
       );
 
@@ -564,10 +543,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       let preparedMedia;
       try {
         try {
-          preparedMedia = await prepareMediaInput(rawMediaPath, pluginLog, config.mediaUrlAllowlist);
+          preparedMedia = await prepareMediaInput(rawMediaPath, effectiveLog, config.mediaUrlAllowlist);
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
-            pluginLog?.error?.(
+            effectiveLog?.error?.(
               formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data),
             );
           }
@@ -584,7 +563,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           ? preparedMedia.path
           : resolveRelativePath(preparedMedia.path);
 
-        pluginLog?.debug?.(
+        getLogger()?.debug?.(
           `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`,
         );
 
@@ -596,7 +575,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         let result;
         try {
           result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, {
-            log: pluginLog,
+            log: effectiveLog,
             accountId,
             storePath,
             conversationId: to,
@@ -604,7 +583,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           });
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
-            pluginLog?.error?.(
+            effectiveLog?.error?.(
               formatDingTalkErrorPayloadLog("outbound.sendMedia.send", err.response.data),
             );
           }
@@ -612,7 +591,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             cause: err,
           });
         }
-        pluginLog?.debug?.(
+        getLogger()?.debug?.(
           `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`,
         );
 
@@ -634,7 +613,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          pluginLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data));
+          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data));
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -670,6 +649,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         debug: config.debug,
         baseLog: ctx.log,
       });
+      setCurrentLogger(pluginLog);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
 

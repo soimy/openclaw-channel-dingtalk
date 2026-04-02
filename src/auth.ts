@@ -1,5 +1,5 @@
 import axios from "./http-client";
-import type { DingTalkConfig, ChannelLogSink, TokenInfo } from "./types";
+import type { DingTalkConfig, Logger, TokenInfo } from "./types";
 import { retryWithBackoff } from "./utils";
 
 interface TokenCache {
@@ -14,7 +14,7 @@ const accessTokenCache = new Map<string, TokenCache>();
  * Get DingTalk access token with clientId-scoped cache + retry.
  * Refreshes token one minute before expiry to avoid near-expiry failures.
  */
-export async function getAccessToken(config: DingTalkConfig, log?: ChannelLogSink): Promise<string> {
+export async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const cacheKey = config.clientId;
   const now = Date.now();
   const cached = accessTokenCache.get(cacheKey);
