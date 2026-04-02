@@ -102,17 +102,19 @@ Primary integration path:
 
 - `src/channel.ts`
   - `gateway.startAccount` creates `pluginLog` from `ctx.log`, `config.debug`, `accountId`, and `accountStorePath`
-  - `gateway.startAccount` stores `pluginLog` into `logger-context`
+  - `gateway.startAccount` stores `pluginLog` into `logger-context` under the current `accountId`
 - `src/inbound-handler.ts`
-  - continue setting `setCurrentLogger(log)` but ensure the provided `log` is already the plugin wrapper
+  - continue setting `setCurrentLogger(log, accountId)` but ensure the provided `log` is already the plugin wrapper
 - `src/logger-context.ts`
-  - keep storing the wrapped sink so `getLogger()` consumers automatically use plugin-owned debug
+  - keep storing the wrapped sink so `getLogger(accountId)` consumers automatically use the current account's plugin-owned debug sink
+  - retain the latest global fallback only as a compatibility backstop for legacy call sites that still read `getLogger()` without an account
 
 This keeps the integration surface intentionally small:
 
 - gateway startup and inbound paths use the wrapped sink directly
 - existing downstream modules that already read `getLogger()` continue to work without signature changes
-- action and outbound paths keep their current log acquisition style; this change does not add new explicit wrapper plumbing or new message-context persistence behavior there
+- outbound paths can prefer `getLogger(accountId)` to retrieve the correct account-scoped plugin log without depending on a process-wide singleton
+- action paths keep their current log acquisition style; this change does not add new explicit wrapper plumbing or new message-context persistence behavior there
 
 ### 6. Compatibility with Existing Logger Types
 
@@ -139,9 +141,13 @@ Rules:
 
 - Add focused unit tests for the wrapper in `tests/unit/utils.test.ts`.
 - Extend gateway lifecycle tests so startup and stop paths initialize and close the plugin debug sink.
+- Add a focused unit test for account-scoped `logger-context` behavior.
 - Add a focused boundary test for `actions.send` so this change does not silently add new `storePath` / `conversationId` persistence behavior there.
+- Add focused outbound tests so `sendText` / `sendMedia` prefer the current account's plugin log over a stale logger from another account.
 - Run:
   - `pnpm test tests/unit/utils.test.ts`
+  - `pnpm test tests/unit/logger-context.test.ts`
   - `pnpm test tests/integration/gateway-start-flow.test.ts`
   - `pnpm test tests/unit/message-actions.test.ts`
+  - `pnpm test tests/integration/send-lifecycle.test.ts tests/integration/send-media-flow.test.ts`
   - `npm run type-check`

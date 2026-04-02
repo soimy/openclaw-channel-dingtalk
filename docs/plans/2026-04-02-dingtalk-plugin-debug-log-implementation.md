@@ -4,7 +4,7 @@
 
 **Goal:** Build a plugin-owned DingTalk debug logging path that mirrors plugin-side `debug` messages to stdout and per-account files under the plugin store root without changing current `info` / `warn` / `error` behavior or forcing broad logging API churn.
 
-**Architecture:** Introduce a single debug wrapper in `src/utils.ts` that implements the current `Logger`-compatible sink shape and owns plugin-side debug persistence. Create and inject that wrapper in `gateway.startAccount`, then rely on `logger-context` / `getLogger()` to carry the plugin-owned sink through existing downstream paths instead of explicitly rewiring every action and outbound entry point.
+**Architecture:** Introduce a single debug wrapper in `src/utils.ts` that implements the current `Logger`-compatible sink shape and owns plugin-side debug persistence. Create and inject that wrapper in `gateway.startAccount`, store it in `logger-context` by `accountId`, and let downstream code read the current account's plugin log via `getLogger(accountId)` instead of relying on one process-wide singleton or explicitly rewiring every action and outbound entry point.
 
 **Tech Stack:** TypeScript, Node.js `fs` / `path`, Vitest, existing DingTalk config and gateway lifecycle code.
 
@@ -181,12 +181,12 @@ Update `src/channel.ts` so:
 
 - `gateway.startAccount` resolves `accountStorePath`
 - it creates `pluginLog` once from `ctx.log`, `config.debug`, `account.accountId`, and `accountStorePath`
-- it stores `pluginLog` into `logger-context`
+- it stores `pluginLog` into `logger-context` with the current `accountId`
 - gateway debug call sites in this function use `pluginLog`
 - the inbound callback passes `pluginLog` into `handleDingTalkMessage`
 - the stop handler closes the plugin debug writer
 
-Update `src/inbound-handler.ts` and `src/logger-context.ts` only as needed so `setCurrentLogger(log)` stores the already-wrapped sink without changing downstream behavior.
+Update `src/inbound-handler.ts` and `src/logger-context.ts` only as needed so `setCurrentLogger(log, accountId)` stores the already-wrapped sink without changing downstream behavior.
 
 - [ ] **Step 4: Re-run the gateway lifecycle test**
 
@@ -240,11 +240,16 @@ Run:
 
 Expected: PASS.
 
-### Task 5: Keep the `Logger` compatibility surface intact
+### Task 5: Make `logger-context` account-scoped while keeping `Logger` compatibility
 
 **Files:**
 - Modify: `src/types.ts`
 - Modify: `src/logger-context.ts`
+- Modify: `src/channel.ts`
+- Modify: `src/inbound-handler.ts`
+- Modify: `tests/unit/logger-context.test.ts`
+- Modify: `tests/integration/send-lifecycle.test.ts`
+- Modify: `tests/integration/send-media-flow.test.ts`
 - Run: repository-wide type check
 
 - [ ] **Step 1: Preserve `Logger` compatibility**
@@ -254,6 +259,8 @@ Make sure:
 - `Logger` remains exported from `src/types.ts`
 - `logger-context` keeps storing and returning `Logger`
 - the new plugin debug sink remains assignable to existing `Logger` consumers
+- `logger-context` can store distinct loggers per `accountId`
+- outbound paths can prefer `getLogger(accountId)` over a stale logger from another account
 
 - [ ] **Step 2: Run type check and focused tests**
 
@@ -261,8 +268,10 @@ Run:
 
 - `npm run type-check`
 - `pnpm test tests/unit/utils.test.ts`
+- `pnpm test tests/unit/logger-context.test.ts`
 - `pnpm test tests/integration/gateway-start-flow.test.ts`
 - `pnpm test tests/unit/message-actions.test.ts`
+- `pnpm test tests/integration/send-lifecycle.test.ts tests/integration/send-media-flow.test.ts`
 
 Expected: PASS for all commands.
 
@@ -277,8 +286,10 @@ Run:
 
 - `npm run type-check`
 - `pnpm test tests/unit/utils.test.ts`
+- `pnpm test tests/unit/logger-context.test.ts`
 - `pnpm test tests/integration/gateway-start-flow.test.ts`
 - `pnpm test tests/unit/message-actions.test.ts`
+- `pnpm test tests/integration/send-lifecycle.test.ts tests/integration/send-media-flow.test.ts`
 - `git ls-files tests | rg '\.test\.ts$|\.test-structure\.test\.ts$' | xargs pnpm vitest run`
 
 Expected: PASS. If a local untracked temporary test file makes bare `pnpm test` noisy, record that clearly and use the tracked-test command as the trustworthy project-wide verification source.
