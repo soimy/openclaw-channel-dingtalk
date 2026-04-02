@@ -296,11 +296,17 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         );
     });
 
-    it('prefers the explicit outbound log over a stale global logger', async () => {
+    it('prefers the current account plugin log over an explicit outbound log', async () => {
         const sendMedia = requireSendMedia();
-        const staleLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const otherAccountLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const accountLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
         const explicitLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-        getLoggerMock.mockReturnValue(staleLog);
+        getLoggerMock.mockImplementation((accountId?: string) => {
+            if (accountId === 'default') {
+                return accountLog;
+            }
+            return otherAccountLog;
+        });
         resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
         sendProactiveMediaMock.mockResolvedValueOnce({
             ok: true,
@@ -319,7 +325,7 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
 
         expect(prepareMediaInputMock).toHaveBeenCalledWith(
             './fixtures/photo.png',
-            explicitLog,
+            accountLog,
             undefined,
         );
         expect(sendProactiveMediaMock).toHaveBeenCalledWith(
@@ -327,9 +333,11 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             'cidA1B2C3',
             path.resolve('./fixtures/photo.png'),
             'image',
-            expect.objectContaining({ log: explicitLog }),
+            expect.objectContaining({ log: accountLog }),
         );
-        expect(explicitLog.debug).toHaveBeenCalled();
-        expect(staleLog.debug).not.toHaveBeenCalled();
+        expect(getLoggerMock).toHaveBeenCalledWith('default');
+        expect(accountLog.debug).toHaveBeenCalled();
+        expect(explicitLog.debug).not.toHaveBeenCalled();
+        expect(otherAccountLog.debug).not.toHaveBeenCalled();
     });
 });

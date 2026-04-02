@@ -462,7 +462,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
         agentId: accountId,
       });
-      const effectiveLog = log || getLogger();
+      const effectiveLog = getLogger(accountId) || log;
       try {
         const result = await sendMessage(config, to, text, {
           log: effectiveLog,
@@ -517,7 +517,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
         agentId: accountId,
       });
-      const effectiveLog = log || getLogger();
+      const effectiveLog = getLogger(accountId) || log;
       if (!config.clientId) {
         throw new Error("DingTalk not configured");
       }
@@ -649,7 +649,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         debug: config.debug,
         baseLog: ctx.log,
       });
-      setCurrentLogger(pluginLog);
+      setCurrentLogger(pluginLog, account.accountId);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
 
