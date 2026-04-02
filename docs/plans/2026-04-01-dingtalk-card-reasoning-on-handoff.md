@@ -13,25 +13,31 @@ Main focus:
 
 ## Worktree And Environment
 
-- Repo root: `/Users/sym/Repo/openclaw-channel-dingtalk`
-- Active worktree: `/Users/sym/Repo/openclaw-channel-dingtalk/.worktrees/card-reasoning-block-assembly`
-- Branch: `feat/card-reasoning-block-assembly`
-- Current commit at time of handoff: `c8a4bc4`
-- `~/.openclaw/openclaw.json` plugin path already points to this worktree
-- Gateway was restarted during testing and DingTalk stream reconnected successfully
+- Repo root: `<repo-root>`
+- Active worktree for the latest continuation: `<repo-root>/.worktrees/review-card-reasoning-followup`
+- Active branch now tracks PR #474 branch: `fix/card-reasoning-on-transcript-fallback`
+- Latest committed branch head: `cc3fc66`
+- Current uncommitted local edits exist on top of `cc3fc66`
+- `~/.openclaw/openclaw.json` currently points plugin loading to `<repo-root>/.worktrees/review-card-reasoning-followup`
+- `~/.openclaw/openclaw.json` currently has:
+  - `logging.consoleLevel = "debug"`
+  - `logging.level = "debug"`
+- Gateway was restarted after switching plugin path / logging config
+- Current local evidence files:
+  - plugin debug log: `~/.openclaw/agents/default/sessions/dingtalk-state/plugin-debug.jsonl`
+  - outbound context store: `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-<account-id>.conversation-<conversation-id>.json`
+  - active session index: `~/.openclaw/agents/main/sessions/sessions.json`
 
 ## Local Code Changes Already In This Worktree
 
-Current unstaged diff:
+Current unstaged diff on top of `cc3fc66`:
 
-- `src/card/reasoning-block-assembler.ts`
-- `src/inbound-handler.ts`
 - `src/reply-strategy-card.ts`
-- `tests/unit/inbound-handler.test.ts`
-- `tests/unit/reasoning-block-assembler.test.ts`
+- `src/card-service.ts`
+- `src/utils.ts`
 - `tests/unit/reply-strategy-card.test.ts`
 
-High-level changes already implemented:
+High-level changes already implemented and committed before this continuation:
 
 1. Card-mode reasoning assembly
 
@@ -62,13 +68,37 @@ These fixes addressed plugin-side regressions found by code review, especially:
 - block-delivered reasoning/answer text being lost in card mode
 - finalize using older partial answer instead of final answer snapshot
 
+High-level changes currently only in local, uncommitted edits:
+
+1. Narrow timeline-order fix in `card-draft-controller`
+
+- completed thinking blocks that arrive after an answer in the same segment are inserted before that segment's answer
+- `tool` boundaries still remain hard boundaries, so late thinking cannot jump back ahead of earlier tool blocks
+
+2. Mixed final-payload split in `reply-strategy-card`
+
+- local code now attempts to split `deliver(final)` text into:
+  - answer portion
+  - trailing `Reasoning:` portion
+- the trailing `Reasoning:` portion is fed back into reasoning assembly instead of staying as raw answer text
+
+3. Plugin-local debug sink for real-device debugging
+
+- local code now writes plugin-specific debug probes to:
+  - stdout directly
+  - `dingtalk-state/plugin-debug.jsonl`
+- current implementation reuses existing `channels.dingtalk.debug`
+- helper was refactored into `src/utils.ts` so files stop duplicating debug helpers
 ## Verified Test Status
 
 Verified after the latest plugin-side fix:
 
 - `npm run type-check` passed
 - `pnpm test` passed
-- latest full suite result on the current followup branch: `70` test files, `781` tests passed
+- latest committed branch result before current local edits: `70` test files, `785` tests passed
+- latest local verification after moving plugin debug helpers into `src/utils.ts`:
+  - `npm run type-check` passed
+  - no fresh full-suite run yet after the very latest uncommitted debug-helper refactor
 
 This means the current remaining problem is not covered by the existing local test surface yet. It is a real-device/runtime-contract problem, not an obvious failing unit test in this repo.
 
@@ -92,45 +122,51 @@ This means the current remaining problem is not covered by the existing local te
 3. Temporary transcript fallback on DingTalk `/reasoning on`
 
 - pure reasoning now restores the final answer instead of dropping it entirely
-- tool-success path now preserves the final answer `/Users/sym/clawd`
+- tool-success path now preserves the final answer `<pwd-output>`
 - plugin-side outbound persistence confirms the main regression is fixed: the final answer is present in `messages.context`
 
 ### What is still broken
 
-The remaining failure is now narrower:
+The remaining failure has shifted and is now better understood:
 
 - DingTalk card mode
 - `/reasoning on`
-- pure reasoning path can still render blocks in the wrong final order
+- some models still leak reasoning into the answer lane before finalization
 
 Observed behavior on DingTalk card:
 
-1. Pure reasoning, no tools
+1. Pure reasoning / math-style prompts show unstable model-dependent shapes
 
-- transcript contains:
-  - `thinking`
-  - final assistant `text`
-- final answer is now visible
-- but DingTalk shows `answer` before `think`
-- plugin-side persisted outbound text in `messages.context` shows the same `answer -> think` order, so this is not just a client-side reorder
+- some runs produced only `✅ Done`
+- some runs produced `answer + trailing Reasoning:` in `messages.context`
+- some runs produced correctly formatted `> think` blocks before the answer
+- some `gpt-5.4` runs timed out upstream and silently fell back to another model in the same session
 
-2. Reasoning plus tool
+2. The newest hard evidence identifies the pollution point
 
-- transcript contains:
-  - reasoning
-  - tool call
-  - final assistant answer text
-- DingTalk card now shows:
-  - reasoning
-  - tool block
-  - final answer
-- tested `pwd` case ended with `/Users/sym/clawd`, and DingTalk-side order was correct
+- plugin-local debug file now shows repeated entries like:
+  - `category=partial event=onPartialReply`
+  - `category=partial event=updateAnswer source=partial`
+- the `textPreview` recorded in those entries is already reasoning-like text such as:
+  - `分步推理过程`
+  - `分步推理过程如下：...`
+- this means raw reasoning text is entering `controller.updateAnswer(...)` through `onPartialReply` before later reasoning blocks are processed
 
-Updated real-device outcome:
+3. Why this matters
 
-- `/reasoning on` pure reasoning: final answer restored, order still wrong
-- `/reasoning on` + `pwd`: final answer restored and order correct
-- `/reasoning stream` + `pwd`: still correct as control case
+- once reasoning text has already entered the answer lane, later correct reasoning blocks can only add another thinking section
+- this explains why `messages.context` could end up as:
+  - answer first
+  - then raw `Reasoning:` tail
+  - or answer plus duplicated think content
+
+4. Latest local plugin-debug evidence
+
+- file: `~/.openclaw/agents/default/sessions/dingtalk-state/plugin-debug.jsonl`
+- latest samples show:
+  - `onPartialReply` repeatedly growing answer text with reasoning-style prefixes
+  - `deliver(block)` later classifying explicit `Reasoning:` text correctly
+  - therefore the earliest pollution happens before `deliver(block)` / `deliver(final)` cleanup
 
 ### Important control result
 
@@ -150,7 +186,10 @@ This matters because it narrows the claim:
 
 ## Root Cause Analysis So Far
 
-The remaining problem appears to be upstream in `openclaw`, not primarily in this plugin.
+The investigation now points to a mixed responsibility split:
+
+- upstream/runtime/model behavior is still unstable across providers and retries
+- but the plugin has its own contamination path: `onPartialReply -> controller.updateAnswer(...)`
 
 Most relevant upstream source paths:
 
@@ -181,6 +220,13 @@ Result:
 - assembled final payload does not
 - channels relying on assembled final payload can lose the answer
 
+New plugin-local finding from this continuation:
+
+- even when later reasoning blocks or transcript fallback are available, partial text can already pollute the answer lane first
+- the current strongest local hypothesis is:
+  - for card mode `/reasoning on`, `onPartialReply` is too permissive
+  - it should not blindly feed partial text into `updateAnswer(...)`
+  - at minimum, the plugin needs to suppress or classify reasoning-like partial text before it reaches the answer lane
 `/reasoning stream`
 
 - reasoning goes through a separate `onReasoningStream` path
@@ -243,11 +289,12 @@ Temporary workaround note:
 - until that PR or an equivalent upstream chain fix lands, plugin-side transcript fallback is acceptable only as a temporary compatibility path
 - keep code comments and docs explicit that this path should be removed or narrowed once upstream reliably preserves final answers after block replies
 
-4. Investigate the remaining `/reasoning on` pure-reasoning order issue
+4. Investigate / fix partial-reply contamination before further order work
 
-- compare the final persisted outbound `messages.context` text with DingTalk display order
-- inspect whether pure-reasoning finalize is appending thinking blocks after answer assembly in plugin strategy state
-- keep scope narrow so the temporary fallback continues to fix answer loss without perturbing the already-correct tool-success and `/reasoning stream` paths
+- use `plugin-debug.jsonl` as the primary evidence source
+- confirm whether the current model/path is emitting reasoning-like partial text
+- then narrow `onPartialReply` for card `/reasoning on` so partial reasoning stops entering the answer lane
+- only after that, re-evaluate whether remaining order issues still need the later timeline reordering logic
 
 3. Add regression coverage around the fallback if implemented
 
@@ -266,17 +313,26 @@ If upstream lands a fix:
 ## Suggested Resume Checklist For Next Session
 
 1. Read this file first
-2. Review current local diff in the six modified files
-3. Re-read upstream issue `openclaw/openclaw#58627`
-4. Inspect:
+2. Confirm current uncommitted files:
+   - `src/reply-strategy-card.ts`
+   - `src/card-service.ts`
+   - `src/utils.ts`
+   - `tests/unit/reply-strategy-card.test.ts`
+3. Inspect plugin-local debug evidence first:
+   - `~/.openclaw/agents/default/sessions/dingtalk-state/plugin-debug.jsonl`
+   - `~/.openclaw/agents/default/sessions/dingtalk-state/messages.context.account-<account-id>.conversation-<conversation-id>.json`
+4. Confirm runtime session file:
    - `~/.openclaw/agents/main/sessions/sessions.json`
-   - `~/.openclaw/agents/main/sessions/681e2b80-7a40-4405-902a-6d0793e24a55.jsonl`
-5. Implement transcript-based DingTalk card fallback for `/reasoning on`
-6. Restart gateway
-7. Re-test on DingTalk:
-   - `/reasoning on` + pure reasoning prompt
-   - `/reasoning on` + `pwd` prompt
-   - `/reasoning stream` control case
+   - currently points to session `6e63b13b-bf5d-4ee6-95a5-57073cee526a.jsonl`
+5. Continue by narrowing `onPartialReply` for card `/reasoning on`
+   - goal: prevent reasoning-like partial text from entering `updateAnswer(...)`
+6. After code changes:
+   - `npm run type-check`
+   - targeted reply-strategy tests
+   - restart gateway
+7. Re-test one minimal prompt first:
+   - `请分步思考后再给结论：如果一个团队有 5 个人，分别单独需要 10、12、15、20、30 天完成同一项任务，且效率可叠加，这项任务预计多少天完成？`
+8. Only after that passes, widen back out to the broader `/reasoning on` / `/reasoning stream` matrix
 
 ## Reference Evidence Snapshot
 

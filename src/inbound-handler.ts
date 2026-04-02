@@ -1521,8 +1521,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         reasoningLevel: sessionReasoningLevel,
         log,
       }),
-      enableTemporaryTranscriptFinalAnswerFallback:
-        replyMode === "card" && sessionReasoningLevel === "on",
       groupId,
       log,
       replyQuotedRef,

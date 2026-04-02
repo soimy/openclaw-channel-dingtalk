@@ -326,6 +326,27 @@ describe('card-service', () => {
         })?.text).toBe('final text');
     });
 
+    it('finishAICard does not create plugin-debug artifacts even when debug is enabled', async () => {
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const card = {
+            cardInstanceId: 'card_debug_disabled',
+            processQueryKey: 'carrier_debug_disabled',
+            accessToken: 'token_abc',
+            conversationId: 'cidA1B2C3',
+            accountId: 'main',
+            storePath,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.INPUTING,
+            config: { cardTemplateKey: 'content', debug: true },
+        } as any;
+
+        await finishAICard(card, 'final text');
+
+        expect(fs.existsSync(path.join(stateDirPath, 'dingtalk-state', 'plugin-debug.jsonl'))).toBe(false);
+    });
+
     it('finishAICard persists direct-chat card content by context conversation scope', async () => {
         mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 

@@ -55,15 +55,6 @@ export interface ReplyStrategyContext {
   disableBlockStreaming?: boolean;
   sessionKey?: string;
   sessionAgentId?: string;
-  /**
-   * Temporary DingTalk-side workaround for upstream reply-runtime bugfix PR #58650.
-   * Remove or narrow this once the upstream chain preserves the final answer reliably.
-   */
-  enableTemporaryTranscriptFinalAnswerFallback?: boolean;
-  readFinalAnswerFromTranscript?: (params: {
-    agentId: string;
-    sessionKey: string;
-  }) => Promise<string | undefined>;
   groupId?: string;
   log?: Logger;
   replyQuotedRef?: QuotedRef;
