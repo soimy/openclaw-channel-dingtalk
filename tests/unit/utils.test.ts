@@ -333,6 +333,29 @@ describe('utils', () => {
             expect(baseLog.debug).toHaveBeenCalledTimes(2);
         });
 
+        it('creates the log directory only once for repeated writes on the same writer', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const mkdirSync = vi.fn();
+            const appendFileSync = vi.fn();
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+                fsImpl: { mkdirSync, appendFileSync } as any,
+            });
+
+            pluginLog.debug?.('first');
+            pluginLog.debug?.('second');
+
+            expect(mkdirSync).toHaveBeenCalledTimes(1);
+            expect(appendFileSync).toHaveBeenCalledTimes(2);
+        });
+
         it('keeps file persistence and upstream forwarding when stdout write fails', () => {
             tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
             storePath = path.join(tempDir, 'session-store.json');

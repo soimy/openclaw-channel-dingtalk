@@ -7,6 +7,9 @@ const { resolveOutboundMediaTypeMock, prepareMediaInputMock, sendProactiveMediaM
     sendProactiveMediaMock: vi.fn(),
     getRuntimeMock: vi.fn(),
 }));
+const { getLoggerMock } = vi.hoisted(() => ({
+    getLoggerMock: vi.fn(),
+}));
 
 vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
@@ -33,6 +36,10 @@ vi.mock('../../src/media-utils', async () => ({
 vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: getRuntimeMock,
 }));
+vi.mock('../../src/logger-context', () => ({
+    getLogger: getLoggerMock,
+    setCurrentLogger: vi.fn(),
+}));
 
 import { dingtalkPlugin } from '../../src/channel';
 
@@ -50,6 +57,8 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         prepareMediaInputMock.mockReset();
         sendProactiveMediaMock.mockReset();
         getRuntimeMock.mockReset();
+        getLoggerMock.mockReset();
+        getLoggerMock.mockReturnValue(undefined);
         getRuntimeMock.mockReturnValue({
             channel: {
                 session: {
@@ -285,5 +294,42 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             undefined,
             ['192.168.1.23', 'cdn.example.com']
         );
+    });
+
+    it('prefers the explicit outbound log over a stale global logger', async () => {
+        const sendMedia = requireSendMedia();
+        const staleLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const explicitLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        getLoggerMock.mockReturnValue(staleLog);
+        resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
+        sendProactiveMediaMock.mockResolvedValueOnce({
+            ok: true,
+            data: { processQueryKey: 'media_explicit' },
+            messageId: 'media_explicit',
+        });
+
+        await sendMedia({
+            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+            to: 'cidA1B2C3',
+            text: '',
+            mediaPath: './fixtures/photo.png',
+            accountId: 'default',
+            log: explicitLog,
+        });
+
+        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+            './fixtures/photo.png',
+            explicitLog,
+            undefined,
+        );
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            path.resolve('./fixtures/photo.png'),
+            'image',
+            expect.objectContaining({ log: explicitLog }),
+        );
+        expect(explicitLog.debug).toHaveBeenCalled();
+        expect(staleLog.debug).not.toHaveBeenCalled();
     });
 });

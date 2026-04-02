@@ -17,6 +17,7 @@ type PluginDebugLogParams = {
 type PluginDebugWriter = {
   filePath: string;
   warned: boolean;
+  directoryReady: boolean;
 };
 
 const pluginDebugWriters = new Map<string, PluginDebugWriter>();
@@ -79,6 +80,7 @@ function resolvePluginDebugWriter(params: {
   const created = {
     filePath: resolvePluginDebugLogFilePath(params),
     warned: false,
+    directoryReady: false,
   };
   pluginDebugWriters.set(key, created);
   return created;
@@ -122,7 +124,10 @@ export function resolvePluginDebugLog(params: PluginDebugLogParams): Logger {
           date,
         });
         try {
-          fsImpl.mkdirSync(path.dirname(writer.filePath), { recursive: true });
+          if (!writer.directoryReady) {
+            fsImpl.mkdirSync(path.dirname(writer.filePath), { recursive: true });
+            writer.directoryReady = true;
+          }
           fsImpl.appendFileSync(writer.filePath, `${line}\n`, "utf8");
         } catch (err) {
           if (!writer.warned) {

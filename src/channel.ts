@@ -462,7 +462,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
         agentId: accountId,
       });
-      const effectiveLog = getLogger() || log;
+      const effectiveLog = log || getLogger();
       try {
         const result = await sendMessage(config, to, text, {
           log: effectiveLog,
@@ -470,7 +470,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           storePath,
           conversationId: to,
         });
-        getLogger()?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
+        effectiveLog?.debug?.(`[DingTalk] sendText: "${text}" result: ${JSON.stringify(result)}`);
         if (!result.ok) {
           throw new Error(result.error || "sendText failed");
         }
@@ -517,7 +517,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
         agentId: accountId,
       });
-      const effectiveLog = getLogger() || log;
+      const effectiveLog = log || getLogger();
       if (!config.clientId) {
         throw new Error("DingTalk not configured");
       }
@@ -525,7 +525,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       // Support mediaPath/filePath/mediaUrl aliases for better CLI compatibility.
       const rawMediaPath = mediaPath || filePath || mediaUrl;
 
-      getLogger()?.debug?.(
+      effectiveLog?.debug?.(
         `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, rawMediaPath=${rawMediaPath}`,
       );
 
@@ -563,7 +563,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           ? preparedMedia.path
           : resolveRelativePath(preparedMedia.path);
 
-        getLogger()?.debug?.(
+        effectiveLog?.debug?.(
           `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`,
         );
 
@@ -591,7 +591,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             cause: err,
           });
         }
-        getLogger()?.debug?.(
+        effectiveLog?.debug?.(
           `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`,
         );
 
