@@ -20,6 +20,7 @@ type PluginDebugWriter = {
 };
 
 const pluginDebugWriters = new Map<string, PluginDebugWriter>();
+const closedPluginDebugScopes = new Set<string>();
 
 function padNumber(value: number, width = 2): string {
   return String(value).padStart(width, "0");
@@ -60,6 +61,10 @@ function buildPluginDebugWriterKey(params: { storePath: string; accountId: strin
   return JSON.stringify([params.storePath, params.accountId, formatPluginDebugDate(params.date)]);
 }
 
+function buildPluginDebugScopeKey(params: { storePath: string; accountId: string }): string {
+  return JSON.stringify([params.storePath, params.accountId]);
+}
+
 function resolvePluginDebugWriter(params: {
   storePath: string;
   accountId: string;
@@ -82,6 +87,13 @@ function resolvePluginDebugWriter(params: {
 export function resolvePluginDebugLog(params: PluginDebugLogParams): ChannelLogSink {
   const baseLog = params.baseLog;
   const fsImpl = params.fsImpl ?? fs;
+  const scopeKey = params.storePath
+    ? buildPluginDebugScopeKey({ storePath: params.storePath, accountId: params.accountId })
+    : undefined;
+
+  if (scopeKey) {
+    closedPluginDebugScopes.delete(scopeKey);
+  }
 
   return {
     debug: (message: string) => {
@@ -103,7 +115,7 @@ export function resolvePluginDebugLog(params: PluginDebugLogParams): ChannelLogS
         // Ignore stdout failures so plugin debug logging never breaks message handling.
       }
 
-      if (params.storePath) {
+      if (params.storePath && scopeKey && !closedPluginDebugScopes.has(scopeKey)) {
         const writer = resolvePluginDebugWriter({
           storePath: params.storePath,
           accountId: params.accountId,
@@ -139,9 +151,15 @@ export function closePluginDebugLog(params: { accountId: string; storePath?: str
     return;
   }
 
-  const prefix = JSON.stringify([params.storePath, params.accountId]);
+  const scopeKey = buildPluginDebugScopeKey({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  });
+  closedPluginDebugScopes.add(scopeKey);
+
   for (const key of pluginDebugWriters.keys()) {
-    if (key.startsWith(prefix.slice(0, -1))) {
+    const [writerStorePath, writerAccountId] = JSON.parse(key) as [string, string, string];
+    if (writerStorePath === params.storePath && writerAccountId === params.accountId) {
       pluginDebugWriters.delete(key);
     }
   }

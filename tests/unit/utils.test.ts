@@ -398,5 +398,46 @@ describe('utils', () => {
             expect(fs.existsSync(path.join(tempDir, 'logs', 'dingtalk', 'main'))).toBe(false);
             expect(stdoutSpy).not.toHaveBeenCalled();
         });
+
+        it('does not recreate a file writer after close for the same wrapper, but a fresh wrapper can reopen it', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const firstLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+
+            firstLog.debug?.('before close');
+            closePluginDebugLog({ accountId: 'main', storePath });
+            firstLog.debug?.('after close should not append');
+
+            const expectedLogFile = path.join(
+                tempDir,
+                'logs',
+                'dingtalk',
+                'main',
+                'debug-2026-04-02.log',
+            );
+            const firstContents = fs.readFileSync(expectedLogFile, 'utf8');
+            expect(firstContents).toContain('before close');
+            expect(firstContents).not.toContain('after close should not append');
+
+            const reopenedLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+            reopenedLog.debug?.('after reopen');
+
+            const reopenedContents = fs.readFileSync(expectedLogFile, 'utf8');
+            expect(reopenedContents).toContain('after reopen');
+        });
     });
 });

@@ -311,8 +311,6 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
         const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
           log,
           accountId: accountId ?? undefined,
-          storePath,
-          conversationId: target,
           mediaLocalRoots: mediaLocalRoots ? [...mediaLocalRoots] : undefined,
         });
 
@@ -345,8 +343,6 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const result = await sendMessage(config, target, message, {
       log,
       accountId: accountId ?? undefined,
-      storePath,
-      conversationId: target,
     });
 
     if (!result.ok) {
@@ -942,11 +938,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           lastStopAt: getCurrentTimestamp(),
         });
 
+        pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client stopped`);
         closePluginDebugLog({
           accountId: account.accountId,
           storePath: accountStorePath,
         });
-        pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client stopped`);
       };
 
       if (abortSignal) {
