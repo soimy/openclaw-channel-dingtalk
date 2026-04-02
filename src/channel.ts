@@ -727,6 +727,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           };
           try {
             const data = JSON.parse(res.data) as DingTalkInboundMessage;
+            // Record the latest inbound callback arrival for status/UI projection.
+            // This intentionally tracks "message reached the plugin callback" rather
+            // than "message passed dedup and completed processing".
             applyStatusPatch({
               connected: true,
               lastInboundAt: getCurrentTimestamp(),
@@ -923,8 +926,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           nativeStopResolve?.();
         }
 
-        ctx.setStatus({
-          ...ctx.getStatus(),
+        applyStatusPatch({
           running: false,
           connected: false,
           lastEventAt: getCurrentTimestamp(),
