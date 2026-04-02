@@ -7,7 +7,7 @@ This change introduces a plugin-owned debug logging path for the DingTalk channe
 - Make plugin-side `debug` logs readable even when runtime logger injection is missing, stale, or only partially available.
 - Keep the configuration switch on the existing DingTalk plugin `debug` flag instead of adding a second debug toggle.
 - Provide both immediate stdout output and persistent per-account log files for real-device testing, timeline evidence, and plugin-side diagnosis.
-- Replace plugin-side log wrapping with a single wrapper flow that is compatible with the current `Logger` / `ChannelLogSink` shape.
+- Add a plugin-side wrapper that stays compatible with the current `Logger` type surface and existing `getLogger()` consumers.
 - Keep runtime-facing `info` / `warn` / `error` behavior unchanged in this iteration.
 
 ## Non-Goals
@@ -90,31 +90,29 @@ Use an in-memory registry keyed by:
 
 The registry allows repeated `debug()` calls to reuse the same append target instead of recreating directories or handles for every line.
 
-`closePluginDebugLog` closes and removes any cached writer for the target account and store scope. `gateway.startAccount` should call it from the returned `stop()` handler so long-lived gateway sessions release their file resources when stopped.
+`closePluginDebugLog` closes and removes any cached writer for the target account and store scope. `gateway.startAccount` should call it from the returned `stop()` handler so long-lived gateway sessions release their file resources when stopped. A closed scope should not be reopened by an old wrapper instance after shutdown; only a fresh wrapper from a later lifecycle may reopen the sink.
 
 Daily rotation is handled lazily by the key including the local date. No size-based rotation or retention policy is included in this change.
 
 ### 5. Integration Strategy
 
-The wrapper should be introduced at plugin entry points instead of by mass-editing every service call site.
+The wrapper should be introduced at the gateway assembly root instead of by mass-editing every service call site.
 
-Primary entry points:
+Primary integration path:
 
 - `src/channel.ts`
-  - `gateway.startAccount`
-  - `actions.handleAction`
-  - `outbound.sendText`
-  - `outbound.sendMedia`
+  - `gateway.startAccount` creates `pluginLog` from `ctx.log`, `config.debug`, `accountId`, and `accountStorePath`
+  - `gateway.startAccount` stores `pluginLog` into `logger-context`
 - `src/inbound-handler.ts`
   - continue setting `setCurrentLogger(log)` but ensure the provided `log` is already the plugin wrapper
 - `src/logger-context.ts`
   - keep storing the wrapped sink so `getLogger()` consumers automatically use plugin-owned debug
 
-This gives near-complete plugin-side coverage with minimal behavioral churn:
+This keeps the integration surface intentionally small:
 
-- gateway and inbound paths use the wrapped sink
-- outbound and action entry points use the wrapped sink even when no inbound request established `getLogger()`
-- existing downstream modules keep their current `log?.debug?.(...)` calls
+- gateway startup and inbound paths use the wrapped sink directly
+- existing downstream modules that already read `getLogger()` continue to work without signature changes
+- action and outbound paths keep their current log acquisition style; this change does not add new explicit wrapper plumbing or new message-context persistence behavior there
 
 ### 6. Compatibility with Existing Logger Types
 
@@ -123,7 +121,7 @@ The repository currently defines:
 - `ChannelLogSink` as the SDK log sink type
 - `Logger` as a deprecated alias of `ChannelLogSink`
 
-The wrapper should implement the `ChannelLogSink` shape so it is immediately compatible with both names. The first implementation can keep existing function signatures intact. A later cleanup can replace the deprecated `Logger` alias throughout the codebase after the runtime behavior has already been stabilized.
+The wrapper should implement the `Logger`-compatible sink shape so it can be threaded through existing function signatures and `logger-context` without a broad type churn. This design explicitly does not require a repository-wide `Logger` removal.
 
 ## Failure Handling
 
@@ -141,9 +139,9 @@ Rules:
 
 - Add focused unit tests for the wrapper in `tests/unit/utils.test.ts`.
 - Extend gateway lifecycle tests so startup and stop paths initialize and close the plugin debug sink.
-- Add coverage for action and outbound entry points so plugin debug still works even without prior inbound logger setup.
+- Add a focused boundary test for `actions.send` so this change does not silently add new `storePath` / `conversationId` persistence behavior there.
 - Run:
   - `pnpm test tests/unit/utils.test.ts`
   - `pnpm test tests/integration/gateway-start-flow.test.ts`
-  - targeted channel entry-point tests for action and outbound paths
+  - `pnpm test tests/unit/message-actions.test.ts`
   - `npm run type-check`

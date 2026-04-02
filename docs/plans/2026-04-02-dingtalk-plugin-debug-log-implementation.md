@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a plugin-owned DingTalk debug logging path that mirrors plugin-side `debug` messages to stdout and per-account files under the plugin store root without changing current `info` / `warn` / `error` behavior.
+**Goal:** Build a plugin-owned DingTalk debug logging path that mirrors plugin-side `debug` messages to stdout and per-account files under the plugin store root without changing current `info` / `warn` / `error` behavior or forcing broad logging API churn.
 
-**Architecture:** Introduce a single debug wrapper in `src/utils.ts` that implements the current log sink shape and owns plugin-side debug persistence. Wire that wrapper only at plugin entry points in `src/channel.ts` and the logger context path so downstream modules keep their current `log?.debug?.(...)` usage while gaining stable stdout and file evidence.
+**Architecture:** Introduce a single debug wrapper in `src/utils.ts` that implements the current `Logger`-compatible sink shape and owns plugin-side debug persistence. Create and inject that wrapper in `gateway.startAccount`, then rely on `logger-context` / `getLogger()` to carry the plugin-owned sink through existing downstream paths instead of explicitly rewiring every action and outbound entry point.
 
 **Tech Stack:** TypeScript, Node.js `fs` / `path`, Vitest, existing DingTalk config and gateway lifecycle code.
 
@@ -181,6 +181,7 @@ Update `src/channel.ts` so:
 
 - `gateway.startAccount` resolves `accountStorePath`
 - it creates `pluginLog` once from `ctx.log`, `config.debug`, `account.accountId`, and `accountStorePath`
+- it stores `pluginLog` into `logger-context`
 - gateway debug call sites in this function use `pluginLog`
 - the inbound callback passes `pluginLog` into `handleDingTalkMessage`
 - the stop handler closes the plugin debug writer
@@ -193,106 +194,75 @@ Run: `pnpm test tests/integration/gateway-start-flow.test.ts`
 
 Expected: PASS.
 
-### Task 4: Cover action and outbound entry points that do not rely on inbound logger setup
+### Task 4: Lock the reduced integration boundary so actions do not grow new behavior
 
 **Files:**
-- Modify: `src/channel.ts`
-- Modify: existing channel action / outbound tests, or add focused tests under `tests/unit/`
-- Read: `src/send-service.ts`
+- Modify: `tests/unit/message-actions.test.ts`
+- Read: `src/channel.ts`
 
-- [ ] **Step 1: Write failing tests for non-inbound plugin entry points**
+- [ ] **Step 1: Write failing boundary tests**
 
-Add or extend tests so the following paths prove they can resolve plugin debug independently:
-
-- `actions.handleAction`
-- `outbound.sendText`
-- `outbound.sendMedia`
-
-At least one test should cover the case where `getLogger()` was never set by inbound handling.
-
-Example assertion shape:
+Add or extend tests so `actions.send` explicitly proves this change does not introduce new message-context persistence behavior:
 
 ```ts
-expect(resolvePluginDebugLogMock).toHaveBeenCalledWith(
-    expect.objectContaining({
-        accountId: "default",
-        storePath: expect.any(String),
+expect(sendMessageMock).toHaveBeenCalledWith(
+    expect.any(Object),
+    "user_abc",
+    "hello",
+    expect.not.objectContaining({
+        storePath: expect.anything(),
+        conversationId: expect.anything(),
     })
 );
 ```
 
-- [ ] **Step 2: Run the targeted channel tests and confirm they fail**
+- [ ] **Step 2: Run the focused action test and confirm it fails**
 
-Run the specific files you updated, for example:
+Run:
 
-- `pnpm test tests/unit/channel-actions.test.ts`
-- `pnpm test tests/unit/channel-outbound.test.ts`
+- `pnpm test tests/unit/message-actions.test.ts`
 
-Expected: FAIL because these entry points still depend on raw runtime log objects or `getLogger()` state.
+Expected: FAIL because the current implementation still forwards more behavior than intended.
 
-- [ ] **Step 3: Wire the wrapper into those entry points**
+- [ ] **Step 3: Remove the unintended extra behavior**
 
 In `src/channel.ts`:
 
-- wrap the `log` passed into `actions.handleAction`
-- wrap the `log` passed into `outbound.sendText`
-- wrap the `log` passed into `outbound.sendMedia`
-- prefer the wrapped sink for direct debug statements in those paths
+- keep `actions.send` on its original log acquisition path
+- do not pass new `storePath` / `conversationId` fields from `actions.send`
+- keep outbound and downstream service behavior unchanged unless required by the gateway-injected `getLogger()` path
 
-Do not rewrite downstream service APIs. Keep the integration at the entry point boundary.
+- [ ] **Step 4: Re-run the focused action test**
 
-- [ ] **Step 4: Re-run the targeted channel tests**
+Run:
 
-Run the same focused test files from Step 2.
+- `pnpm test tests/unit/message-actions.test.ts`
 
 Expected: PASS.
 
-### Task 5: Remove the deprecated `Logger` alias after behavior is stable
+### Task 5: Keep the `Logger` compatibility surface intact
 
 **Files:**
 - Modify: `src/types.ts`
-- Modify: all TypeScript files that import `Logger`
+- Modify: `src/logger-context.ts`
 - Run: repository-wide type check
 
-- [ ] **Step 1: Write the smallest possible safety test if one is needed**
+- [ ] **Step 1: Preserve `Logger` compatibility**
 
-If a focused compile-oriented test is helpful, add one small test that imports a representative function using the new `ChannelLogSink` type. If existing tests already exercise those signatures well, skip adding a new test and proceed directly to the type-only refactor.
+Make sure:
 
-- [ ] **Step 2: Replace `Logger` imports with `ChannelLogSink`**
+- `Logger` remains exported from `src/types.ts`
+- `logger-context` keeps storing and returning `Logger`
+- the new plugin debug sink remains assignable to existing `Logger` consumers
 
-Change signatures such as:
-
-```ts
-log?: Logger;
-```
-
-to:
-
-```ts
-log?: ChannelLogSink;
-```
-
-Keep this as a mechanical refactor only. Do not mix new behavior into this step.
-
-- [ ] **Step 3: Remove the deprecated alias from `src/types.ts`**
-
-Delete:
-
-```ts
-/**
- * @deprecated Use ChannelLogSink instead
- */
-export type Logger = ChannelLogSink;
-```
-
-- [ ] **Step 4: Run type check and focused tests**
+- [ ] **Step 2: Run type check and focused tests**
 
 Run:
 
 - `npm run type-check`
 - `pnpm test tests/unit/utils.test.ts`
 - `pnpm test tests/integration/gateway-start-flow.test.ts`
-- the focused channel tests updated in Task 4
+- `pnpm test tests/unit/message-actions.test.ts`
 
 Expected: PASS for all commands.
 
@@ -308,9 +278,10 @@ Run:
 - `npm run type-check`
 - `pnpm test tests/unit/utils.test.ts`
 - `pnpm test tests/integration/gateway-start-flow.test.ts`
-- `pnpm test`
+- `pnpm test tests/unit/message-actions.test.ts`
+- `git ls-files tests | rg '\.test\.ts$|\.test-structure\.test\.ts$' | xargs pnpm vitest run`
 
-Expected: PASS. If `pnpm test` is too slow for the active iteration, at minimum record exactly which focused suites passed and why the full suite was deferred.
+Expected: PASS. If a local untracked temporary test file makes bare `pnpm test` noisy, record that clearly and use the tracked-test command as the trustworthy project-wide verification source.
 
 - [ ] **Step 2: Review generated log-path behavior manually**
 
@@ -327,6 +298,6 @@ Confirm the implementation matches the design:
 Use a Conventional-style commit message, for example:
 
 ```bash
-git add src/utils.ts src/channel.ts src/logger-context.ts src/inbound-handler.ts src/types.ts tests/unit/utils.test.ts tests/integration/gateway-start-flow.test.ts docs/spec/2026-04-02-dingtalk-plugin-debug-log-design.md docs/plans/2026-04-02-dingtalk-plugin-debug-log-implementation.md
+git add src/utils.ts src/channel.ts src/logger-context.ts src/types.ts tests/unit/utils.test.ts tests/integration/gateway-start-flow.test.ts tests/unit/message-actions.test.ts docs/spec/2026-04-02-dingtalk-plugin-debug-log-design.md docs/plans/2026-04-02-dingtalk-plugin-debug-log-implementation.md
 git commit -m "feat(logging): add plugin-owned dingtalk debug sink"
 ```
