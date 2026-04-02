@@ -142,7 +142,15 @@ describe("channel config + status helpers", () => {
           configured: true,
           config: { clientId: "id1" },
         },
-        runtime: { running: true, lastStartAt: 1, lastStopAt: null, lastError: null },
+        runtime: {
+          running: true,
+          connected: true,
+          lastConnectedAt: 2,
+          lastInboundAt: 3,
+          lastStartAt: 1,
+          lastStopAt: null,
+          lastError: null,
+        },
         snapshot: {},
         probe: { ok: true },
       } as any);
@@ -169,7 +177,10 @@ describe("channel config + status helpers", () => {
       expect(issues).toHaveLength(1);
       expect(summary.lastError).toBe("err");
       expect(snap.running).toBe(true);
+      expect(snap.connected).toBe(true);
       expect(snap.clientId).toBe("id1");
+      expect(snap.lastConnectedAt).toBe(2);
+      expect(snap.lastInboundAt).toBe(3);
       expect(snap.lastEventAt).toBe(Date.now());
       expect(stoppedSnap.lastEventAt).toBe(123);
     } finally {
