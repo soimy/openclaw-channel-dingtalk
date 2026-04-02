@@ -384,7 +384,7 @@ describe("reply-strategy-card", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            expect(strategy.getFinalText()).toBe("附件已发送，请查收。");
+            expect(strategy.getFinalText()).toBe("✅ Done");
         });
     });
 
@@ -532,10 +532,10 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls[0][1];
             expect(rendered).toContain("> 我来发附件");
-            expect(rendered).toContain("附件已发送，请查收。");
+            expect(rendered).toContain("✅ Done");
         });
 
-        it("uses the file-only placeholder when process blocks exist but no answer text was delivered", async () => {
+        it("uses the standard empty final reply when process blocks exist but no answer text was delivered", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 disableBlockStreaming: false,
@@ -555,9 +555,8 @@ describe("reply-strategy-card", () => {
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
             expect(rendered).toContain("> Reason: 先执行 pwd");
             expect(rendered).toContain("> pwd");
-            expect(rendered).toContain("附件已发送，请查收。");
+            expect(rendered).toContain("✅ Done");
             expect(rendered).not.toContain("/Users/sym/clawd");
-            expect(rendered).not.toContain("✅ Done");
         });
 
         it("ignores legacy transcript fallback inputs even when they are present on the strategy context", async () => {
@@ -584,7 +583,7 @@ describe("reply-strategy-card", () => {
             expect(readFinalAnswerFromTranscript).not.toHaveBeenCalled();
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("附件已发送，请查收。");
+            expect(rendered).toContain("✅ Done");
             expect(rendered).not.toContain("/Users/sym/clawd");
         });
 

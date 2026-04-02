@@ -6387,7 +6387,7 @@ describe("inbound-handler", () => {
     expect(finalizeContent).not.toContain("🤔 思考");
   });
 
-  it("file-only response finalizes card with a placeholder answer and preserved process blocks", async () => {
+  it("file-only response finalizes card with the standard empty reply and preserved process blocks", async () => {
     const card = { cardInstanceId: "card_file_only", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
     shared.isCardInTerminalStateMock.mockReturnValue(false);
@@ -6430,7 +6430,7 @@ describe("inbound-handler", () => {
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
     expect(finalizeContent).toContain("> Let me send the file");
-    expect(finalizeContent).toContain("附件已发送，请查收。");
+    expect(finalizeContent).toContain("✅ Done");
     expect(finalizeContent).not.toContain("🤔 思考");
   });
 

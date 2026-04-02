@@ -19,7 +19,7 @@ import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
-const FILE_ONLY_FALLBACK_ANSWER = "附件已发送，请查收。";
+const EMPTY_FINAL_REPLY = "✅ Done";
 
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
@@ -35,7 +35,7 @@ export function createCardReplyStrategy(
   let sawFinalDelivery = false;
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
-    const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
+    const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
     return controller.getRenderedContent({
       fallbackAnswer,
       overrideAnswer: options.preferFinalAnswer ? finalTextForFallback : undefined,
@@ -226,7 +226,7 @@ export function createCardReplyStrategy(
         await controller.flush();
         await controller.waitForInFlight();
         const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });
-        const finalText = renderedTimeline || "✅ Done";
+        const finalText = renderedTimeline || EMPTY_FINAL_REPLY;
         controller.stop();
         log?.info?.(
           `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
@@ -281,7 +281,7 @@ export function createCardReplyStrategy(
     getFinalText(): string | undefined {
       return finalTextForFallback
         || controller.getFinalAnswerContent()
-        || (sawFinalDelivery ? FILE_ONLY_FALLBACK_ANSWER : undefined);
+        || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
     },
   };
 }
