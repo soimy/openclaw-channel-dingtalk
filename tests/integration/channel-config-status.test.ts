@@ -182,6 +182,9 @@ describe("channel config + status helpers", () => {
       expect(snap.lastConnectedAt).toBe(2);
       expect(snap.lastInboundAt).toBe(3);
       expect(snap.lastEventAt).toBe(Date.now());
+      expect(stoppedSnap.connected).toBeNull();
+      expect(stoppedSnap.lastConnectedAt).toBeNull();
+      expect(stoppedSnap.lastInboundAt).toBeNull();
       expect(stoppedSnap.lastEventAt).toBe(123);
     } finally {
       vi.useRealTimers();
