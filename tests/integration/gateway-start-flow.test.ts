@@ -6,6 +6,8 @@ const shared = vi.hoisted(() => ({
     stopMock: vi.fn(),
     isConnectedMock: vi.fn(),
     cleanupOrphanedTempFilesMock: vi.fn(),
+    resolvePluginDebugLogMock: vi.fn(),
+    closePluginDebugLogMock: vi.fn(),
     connectionConfig: undefined as any,
     clientGetEndpointMock: vi.fn(),
     clientConnectMock: vi.fn(),
@@ -70,6 +72,8 @@ vi.mock('../../src/utils', async () => {
     return {
         ...actual,
         cleanupOrphanedTempFiles: shared.cleanupOrphanedTempFilesMock,
+        resolvePluginDebugLog: shared.resolvePluginDebugLogMock,
+        closePluginDebugLog: shared.closePluginDebugLogMock,
     };
 });
 
@@ -119,6 +123,8 @@ describe('gateway.startAccount lifecycle', () => {
         shared.stopMock.mockReset();
         shared.isConnectedMock.mockReset();
         shared.cleanupOrphanedTempFilesMock.mockReset();
+        shared.resolvePluginDebugLogMock.mockReset();
+        shared.closePluginDebugLogMock.mockReset();
         shared.connectionConfig = undefined;
         shared.clientGetEndpointMock.mockReset();
         shared.clientConnectMock.mockReset();
@@ -130,6 +136,7 @@ describe('gateway.startAccount lifecycle', () => {
         shared.isConnectedMock.mockReturnValue(true);
         shared.clientGetEndpointMock.mockResolvedValue(undefined);
         shared.clientConnectMock.mockResolvedValue(undefined);
+        shared.resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
     });
 
     it('fails fast when abortSignal is already aborted before start', async () => {
@@ -149,12 +156,21 @@ describe('gateway.startAccount lifecycle', () => {
         const stopResult = await startGatewayAccount(ctx as any);
 
         expect(shared.cleanupOrphanedTempFilesMock).toHaveBeenCalledTimes(1);
+        expect(shared.resolvePluginDebugLogMock).toHaveBeenCalledWith(expect.objectContaining({
+            accountId: 'main',
+            baseLog: ctx.log,
+            debug: undefined,
+            storePath: undefined,
+        }));
         expect(shared.connectMock).toHaveBeenCalledTimes(1);
         expect(shared.waitForStopMock).toHaveBeenCalledTimes(1);
         expect(setStatusCalls.some((s) => s.running === true && s.lastStartAt !== null)).toBe(true);
 
         stopResult.stop();
 
+        expect(shared.closePluginDebugLogMock).toHaveBeenCalledWith(expect.objectContaining({
+            accountId: 'main',
+        }));
         expect(shared.stopMock).toHaveBeenCalledTimes(1);
         expect(setStatusCalls.some((s) => s.running === false && s.lastStopAt !== null)).toBe(true);
     });

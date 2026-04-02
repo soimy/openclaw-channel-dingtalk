@@ -399,7 +399,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
-  setCurrentLogger(log);
+  setCurrentLogger(log, accountId);
 
   log?.debug?.("[DingTalk] Full Inbound Data: " + JSON.stringify(maskSensitiveData(data)));
 

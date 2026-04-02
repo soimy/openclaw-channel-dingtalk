@@ -4,6 +4,9 @@ const { sendMessageMock, getRuntimeMock } = vi.hoisted(() => ({
     sendMessageMock: vi.fn(),
     getRuntimeMock: vi.fn(),
 }));
+const { getLoggerMock } = vi.hoisted(() => ({
+    getLoggerMock: vi.fn(),
+}));
 
 vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
@@ -27,6 +30,10 @@ vi.mock('../../src/send-service', async () => ({
 vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: getRuntimeMock,
 }));
+vi.mock('../../src/logger-context', () => ({
+    getLogger: getLoggerMock,
+    setCurrentLogger: vi.fn(),
+}));
 
 import { dingtalkPlugin } from '../../src/channel';
 
@@ -34,6 +41,8 @@ describe('plugin outbound lifecycle', () => {
     beforeEach(() => {
         sendMessageMock.mockReset();
         getRuntimeMock.mockReset();
+        getLoggerMock.mockReset();
+        getLoggerMock.mockReturnValue(undefined);
         getRuntimeMock.mockReturnValue({
             channel: {
                 session: {
@@ -142,6 +151,51 @@ describe('plugin outbound lifecycle', () => {
                 accountId: 'default',
             })
         ).rejects.toThrow(/300001/);
+    });
+
+    it('prefers the current account plugin log over an explicit outbound log', async () => {
+        const sendText = dingtalkPlugin.outbound?.sendText;
+        if (!sendText) {
+            throw new Error('dingtalkPlugin.outbound.sendText is not defined');
+        }
+        const otherAccountLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const accountLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const explicitLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        getLoggerMock.mockImplementation((accountId?: string) => {
+            if (accountId === 'default') {
+                return accountLog;
+            }
+            return otherAccountLog;
+        });
+        sendMessageMock.mockResolvedValue({ ok: true, data: { messageId: 'm_explicit' } });
+
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'ding-client-id',
+                    clientSecret: 'secret',
+                },
+            },
+        };
+
+        await sendText({
+            cfg,
+            to: 'user_123',
+            text: 'hello explicit',
+            accountId: 'default',
+            log: explicitLog,
+        });
+
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'user_123',
+            'hello explicit',
+            expect.objectContaining({ log: accountLog }),
+        );
+        expect(getLoggerMock).toHaveBeenCalledWith('default');
+        expect(accountLog.debug).toHaveBeenCalled();
+        expect(explicitLog.debug).not.toHaveBeenCalled();
+        expect(otherAccountLog.debug).not.toHaveBeenCalled();
     });
 
 });

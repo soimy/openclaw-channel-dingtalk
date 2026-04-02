@@ -109,6 +109,16 @@ describe('dingtalkPlugin.actions.send', () => {
             'voice',
             expect.objectContaining({ accountId: 'default' })
         );
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            '/tmp/audio.mp3',
+            'voice',
+            expect.not.objectContaining({
+                storePath: expect.anything(),
+                conversationId: expect.anything(),
+            })
+        );
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 
@@ -164,6 +174,15 @@ describe('dingtalkPlugin.actions.send', () => {
             'user_abc',
             'hello',
             expect.objectContaining({ accountId: 'default' })
+        );
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'user_abc',
+            'hello',
+            expect.not.objectContaining({
+                storePath: expect.anything(),
+                conversationId: expect.anything(),
+            })
         );
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });

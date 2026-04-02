@@ -4,11 +4,13 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     cleanupOrphanedTempFiles,
+    closePluginDebugLog,
     createResolve4FallbackLookupWithDeps,
     formatDingTalkConnectionErrorLog,
     formatDingTalkErrorPayload,
     formatDingTalkErrorPayloadLog,
     maskSensitiveData,
+    resolvePluginDebugLog,
     retryWithBackoff,
 } from '../../src/utils';
 
@@ -233,6 +235,232 @@ describe('utils', () => {
             expect(fs.existsSync(oldFile)).toBe(false);
             expect(fs.existsSync(recentFile)).toBe(true);
             expect(fs.existsSync(otherFile)).toBe(true);
+        });
+    });
+
+    describe('resolvePluginDebugLog', () => {
+        let tempDir = '';
+        let storePath = '';
+        let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+        afterEach(() => {
+            stdoutSpy?.mockRestore();
+            if (storePath) {
+                closePluginDebugLog({ accountId: 'main', storePath });
+            }
+            if (tempDir && fs.existsSync(tempDir)) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+            tempDir = '';
+            storePath = '';
+        });
+
+        it('writes plugin debug lines to stdout and the per-account daily log file when debug is enabled', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+
+            pluginLog.debug?.('[DingTalk] test line');
+
+            const expectedLogFile = path.join(
+                tempDir,
+                'logs',
+                'dingtalk',
+                'main',
+                'debug-2026-04-02.log',
+            );
+            expect(stdoutSpy).toHaveBeenCalled();
+            expect(fs.readFileSync(expectedLogFile, 'utf8')).toContain('[account:main] [DingTalk] test line');
+            expect(baseLog.debug).toHaveBeenCalledWith('[DingTalk] test line');
+        });
+
+        it('skips file creation when debug is disabled and only forwards to upstream debug', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: false,
+                baseLog,
+            });
+
+            pluginLog.debug?.('disabled path');
+
+            const expectedLogFile = path.join(
+                tempDir,
+                'logs',
+                'dingtalk',
+                'main',
+                'debug-2026-04-02.log',
+            );
+            expect(baseLog.debug).toHaveBeenCalledWith('disabled path');
+            expect(stdoutSpy).not.toHaveBeenCalled();
+            expect(fs.existsSync(expectedLogFile)).toBe(false);
+        });
+
+        it('warns once and keeps debug forwarding when file persistence fails', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                fsImpl: {
+                    mkdirSync: vi.fn(),
+                    appendFileSync: vi.fn(() => {
+                        throw new Error('disk full');
+                    }),
+                } as any,
+            });
+
+            expect(() => pluginLog.debug?.('one')).not.toThrow();
+            expect(() => pluginLog.debug?.('two')).not.toThrow();
+
+            expect(baseLog.warn).toHaveBeenCalledTimes(1);
+            expect(baseLog.debug).toHaveBeenCalledTimes(2);
+        });
+
+        it('creates the log directory only once for repeated writes on the same writer', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const mkdirSync = vi.fn();
+            const appendFileSync = vi.fn();
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+                fsImpl: { mkdirSync, appendFileSync } as any,
+            });
+
+            pluginLog.debug?.('first');
+            pluginLog.debug?.('second');
+
+            expect(mkdirSync).toHaveBeenCalledTimes(1);
+            expect(appendFileSync).toHaveBeenCalledTimes(2);
+        });
+
+        it('keeps file persistence and upstream forwarding when stdout write fails', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => {
+                throw new Error('stdout unavailable');
+            });
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+
+            expect(() => pluginLog.debug?.('survives stdout failure')).not.toThrow();
+
+            const expectedLogFile = path.join(
+                tempDir,
+                'logs',
+                'dingtalk',
+                'main',
+                'debug-2026-04-02.log',
+            );
+            expect(fs.readFileSync(expectedLogFile, 'utf8')).toContain('survives stdout failure');
+            expect(baseLog.debug).toHaveBeenCalledWith('survives stdout failure');
+        });
+
+        it('writes to stdout only when storePath is missing', () => {
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                debug: true,
+                baseLog,
+            });
+
+            expect(() => pluginLog.debug?.('stdout only')).not.toThrow();
+
+            expect(stdoutSpy).toHaveBeenCalled();
+            expect(baseLog.debug).toHaveBeenCalledWith('stdout only');
+        });
+
+        it('forwards info warn error without creating debug log files', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const pluginLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+            });
+
+            pluginLog.info?.('info path');
+            pluginLog.warn?.('warn path');
+            pluginLog.error?.('error path');
+
+            expect(baseLog.info).toHaveBeenCalledWith('info path');
+            expect(baseLog.warn).toHaveBeenCalledWith('warn path');
+            expect(baseLog.error).toHaveBeenCalledWith('error path');
+            expect(fs.existsSync(path.join(tempDir, 'logs', 'dingtalk', 'main'))).toBe(false);
+            expect(stdoutSpy).not.toHaveBeenCalled();
+        });
+
+        it('does not recreate a file writer after close for the same wrapper, but a fresh wrapper can reopen it', () => {
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-plugin-log-'));
+            storePath = path.join(tempDir, 'session-store.json');
+            stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true as any);
+            const baseLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+            const firstLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+
+            firstLog.debug?.('before close');
+            closePluginDebugLog({ accountId: 'main', storePath });
+            firstLog.debug?.('after close should not append');
+
+            const expectedLogFile = path.join(
+                tempDir,
+                'logs',
+                'dingtalk',
+                'main',
+                'debug-2026-04-02.log',
+            );
+            const firstContents = fs.readFileSync(expectedLogFile, 'utf8');
+            expect(firstContents).toContain('before close');
+            expect(firstContents).not.toContain('after close should not append');
+
+            const reopenedLog = resolvePluginDebugLog({
+                accountId: 'main',
+                storePath,
+                debug: true,
+                baseLog,
+                now: () => new Date('2026-04-02T07:04:05.123Z'),
+            });
+            reopenedLog.debug?.('after reopen');
+
+            const reopenedContents = fs.readFileSync(expectedLogFile, 'utf8');
+            expect(reopenedContents).toContain('after reopen');
         });
     });
 });
