@@ -113,12 +113,13 @@ const DingTalkAccountConfigShape = {
    *  When true, card updates are streamed per-token with 300ms throttle for a smoother experience, at the cost of more API calls. */
   cardRealTimeStream: z.boolean().optional().default(false),
 
-  /** Enable live reasoning stream updates to the card (default: false).
-   *  When true, reasoning text is streamed in-place with throttle = cardStreamInterval.
-   *  When false, reasoning blocks only appear once complete (one card update per block). */
-  cardStreamReasoning: z.boolean().optional().default(false),
+  /** Card streaming mode:
+   *  - off: disable incremental streaming
+   *  - answer: stream answer text
+   *  - all: stream answer + reasoning text */
+  cardStreamingMode: z.enum(["off", "answer", "all"]).optional().default("off"),
 
-  /** Throttle interval in ms for card stream updates when cardStreamReasoning is enabled (default: 1000). */
+  /** Throttle interval in ms for card stream updates (default: 1000). */
   cardStreamInterval: z.number().int().min(200).optional().default(1000),
 
   /** AICard degrade duration in milliseconds after trigger errors (default: 30 minutes) */

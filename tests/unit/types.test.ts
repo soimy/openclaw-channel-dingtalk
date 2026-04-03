@@ -26,6 +26,7 @@ describe('types helpers', () => {
                     clientSecret: 'sec_default',
                     dmPolicy: 'allowlist',
                     displayNameResolution: 'all',
+                    cardStreamingMode: 'off',
                 },
             },
         } as any;
@@ -35,6 +36,7 @@ describe('types helpers', () => {
         expect(account.accountId).toBe('default');
         expect(account.clientId).toBe('cli_default');
         expect(account.displayNameResolution).toBe('all');
+        expect(account.cardStreamingMode).toBe('off');
         expect(account.configured).toBe(true);
     });
 
@@ -137,6 +139,26 @@ describe('types helpers', () => {
         expect(account.learningNoteTtlMs).toBe(120000);
     });
 
+    it('resolves named account cardStreamingMode with account override', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    cardStreamingMode: 'off',
+                    accounts: {
+                        main: {
+                            clientId: 'cli_main',
+                            clientSecret: 'sec_main',
+                            cardStreamingMode: 'all',
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const account = resolveDingTalkAccount(cfg, 'main');
+        expect(account.cardStreamingMode).toBe('all');
+    });
+
     it('resolves journalTTLDays from top-level and named account config', () => {
         const cfg = {
             channels: {
@@ -153,5 +175,30 @@ describe('types helpers', () => {
 
         expect(resolveDingTalkAccount(cfg, 'default').journalTTLDays).toBe(7);
         expect(resolveDingTalkAccount(cfg, 'main').journalTTLDays).toBe(21);
+    });
+
+    it('does not expose removed cardStreamReasoning from resolved accounts', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'cli_default',
+                    clientSecret: 'sec_default',
+                    cardStreamReasoning: true,
+                    accounts: {
+                        main: {
+                            clientId: 'cli_main',
+                            clientSecret: 'sec_main',
+                            cardStreamReasoning: true,
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const defaultAccount = resolveDingTalkAccount(cfg, 'default') as Record<string, unknown>;
+        const mainAccount = resolveDingTalkAccount(cfg, 'main') as Record<string, unknown>;
+
+        expect('cardStreamReasoning' in defaultAccount).toBe(false);
+        expect('cardStreamReasoning' in mainAccount).toBe(false);
     });
 });

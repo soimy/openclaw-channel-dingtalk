@@ -94,6 +94,28 @@ describe('config advanced', () => {
         expect(resolved.messageType).toBe('markdown');
     });
 
+    it('account-level cardStreamingMode overrides top-level default in resolved config', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'top_id',
+                    clientSecret: 'top_sec',
+                    cardStreamingMode: 'off',
+                    accounts: {
+                        bot2: {
+                            clientId: 'bot2_id',
+                            clientSecret: 'bot2_sec',
+                            cardStreamingMode: 'all',
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const resolved = getConfig(cfg, 'bot2');
+        expect(resolved.cardStreamingMode).toBe('all');
+    });
+
     it('merged config does not leak accounts key', () => {
         const cfg = {
             channels: {
@@ -109,6 +131,31 @@ describe('config advanced', () => {
 
         const resolved = getConfig(cfg, 'bot1');
         expect((resolved as any).accounts).toBeUndefined();
+    });
+
+    it('strips removed cardStreamReasoning in resolved single-account and named-account configs', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'top_id',
+                    clientSecret: 'top_sec',
+                    cardStreamReasoning: true,
+                    accounts: {
+                        bot1: {
+                            clientId: 'bot1_id',
+                            clientSecret: 'bot1_sec',
+                            cardStreamReasoning: true,
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const topLevelResolved = getConfig(cfg);
+        const namedResolved = getConfig(cfg, 'bot1');
+
+        expect('cardStreamReasoning' in (topLevelResolved as any)).toBe(false);
+        expect('cardStreamReasoning' in (namedResolved as any)).toBe(false);
     });
 
     it('isConfigured validates by clientId/clientSecret', () => {

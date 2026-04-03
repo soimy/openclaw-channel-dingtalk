@@ -25,6 +25,7 @@ export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
 // explicit modes remain: "off" | "emoji" | "kaomoji".
 export type AckReactionConfigValue = string;
+export type CardStreamingMode = "off" | "answer" | "all";
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -71,11 +72,14 @@ export interface DingTalkConfig extends OpenClawConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
-  /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
+  /** Card streaming mode.
+   *  - off: disable incremental streaming
+   *  - answer: stream answer text
+   *  - all: stream answer + reasoning text */
+  cardStreamingMode?: CardStreamingMode;
+  /** @deprecated Use `cardStreamingMode` instead. */
   cardRealTimeStream?: boolean;
-  /** Enable live reasoning stream updates to the card (default false) */
-  cardStreamReasoning?: boolean;
-  /** Throttle interval in ms for reasoning stream updates (default 1000) */
+  /** Throttle interval in ms for card stream updates (default 1000) */
   cardStreamInterval?: number;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
@@ -135,11 +139,14 @@ export interface DingTalkChannelConfig {
     enabled?: boolean;
     cooldownHours?: number;
   };
-  /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
+  /** Card streaming mode.
+   *  - off: disable incremental streaming
+   *  - answer: stream answer text
+   *  - all: stream answer + reasoning text */
+  cardStreamingMode?: CardStreamingMode;
+  /** @deprecated Use `cardStreamingMode` instead. */
   cardRealTimeStream?: boolean;
-  /** Enable live reasoning stream updates to the card (default false) */
-  cardStreamReasoning?: boolean;
-  /** Throttle interval in ms for reasoning stream updates (default 1000) */
+  /** Throttle interval in ms for card stream updates (default 1000) */
   cardStreamInterval?: number;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
@@ -793,8 +800,8 @@ export function resolveDingTalkAccount(
       keepAlive: dingtalk?.keepAlive,
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      cardStreamingMode: dingtalk?.cardStreamingMode,
       cardRealTimeStream: dingtalk?.cardRealTimeStream,
-      cardStreamReasoning: dingtalk?.cardStreamReasoning,
       cardStreamInterval: dingtalk?.cardStreamInterval,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       learningEnabled: dingtalk?.learningEnabled,

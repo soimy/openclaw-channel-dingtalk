@@ -30,8 +30,14 @@ function normalizeLearningConfig(
 }
 
 function stripRemovedLegacyFields(config: DingTalkConfig): DingTalkConfig {
-  const { verboseRealtimeStream: _verboseRealtimeStream, ...rest } =
-    config as DingTalkConfig & { verboseRealtimeStream?: unknown };
+  const {
+    verboseRealtimeStream: _verboseRealtimeStream,
+    cardStreamReasoning: _cardStreamReasoning,
+    ...rest
+  } = config as DingTalkConfig & {
+    verboseRealtimeStream?: unknown;
+    cardStreamReasoning?: unknown;
+  };
   return rest as DingTalkConfig;
 }
 
@@ -84,7 +90,7 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   }
 
   if (dingtalkCfg.accounts && Object.keys(dingtalkCfg.accounts).length > 0) {
-    return dingtalkCfg;
+    return stripRemovedLegacyFields(dingtalkCfg);
   }
 
   return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));

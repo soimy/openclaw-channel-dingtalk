@@ -128,6 +128,58 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 
+    it('defaults cardStreamingMode to off', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { cardStreamingMode?: string };
+
+        expect(parsed.cardStreamingMode).toBe('off');
+    });
+
+    it('accepts account-level cardStreamingMode override', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            cardStreamingMode: 'off',
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    cardStreamingMode: 'all',
+                },
+            },
+        }) as { accounts: Record<string, { cardStreamingMode?: string }> };
+
+        expect(parsed.accounts.main?.cardStreamingMode).toBe('all');
+    });
+
+    it('parses deprecated cardRealTimeStream for backward compatibility', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            cardRealTimeStream: true,
+        }) as { cardRealTimeStream?: boolean };
+
+        expect(parsed.cardRealTimeStream).toBe(true);
+    });
+
+    it('does not surface removed cardStreamReasoning in parsed config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            cardStreamReasoning: true,
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                    cardStreamReasoning: true,
+                },
+            },
+        }) as { accounts: Record<string, Record<string, unknown>> } & Record<string, unknown>;
+
+        expect('cardStreamReasoning' in parsed).toBe(false);
+        expect('cardStreamReasoning' in parsed.accounts.main).toBe(false);
+    });
+
     it('does not surface verboseRealtimeStream in parsed top-level or account config', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
