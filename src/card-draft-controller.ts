@@ -81,6 +81,7 @@ export function createCardDraftController(params: {
     let stopped = false;
     let lastSentContent = "";
     let lastQueuedContent = "";
+    let inFlightContent = "";
     let lastAnswerContent = "";
 
     let timelineEntries: TimelineEntry[] = [];
@@ -189,9 +190,16 @@ export function createCardDraftController(params: {
 
     const queueRender = () => {
         const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
-        if (!rendered || rendered === lastSentContent) {
+        if (!rendered) {
             clearPendingRender();
             return;
+        }
+        if (rendered === lastSentContent) {
+            const hasNewerInFlight = !!inFlightContent && inFlightContent !== rendered;
+            if (!hasNewerInFlight) {
+                clearPendingRender();
+                return;
+            }
         }
         if (rendered === lastQueuedContent) {
             return;
@@ -232,6 +240,7 @@ export function createCardDraftController(params: {
         throttleMs: effectiveThrottleMs,
         isStopped: () => stopped || failed,
         sendOrEditStreamMessage: async (content: string) => {
+            inFlightContent = content;
             try {
                 await streamAICard(params.card, content, false, params.log);
                 lastSentContent = content;
@@ -241,6 +250,10 @@ export function createCardDraftController(params: {
                 failed = true;
                 const message = err instanceof Error ? err.message : String(err);
                 params.log?.warn?.(`[DingTalk][AICard] Stream failed: ${message}`);
+            } finally {
+                if (inFlightContent === content) {
+                    inFlightContent = "";
+                }
             }
         },
     });

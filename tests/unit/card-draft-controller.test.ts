@@ -681,4 +681,38 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).not.toHaveBeenCalled();
         expect(controller.getLastContent()).toBe("A");
     });
+
+    it("resends last sent content when reverting while a newer frame is still in-flight", async () => {
+        const sent: string[] = [];
+        let resolveB!: () => void;
+        streamAICardMock.mockImplementation(async (_card, content) => {
+            sent.push(content);
+            if (content === "B") {
+                await new Promise<void>((r) => { resolveB = r; });
+            }
+        });
+
+        const card = makeCard();
+        const controller = createCardDraftController({ card, throttleMs: 0 });
+
+        await controller.updateAnswer("A");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sent).toEqual(["A"]);
+
+        const sendB = controller.updateAnswer("B");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sent).toEqual(["A", "B"]);
+
+        const revertToA = controller.updateAnswer("A");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sent).toEqual(["A", "B"]);
+
+        resolveB();
+        await sendB;
+        await revertToA;
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sent).toEqual(["A", "B", "A"]);
+        expect(controller.getLastContent()).toBe("A");
+    });
 });
