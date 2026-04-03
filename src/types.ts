@@ -824,8 +824,16 @@ export function resolveDingTalkAccount(
       dingtalk as DingTalkConfig,
       accountConfig,
     );
+    const {
+      cardStreamReasoning: _cardStreamReasoning,
+      verboseRealtimeStream: _verboseRealtimeStream,
+      ...publicMerged
+    } = merged as DingTalkConfig & {
+      cardStreamReasoning?: unknown;
+      verboseRealtimeStream?: unknown;
+    };
     return {
-      ...merged,
+      ...publicMerged,
       accountId: id,
       configured: Boolean(merged.clientId && merged.clientSecret),
     };
