@@ -30,8 +30,14 @@ function normalizeLearningConfig(
 }
 
 function stripRemovedLegacyFields(config: DingTalkConfig): DingTalkConfig {
-  const { verboseRealtimeStream: _verboseRealtimeStream, ...rest } =
-    config as DingTalkConfig & { verboseRealtimeStream?: unknown };
+  const {
+    verboseRealtimeStream: _verboseRealtimeStream,
+    cardStreamReasoning: _cardStreamReasoning,
+    ...rest
+  } = config as DingTalkConfig & {
+    verboseRealtimeStream?: unknown;
+    cardStreamReasoning?: unknown;
+  };
   return rest as DingTalkConfig;
 }
 

@@ -133,7 +133,7 @@ describe('config advanced', () => {
         expect((resolved as any).accounts).toBeUndefined();
     });
 
-    it('keeps cardStreamReasoning in getConfig results for runtime compatibility', () => {
+    it('strips removed cardStreamReasoning in resolved single-account and named-account configs', () => {
         const cfg = {
             channels: {
                 dingtalk: {
@@ -154,8 +154,8 @@ describe('config advanced', () => {
         const topLevelResolved = getConfig(cfg);
         const namedResolved = getConfig(cfg, 'bot1');
 
-        expect((topLevelResolved as any).cardStreamReasoning).toBe(true);
-        expect((namedResolved as any).cardStreamReasoning).toBe(true);
+        expect('cardStreamReasoning' in (topLevelResolved as any)).toBe(false);
+        expect('cardStreamReasoning' in (namedResolved as any)).toBe(false);
     });
 
     it('isConfigured validates by clientId/clientSecret', () => {

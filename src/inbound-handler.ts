@@ -132,6 +132,29 @@ function shouldDisableBlockStreamingForReplyMode(params: {
   return shouldDisable;
 }
 
+function resolveLegacyCardStreamReasoningForInternalUse(params: {
+  cfg: HandleDingTalkMessageParams["cfg"];
+  accountId: string;
+}): boolean | undefined {
+  const dingtalk = (params.cfg?.channels?.dingtalk ?? null) as
+    | (Record<string, unknown> & {
+        cardStreamReasoning?: unknown;
+        accounts?: Record<string, Record<string, unknown> | undefined>;
+      })
+    | null;
+  if (!dingtalk) {
+    return undefined;
+  }
+  const accountConfig = params.accountId ? dingtalk.accounts?.[params.accountId] : undefined;
+  if (typeof accountConfig?.cardStreamReasoning === "boolean") {
+    return accountConfig.cardStreamReasoning;
+  }
+  if (typeof dingtalk.cardStreamReasoning === "boolean") {
+    return dingtalk.cardStreamReasoning;
+  }
+  return undefined;
+}
+
 function resolvePinnedMainDmOwner(params: {
   dmScope?: string;
   allowFrom?: string[];
@@ -1503,8 +1526,16 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       sessionUpdatedAt: previousTimestamp,
       log,
     });
+    const legacyCardStreamReasoning = resolveLegacyCardStreamReasoningForInternalUse({
+      cfg,
+      accountId,
+    });
+    const strategyConfig =
+      legacyCardStreamReasoning === undefined
+        ? dingtalkConfig
+        : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
     const strategy = createReplyStrategy({
-      config: dingtalkConfig,
+      config: strategyConfig,
       card: currentAICard,
       useCardMode: replyMode === "card",
       to,
