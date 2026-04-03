@@ -7,7 +7,7 @@ const THINKING_TAG_RE = /<\s*(\/?)\s*(?:think(?:ing)?|thought|antthinking)\b[^<>
 
 function isWrappedReasoningLine(line: string): boolean {
     const trimmed = line.trim();
-    return trimmed.startsWith("_") && trimmed.endsWith("_") && trimmed.length >= 2;
+    return trimmed.startsWith("_") && trimmed.endsWith("_") && trimmed.length >= 3;
 }
 
 function cleanReasoningLine(line: string): string {

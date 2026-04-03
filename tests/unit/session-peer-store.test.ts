@@ -1,18 +1,32 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     clearSessionPeerOverride,
     getSessionPeerOverride,
     setSessionPeerOverride,
 } from '../../src/session-peer-store';
 
-const storePath = '/tmp/dingtalk-session-peer-store.json';
-const stateDir = path.join(path.dirname(storePath), 'dingtalk-state');
+let tempDir = '';
+let storePath = '';
+let stateDir = '';
 
 describe('session-peer-store', () => {
     beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-session-peer-store-'));
+        storePath = path.join(tempDir, 'session-peer-store.json');
+        stateDir = path.join(path.dirname(storePath), 'dingtalk-state');
         fs.rmSync(stateDir, { recursive: true, force: true });
+    });
+
+    afterEach(() => {
+        if (tempDir) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        tempDir = '';
+        storePath = '';
+        stateDir = '';
     });
 
     it('stores and reads per-group peerId override', () => {

@@ -298,6 +298,26 @@ describe("reply-strategy-card", () => {
             expect(streamAICardMock.mock.calls[1]?.[1]).toContain("兼容模式答案");
         });
 
+        it("legacy fallback keeps the faster 300ms default throttle when cardStreamInterval is unset", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "快速推理1" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+
+            await opts.onReasoningStream?.({ text: "快速推理2" });
+            await vi.advanceTimersByTimeAsync(299);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(streamAICardMock).toHaveBeenCalledTimes(2);
+            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("> 快速推理2");
+        });
+
         it("explicit cardStreamingMode wins over deprecated cardRealTimeStream", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {

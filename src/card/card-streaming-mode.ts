@@ -2,6 +2,8 @@ import type { DingTalkConfig } from "../types";
 
 export type CardStreamingMode = "off" | "answer" | "all";
 
+// Process-lifetime one-shot warnings are intentional here: a given config key
+// should only emit the deprecation notice once per runtime.
 const warnedLegacyConfigs = new Set<string>();
 
 export function resolveCardStreamingMode(

@@ -50,4 +50,12 @@ describe("reasoning-answer-split", () => {
             answerText: "最终答案",
         });
     });
+
+    it("does not treat bare markdown underscores as reasoning content", () => {
+        const text = "Reasoning:\n__\n\n最终答案";
+
+        expect(splitCardReasoningAnswerText(text)).toEqual({
+            answerText: text,
+        });
+    });
 });

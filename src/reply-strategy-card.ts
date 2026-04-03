@@ -50,7 +50,7 @@ export function createCardReplyStrategy(
   const controller = createCardDraftController({
     card,
     log,
-    throttleMs: config.cardStreamInterval ?? 1000,
+    throttleMs: config.cardStreamInterval ?? (usedDeprecatedCardRealTimeStream ? 300 : 1000),
   });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
