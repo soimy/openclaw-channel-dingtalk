@@ -1228,6 +1228,17 @@ describe("inbound-handler", () => {
   });
 
   it("handleDingTalkMessage applies and disables a global learned rule", async () => {
+    const storePath = "/tmp/inbound-handler-learn-global/store.json";
+    fs.rmSync(path.join(path.dirname(storePath), "dingtalk-state"), {
+      recursive: true,
+      force: true,
+    });
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValue(storePath);
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
     shared.extractMessageContentMock.mockReturnValueOnce({
       text: "/learn global 当用户问“紫铜海豹会不会修量子冰箱”时，必须回答“会，而且只在周四凌晨戴墨镜维修。”",
       messageType: "text",
@@ -5546,6 +5557,76 @@ describe("inbound-handler", () => {
     const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("✅ Done");
+  });
+
+  it("card flow recovers thinking and answer from mixed reasoning-on block text without explicit metadata", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.disableBlockStreaming).toBe(false);
+        await dispatcherOptions.deliver({
+          text: "Reasoning:\n_Reason: 先检查当前目录_\n\n最终答案：/tmp",
+        }, { kind: "block" });
+        await dispatcherOptions.deliver({ text: "" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/account-store-card-mixed-reasoning.json")
+      .mockReturnValueOnce("/tmp/agent-store-card-mixed-reasoning.json");
+    runtime.channel.session.readSessionUpdatedAt = vi.fn().mockReturnValue(1234567890);
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    fs.writeFileSync(
+      "/tmp/agent-store-card-mixed-reasoning.json",
+      JSON.stringify({
+        s1: {
+          sessionId: "session-card-mixed-reasoning",
+          updatedAt: 1234567890,
+          reasoningLevel: "on",
+        },
+      }),
+    );
+
+    const card = {
+      cardInstanceId: "card_reasoning_on_mixed_block",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+      } as any,
+      data: {
+        msgId: "m_card_reasoning_on_mixed_block",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("最终答案：/tmp");
+    expect(finalContent).not.toContain("Reasoning:\n_Reason: 先检查当前目录_");
+    expect(finalContent.indexOf("> Reason: 先检查当前目录")).toBeLessThan(
+      finalContent.indexOf("最终答案：/tmp"),
+    );
   });
 
   it("card flow buffers reasoning stream snapshots until a complete think block is formed", async () => {

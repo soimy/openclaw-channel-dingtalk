@@ -1,0 +1,102 @@
+{
+  "hasAction": true,
+  "content": "# 流式富文本内容",
+  "hasQuote": true,
+  "quoteContent": "这是一条测试引用文本",
+  "blockList": [
+    {
+      "text": "Reason: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
+      "markdown": "## markdown 内容 1",
+      "isTool": true,
+      "type": 1,
+      "mediaId": "",
+      "btns": []
+    },
+    {
+      "text": "测试主题",
+      "markdown": "# markdown 内容",
+      "type": 5,
+      "mediaId": "",
+      "btns": []
+    },
+    {
+      "text": "Reason: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
+      "markdown": "## 富文本二级标题\n富文本正文",
+      "type": 0,
+      "mediaId": "",
+      "btns": []
+    },
+    {
+      "text": "Exec: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
+      "markdown": "## markdown 内容 2",
+      "isTool": false,
+      "type": 2,
+      "mediaId": "",
+      "btns": []
+    },
+    {
+      "text": "",
+      "markdown": "# markdown 内容",
+      "type": 4,
+      "mediaId": "@lALPDfmVRLVVAm_NBdzNBdw",
+      "btns": [
+        {
+          "text": "允许",
+          "color": "blue",
+          "status": "normal",
+          "event": {
+            "type": "sendCardRequest",
+            "params": {
+              "actionId": "request",
+              "params": {
+                "key": "value"
+              }
+            }
+          }
+        },
+        {
+          "text": "本次允许",
+          "color": "gray",
+          "status": "normal",
+          "event": {
+            "type": "sendCardRequest",
+            "params": {
+              "actionId": "request",
+              "params": {
+                "key": "value"
+              }
+            }
+          }
+        },
+        {
+          "text": "驳回",
+          "color": "gray",
+          "status": "normal",
+          "event": {
+            "type": "sendCardRequest",
+            "params": {
+              "actionId": "request",
+              "params": {
+                "key": "value"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "text": "",
+      "markdown": "# markdown 内容",
+      "type": 3,
+      "mediaId": "@lALPDfmVRLVVAm_NBdzNBdw",
+      "btns": []
+    }
+  ],
+  "taskInfo": {
+    "model": "gpt-5.4",
+    "effort": "medium",
+    "dapi_usage": 12,
+    "taskTime": 24
+  },
+  "version": 1
+}

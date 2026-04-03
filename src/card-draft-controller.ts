@@ -31,6 +31,8 @@ export interface CardDraftController {
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
     notifyNewAssistantTurn: () => Promise<void>;
     startAssistantTurn: () => Promise<void>;
+    /** Seal the active thinking entry (keep it in timeline) without removing it. */
+    sealActiveThinking: () => Promise<void>;
     flush: () => Promise<void>;
     waitForInFlight: () => Promise<void>;
     stop: () => void;
@@ -347,6 +349,15 @@ export function createCardDraftController(params: {
         appendTool: updateTool,
         notifyNewAssistantTurn,
         startAssistantTurn: notifyNewAssistantTurn,
+        sealActiveThinking: async () => {
+            if (stopped || failed) {
+                return;
+            }
+            if (activeThinkingIndex !== null) {
+                sealLiveThinking();
+                await beginBoundaryFlush();
+            }
+        },
         flush: () => loop.flush(),
         waitForInFlight: () => loop.waitForInFlight(),
 

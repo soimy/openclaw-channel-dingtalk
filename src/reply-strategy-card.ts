@@ -10,6 +10,7 @@ import {
   finishAICard,
   isCardInTerminalState,
 } from "./card-service";
+import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
@@ -26,13 +27,21 @@ export function createCardReplyStrategy(
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
 
-  const controller = createCardDraftController({ card, log });
+  const controller = createCardDraftController({
+    card,
+    log,
+    throttleMs: config.cardStreamReasoning ? (config.cardStreamInterval ?? 1000) : undefined,
+  });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
     attachCardRunController(card.outTrackId, controller);
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
+  let partialAnswerCount = 0;
+  let lastPartialAnswerPreview = "";
+  /** Tracks the latest reasoning snapshot text for non-streaming boundary flush. */
+  let latestReasoningSnapshot = "";
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
     const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
@@ -52,6 +61,17 @@ export function createCardReplyStrategy(
   };
 
   const ingestReasoningSnapshot = async (text: string | undefined): Promise<void> => {
+    if (config.cardStreamReasoning) {
+      // Live mode: stream reasoning in-place via updateReasoning (throttled).
+      // Skip assembler — the full snapshot IS the display text.
+      if (typeof text === "string" && text.trim()) {
+        latestReasoningSnapshot = text;
+        await controller.updateReasoning(text);
+      }
+      return;
+    }
+
+    // Non-streaming mode: track in assembler, only append completed blocks.
     const blocks = reasoningAssembler.ingestSnapshot(text);
     if (
       blocks.length === 0
@@ -59,15 +79,40 @@ export function createCardReplyStrategy(
       && text.trim()
       && !text.trimStart().startsWith("Reasoning:")
     ) {
-      await appendAssembledThinkingBlocks([text.trim()]);
+      // Non-Reasoning format: store snapshot for boundary flush (don't update card yet).
+      latestReasoningSnapshot = text.trim();
       return;
     }
+    latestReasoningSnapshot = "";
     await appendAssembledThinkingBlocks(blocks);
   };
 
   const flushPendingReasoning = async (): Promise<void> => {
+    if (config.cardStreamReasoning) {
+      // Live mode: seal the active thinking entry (keep it in timeline).
+      await controller.sealActiveThinking();
+      latestReasoningSnapshot = "";
+      return;
+    }
+
+    // Non-streaming mode: flush assembler pending + stored snapshot.
     const blocks = reasoningAssembler.flushPendingAtBoundary();
+    if (latestReasoningSnapshot) {
+      blocks.push(latestReasoningSnapshot);
+      latestReasoningSnapshot = "";
+    }
     await appendAssembledThinkingBlocks(blocks);
+  };
+
+  const applySplitTextToTimeline = async (text: string) => {
+    const split = splitCardReasoningAnswerText(text);
+    if (split.reasoningText) {
+      await controller.appendThinkingBlock(split.reasoningText);
+    }
+    if (split.answerText) {
+      await controller.updateAnswer(split.answerText);
+    }
+    return split;
   };
 
   return {
@@ -81,7 +126,21 @@ export function createCardReplyStrategy(
           if (isStopRequested?.()) {
             return;
           }
+
+          if (config.cardStreamReasoning) {
+            // Live mode: seal active thinking (keep it in timeline), start new segment.
+            await controller.sealActiveThinking();
+            latestReasoningSnapshot = "";
+            reasoningAssembler.reset();
+            await controller.notifyNewAssistantTurn();
+            return;
+          }
+
           const pendingReasoningBlocks = reasoningAssembler.flushPendingAtBoundary();
+          if (latestReasoningSnapshot) {
+            pendingReasoningBlocks.push(latestReasoningSnapshot);
+            latestReasoningSnapshot = "";
+          }
           reasoningAssembler.reset();
           const turnBoundary = controller.notifyNewAssistantTurn();
           if (pendingReasoningBlocks.length > 0) {
@@ -95,6 +154,12 @@ export function createCardReplyStrategy(
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
               if (payload.text && !isStopRequested?.()) {
+                partialAnswerCount += 1;
+                lastPartialAnswerPreview = payload.text.slice(0, 120);
+                log?.debug?.(
+                  `[DingTalk][CardDebug] onPartialReply count=${partialAnswerCount} ` +
+                  `textLen=${payload.text.length} preview="${lastPartialAnswerPreview}"`,
+                );
                 await controller.updateAnswer(payload.text);
               }
             }
@@ -110,6 +175,11 @@ export function createCardReplyStrategy(
 
     async deliver(payload: DeliverPayload): Promise<void> {
       const textToSend = payload.text;
+      log?.debug?.(
+        `[DingTalk][CardDebug] deliver kind=${payload.kind} isReasoning=${payload.isReasoning === true} ` +
+        `textLen=${typeof textToSend === "string" ? textToSend.length : 0} ` +
+        `preview="${(typeof textToSend === "string" ? textToSend : "").slice(0, 120)}"`,
+      );
 
       // Empty-payload guard — card final is an exception (e.g. file-only response).
       if ((typeof textToSend !== "string" || textToSend.length === 0) && payload.mediaUrls.length === 0) {
@@ -134,7 +204,20 @@ export function createCardReplyStrategy(
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
-          finalTextForFallback = rawFinalText;
+          if (payload.isReasoning === true) {
+            await ingestReasoningSnapshot(rawFinalText);
+            await flushPendingReasoning();
+          } else {
+            const split = splitCardReasoningAnswerText(rawFinalText);
+            if (split.reasoningText) {
+              await controller.appendThinkingBlock(split.reasoningText);
+            }
+            if (split.answerText) {
+              finalTextForFallback = split.answerText;
+            } else if (!split.reasoningText) {
+              finalTextForFallback = rawFinalText;
+            }
+          }
         }
         return;
       }
@@ -158,7 +241,7 @@ export function createCardReplyStrategy(
         if (isReasoningBlock) {
           await ingestReasoningSnapshot(textToSend);
         } else {
-          await controller.updateAnswer(textToSend);
+          await applySplitTextToTimeline(textToSend);
         }
       }
 
@@ -177,6 +260,14 @@ export function createCardReplyStrategy(
         `lastAnswer="${(controller.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
         `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
       );
+      if (partialAnswerCount > 0 && sawFinalDelivery && !finalTextForFallback) {
+        log?.debug?.(
+          `[DingTalk][CardDebug] finalize missing explicit answer payload after partials ` +
+          `partialAnswerCount=${partialAnswerCount} ` +
+          `lastAnswerLen=${(controller.getLastAnswerContent() ?? "").length} ` +
+          `preview="${lastPartialAnswerPreview}"`,
+        );
+      }
 
       if (isStopRequested?.()) {
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");

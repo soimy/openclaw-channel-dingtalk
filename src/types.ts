@@ -73,6 +73,10 @@ export interface DingTalkConfig extends OpenClawConfig {
   };
   /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
   cardRealTimeStream?: boolean;
+  /** Enable live reasoning stream updates to the card (default false) */
+  cardStreamReasoning?: boolean;
+  /** Throttle interval in ms for reasoning stream updates (default 1000) */
+  cardStreamInterval?: number;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
@@ -133,6 +137,10 @@ export interface DingTalkChannelConfig {
   };
   /** Enable real-time card streaming (default false, true = 300ms throttled per-token updates) */
   cardRealTimeStream?: boolean;
+  /** Enable live reasoning stream updates to the card (default false) */
+  cardStreamReasoning?: boolean;
+  /** Throttle interval in ms for reasoning stream updates (default 1000) */
+  cardStreamInterval?: number;
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
@@ -786,6 +794,8 @@ export function resolveDingTalkAccount(
       bypassProxyForSend: dingtalk?.bypassProxyForSend,
       proactivePermissionHint: dingtalk?.proactivePermissionHint,
       cardRealTimeStream: dingtalk?.cardRealTimeStream,
+      cardStreamReasoning: dingtalk?.cardStreamReasoning,
+      cardStreamInterval: dingtalk?.cardStreamInterval,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       learningEnabled: dingtalk?.learningEnabled,
       learningAutoApply: dingtalk?.learningAutoApply,
