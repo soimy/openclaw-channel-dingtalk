@@ -182,13 +182,18 @@ export function createCardDraftController(params: {
         activeAnswerIndex = null;
     };
 
+    const clearPendingRender = () => {
+        loop.resetPending();
+        lastQueuedContent = "";
+    };
+
     const queueRender = () => {
         const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
-        if (!rendered || rendered === lastSentContent || rendered === lastQueuedContent) {
-            if (!rendered) {
-                loop.resetPending();
-                lastQueuedContent = "";
-            }
+        if (!rendered || rendered === lastSentContent) {
+            clearPendingRender();
+            return;
+        }
+        if (rendered === lastQueuedContent) {
             return;
         }
         lastQueuedContent = rendered;
@@ -342,7 +347,7 @@ export function createCardDraftController(params: {
         }
         if (activeThinkingIndex !== null) {
             removeTimelineEntry(activeThinkingIndex);
-            loop.resetPending();
+            clearPendingRender();
         }
     };
 

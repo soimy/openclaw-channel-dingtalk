@@ -646,4 +646,39 @@ describe("card-draft-controller", () => {
         expect(streamAICardMock).toHaveBeenCalledTimes(1);
         expect(streamAICardMock).toHaveBeenLastCalledWith(card, "same text", false, undefined);
     });
+
+    it("does not suppress the first fresh-turn reasoning update after pending reset", async () => {
+        const card = makeCard();
+        const controller = createCardDraftController({ card, throttleMs: 300 });
+
+        await controller.updateReasoning("首次思考");
+        await vi.advanceTimersByTimeAsync(0);
+
+        streamAICardMock.mockClear();
+
+        await controller.updateReasoning("同一条思考");
+        await controller.notifyNewAssistantTurn();
+        await controller.updateReasoning("同一条思考");
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+        expect(streamAICardMock).toHaveBeenLastCalledWith(card, "> 同一条思考", false, undefined);
+    });
+
+    it("cancels stale queued frame when timeline reverts to last sent content", async () => {
+        const card = makeCard();
+        const controller = createCardDraftController({ card, throttleMs: 300 });
+
+        await controller.updateAnswer("A");
+        await vi.advanceTimersByTimeAsync(0);
+
+        streamAICardMock.mockClear();
+
+        await controller.updateAnswer("B");
+        await controller.updateAnswer("A");
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(streamAICardMock).not.toHaveBeenCalled();
+        expect(controller.getLastContent()).toBe("A");
+    });
 });
