@@ -102,20 +102,18 @@ describe("reply-strategy-card", () => {
             expect(strategy.getReplyOptions().onPartialReply).toBeUndefined();
         });
 
-        it("logs partial answer diagnostics when cardRealTimeStream=true", async () => {
+        it("streams partial answers into the card timeline when cardRealTimeStream=true", async () => {
             const card = makeCard();
-            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
-                log: log as any,
             }));
             const opts = strategy.getReplyOptions();
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
 
-            const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(debugLogs.some((msg) => msg.includes("[DingTalk][CardDebug] onPartialReply"))).toBe(true);
-            expect(debugLogs.some((msg) => msg.includes("阶段性答案"))).toBe(true);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("阶段性答案");
         });
 
         it("always registers onReasoningStream and onAssistantMessageStart", () => {
@@ -317,18 +315,11 @@ describe("reply-strategy-card", () => {
     describe("deliver", () => {
         it("deliver(final) saves text for finalize but does not send immediately", async () => {
             const card = makeCard();
-            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-            const strategy = createCardReplyStrategy(buildCtx(card, { log: log as any }));
+            const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
             expect(sendMessageMock).not.toHaveBeenCalled();
             expect(finishAICardMock).not.toHaveBeenCalled();
             expect(strategy.getFinalText()).toBe("final answer");
-            const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(
-                debugLogs.some((msg) =>
-                    msg.includes("[DingTalk][CardDebug] deliver kind=final isReasoning=false"),
-                ),
-            ).toBe(true);
         });
 
         it("deliver(final) delivers media attachments", async () => {
@@ -394,8 +385,7 @@ describe("reply-strategy-card", () => {
 
         it("deliver(block) routes reasoning-on blocks into the card timeline", async () => {
             const card = makeCard();
-            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-            const strategy = createCardReplyStrategy(buildCtx(card, { log: log as any }));
+            const strategy = createCardReplyStrategy(buildCtx(card));
 
             await strategy.deliver({
                 text: "Reasoning:\n_Reason: 先检查当前目录_",
@@ -407,12 +397,6 @@ describe("reply-strategy-card", () => {
 
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
             expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前目录");
-            const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(
-                debugLogs.some((msg) =>
-                    msg.includes("[DingTalk][CardDebug] deliver kind=block isReasoning=true"),
-                ),
-            ).toBe(true);
         });
 
         it("deliver(block) routes standalone Reasoning text into the thinking lane when no explicit reasoning metadata is present", async () => {
@@ -738,9 +722,8 @@ describe("reply-strategy-card", () => {
             expect(rendered).not.toContain("✅ Done");
         });
 
-        it("logs when partial answers were seen but no final answer payload reached finalize", async () => {
+        it("finalize keeps the latest partial answer when final delivery has no explicit answer text", async () => {
             const card = makeCard();
-            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: {
                     clientId: "id",
@@ -748,7 +731,6 @@ describe("reply-strategy-card", () => {
                     messageType: "card",
                     cardRealTimeStream: true,
                 } as any,
-                log: log as any,
             }));
 
             await strategy.getReplyOptions().onPartialReply?.({ text: "阶段性答案" });
@@ -761,13 +743,10 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(
-                debugLogs.some((msg) =>
-                    msg.includes("[DingTalk][CardDebug] finalize missing explicit answer payload after partials"),
-                ),
-            ).toBe(true);
-            expect(debugLogs.some((msg) => msg.includes("阶段性答案"))).toBe(true);
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("阶段性答案");
+            expect(rendered).toContain("> Reason: 先执行 pwd");
         });
 
         it("finalize keeps late pure-reasoning blocks before the current answer in the same segment", async () => {

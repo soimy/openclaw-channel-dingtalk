@@ -38,8 +38,6 @@ export function createCardReplyStrategy(
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
-  let partialAnswerCount = 0;
-  let lastPartialAnswerPreview = "";
   /** Tracks the latest reasoning snapshot text for non-streaming boundary flush. */
   let latestReasoningSnapshot = "";
 
@@ -154,12 +152,6 @@ export function createCardReplyStrategy(
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
               if (payload.text && !isStopRequested?.()) {
-                partialAnswerCount += 1;
-                lastPartialAnswerPreview = payload.text.slice(0, 120);
-                log?.debug?.(
-                  `[DingTalk][CardDebug] onPartialReply count=${partialAnswerCount} ` +
-                  `textLen=${payload.text.length} preview="${lastPartialAnswerPreview}"`,
-                );
                 await controller.updateAnswer(payload.text);
               }
             }
@@ -175,11 +167,6 @@ export function createCardReplyStrategy(
 
     async deliver(payload: DeliverPayload): Promise<void> {
       const textToSend = payload.text;
-      log?.debug?.(
-        `[DingTalk][CardDebug] deliver kind=${payload.kind} isReasoning=${payload.isReasoning === true} ` +
-        `textLen=${typeof textToSend === "string" ? textToSend.length : 0} ` +
-        `preview="${(typeof textToSend === "string" ? textToSend : "").slice(0, 120)}"`,
-      );
 
       // Empty-payload guard — card final is an exception (e.g. file-only response).
       if ((typeof textToSend !== "string" || textToSend.length === 0) && payload.mediaUrls.length === 0) {
@@ -260,14 +247,6 @@ export function createCardReplyStrategy(
         `lastAnswer="${(controller.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
         `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
       );
-      if (partialAnswerCount > 0 && sawFinalDelivery && !finalTextForFallback) {
-        log?.debug?.(
-          `[DingTalk][CardDebug] finalize missing explicit answer payload after partials ` +
-          `partialAnswerCount=${partialAnswerCount} ` +
-          `lastAnswerLen=${(controller.getLastAnswerContent() ?? "").length} ` +
-          `preview="${lastPartialAnswerPreview}"`,
-        );
-      }
 
       if (isStopRequested?.()) {
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
