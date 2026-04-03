@@ -123,6 +123,8 @@ describe("ApprovalCardStore", () => {
       outTrackId: "track-123",
       conversationId: "cid:test",
       accountId: "default",
+      agentId: "main",
+      sessionKey: "agent:main:dingtalk:user:123",
       expiresAt: Date.now() + 60_000,
     });
     expect(approvalCardStore.get("exec:abc")).toMatchObject({ outTrackId: "track-123" });
@@ -265,32 +267,4 @@ describe("sendExecApprovalCard (createApprovalCard)", () => {
   });
 });
 
-describe("resolveApprovalDecision", () => {
-  it("calls gateway with correct method for exec approval", async () => {
-    const mockRequest = vi.fn().mockResolvedValue({ ok: true });
-    const { resolveApprovalDecision } = await import("../../src/approval-card-service");
-    await resolveApprovalDecision(
-      { t: "approval", d: "allow-once", id: "exec:abc" },
-      { request: mockRequest } as any,
-    );
-    expect(mockRequest).toHaveBeenCalledWith(
-      "exec.approval.resolve",
-      expect.objectContaining({ id: "exec:abc", decision: "allow-once" }),
-      expect.anything(),
-    );
-  });
-
-  it("calls gateway with plugin.approval.resolve for plugin approval", async () => {
-    const mockRequest = vi.fn().mockResolvedValue({ ok: true });
-    const { resolveApprovalDecision } = await import("../../src/approval-card-service");
-    await resolveApprovalDecision(
-      { t: "approval", d: "deny", id: "plugin:abc" },
-      { request: mockRequest } as any,
-    );
-    expect(mockRequest).toHaveBeenCalledWith(
-      "plugin.approval.resolve",
-      expect.objectContaining({ id: "plugin:abc", decision: "deny" }),
-      expect.anything(),
-    );
-  });
-});
+// handleApprovalCardCallback tests are in approval-card-callback.test.ts

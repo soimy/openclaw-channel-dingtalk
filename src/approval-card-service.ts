@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import axios from "axios";
 import type { ExecApprovalRequest, PluginApprovalRequest } from "openclaw/plugin-sdk/approval-runtime";
-import type { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getAccessToken } from "./auth";
 import { stripTargetPrefix } from "./config";
@@ -21,6 +20,8 @@ export type ApprovalCardEntry = {
   outTrackId: string;
   conversationId: string;
   accountId: string | null | undefined;
+  agentId: string;
+  sessionKey: string;
   expiresAt: number;
 };
 export const approvalCardStore = new Map<string, ApprovalCardEntry>();
@@ -191,6 +192,8 @@ export async function sendExecApprovalCard(
       outTrackId: storedOutTrackId,
       conversationId,
       accountId,
+      agentId: request.request.agentId ?? "main",
+      sessionKey: request.request.sessionKey ?? "",
       expiresAt: request.expiresAtMs + 30_000,
     });
     log?.info?.(`[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${storedOutTrackId}`);
@@ -218,6 +221,8 @@ export async function sendPluginApprovalCard(
       outTrackId: storedOutTrackId,
       conversationId,
       accountId,
+      agentId: request.request.agentId ?? "main",
+      sessionKey: request.request.sessionKey ?? "",
       expiresAt: request.expiresAtMs + 30_000,
     });
     log?.info?.(`[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${storedOutTrackId}`);
@@ -307,82 +312,40 @@ export function parseApprovalActionValue(raw: string): ApprovalAction | null {
   return null;
 }
 
-// --- Gateway client singleton ---
-
-let _gatewayClientPromise: Promise<GatewayClient | null> | undefined;
-
-function getGatewayClient(cfg: OpenClawConfig): Promise<GatewayClient | null> {
-  if (!_gatewayClientPromise) {
-    _gatewayClientPromise = (async () => {
-      try {
-        const { createOperatorApprovalsGatewayClient } = await import(
-          "openclaw/plugin-sdk/gateway-runtime"
-        );
-        const client = await createOperatorApprovalsGatewayClient({
-          config: cfg,
-          clientDisplayName: "dingtalk-approval",
-        });
-        client.start();
-        return client;
-      } catch {
-        getLogger()?.warn?.("[DingTalk][ApprovalCard] Gateway client unavailable (old OpenClaw?)");
-        return null;
-      }
-    })();
-  }
-  return _gatewayClientPromise;
-}
-
-// Prewarm: trigger gateway client init early so connection is ready before button click
-export function prewarmGatewayClient(cfg: OpenClawConfig): void {
-  void getGatewayClient(cfg);
-}
-
-// --- Resolve approval via gateway ---
-
-export async function resolveApprovalDecision(
-  action: ApprovalAction,
-  client: GatewayClient,
-): Promise<void> {
-  const method = action.id.startsWith("exec:") ? "exec.approval.resolve" : "plugin.approval.resolve";
-  await client.request(method, { id: action.id, decision: action.d }, { expectFinal: true });
-}
+// --- Resolve approval via command session dispatch ---
 
 export async function handleApprovalCardCallback(
   action: ApprovalAction,
   cfg: OpenClawConfig,
   config: DingTalkConfig,
+  clickerUserId?: string,
 ): Promise<void> {
   const log = getLogger();
-  const client = await getGatewayClient(cfg);
-  if (!client) {
-    log?.warn?.(`[DingTalk][ApprovalCard] No gateway client, cannot resolve ${action.id}`);
-    return;
-  }
-  const maxAttempts = 5;
-  let resolved = false;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      await resolveApprovalDecision(action, client);
-      log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d}`);
-      resolved = true;
-      break;
-    } catch (err: unknown) {
-      if (attempt === maxAttempts) {
-        log?.error?.(`[DingTalk][ApprovalCard] Gateway resolve failed after ${maxAttempts} attempts: ${(err as Error).message}`);
-      } else {
-        log?.warn?.(`[DingTalk][ApprovalCard] Resolve attempt ${attempt} failed, retrying in 500ms: ${(err as Error).message}`);
-        await new Promise<void>((r) => setTimeout(r, 500));
-      }
-    }
-  }
-  if (!resolved) {
-    return;
-  }
-  // Update card UI (best-effort)
   const entry = approvalCardStore.get(action.id);
-  if (entry) {
-    approvalCardStore.delete(action.id);
-    await updateApprovalCardResolved(config, entry.outTrackId, action.d);
+  if (!entry) {
+    log?.warn?.(`[DingTalk][ApprovalCard] No store entry for ${action.id}, cannot resolve`);
+    return;
+  }
+  if (!entry.sessionKey) {
+    log?.warn?.(`[DingTalk][ApprovalCard] No sessionKey for ${action.id}, cannot route command`);
+    return;
+  }
+
+  try {
+    const { dispatchDingTalkCardApproveCommand } = await import("./command/card-approve-command");
+    await dispatchDingTalkCardApproveCommand({
+      cfg,
+      config,
+      accountId: entry.accountId ?? "",
+      agentId: entry.agentId,
+      targetSessionKey: entry.sessionKey,
+      clickerUserId: clickerUserId ?? "unknown",
+      approvalId: action.id,
+      decision: action.d,
+      log,
+    });
+    log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d} via command session dispatch`);
+  } catch (err: unknown) {
+    log?.error?.(`[DingTalk][ApprovalCard] Command session dispatch failed: ${(err as Error).message}`);
   }
 }

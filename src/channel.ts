@@ -67,7 +67,6 @@ import {
   handleApprovalCardCallback,
   parseApprovalFromCardPrivateData,
   parseApprovalActionValue,
-  prewarmGatewayClient,
 } from "./approval-card-service";
 import {
   buildExecApprovalText,
@@ -451,7 +450,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         | undefined;
       if (approvalData) {
         const config = getConfig(cfg, accountId);
-        prewarmGatewayClient(cfg);
         const result =
           approvalData.type === "exec"
             ? await sendExecApprovalCard(config, to, accountId, approvalData.request, approvalData.nowMs)
@@ -871,7 +869,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               ctx.log?.info?.(
                 `[${account.accountId}] [DingTalk][ApprovalCard] approval callback id=${approvalAction.id} decision=${approvalAction.d}`,
               );
-              await handleApprovalCardCallback(approvalAction, cfg, config);
+              await handleApprovalCardCallback(approvalAction, cfg, config, analysis.userId);
               return;
             }
 

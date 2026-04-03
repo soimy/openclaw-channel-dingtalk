@@ -808,6 +808,74 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
+  // ---- Early /approve bypass: command session dispatch ----
+  // Plugin approval's waitDecision blocks inside dispatchReply, holding the
+  // session lock. Routing /approve through the normal pipeline would deadlock
+  // on acquireSessionLock. Instead, construct a command session with a separate
+  // sessionKey and let SDK route the command to the target session via
+  // CommandTargetSessionKey — same pattern as command/card-stop-command.ts.
+  const textForApproveCheck = !isDirect
+    ? extractedContent.text.replace(/^(?:@\S+\s+)*/u, "").trim()
+    : extractedContent.text.trim();
+  if (/^\/approve\b/i.test(textForApproveCheck)) {
+    log?.info?.(
+      `[DingTalk] /approve command detected, dispatching via command session ` +
+      `(target=${route.sessionKey})`,
+    );
+    const commandSessionKey = `agent:${route.agentId}:dingtalk:approve:${senderId}`;
+    const ctx = rt.channel.reply.finalizeInboundContext({
+      Body: textForApproveCheck,
+      RawBody: textForApproveCheck,
+      CommandBody: textForApproveCheck,
+      SessionKey: commandSessionKey,
+      CommandTargetSessionKey: route.sessionKey,
+      CommandSource: "native" as const,
+      CommandAuthorized: true,
+      AccountId: accountId,
+      Provider: "dingtalk",
+      Surface: "dingtalk",
+      ChatType: isDirect ? "direct" : "group",
+      From: `dingtalk:approve:${senderId}`,
+      To: `approve:${senderId}`,
+      SenderId: senderId,
+      OriginatingChannel: "dingtalk",
+      OriginatingTo: to,
+    });
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload: ReplyStreamPayload) => {
+            if (!payload.text) return;
+            try {
+              if (sessionWebhook) {
+                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                  log, accountId, storePath: accountStorePath,
+                });
+              } else {
+                await sendMessage(dingtalkConfig, to, payload.text, {
+                  log, accountId, storePath: accountStorePath,
+                  conversationId: groupId,
+                });
+              }
+            } catch (deliverErr) {
+              log?.warn?.(
+                `[DingTalk] /approve reply delivery failed: ${getErrorMessage(deliverErr)}`,
+              );
+            }
+          },
+        },
+      });
+    } catch (approveErr) {
+      log?.warn?.(
+        `[DingTalk] /approve command dispatch failed: ${getErrorMessage(approveErr)}`,
+      );
+    }
+    return;
+  }
+
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
