@@ -55,6 +55,48 @@ describe('message-utils advanced extraction', () => {
         expect(result.quoted).toBeUndefined();
     });
 
+    it('extracts markdown message from content.text', () => {
+        const result = extractMessageContent({
+            msgtype: 'markdown',
+            content: {
+                text: '> 🤖 **墨客**:\n\n## 长城\n\n它不是用砖砌的',
+                title: '🤖 **墨客**:',
+            },
+        } as any);
+
+        expect(result.messageType).toBe('markdown');
+        expect(result.text).toBe('> 🤖 **墨客**:\n\n## 长城\n\n它不是用砖砌的');
+    });
+
+    it('falls back to placeholder when markdown content.text is empty', () => {
+        const result = extractMessageContent({
+            msgtype: 'markdown',
+            content: {},
+        } as any);
+
+        expect(result.messageType).toBe('markdown');
+        expect(result.text).toBe('[markdown消息]');
+    });
+
+    it('falls back to placeholder when markdown has no content field', () => {
+        const result = extractMessageContent({
+            msgtype: 'markdown',
+        } as any);
+
+        expect(result.messageType).toBe('markdown');
+        expect(result.text).toBe('[markdown消息]');
+    });
+
+    it('falls back to placeholder when markdown content.text is whitespace-only', () => {
+        const result = extractMessageContent({
+            msgtype: 'markdown',
+            content: { text: '   \n  ' },
+        } as any);
+
+        expect(result.messageType).toBe('markdown');
+        expect(result.text).toBe('[markdown消息]');
+    });
+
     it('falls back for unknown msgtype', () => {
         const result = extractMessageContent({ msgtype: 'unknownType', text: { content: '' } } as any);
         expect(result.text).toBe('[unknownType消息]');

@@ -553,6 +553,17 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
     };
   }
 
+  if (msgtype === "markdown") {
+    const mdText = typeof data.content?.text === "string" ? data.content.text.trim() : "";
+    return {
+      text: mdText || "[markdown消息]",
+      messageType: "markdown",
+      quoted: quoted ?? undefined,
+      atMentions,
+      atUserDingtalkIds,
+    };
+  }
+
   if (msgtype === "interactiveCard") {
     const docMeta = parseBizCustomActionUrl(data.content?.biz_custom_action_url);
     if (docMeta) {
