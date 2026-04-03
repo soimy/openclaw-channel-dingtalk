@@ -215,18 +215,18 @@ async function createApprovalCard(
   }
 }
 
-export async function sendExecApprovalCard(
+async function sendApprovalCard(
   config: DingTalkConfig,
   target: string,
   accountId: string | null | undefined,
-  request: ExecApprovalRequest,
-  nowMs: number,
+  request: ExecApprovalRequest | PluginApprovalRequest,
+  cardParamMap: Record<string, string>,
+  approvalType: "exec" | "plugin",
 ): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
   const log = getLogger();
   const { targetId } = stripTargetPrefix(target);
   const conversationId = resolveOriginalPeerId(targetId);
   const outTrackId = `approval_${randomUUID()}`;
-  const cardParamMap = buildExecApprovalCardParamMap(request, nowMs);
   const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
   if (result.ok) {
     const storedOutTrackId = result.effectiveOutTrackId ?? outTrackId;
@@ -240,7 +240,7 @@ export async function sendExecApprovalCard(
       expiresAt: request.expiresAtMs + 30_000,
     });
     log?.info?.(
-      `[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${storedOutTrackId}`,
+      `[DingTalk][ApprovalCard] Card sent for ${approvalType} approval ${request.id} outTrackId=${storedOutTrackId}`,
     );
   }
   return {
@@ -250,6 +250,16 @@ export async function sendExecApprovalCard(
   };
 }
 
+export async function sendExecApprovalCard(
+  config: DingTalkConfig,
+  target: string,
+  accountId: string | null | undefined,
+  request: ExecApprovalRequest,
+  nowMs: number,
+): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
+  return sendApprovalCard(config, target, accountId, request, buildExecApprovalCardParamMap(request, nowMs), "exec");
+}
+
 export async function sendPluginApprovalCard(
   config: DingTalkConfig,
   target: string,
@@ -257,32 +267,7 @@ export async function sendPluginApprovalCard(
   request: PluginApprovalRequest,
   nowMs: number,
 ): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
-  const log = getLogger();
-  const { targetId } = stripTargetPrefix(target);
-  const conversationId = resolveOriginalPeerId(targetId);
-  const outTrackId = `approval_${randomUUID()}`;
-  const cardParamMap = buildPluginApprovalCardParamMap(request, nowMs);
-  const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
-  if (result.ok) {
-    const storedOutTrackId = result.effectiveOutTrackId ?? outTrackId;
-    cleanupExpiredApprovalCards();
-    approvalCardStore.set(request.id, {
-      outTrackId: storedOutTrackId,
-      conversationId,
-      accountId,
-      agentId: request.request.agentId ?? "main",
-      sessionKey: request.request.sessionKey ?? "",
-      expiresAt: request.expiresAtMs + 30_000,
-    });
-    log?.info?.(
-      `[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${storedOutTrackId}`,
-    );
-  }
-  return {
-    ok: result.ok,
-    outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined,
-    error: result.error,
-  };
+  return sendApprovalCard(config, target, accountId, request, buildPluginApprovalCardParamMap(request, nowMs), "plugin");
 }
 
 // --- Card update after resolution ---
@@ -427,7 +412,7 @@ export async function handleApprovalCardCallback(
     await updateApprovalCardResolved(config, entry.outTrackId, action.d);
   } catch (err: unknown) {
     log?.error?.(
-      `[DingTalk][ApprovalCard] Command session dispatch failed: ${(err as Error).message}`,
+      `[DingTalk][ApprovalCard] Command session dispatch failed for ${action.id}: ${(err as Error).message}`,
     );
   }
 }
