@@ -12,6 +12,11 @@ import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 
 // ---- Public types ------------------------------------------------
 
+type InternalReplyStrategyConfig = DingTalkConfig & {
+  /** @deprecated Internal compatibility only. Removed from public config surface. */
+  cardStreamReasoning?: boolean;
+};
+
 export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
@@ -45,7 +50,7 @@ export interface ReplyStrategy {
 
 /** Shared context passed to every strategy implementation. */
 export interface ReplyStrategyContext {
-  config: DingTalkConfig;
+  config: InternalReplyStrategyConfig;
   to: string;
   sessionWebhook: string;
   senderId: string;
