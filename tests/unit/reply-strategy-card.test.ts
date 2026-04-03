@@ -889,6 +889,69 @@ describe("reply-strategy-card", () => {
             expect(strategy.getFinalText()).toBe("阶段性答案 + 最终补充");
         });
 
+        it("freezes answer updates after first final while still accepting late reasoning and tool tails", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    cardStreamingMode: "answer",
+                } as any,
+            }));
+            const replyOptions = strategy.getReplyOptions();
+
+            await replyOptions.onPartialReply?.({ text: "阶段性答案" });
+            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
+
+            await replyOptions.onPartialReply?.({ text: "晚到 partial 答案（应忽略）" });
+            await strategy.deliver({ text: "晚到 block 答案（应忽略）", mediaUrls: [], kind: "block" });
+            await replyOptions.onReasoningStream?.({ text: "Reasoning:\n_Reason: 最后补齐思考_" });
+            await strategy.deliver({ text: "late tool output", mediaUrls: [], kind: "tool" });
+            await strategy.deliver({ text: "晚到 final 覆盖答案（应忽略）", mediaUrls: [], kind: "final" });
+
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("首个最终答案");
+            expect(rendered).toContain("> Reason: 最后补齐思考");
+            expect(rendered).toContain("> late tool output");
+            expect(rendered).not.toContain("晚到 partial 答案（应忽略）");
+            expect(rendered).not.toContain("晚到 block 答案（应忽略）");
+            expect(rendered).not.toContain("晚到 final 覆盖答案（应忽略）");
+            expect(strategy.getFinalText()).toBe("首个最终答案");
+        });
+
+        it("ignores all callbacks and deliveries after finalize seals the card lifecycle", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    cardStreamingMode: "all",
+                } as any,
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const replyOptions = strategy.getReplyOptions();
+
+            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            const streamCallCountAfterFinalize = streamAICardMock.mock.calls.length;
+            await replyOptions.onPartialReply?.({ text: "sealed 后 partial（应忽略）" });
+            await replyOptions.onReasoningStream?.({ text: "Reasoning:\n_Reason: sealed 后 reasoning（应忽略）_" });
+            await replyOptions.onAssistantMessageStart?.();
+            await strategy.deliver({ text: "sealed 后 tool（应忽略）", mediaUrls: [], kind: "tool" });
+            await strategy.deliver({ text: "sealed 后 final（应忽略）", mediaUrls: ["/tmp/final.png"], kind: "final" });
+
+            expect(streamAICardMock.mock.calls.length).toBe(streamCallCountAfterFinalize);
+            expect(ctx.deliverMedia).not.toHaveBeenCalled();
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            expect(strategy.getFinalText()).toBe("首个最终答案");
+        });
+
         it("streams plain reasoning-like partial replies as ordinary answer text when no explicit reasoning signal exists", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {

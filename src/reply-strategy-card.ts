@@ -36,6 +36,7 @@ export function createCardReplyStrategy(
   const streamThinkingLive = mode === "all";
   let lifecycleState: CardReplyLifecycleState = "open";
   const shouldAcceptAnswerSnapshot = () => lifecycleState === "open";
+  const isLifecycleSealed = () => lifecycleState === "sealed";
 
   if (usedDeprecatedCardRealTimeStream) {
     const warningKey = `dingtalk-card-streaming:${ctx.accountId || config.clientId || "default"}`;
@@ -177,9 +178,16 @@ export function createCardReplyStrategy(
     await controller.updateAnswer(text);
   };
 
-  const applySplitTextToTimeline = async (text: string) => {
+  const applySplitTextToTimeline = async (
+    text: string,
+    options: { allowAnswerUpdate?: boolean } = {},
+  ) => {
+    const allowAnswerUpdate = options.allowAnswerUpdate !== false;
     const normalized = normalizeDeliveredText(text, { isReasoning: false });
-    await applyDeliveredContent(normalized, { routeReasoningThroughModePolicy: false });
+    await applyDeliveredContent({
+      reasoningText: normalized.reasoningText,
+      answerText: allowAnswerUpdate ? normalized.answerText : undefined,
+    }, { routeReasoningThroughModePolicy: false });
     return normalized;
   };
 
@@ -191,7 +199,7 @@ export function createCardReplyStrategy(
         disableBlockStreaming: ctx.disableBlockStreaming ?? true,
 
         onAssistantMessageStart: async () => {
-          if (isStopRequested?.()) {
+          if (isLifecycleSealed() || isStopRequested?.()) {
             return;
           }
           await handleAssistantBoundary();
@@ -204,12 +212,18 @@ export function createCardReplyStrategy(
           : undefined,
 
         onReasoningStream: async (payload) => {
+          if (isLifecycleSealed() || isStopRequested?.()) {
+            return;
+          }
           await applyModeAwareReasoningSnapshot(payload.text);
         },
       };
     },
 
     async deliver(payload: DeliverPayload): Promise<void> {
+      if (isLifecycleSealed()) {
+        return;
+      }
       const textToSend = payload.text;
 
       // Empty-payload guard — card final is an exception (e.g. file-only response).
@@ -221,9 +235,12 @@ export function createCardReplyStrategy(
 
       // ---- final: defer to finalize, just save text ----
       if (payload.kind === "final") {
+        const isFirstFinalDelivery = !sawFinalDelivery;
         lifecycleState = "final_seen";
         await flushPendingReasoning();
-        sawFinalDelivery = true;
+        if (isFirstFinalDelivery) {
+          sawFinalDelivery = true;
+        }
         log?.info?.(
           `[DingTalk][Finalize] deliver(final) received — cardState=${card.state} ` +
           `textLen=${typeof textToSend === "string" ? textToSend.length : "null"} ` +
@@ -244,9 +261,9 @@ export function createCardReplyStrategy(
             if (normalizedFinal.reasoningText) {
               await controller.appendThinkingBlock(normalizedFinal.reasoningText);
             }
-            if (normalizedFinal.answerText) {
+            if (isFirstFinalDelivery && normalizedFinal.answerText) {
               finalTextForFallback = normalizedFinal.answerText;
-            } else if (!normalizedFinal.reasoningText) {
+            } else if (isFirstFinalDelivery && !normalizedFinal.reasoningText) {
               finalTextForFallback = rawFinalText;
             }
           }
@@ -274,7 +291,9 @@ export function createCardReplyStrategy(
           const normalized = normalizeDeliveredText(textToSend, { isReasoning: true });
           await applyDeliveredContent(normalized, { routeReasoningThroughModePolicy: false });
         } else {
-          await applySplitTextToTimeline(textToSend);
+          await applySplitTextToTimeline(textToSend, {
+            allowAnswerUpdate: lifecycleState === "open",
+          });
         }
       }
 

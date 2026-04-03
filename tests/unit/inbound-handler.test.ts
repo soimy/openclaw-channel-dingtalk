@@ -5658,7 +5658,7 @@ describe("inbound-handler", () => {
         dmPolicy: "open",
         messageType: "card",
         ackReaction: "",
-        cardRealTimeStream: true,
+        cardStreamingMode: "answer",
       } as any,
       data: {
         msgId: "m_reasoning_stream_block",
@@ -5708,7 +5708,7 @@ describe("inbound-handler", () => {
         dmPolicy: "open",
         messageType: "card",
         ackReaction: "",
-        cardRealTimeStream: true,
+        cardStreamingMode: "answer",
       } as any,
       data: {
         msgId: "m_reasoning_pending_final",
@@ -5764,7 +5764,7 @@ describe("inbound-handler", () => {
         dmPolicy: "open",
         messageType: "card",
         ackReaction: "",
-        cardRealTimeStream: true,
+        cardStreamingMode: "answer",
       } as any,
       data: {
         msgId: "m_reasoning_multi_turn",
@@ -5787,6 +5787,66 @@ describe("inbound-handler", () => {
     expect(finalContent.indexOf("Reason: 第一轮未封口")).toBeLessThan(
       finalContent.indexOf("Reason: 第二轮新思考"),
     );
+  });
+
+  it("card flow keeps the first final answer while accepting late reasoning/tool tails after final", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "阶段性答案" });
+        await dispatcherOptions.deliver({ text: "首个最终答案" }, { kind: "final" });
+        await replyOptions?.onPartialReply?.({ text: "晚到 partial 覆盖答案（应忽略）" });
+        await dispatcherOptions.deliver(
+          { text: "晚到 block 覆盖答案（应忽略）\n\nReasoning:\n_Reason: final 后补齐推理_" },
+          { kind: "block" },
+        );
+        await dispatcherOptions.deliver({ text: "late tool output" }, { kind: "tool" });
+        await dispatcherOptions.deliver({ text: "晚到 final 覆盖答案（应忽略）" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_late_after_final",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardStreamingMode: "answer",
+      } as any,
+      data: {
+        msgId: "m_card_late_after_final",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(finalContent).toContain("首个最终答案");
+    expect(finalContent).toContain("> Reason: final 后补齐推理");
+    expect(finalContent).toContain("> late tool output");
+    expect(finalContent).not.toContain("晚到 partial 覆盖答案（应忽略）");
+    expect(finalContent).not.toContain("晚到 block 覆盖答案（应忽略）");
+    expect(finalContent).not.toContain("晚到 final 覆盖答案（应忽略）");
   });
 
   it("sends proactive permission hint when proactive API risk was observed", async () => {
