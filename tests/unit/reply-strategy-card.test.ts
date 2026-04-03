@@ -87,25 +87,27 @@ describe("reply-strategy-card", () => {
             expect(strategy.getReplyOptions().disableBlockStreaming).toBe(false);
         });
 
-        it("registers onPartialReply only when cardRealTimeStream=true", () => {
+        it("registers onPartialReply when cardStreamingMode=answer", () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
             });
             const opts = createCardReplyStrategy(ctx).getReplyOptions();
             expect(opts.onPartialReply).toBeDefined();
         });
 
-        it("does not register onPartialReply when cardRealTimeStream=false", () => {
+        it("does not register onPartialReply when cardStreamingMode=off", () => {
             const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card));
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
+            }));
             expect(strategy.getReplyOptions().onPartialReply).toBeUndefined();
         });
 
-        it("streams partial answers into the card timeline when cardRealTimeStream=true", async () => {
+        it("streams partial answers into the card timeline when cardStreamingMode=answer", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
             }));
             const opts = strategy.getReplyOptions();
 
@@ -207,87 +209,130 @@ describe("reply-strategy-card", () => {
         });
     });
 
-    describe("cardStreamReasoning", () => {
-        it("streams reasoning in-place when cardStreamReasoning=true", async () => {
+    describe("cardStreamingMode", () => {
+        it("off mode does not live-stream partial answers and only flushes reasoning at boundary/final", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamReasoning: true } as any,
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
             }));
             const opts = strategy.getReplyOptions();
 
-            await opts.onReasoningStream?.({ text: "我先思考一下" });
-            await vi.advanceTimersByTimeAsync(1000);
+            expect(opts.onPartialReply).toBeUndefined();
 
-            expect(streamAICardMock).toHaveBeenCalled();
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 我先思考一下");
-        });
-
-        it("does not stream reasoning during onReasoningStream when cardStreamReasoning=false (default)", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card));
-            const opts = strategy.getReplyOptions();
-
-            // Non-Reasoning format: should NOT trigger streamAICard during snapshot.
-            await opts.onReasoningStream?.({ text: "直接思考文本" });
-            await vi.advanceTimersByTimeAsync(1000);
-
-            expect(streamAICardMock).not.toHaveBeenCalled();
-        });
-
-        it("flushes stored reasoning snapshot at boundary when cardStreamReasoning=false", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card));
-            const opts = strategy.getReplyOptions();
-
-            await opts.onReasoningStream?.({ text: "积累的思考" });
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_先检查当前目录_" });
             await vi.advanceTimersByTimeAsync(0);
             expect(streamAICardMock).not.toHaveBeenCalled();
 
-            await strategy.deliver({ text: "答案", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(streamAICardMock).toHaveBeenCalled();
-            const allContent = streamAICardMock.mock.calls.map(c => c[1]).join("\n");
-            expect(allContent).toContain("> 积累的思考");
-        });
-
-        it("seals active thinking on turn boundary without removing it when cardStreamReasoning=true", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamReasoning: true } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            // Stream first reasoning turn
-            await opts.onReasoningStream?.({ text: "第一轮推理" });
-            await vi.advanceTimersByTimeAsync(1000);
-            const firstCallCount = streamAICardMock.mock.calls.length;
-            expect(firstCallCount).toBeGreaterThanOrEqual(1);
-            expect(streamAICardMock.mock.calls[firstCallCount - 1]?.[1]).toContain("> 第一轮推理");
-
-            // Turn boundary — thinking should be sealed, not removed
-            await opts.onAssistantMessageStart?.();
-            await vi.advanceTimersByTimeAsync(1000);
-
-            // Stream second reasoning turn
-            await opts.onReasoningStream?.({ text: "第二轮推理" });
-            await vi.advanceTimersByTimeAsync(1000);
-
-            // Final card should contain both reasoning turns
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const lastCallContent = finishAICardMock.mock.calls[0]?.[1] ?? "";
-            expect(lastCallContent).toContain("> 第一轮推理");
-            expect(lastCallContent).toContain("最终答案");
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> 先检查当前目录");
+            expect(rendered).toContain("最终答案");
         });
 
-        it("respects cardStreamInterval for throttle", async () => {
+        it("answer mode streams partial answers but buffers reasoning until boundary/final", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 暂存思考" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> Reason: 暂存思考");
+            expect(rendered).toContain("最终答案");
+        });
+
+        it("all mode streams answer partials and reasoning snapshots live", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "all" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "第一轮推理" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 第一轮推理");
+
+            await opts.onAssistantMessageStart?.();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(2);
+            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("阶段性答案");
+        });
+
+        it("legacy fallback maps cardRealTimeStream=true to all mode when cardStreamingMode is omitted", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            expect(opts.onPartialReply).toBeDefined();
+
+            await opts.onReasoningStream?.({ text: "兼容模式推理" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 兼容模式推理");
+
+            await opts.onPartialReply?.({ text: "兼容模式答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).toHaveBeenCalledTimes(2);
+            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("兼容模式答案");
+        });
+
+        it("explicit cardStreamingMode wins over deprecated cardRealTimeStream", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: {
-                    clientId: "id", clientSecret: "s", messageType: "card",
-                    cardStreamReasoning: true,
+                    clientId: "id",
+                    clientSecret: "s",
+                    messageType: "card",
+                    cardStreamingMode: "off",
+                    cardRealTimeStream: true,
+                } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            expect(opts.onPartialReply).toBeUndefined();
+
+            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 优先显式模式" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).not.toHaveBeenCalled();
+
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> Reason: 优先显式模式");
+            expect(rendered).toContain("最终答案");
+        });
+
+        it("respects cardStreamInterval for throttle in all mode", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "s",
+                    messageType: "card",
+                    cardStreamingMode: "all",
                     cardStreamInterval: 2000,
                 } as any,
             }));
@@ -298,16 +343,12 @@ describe("reply-strategy-card", () => {
             await opts.onReasoningStream?.({ text: "快速思考2" });
             await vi.advanceTimersByTimeAsync(500);
 
-            // At 1000ms with 2000ms throttle, first call should have fired, second should be pending
             const callsAt1000 = streamAICardMock.mock.calls.length;
             expect(callsAt1000).toBe(1);
 
-            // Advance to 2000ms — second call should fire
             await vi.advanceTimersByTimeAsync(1000);
             const callsAt2000 = streamAICardMock.mock.calls.length;
             expect(callsAt2000).toBe(2);
-
-            // The latest-wins behavior means the second call should have "快速思考2"
             expect(streamAICardMock.mock.calls[callsAt2000 - 1]?.[1]).toContain("> 快速思考2");
         });
     });

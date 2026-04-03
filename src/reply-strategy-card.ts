@@ -12,6 +12,10 @@ import {
 } from "./card-service";
 import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
+import {
+  resolveCardStreamingMode,
+  shouldWarnDeprecatedCardRealTimeStreamOnce,
+} from "./card/card-streaming-mode";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
@@ -21,16 +25,31 @@ import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
 const EMPTY_FINAL_REPLY = "✅ Done";
+type CardReplyLifecycleState = "open" | "final_seen" | "sealed";
 
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
+  const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
+  const streamAnswerLive = mode === "answer" || mode === "all";
+  const streamThinkingLive = mode === "all";
+  let lifecycleState: CardReplyLifecycleState = "open";
+  const shouldAcceptAnswerSnapshot = () => lifecycleState === "open";
+
+  if (usedDeprecatedCardRealTimeStream) {
+    const warningKey = `dingtalk-card-streaming:${ctx.accountId || config.clientId || "default"}`;
+    if (shouldWarnDeprecatedCardRealTimeStreamOnce(warningKey)) {
+      log?.warn?.(
+        "[DingTalk][Config] `cardRealTimeStream` is deprecated. Use `cardStreamingMode` with `off` | `answer` | `all`.",
+      );
+    }
+  }
 
   const controller = createCardDraftController({
     card,
     log,
-    throttleMs: config.cardStreamReasoning ? (config.cardStreamInterval ?? 1000) : undefined,
+    throttleMs: config.cardStreamInterval ?? 1000,
   });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
@@ -58,26 +77,20 @@ export function createCardReplyStrategy(
     }
   };
 
-  const ingestReasoningSnapshot = async (text: string | undefined): Promise<void> => {
-    if (config.cardStreamReasoning) {
-      // Live mode: stream reasoning in-place via updateReasoning (throttled).
-      // Skip assembler — the full snapshot IS the display text.
-      if (typeof text === "string" && text.trim()) {
-        latestReasoningSnapshot = text;
-        await controller.updateReasoning(text);
-      }
+  const applyModeAwareReasoningSnapshot = async (text: string | undefined): Promise<void> => {
+    if (typeof text !== "string" || !text.trim() || isStopRequested?.()) {
       return;
     }
-
-    // Non-streaming mode: track in assembler, only append completed blocks.
+    if (streamThinkingLive) {
+      latestReasoningSnapshot = text;
+      await controller.updateReasoning(text);
+      return;
+    }
     const blocks = reasoningAssembler.ingestSnapshot(text);
     if (
       blocks.length === 0
-      && typeof text === "string"
-      && text.trim()
       && !text.trimStart().startsWith("Reasoning:")
     ) {
-      // Non-Reasoning format: store snapshot for boundary flush (don't update card yet).
       latestReasoningSnapshot = text.trim();
       return;
     }
@@ -86,14 +99,11 @@ export function createCardReplyStrategy(
   };
 
   const flushPendingReasoning = async (): Promise<void> => {
-    if (config.cardStreamReasoning) {
-      // Live mode: seal the active thinking entry (keep it in timeline).
+    if (streamThinkingLive) {
       await controller.sealActiveThinking();
       latestReasoningSnapshot = "";
       return;
     }
-
-    // Non-streaming mode: flush assembler pending + stored snapshot.
     const blocks = reasoningAssembler.flushPendingAtBoundary();
     if (latestReasoningSnapshot) {
       blocks.push(latestReasoningSnapshot);
@@ -102,15 +112,75 @@ export function createCardReplyStrategy(
     await appendAssembledThinkingBlocks(blocks);
   };
 
-  const applySplitTextToTimeline = async (text: string) => {
+  const handleAssistantBoundary = async (): Promise<void> => {
+    if (streamThinkingLive) {
+      await controller.sealActiveThinking();
+      latestReasoningSnapshot = "";
+      reasoningAssembler.reset();
+      await controller.notifyNewAssistantTurn();
+      return;
+    }
+    const pendingReasoningBlocks = reasoningAssembler.flushPendingAtBoundary();
+    if (latestReasoningSnapshot) {
+      pendingReasoningBlocks.push(latestReasoningSnapshot);
+      latestReasoningSnapshot = "";
+    }
+    reasoningAssembler.reset();
+    const turnBoundary = controller.notifyNewAssistantTurn();
+    if (pendingReasoningBlocks.length > 0) {
+      await turnBoundary;
+      await appendAssembledThinkingBlocks(pendingReasoningBlocks);
+      return;
+    }
+    await turnBoundary;
+  };
+
+  const normalizeDeliveredText = (
+    text: string,
+    options: { isReasoning: boolean },
+  ): { reasoningText?: string; answerText?: string } => {
+    if (options.isReasoning) {
+      const split = splitCardReasoningAnswerText(text);
+      return { reasoningText: split.reasoningText || text };
+    }
     const split = splitCardReasoningAnswerText(text);
-    if (split.reasoningText) {
-      await controller.appendThinkingBlock(split.reasoningText);
+    return {
+      reasoningText: split.reasoningText,
+      answerText: split.answerText,
+    };
+  };
+
+  const applyDeliveredContent = async (
+    normalized: { reasoningText?: string; answerText?: string },
+    options: { routeReasoningThroughModePolicy: boolean },
+  ): Promise<void> => {
+    if (normalized.reasoningText) {
+      if (options.routeReasoningThroughModePolicy) {
+        await applyModeAwareReasoningSnapshot(normalized.reasoningText);
+      } else {
+        // Conservative local split fallback: keep existing behavior for mixed payloads.
+        await controller.appendThinkingBlock(normalized.reasoningText);
+      }
     }
-    if (split.answerText) {
-      await controller.updateAnswer(split.answerText);
+    if (normalized.answerText) {
+      await controller.updateAnswer(normalized.answerText);
     }
-    return split;
+  };
+
+  const handleAnswerSnapshot = async (text: string | undefined): Promise<void> => {
+    if (!streamAnswerLive || !shouldAcceptAnswerSnapshot() || isStopRequested?.()) {
+      return;
+    }
+    if (!text) {
+      return;
+    }
+    await controller.updateAnswer(text);
+  };
+
+  const applySplitTextToTimeline = async (text: string) => {
+    const normalized = normalizeDeliveredText(text, { isReasoning: false });
+    await applyDeliveredContent(normalized, { routeReasoningThroughModePolicy: false });
+    return normalized;
   };
 
   return {
@@ -124,43 +194,17 @@ export function createCardReplyStrategy(
           if (isStopRequested?.()) {
             return;
           }
-
-          if (config.cardStreamReasoning) {
-            // Live mode: seal active thinking (keep it in timeline), start new segment.
-            await controller.sealActiveThinking();
-            latestReasoningSnapshot = "";
-            reasoningAssembler.reset();
-            await controller.notifyNewAssistantTurn();
-            return;
-          }
-
-          const pendingReasoningBlocks = reasoningAssembler.flushPendingAtBoundary();
-          if (latestReasoningSnapshot) {
-            pendingReasoningBlocks.push(latestReasoningSnapshot);
-            latestReasoningSnapshot = "";
-          }
-          reasoningAssembler.reset();
-          const turnBoundary = controller.notifyNewAssistantTurn();
-          if (pendingReasoningBlocks.length > 0) {
-            await turnBoundary;
-            await appendAssembledThinkingBlocks(pendingReasoningBlocks);
-            return;
-          }
-          await turnBoundary;
+          await handleAssistantBoundary();
         },
 
-        onPartialReply: config.cardRealTimeStream
+        onPartialReply: streamAnswerLive
           ? async (payload) => {
-              if (payload.text && !isStopRequested?.()) {
-                await controller.updateAnswer(payload.text);
-              }
+              await handleAnswerSnapshot(payload.text);
             }
           : undefined,
 
         onReasoningStream: async (payload) => {
-          if (payload.text && !isStopRequested?.()) {
-            await ingestReasoningSnapshot(payload.text);
-          }
+          await applyModeAwareReasoningSnapshot(payload.text);
         },
       };
     },
@@ -177,6 +221,7 @@ export function createCardReplyStrategy(
 
       // ---- final: defer to finalize, just save text ----
       if (payload.kind === "final") {
+        lifecycleState = "final_seen";
         await flushPendingReasoning();
         sawFinalDelivery = true;
         log?.info?.(
@@ -192,16 +237,16 @@ export function createCardReplyStrategy(
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
           if (payload.isReasoning === true) {
-            await ingestReasoningSnapshot(rawFinalText);
+            await applyModeAwareReasoningSnapshot(rawFinalText);
             await flushPendingReasoning();
           } else {
-            const split = splitCardReasoningAnswerText(rawFinalText);
-            if (split.reasoningText) {
-              await controller.appendThinkingBlock(split.reasoningText);
+            const normalizedFinal = normalizeDeliveredText(rawFinalText, { isReasoning: false });
+            if (normalizedFinal.reasoningText) {
+              await controller.appendThinkingBlock(normalizedFinal.reasoningText);
             }
-            if (split.answerText) {
-              finalTextForFallback = split.answerText;
-            } else if (!split.reasoningText) {
+            if (normalizedFinal.answerText) {
+              finalTextForFallback = normalizedFinal.answerText;
+            } else if (!normalizedFinal.reasoningText) {
               finalTextForFallback = rawFinalText;
             }
           }
@@ -226,7 +271,8 @@ export function createCardReplyStrategy(
       const isReasoningBlock = payload.isReasoning === true;
       if (typeof textToSend === "string" && textToSend.trim()) {
         if (isReasoningBlock) {
-          await ingestReasoningSnapshot(textToSend);
+          const normalized = normalizeDeliveredText(textToSend, { isReasoning: true });
+          await applyDeliveredContent(normalized, { routeReasoningThroughModePolicy: false });
         } else {
           await applySplitTextToTimeline(textToSend);
         }
@@ -250,16 +296,19 @@ export function createCardReplyStrategy(
 
       if (isStopRequested?.()) {
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
+        lifecycleState = "sealed";
         return;
       }
 
       if (card.state === AICardStatus.FINISHED) {
         log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED");
+        lifecycleState = "sealed";
         return;
       }
 
       if (card.state === AICardStatus.STOPPED) {
         log?.info?.("[DingTalk][Finalize] Skipping — card already STOPPED");
+        lifecycleState = "sealed";
         return;
       }
 
@@ -287,6 +336,7 @@ export function createCardReplyStrategy(
         } else {
           log?.debug?.("[DingTalk] Card failed but no content to fallback with");
         }
+        lifecycleState = "sealed";
         return;
       }
 
@@ -306,6 +356,7 @@ export function createCardReplyStrategy(
         await finishAICard(card, finalText, log, {
           quotedRef: ctx.replyQuotedRef,
         });
+        lifecycleState = "sealed";
 
         // In group chats, send a lightweight @mention via session webhook
         // so the sender gets a notification — card API doesn't support @mention.
@@ -331,10 +382,13 @@ export function createCardReplyStrategy(
           card.state = AICardStatus.FAILED;
           card.lastUpdated = Date.now();
         }
+      } finally {
+        lifecycleState = "sealed";
       }
     },
 
     async abort(_error: Error): Promise<void> {
+      lifecycleState = "sealed";
       if (!isCardInTerminalState(card.state)) {
         controller.stop();
         await controller.waitForInFlight();
