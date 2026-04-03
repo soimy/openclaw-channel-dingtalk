@@ -8391,4 +8391,128 @@ describe("inbound-handler", () => {
     // ctx.MediaPath must still be set so OpenClaw can generate [media attached: relative/path]
     expect(finalized.MediaPath).toContain("/.openclaw/media/inbound/");
   });
+
+  // ---- /approve text command bypass tests ----
+
+  it("/approve text command dispatches via command session (bypasses normal pipeline)", async () => {
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "/approve exec:abc123 allow-once",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue({});
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-1",
+        msgtype: "text",
+        text: { content: "/approve exec:abc123 allow-once" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should dispatch via command session, not normal dispatchReply with card/markdown
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CommandSource: "native",
+        CommandAuthorized: true,
+        CommandBody: "/approve exec:abc123 allow-once",
+      }),
+    );
+    // CommandTargetSessionKey should point to the original session
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CommandTargetSessionKey: "s1",
+      }),
+    );
+    // SessionKey should be the command-specific session (not the original)
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SessionKey: expect.stringContaining("dingtalk:approve:user_1"),
+      }),
+    );
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    // Should NOT create an AI card
+    expect(shared.createAICardMock).not.toHaveBeenCalled();
+  });
+
+  it("/approve in group chat strips @bot prefix before matching", async () => {
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "@bot /approve exec:xyz deny",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue({});
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-2",
+        msgtype: "text",
+        text: { content: "@bot /approve exec:xyz deny" },
+        conversationType: "2",
+        conversationId: "cid-group",
+        conversationTitle: "Test Group",
+        senderId: "user_2",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CommandBody: "/approve exec:xyz deny",
+      }),
+    );
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("non-/approve message does not trigger approve bypass", async () => {
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "please approve my request",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-3",
+        msgtype: "text",
+        text: { content: "please approve my request" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should go through normal pipeline (with card creation), not the approve bypass
+    const finalizeCall = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalizeCall?.CommandSource).not.toBe("native");
+  });
 });

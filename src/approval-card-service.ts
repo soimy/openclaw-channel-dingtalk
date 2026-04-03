@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import axios from "axios";
-import type { ExecApprovalRequest, PluginApprovalRequest } from "openclaw/plugin-sdk/approval-runtime";
+import type {
+  ExecApprovalRequest,
+  PluginApprovalRequest,
+} from "openclaw/plugin-sdk/approval-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getAccessToken } from "./auth";
 import { stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
 import { resolveOriginalPeerId } from "./peer-id-registry";
-import { getProxyBypassOption } from "./utils";
 import type { CardBtn, DingTalkConfig } from "./types";
+import { getProxyBypassOption } from "./utils";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 
@@ -43,19 +46,34 @@ function makeApprovalBtns(approvalId: string): CardBtn[] {
       text: "✅ 允许一次",
       color: "green",
       status: "normal",
-      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "allow-once", id: approvalId } } },
+      event: {
+        type: "sendCardRequest",
+        params: {
+          actionId: "approval",
+          params: { t: "approval", d: "allow-once", id: approvalId },
+        },
+      },
     },
     {
       text: "🔒 永久允许",
       color: "blue",
       status: "normal",
-      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "allow-always", id: approvalId } } },
+      event: {
+        type: "sendCardRequest",
+        params: {
+          actionId: "approval",
+          params: { t: "approval", d: "allow-always", id: approvalId },
+        },
+      },
     },
     {
       text: "❌ 拒绝",
       color: "red",
       status: "normal",
-      event: { type: "sendCardRequest", params: { actionId: "approval", params: { t: "approval", d: "deny", id: approvalId } } },
+      event: {
+        type: "sendCardRequest",
+        params: { actionId: "approval", params: { t: "approval", d: "deny", id: approvalId } },
+      },
     },
   ];
 }
@@ -66,8 +84,12 @@ export function buildExecApprovalCardParamMap(
 ): Record<string, string> {
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const lines = ["## 🔒 命令审批请求", "", "```bash", request.request.command, "```"];
-  if (request.request.cwd) lines.push(`\n**目录:** \`${request.request.cwd}\``);
-  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
+  if (request.request.cwd) {
+    lines.push(`\n**目录:** \`${request.request.cwd}\``);
+  }
+  if (request.request.agentId) {
+    lines.push(`**Agent:** \`${request.request.agentId}\``);
+  }
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
 
   return {
@@ -85,9 +107,15 @@ export function buildPluginApprovalCardParamMap(
   const expiresInSec = Math.max(0, Math.round((request.expiresAtMs - nowMs) / 1000));
   const icon = request.request.severity === "critical" ? "🚨" : "⚠️";
   const lines = [`## ${icon} 操作审批请求 — ${request.request.title}`, ""];
-  if (request.request.toolName) lines.push(`**工具:** \`${request.request.toolName}\``);
-  if (request.request.pluginId) lines.push(`**Plugin:** \`${request.request.pluginId}\``);
-  if (request.request.agentId) lines.push(`**Agent:** \`${request.request.agentId}\``);
+  if (request.request.toolName) {
+    lines.push(`**工具:** \`${request.request.toolName}\``);
+  }
+  if (request.request.pluginId) {
+    lines.push(`**Plugin:** \`${request.request.pluginId}\``);
+  }
+  if (request.request.agentId) {
+    lines.push(`**Agent:** \`${request.request.agentId}\``);
+  }
   lines.push("", "```", request.request.description, "```");
   lines.push(`\n**有效期:** ${expiresInSec}秒`);
 
@@ -129,36 +157,51 @@ async function createApprovalCard(
         : `dtv1.card//IM_ROBOT.${conversationId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
-        ? { robotCode: config.robotCode || config.clientId, extension: { dynamicSummary: "true" } }
+        ? { robotCode: config.clientId, extension: { dynamicSummary: "true" } }
         : undefined,
       imRobotOpenDeliverModel: !isGroup
         ? {
             spaceType: "IM_ROBOT",
-            robotCode: config.robotCode || config.clientId,
+            robotCode: config.clientId,
             extension: { dynamicSummary: "true" },
           }
         : undefined,
     };
     log?.info?.(`[DingTalk][ApprovalCard] POST createAndDeliver outTrackId=${outTrackId}`);
-    const createResp = await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, body, {
-      headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-      ...getProxyBypassOption(config),
-    });
+    const createResp = await axios.post(
+      `${DINGTALK_API}/v1.0/card/instances/createAndDeliver`,
+      body,
+      {
+        headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+        ...getProxyBypassOption(config),
+      },
+    );
     // DingTalk may return a different outTrackId; use it for subsequent streaming updates
-    const respData = createResp.data as { result?: { outTrackId?: string }; outTrackId?: string } | undefined;
+    const respData = createResp.data as
+      | { result?: { outTrackId?: string }; outTrackId?: string }
+      | undefined;
     const effectiveOutTrackId =
       (typeof respData?.result?.outTrackId === "string" && respData.result.outTrackId) ||
       (typeof respData?.outTrackId === "string" && respData.outTrackId) ||
       outTrackId;
     if (effectiveOutTrackId !== outTrackId) {
-      log?.info?.(`[DingTalk][ApprovalCard] Response outTrackId differs: sent=${outTrackId} got=${effectiveOutTrackId}`);
+      log?.info?.(
+        `[DingTalk][ApprovalCard] Response outTrackId differs: sent=${outTrackId} got=${effectiveOutTrackId}`,
+      );
     }
     // AI Card content must be populated via streaming endpoint (cardParamMap is ignored for content key)
     // isFinalize: true → card enters done state, action buttons become visible
     if (content) {
       await axios.put(
         `${DINGTALK_API}/v1.0/card/streaming`,
-        { outTrackId: effectiveOutTrackId, guid: randomUUID(), key: "content", content, isFull: true, isFinalize: true },
+        {
+          outTrackId: effectiveOutTrackId,
+          guid: randomUUID(),
+          key: "content",
+          content,
+          isFull: true,
+          isFinalize: true,
+        },
         {
           headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
           ...getProxyBypassOption(config),
@@ -196,9 +239,15 @@ export async function sendExecApprovalCard(
       sessionKey: request.request.sessionKey ?? "",
       expiresAt: request.expiresAtMs + 30_000,
     });
-    log?.info?.(`[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${storedOutTrackId}`);
+    log?.info?.(
+      `[DingTalk][ApprovalCard] Card sent for exec approval ${request.id} outTrackId=${storedOutTrackId}`,
+    );
   }
-  return { ok: result.ok, outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined, error: result.error };
+  return {
+    ok: result.ok,
+    outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined,
+    error: result.error,
+  };
 }
 
 export async function sendPluginApprovalCard(
@@ -225,9 +274,15 @@ export async function sendPluginApprovalCard(
       sessionKey: request.request.sessionKey ?? "",
       expiresAt: request.expiresAtMs + 30_000,
     });
-    log?.info?.(`[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${storedOutTrackId}`);
+    log?.info?.(
+      `[DingTalk][ApprovalCard] Card sent for plugin approval ${request.id} outTrackId=${storedOutTrackId}`,
+    );
   }
-  return { ok: result.ok, outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined, error: result.error };
+  return {
+    ok: result.ok,
+    outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined,
+    error: result.error,
+  };
 }
 
 // --- Card update after resolution ---
@@ -264,9 +319,13 @@ export async function updateApprovalCardResolved(
         ...getProxyBypassOption(config),
       },
     );
-    log?.info?.(`[DingTalk][ApprovalCard] Card updated to resolved: ${resolvedText} outTrackId=${outTrackId}`);
+    log?.info?.(
+      `[DingTalk][ApprovalCard] Card updated to resolved: ${resolvedText} outTrackId=${outTrackId}`,
+    );
   } catch (err: unknown) {
-    log?.warn?.(`[DingTalk][ApprovalCard] Card update failed (non-critical): ${(err as Error).message}`);
+    log?.warn?.(
+      `[DingTalk][ApprovalCard] Card update failed (non-critical): ${(err as Error).message}`,
+    );
   }
 }
 
@@ -285,15 +344,32 @@ export type ApprovalAction = {
 export function parseApprovalFromCardPrivateData(
   cardPrivateData: { actionIds?: string[]; params?: Record<string, unknown> } | undefined,
 ): ApprovalAction | null {
-  if (!cardPrivateData?.actionIds?.length) return null;
+  if (!cardPrivateData?.actionIds?.length) {
+    return null;
+  }
   const actionId = cardPrivateData.actionIds[0];
-  if (typeof actionId !== "string" || !actionId.startsWith("approval")) return null;
+  if (typeof actionId !== "string" || !actionId.startsWith("approval")) {
+    return null;
+  }
   const params = cardPrivateData.params;
   const validDecisions = ["allow-once", "allow-always", "deny"];
-  if (!params || params.t !== "approval" || typeof params.d !== "string" || !validDecisions.includes(params.d) || typeof params.id !== "string") return null;
+  if (
+    !params ||
+    params.t !== "approval" ||
+    typeof params.d !== "string" ||
+    !validDecisions.includes(params.d) ||
+    typeof params.id !== "string"
+  ) {
+    return null;
+  }
   return { t: "approval", d: params.d as ApprovalAction["d"], id: params.id };
 }
 
+/**
+ * Legacy fallback: parse approval action from JSON string (processQueryKey path).
+ * Primary path is parseApprovalFromCardPrivateData (sendCardRequest format).
+ * Kept as defensive fallback for older card template versions.
+ */
 export function parseApprovalActionValue(raw: string): ApprovalAction | null {
   try {
     const parsed = JSON.parse(raw);
@@ -335,7 +411,6 @@ export async function handleApprovalCardCallback(
     const { dispatchDingTalkCardApproveCommand } = await import("./command/card-approve-command");
     await dispatchDingTalkCardApproveCommand({
       cfg,
-      config,
       accountId: entry.accountId ?? "",
       agentId: entry.agentId,
       targetSessionKey: entry.sessionKey,
@@ -344,8 +419,15 @@ export async function handleApprovalCardCallback(
       decision: action.d,
       log,
     });
-    log?.info?.(`[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d} via command session dispatch`);
+    log?.info?.(
+      `[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d} via command session dispatch`,
+    );
+    // Store cleanup + card UI update after successful dispatch
+    approvalCardStore.delete(action.id);
+    await updateApprovalCardResolved(config, entry.outTrackId, action.d);
   } catch (err: unknown) {
-    log?.error?.(`[DingTalk][ApprovalCard] Command session dispatch failed: ${(err as Error).message}`);
+    log?.error?.(
+      `[DingTalk][ApprovalCard] Command session dispatch failed: ${(err as Error).message}`,
+    );
   }
 }

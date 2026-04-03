@@ -66,6 +66,8 @@ describe("handleApprovalCardCallback (command session dispatch)", () => {
         clickerUserId: "clicker-user-id",
       }),
     );
+    // Store entry should be cleaned up after successful dispatch
+    expect(approvalCardStore.has("exec:abc")).toBe(false);
   });
 
   it("warns when no store entry exists", async () => {
@@ -132,5 +134,7 @@ describe("handleApprovalCardCallback (command session dispatch)", () => {
     expect(mockLog?.error).toHaveBeenCalledWith(
       expect.stringContaining("Command session dispatch failed"),
     );
+    // Store entry should NOT be cleaned up on dispatch failure
+    expect(approvalCardStore.has("exec:fail")).toBe(true);
   });
 });

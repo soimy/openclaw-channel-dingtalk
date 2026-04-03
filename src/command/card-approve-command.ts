@@ -1,7 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getDingTalkRuntime } from "../runtime";
-import type { DingTalkConfig, Logger } from "../types";
-import { updateApprovalCardResolved, approvalCardStore } from "../approval-card-service";
+import type { Logger } from "../types";
 
 /**
  * Resolve native command session targets for approval commands.
@@ -32,7 +31,6 @@ function resolveNativeCommandSessionTargets(params: {
  */
 export async function dispatchDingTalkCardApproveCommand(params: {
   cfg: OpenClawConfig;
-  config: DingTalkConfig;
   accountId: string;
   agentId: string;
   targetSessionKey: string;
@@ -82,13 +80,6 @@ export async function dispatchDingTalkCardApproveCommand(params: {
       },
     },
   });
-
-  // Update card UI (best-effort)
-  const entry = approvalCardStore.get(params.approvalId);
-  if (entry) {
-    approvalCardStore.delete(params.approvalId);
-    await updateApprovalCardResolved(params.config, entry.outTrackId, params.decision);
-  }
 
   return { ok: true };
 }
