@@ -98,6 +98,15 @@ function extractRichTextQuoteParts(
   };
 }
 
+function extractAtMentionsFromText(text: string): AtMention[] {
+  const mentions: AtMention[] = [];
+  const matches = text.matchAll(/(?<!\w)@([^\s@.]+)(?!\.\w)/g);
+  for (const match of matches) {
+    mentions.push({ name: match[1].trim() });
+  }
+  return mentions;
+}
+
 function trimString(value: string | undefined): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -458,11 +467,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
     // Strip quoted prefix before extracting @mentions to avoid matching @names inside quotes.
     const textForAtExtraction = textContent.replace(/^\[引用[^\]]*\]\s*/, "");
-    // Match @name but exclude email-like patterns (user@domain.com) and emoji (@_@).
-    const atMatches = textForAtExtraction.matchAll(/(?<!\w)@([^\s@.]+)(?!\.\w)/g);
-    for (const match of atMatches) {
-      atMentions.push({ name: match[1].trim() });
-    }
+    atMentions.push(...extractAtMentionsFromText(textForAtExtraction));
 
     return {
       text: textContent || quoted?.previewText || "",
@@ -555,6 +560,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
 
   if (msgtype === "markdown") {
     const mdText = typeof data.content?.text === "string" ? data.content.text.trim() : "";
+    atMentions.push(...extractAtMentionsFromText(mdText));
     return {
       text: mdText || "[markdown消息]",
       messageType: "markdown",
