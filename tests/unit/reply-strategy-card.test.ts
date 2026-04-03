@@ -917,6 +917,9 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("首个最终答案");
             expect(rendered).toContain("> Reason: 最后补齐思考");
             expect(rendered).toContain("> late tool output");
+            expect(rendered.indexOf("> late tool output")).toBeLessThan(
+                rendered.indexOf("首个最终答案"),
+            );
             expect(rendered).not.toContain("晚到 partial 答案（应忽略）");
             expect(rendered).not.toContain("晚到 block 答案（应忽略）");
             expect(rendered).not.toContain("晚到 final 覆盖答案（应忽略）");

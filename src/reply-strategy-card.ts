@@ -281,7 +281,11 @@ export function createCardReplyStrategy(
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
         );
-        await controller.appendTool(textToSend ?? "");
+        if (lifecycleState === "final_seen") {
+          await controller.appendToolBeforeCurrentAnswer(textToSend ?? "");
+        } else {
+          await controller.appendTool(textToSend ?? "");
+        }
         return;
       }
 

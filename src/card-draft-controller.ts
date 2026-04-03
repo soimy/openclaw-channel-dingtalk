@@ -28,6 +28,7 @@ export interface CardDraftController {
     appendThinkingBlock: (text: string) => Promise<void>;
     updateTool: (text: string) => Promise<void>;
     appendTool: (text: string) => Promise<void>;
+    appendToolBeforeCurrentAnswer: (text: string) => Promise<void>;
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
     notifyNewAssistantTurn: () => Promise<void>;
     startAssistantTurn: () => Promise<void>;
@@ -349,6 +350,32 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
+    const appendToolBeforeCurrentAnswer = async (text: string) => {
+        await waitForPendingBoundary();
+        if (stopped || failed) {
+            return;
+        }
+        const normalized = normalizeProcessText(text);
+        if (!normalized) {
+            return;
+        }
+        if (timelineEntries.length > 0) {
+            await flushBoundaryFrame();
+        }
+        sealLiveThinking();
+        const currentSegmentAnswerIndex = findCurrentSegmentAnswerIndex();
+        if (currentSegmentAnswerIndex !== null) {
+            timelineEntries.splice(currentSegmentAnswerIndex, 0, { kind: "tool", text: normalized });
+            if (activeAnswerIndex !== null && activeAnswerIndex >= currentSegmentAnswerIndex) {
+                activeAnswerIndex += 1;
+            }
+        } else {
+            sealCurrentAnswer();
+            appendTimelineEntry("tool", normalized);
+        }
+        queueRender();
+    };
+
     const notifyNewAssistantTurn = async () => {
         if (stopped || failed) {
             return;
@@ -371,6 +398,7 @@ export function createCardDraftController(params: {
         appendThinkingBlock,
         updateTool,
         appendTool: updateTool,
+        appendToolBeforeCurrentAnswer,
         notifyNewAssistantTurn,
         startAssistantTurn: notifyNewAssistantTurn,
         sealActiveThinking: async () => {

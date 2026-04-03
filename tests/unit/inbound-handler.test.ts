@@ -5844,6 +5844,9 @@ describe("inbound-handler", () => {
     expect(finalContent).toContain("首个最终答案");
     expect(finalContent).toContain("> Reason: final 后补齐推理");
     expect(finalContent).toContain("> late tool output");
+    expect(finalContent.indexOf("> late tool output")).toBeLessThan(
+      finalContent.indexOf("首个最终答案"),
+    );
     expect(finalContent).not.toContain("晚到 partial 覆盖答案（应忽略）");
     expect(finalContent).not.toContain("晚到 block 覆盖答案（应忽略）");
     expect(finalContent).not.toContain("晚到 final 覆盖答案（应忽略）");
