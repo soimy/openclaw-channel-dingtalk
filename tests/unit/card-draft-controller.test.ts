@@ -619,4 +619,31 @@ describe("card-draft-controller", () => {
 
         expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
     });
+
+    it("does not send the same rendered timeline twice", async () => {
+        const card = makeCard();
+        const controller = createCardDraftController({ card, throttleMs: 0 });
+
+        await controller.appendThinkingBlock("先检查目录");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await controller.sealActiveThinking();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not resend when updateAnswer receives unchanged text", async () => {
+        const card = makeCard();
+        const controller = createCardDraftController({ card, throttleMs: 0 });
+
+        await controller.updateAnswer("same text");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await controller.updateAnswer("same text");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+        expect(streamAICardMock).toHaveBeenLastCalledWith(card, "same text", false, undefined);
+    });
 });

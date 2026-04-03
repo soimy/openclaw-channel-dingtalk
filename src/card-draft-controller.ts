@@ -80,6 +80,7 @@ export function createCardDraftController(params: {
     let failed = false;
     let stopped = false;
     let lastSentContent = "";
+    let lastQueuedContent = "";
     let lastAnswerContent = "";
 
     let timelineEntries: TimelineEntry[] = [];
@@ -183,11 +184,15 @@ export function createCardDraftController(params: {
 
     const queueRender = () => {
         const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
-        if (rendered) {
-            loop.update(rendered);
+        if (!rendered || rendered === lastSentContent || rendered === lastQueuedContent) {
+            if (!rendered) {
+                loop.resetPending();
+                lastQueuedContent = "";
+            }
             return;
         }
-        loop.resetPending();
+        lastQueuedContent = rendered;
+        loop.update(rendered);
     };
 
     const flushBoundaryFrame = async () => {
@@ -225,6 +230,7 @@ export function createCardDraftController(params: {
             try {
                 await streamAICard(params.card, content, false, params.log);
                 lastSentContent = content;
+                lastQueuedContent = "";
                 lastAnswerContent = getFinalAnswerContent();
             } catch (err: unknown) {
                 failed = true;
