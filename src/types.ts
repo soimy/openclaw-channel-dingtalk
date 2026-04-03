@@ -727,6 +727,33 @@ export interface ConnectionAttemptResult {
 
 const DEFAULT_ACCOUNT_ID = "default";
 
+function stripRemovedLegacyFieldsFromPublicAccount(
+  config: DingTalkConfig,
+): DingTalkConfig {
+  const {
+    cardStreamReasoning: _cardStreamReasoning,
+    verboseRealtimeStream: _verboseRealtimeStream,
+    accounts,
+    ...rest
+  } = config as DingTalkConfig & {
+    cardStreamReasoning?: unknown;
+    verboseRealtimeStream?: unknown;
+    accounts?: Record<string, DingTalkConfig | undefined>;
+  };
+  const sanitizedAccounts = accounts
+    ? Object.fromEntries(
+        Object.entries(accounts).map(([accountId, accountConfig]) => [
+          accountId,
+          accountConfig ? stripRemovedLegacyFieldsFromPublicAccount(accountConfig) : accountConfig,
+        ]),
+      )
+    : undefined;
+  if (sanitizedAccounts) {
+    return { ...rest, accounts: sanitizedAccounts } as DingTalkConfig;
+  }
+  return rest as DingTalkConfig;
+}
+
 /**
  * List all DingTalk account IDs from config
  */
@@ -771,7 +798,7 @@ export function resolveDingTalkAccount(
 
   // If default account, return top-level config
   if (id === DEFAULT_ACCOUNT_ID) {
-    const config: DingTalkConfig = {
+    const rawConfig: DingTalkConfig = {
       clientId: dingtalk?.clientId ?? "",
       clientSecret: dingtalk?.clientSecret ?? "",
       name: dingtalk?.name,
@@ -810,6 +837,7 @@ export function resolveDingTalkAccount(
       convertMarkdownTables: dingtalk?.convertMarkdownTables,
       cardAtSender: dingtalk?.cardAtSender,
     };
+    const config = stripRemovedLegacyFieldsFromPublicAccount(rawConfig);
     return {
       ...config,
       accountId: id,
@@ -824,14 +852,7 @@ export function resolveDingTalkAccount(
       dingtalk as DingTalkConfig,
       accountConfig,
     );
-    const {
-      cardStreamReasoning: _cardStreamReasoning,
-      verboseRealtimeStream: _verboseRealtimeStream,
-      ...publicMerged
-    } = merged as DingTalkConfig & {
-      cardStreamReasoning?: unknown;
-      verboseRealtimeStream?: unknown;
-    };
+    const publicMerged = stripRemovedLegacyFieldsFromPublicAccount(merged);
     return {
       ...publicMerged,
       accountId: id,

@@ -117,7 +117,7 @@ const DingTalkAccountConfigShape = {
    *  - off: disable incremental streaming
    *  - answer: stream answer text
    *  - all: stream answer + reasoning text */
-  cardStreamingMode: z.enum(["off", "answer", "all"]).optional().default("off"),
+  cardStreamingMode: z.enum(["off", "answer", "all"]).optional(),
 
   /** Throttle interval in ms for card stream updates (default: 1000). */
   cardStreamInterval: z.number().int().min(200).optional().default(1000),

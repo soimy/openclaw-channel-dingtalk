@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DingTalkConfigSchema } from '../../src/config-schema';
+import { resolveCardStreamingMode } from '../../src/card/card-streaming-mode';
 
 describe('DingTalkConfigSchema', () => {
     it('applies default journalTTLDays for top-level config', () => {
@@ -128,13 +129,25 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 
-    it('defaults cardStreamingMode to off', () => {
+    it('does not inject cardStreamingMode when omitted', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
         }) as { cardStreamingMode?: string };
 
-        expect(parsed.cardStreamingMode).toBe('off');
+        expect(parsed.cardStreamingMode).toBeUndefined();
+    });
+
+    it('resolves effective cardStreamingMode off when omitted in parsed config', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+        }) as { cardStreamingMode?: 'off' | 'answer' | 'all'; cardRealTimeStream?: boolean };
+
+        expect(resolveCardStreamingMode(parsed)).toEqual({
+            mode: 'off',
+            usedDeprecatedCardRealTimeStream: false,
+        });
     });
 
     it('accepts account-level cardStreamingMode override', () => {
@@ -160,6 +173,19 @@ describe('DingTalkConfigSchema', () => {
         }) as { cardRealTimeStream?: boolean };
 
         expect(parsed.cardRealTimeStream).toBe(true);
+    });
+
+    it('keeps legacy fallback to all when parsed config has only cardRealTimeStream=true', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            cardRealTimeStream: true,
+        }) as { cardStreamingMode?: 'off' | 'answer' | 'all'; cardRealTimeStream?: boolean };
+
+        expect(resolveCardStreamingMode(parsed)).toEqual({
+            mode: 'all',
+            usedDeprecatedCardRealTimeStream: true,
+        });
     });
 
     it('does not surface removed cardStreamReasoning in parsed config', () => {

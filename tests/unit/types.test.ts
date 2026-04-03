@@ -113,6 +113,7 @@ describe('types helpers', () => {
 
         expect('verboseRealtimeStream' in defaultAccount).toBe(false);
         expect('verboseRealtimeStream' in mainAccount).toBe(false);
+        expect('verboseRealtimeStream' in ((defaultAccount.accounts as any)?.main ?? {})).toBe(false);
     });
 
     it('resolves named account with inherited bypassProxyForSend default', () => {
@@ -200,5 +201,6 @@ describe('types helpers', () => {
 
         expect('cardStreamReasoning' in defaultAccount).toBe(false);
         expect('cardStreamReasoning' in mainAccount).toBe(false);
+        expect('cardStreamReasoning' in ((defaultAccount.accounts as any)?.main ?? {})).toBe(false);
     });
 });

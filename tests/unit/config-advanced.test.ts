@@ -116,6 +116,27 @@ describe('config advanced', () => {
         expect(resolved.cardStreamingMode).toBe('all');
     });
 
+    it('named account inherits top-level cardStreamingMode when account-level value is omitted', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'top_id',
+                    clientSecret: 'top_sec',
+                    cardStreamingMode: 'answer',
+                    accounts: {
+                        bot2: {
+                            clientId: 'bot2_id',
+                            clientSecret: 'bot2_sec',
+                        },
+                    },
+                },
+            },
+        } as any;
+
+        const resolved = getConfig(cfg, 'bot2');
+        expect(resolved.cardStreamingMode).toBe('answer');
+    });
+
     it('merged config does not leak accounts key', () => {
         const cfg = {
             channels: {
@@ -156,6 +177,7 @@ describe('config advanced', () => {
 
         expect('cardStreamReasoning' in (topLevelResolved as any)).toBe(false);
         expect('cardStreamReasoning' in (namedResolved as any)).toBe(false);
+        expect('cardStreamReasoning' in ((topLevelResolved as any).accounts?.bot1 ?? {})).toBe(false);
     });
 
     it('isConfigured validates by clientId/clientSecret', () => {

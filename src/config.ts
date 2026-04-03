@@ -33,11 +33,24 @@ function stripRemovedLegacyFields(config: DingTalkConfig): DingTalkConfig {
   const {
     verboseRealtimeStream: _verboseRealtimeStream,
     cardStreamReasoning: _cardStreamReasoning,
+    accounts,
     ...rest
   } = config as DingTalkConfig & {
     verboseRealtimeStream?: unknown;
     cardStreamReasoning?: unknown;
+    accounts?: Record<string, DingTalkConfig | undefined>;
   };
+  const sanitizedAccounts = accounts
+    ? Object.fromEntries(
+        Object.entries(accounts).map(([accountId, accountConfig]) => [
+          accountId,
+          accountConfig ? stripRemovedLegacyFields(accountConfig) : accountConfig,
+        ]),
+      )
+    : undefined;
+  if (sanitizedAccounts) {
+    return { ...rest, accounts: sanitizedAccounts } as DingTalkConfig;
+  }
   return rest as DingTalkConfig;
 }
 
