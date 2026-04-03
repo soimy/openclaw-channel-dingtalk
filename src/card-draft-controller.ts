@@ -126,6 +126,15 @@ export function createCardDraftController(params: {
         return activeAnswerIndex;
     };
 
+    const findLastAnswerEntryIndex = (): number | null => {
+        for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+            if (timelineEntries[index]?.kind === "answer") {
+                return index;
+            }
+        }
+        return null;
+    };
+
     const renderTimeline = (options: {
         fallbackAnswer?: string;
         overrideAnswer?: string;
@@ -363,11 +372,14 @@ export function createCardDraftController(params: {
             await flushBoundaryFrame();
         }
         sealLiveThinking();
-        const currentSegmentAnswerIndex = findCurrentSegmentAnswerIndex();
-        if (currentSegmentAnswerIndex !== null) {
-            timelineEntries.splice(currentSegmentAnswerIndex, 0, { kind: "tool", text: normalized });
-            if (activeAnswerIndex !== null && activeAnswerIndex >= currentSegmentAnswerIndex) {
+        const insertionIndex = findCurrentSegmentAnswerIndex() ?? findLastAnswerEntryIndex();
+        if (insertionIndex !== null) {
+            timelineEntries.splice(insertionIndex, 0, { kind: "tool", text: normalized });
+            if (activeAnswerIndex !== null && activeAnswerIndex >= insertionIndex) {
                 activeAnswerIndex += 1;
+            }
+            if (activeThinkingIndex !== null && activeThinkingIndex >= insertionIndex) {
+                activeThinkingIndex += 1;
             }
         } else {
             sealCurrentAnswer();

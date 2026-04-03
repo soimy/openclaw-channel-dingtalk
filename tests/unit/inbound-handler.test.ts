@@ -5852,6 +5852,61 @@ describe("inbound-handler", () => {
     expect(finalContent).not.toContain("晚到 final 覆盖答案（应忽略）");
   });
 
+  it("card flow inserts late tool before frozen final answer when the answer turn was sealed before first final", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "阶段性答案（将被冻结答案覆盖）" });
+        await replyOptions?.onAssistantMessageStart?.();
+        await dispatcherOptions.deliver({ text: "首个最终答案" }, { kind: "final" });
+        await dispatcherOptions.deliver({ text: "late sealed-case tool output" }, { kind: "tool" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_late_tool_before_sealed_answer",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardStreamingMode: "answer",
+      } as any,
+      data: {
+        msgId: "m_card_late_tool_before_sealed_answer",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(finalContent).toContain("首个最终答案");
+    expect(finalContent).toContain("> late sealed-case tool output");
+    expect(finalContent.indexOf("> late sealed-case tool output")).toBeLessThan(
+      finalContent.indexOf("首个最终答案"),
+    );
+    expect(finalContent).not.toContain("阶段性答案（将被冻结答案覆盖）");
+  });
+
   it("sends proactive permission hint when proactive API risk was observed", async () => {
     recordProactiveRiskObservation({
       accountId: "main",

@@ -926,6 +926,34 @@ describe("reply-strategy-card", () => {
             expect(strategy.getFinalText()).toBe("首个最终答案");
         });
 
+        it("in final_seen inserts late tool before the last sealed answer that gets overridden at finalize", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    cardStreamingMode: "answer",
+                } as any,
+            }));
+            const replyOptions = strategy.getReplyOptions();
+
+            await replyOptions.onPartialReply?.({ text: "阶段性答案（将被冻结答案覆盖）" });
+            await replyOptions.onAssistantMessageStart?.();
+            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
+            await strategy.deliver({ text: "late sealed-case tool output", mediaUrls: [], kind: "tool" });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("首个最终答案");
+            expect(rendered).toContain("> late sealed-case tool output");
+            expect(rendered.indexOf("> late sealed-case tool output")).toBeLessThan(
+                rendered.indexOf("首个最终答案"),
+            );
+            expect(rendered).not.toContain("阶段性答案（将被冻结答案覆盖）");
+        });
+
         it("ignores all callbacks and deliveries after finalize seals the card lifecycle", async () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
