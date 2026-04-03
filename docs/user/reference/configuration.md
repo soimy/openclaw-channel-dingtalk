@@ -25,7 +25,9 @@
 | `messageType` | string | `markdown` | 回复模式：`markdown` 或 `card` |
 | `cardTemplateId` | string | - | AI 卡片模板 ID |
 | `cardTemplateKey` | string | `content` | 卡片内容字段名 |
-| `cardRealTimeStream` | boolean | `false` | 是否启用真流式卡片更新 |
+| `cardStreamingMode` | string | `off`（生效值） | 卡片流式模式：`off` / `answer` / `all` |
+| `cardStreamInterval` | number | `1000` | 卡片实时更新节奏（毫秒，最小 `200`） |
+| `cardRealTimeStream` | boolean | `false` | 已弃用；仅兼容旧配置，`true` 会回退到 `cardStreamingMode: all` |
 | `aicardDegradeMs` | number | `1800000` | 卡片连续失败后的降级时间 |
 | `debug` | boolean | `false` | 是否输出调试日志 |
 | `mediaMaxMb` | number | - | 入站媒体大小上限 |
@@ -60,6 +62,16 @@
 - `"🤔思考中"`：固定“思考中”
 - `"emoji"`：使用固定 emoji 模式
 - `"kaomoji"`：按输入语气选择颜文字
+
+## 关于 `cardStreamingMode` / `cardRealTimeStream` / `cardStreamInterval`
+
+- `cardStreamingMode=off`：关闭答案实时流式，增量更新最少。
+- `cardStreamingMode=answer`：只实时推送答案内容。
+- `cardStreamingMode=all`：实时推送答案与思考内容。
+- `cardRealTimeStream` 已弃用，仅保留兼容：
+- 未设置 `cardStreamingMode` 且 `cardRealTimeStream=true` 时，生效为 `all`。
+- 同时设置时，以 `cardStreamingMode` 为准。
+- `cardStreamInterval` 控制实时更新节奏（毫秒），在 `answer` / `all` 下生效；值越小，更新越频繁，API 调用通常越高。
 
 ## 关于连接参数
 

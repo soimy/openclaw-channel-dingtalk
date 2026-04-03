@@ -25,20 +25,37 @@
 
 总成本约为 `1 + M`。
 
-## 两种卡片流式策略对比
+## 三种卡片流式策略对比
 
 以一次约 10 秒的 AI 回复为例：
 
 | 模式 | `streamAICard` 调用数 | 首 token 延迟 | 体验 |
 | --- | --- | --- | --- |
-| Block 缓冲 | 约 10-15 次 | 约 1-1.5 秒 | 更稳但更卡顿 |
-| 真流式 | 约 30 次 | 约 300ms | 更流畅 |
+| `off` | 约 10-15 次 | 约 1-1.5 秒 | 更新更少、成本更稳 |
+| `answer` | 约 15-25 次 | 约 300-800ms | 答案更流畅，成本中等 |
+| `all` | 约 25-35 次 | 约 300ms | 答案+思考都更实时，成本最高 |
+
+`cardStreamInterval` 会影响 `answer` / `all` 下的调用频率：间隔越小，`streamAICard` 调用通常越多。
 
 ## 推荐策略
 
 - 默认部署：用 `markdown`
-- 想要卡片体验但控制成本：`card` + `cardRealTimeStream: false`
-- 想要流畅体验：`card` + `cardRealTimeStream: true`
+- 想要卡片体验但控制成本：`card` + `cardStreamingMode: "off"` 或 `"answer"`
+- 想要流畅体验：`card` + `cardStreamingMode: "all"`
+
+推荐配置示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "messageType": "card",
+      "cardStreamingMode": "answer",
+      "cardStreamInterval": 1000
+    }
+  }
+}
+```
 
 ## 额外消耗来源
 
