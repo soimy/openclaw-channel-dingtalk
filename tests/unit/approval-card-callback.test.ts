@@ -73,7 +73,6 @@ describe("handleApprovalCardCallback (command session dispatch)", () => {
   it("warns when no store entry exists", async () => {
     const { handleApprovalCardCallback } = await import("../../src/approval-card-service");
 
-
     await handleApprovalCardCallback(
       { t: "approval", d: "allow-once", id: "exec:missing" },
       mockCfg,
@@ -88,7 +87,6 @@ describe("handleApprovalCardCallback (command session dispatch)", () => {
 
   it("warns when sessionKey is empty", async () => {
     const { handleApprovalCardCallback, approvalCardStore } = await import("../../src/approval-card-service");
-
 
     approvalCardStore.set("exec:no-session", {
       outTrackId: "track-1",
@@ -114,7 +112,6 @@ describe("handleApprovalCardCallback (command session dispatch)", () => {
   it("logs error when dispatch fails", async () => {
     mockDispatchApprove.mockRejectedValue(new Error("dispatch failed"));
     const { handleApprovalCardCallback, approvalCardStore } = await import("../../src/approval-card-service");
-
 
     approvalCardStore.set("exec:fail", {
       outTrackId: "track-1",

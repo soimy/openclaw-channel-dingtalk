@@ -7,6 +7,7 @@ import type { Logger } from "../types";
  *
  * Inlined from `openclaw/plugin-sdk/command-auth` because the CI openclaw
  * package does not yet export that sub-path. Same approach as card-stop-command.ts.
+ * TODO: replace with import from "openclaw/plugin-sdk/command-auth" when available
  */
 function resolveNativeCommandSessionTargets(params: {
   agentId: string;
