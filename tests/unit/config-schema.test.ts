@@ -189,6 +189,22 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.cardRealTimeStream).toBe(true);
     });
 
+    it('does not inject account-level cardRealTimeStream when omitted so named accounts can inherit top-level legacy streaming', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'id',
+            clientSecret: 'secret',
+            cardRealTimeStream: true,
+            accounts: {
+                main: {
+                    clientId: 'account-id',
+                    clientSecret: 'account-secret',
+                },
+            },
+        }) as { accounts: Record<string, { cardRealTimeStream?: boolean }> };
+
+        expect(parsed.accounts.main?.cardRealTimeStream).toBeUndefined();
+    });
+
     it('keeps legacy fallback to all when parsed config has only cardRealTimeStream=true', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',

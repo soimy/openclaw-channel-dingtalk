@@ -22,7 +22,7 @@ type TimelineEntry = {
 };
 
 export interface CardDraftController {
-    updateAnswer: (text: string) => Promise<void>;
+    updateAnswer: (text: string, options?: { stream?: boolean }) => Promise<void>;
     updateReasoning: (text: string) => Promise<void>;
     updateThinking: (text: string) => Promise<void>;
     appendThinkingBlock: (text: string) => Promise<void>;
@@ -291,7 +291,7 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
-    const updateAnswer = async (text: string) => {
+    const updateAnswer = async (text: string, options: { stream?: boolean } = {}) => {
         await waitForPendingBoundary();
         if (stopped || failed) {
             return;
@@ -311,6 +311,10 @@ export function createCardDraftController(params: {
             timelineEntries[activeAnswerIndex] = { kind: "answer", text: normalized };
         } else {
             activeAnswerIndex = appendTimelineEntry("answer", normalized);
+        }
+        if (options.stream === false) {
+            clearPendingRender();
+            return;
         }
         queueRender();
     };

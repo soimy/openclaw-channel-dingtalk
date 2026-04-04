@@ -111,9 +111,9 @@ const DingTalkAccountConfigShape = {
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
 
-  /** Enable real-time card streaming (default: false).
-   *  When true, card updates are streamed per-token with 300ms throttle for a smoother experience, at the cost of more API calls. */
-  cardRealTimeStream: z.boolean().optional().default(false),
+  /** Enable deprecated real-time card streaming compatibility.
+   *  When true and `cardStreamingMode` is unset, runtime resolves to `cardStreamingMode: "all"`. */
+  cardRealTimeStream: z.boolean().optional(),
 
   /** Card streaming mode:
    *  - off: disable incremental streaming

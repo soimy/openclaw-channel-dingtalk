@@ -50,7 +50,7 @@ export function createCardReplyStrategy(
   const controller = createCardDraftController({
     card,
     log,
-    throttleMs: config.cardStreamInterval ?? (usedDeprecatedCardRealTimeStream ? 300 : 1000),
+    throttleMs: config.cardStreamInterval ?? 1000,
   });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
@@ -99,10 +99,15 @@ export function createCardReplyStrategy(
       return;
     }
     const blocks = reasoningAssembler.ingestSnapshot(text);
+    const trimmed = text.trimStart();
     if (
       blocks.length === 0
-      && !text.trimStart().startsWith("Reasoning:")
+      && !trimmed.startsWith("Reasoning:")
     ) {
+      if (trimmed.startsWith("Reason:")) {
+        latestReasoningSnapshot = "";
+        return;
+      }
       latestReasoningSnapshot = text.trim();
       return;
     }
@@ -187,13 +192,13 @@ export function createCardReplyStrategy(
   };
 
   const handleAnswerSnapshot = async (text: string | undefined): Promise<void> => {
-    if (!streamAnswerLive || !shouldAcceptAnswerSnapshot() || isStopRequested?.()) {
+    if (!shouldAcceptAnswerSnapshot() || isStopRequested?.()) {
       return;
     }
     if (!text) {
       return;
     }
-    await controller.updateAnswer(text);
+    await controller.updateAnswer(text, { stream: streamAnswerLive });
   };
 
   const applySplitTextToTimeline = async (
@@ -222,11 +227,9 @@ export function createCardReplyStrategy(
           await handleAssistantBoundary();
         },
 
-        onPartialReply: streamAnswerLive
-          ? async (payload) => {
-              await handleAnswerSnapshot(payload.text);
-            }
-          : undefined,
+        onPartialReply: async (payload) => {
+          await handleAnswerSnapshot(payload.text);
+        },
 
         onReasoningStream: async (payload) => {
           if (isLifecycleSealed() || isStopRequested?.()) {

@@ -1,6 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DingTalkConfigSchema } from '../../src/config-schema';
 import {
     getConfig,
     isConfigured,
@@ -149,6 +150,29 @@ describe('config advanced', () => {
 
         const resolved = getConfig(cfg, 'bot2');
         expect(resolved.cardStreamingMode).toBe('answer');
+    });
+
+    it('named account inherits top-level legacy cardRealTimeStream through parsed config when account-level value is omitted', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            clientId: 'top_id',
+            clientSecret: 'top_sec',
+            cardRealTimeStream: true,
+            accounts: {
+                bot2: {
+                    clientId: 'bot2_id',
+                    clientSecret: 'bot2_sec',
+                },
+            },
+        });
+        const cfg = {
+            channels: {
+                dingtalk: parsed,
+            },
+        } as any;
+
+        const resolved = getConfig(cfg, 'bot2');
+        expect(resolved.cardRealTimeStream).toBe(true);
+        expect(resolved.cardStreamingMode).toBe('all');
     });
 
     it('merged config does not leak accounts key', () => {

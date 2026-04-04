@@ -3471,6 +3471,66 @@ describe("inbound-handler", () => {
     });
   });
 
+  it("card flow preserves off-mode partial answers when final payload is empty", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.onPartialReply).toBeDefined();
+        await replyOptions?.onPartialReply?.({ text: "阶段性答案" });
+        await dispatcherOptions.deliver({ text: "" }, { kind: "final" });
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = {
+      cardInstanceId: "card_off_mode_partial_final_empty",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        ackReaction: "",
+        cardStreamingMode: "off",
+      } as any,
+      data: {
+        msgId: "m_card_off_partial_final_empty",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.streamAICardMock).not.toHaveBeenCalled();
+    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+      card,
+      "阶段性答案",
+      undefined,
+      {
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_card_off_partial_final_empty",
+        },
+      },
+    );
+  });
+
   it("handleDingTalkMessage sends DONE in markdown mode when no visible output is produced", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
@@ -5624,6 +5684,7 @@ describe("inbound-handler", () => {
     expect(finalContent).toContain("> Reason: 先检查当前目录");
     expect(finalContent).toContain("最终答案：/tmp");
     expect(finalContent).not.toContain("Reasoning:\n_Reason: 先检查当前目录_");
+    expect(finalContent.match(/> Reason: 先检查当前目录/g)?.length ?? 0).toBe(1);
     expect(finalContent.indexOf("> Reason: 先检查当前目录")).toBeLessThan(
       finalContent.indexOf("最终答案：/tmp"),
     );

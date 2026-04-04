@@ -96,12 +96,12 @@ describe("reply-strategy-card", () => {
             expect(opts.onPartialReply).toBeDefined();
         });
 
-        it("does not register onPartialReply when cardStreamingMode=off", () => {
+        it("registers onPartialReply when cardStreamingMode=off so answer snapshots can still be buffered locally", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
             }));
-            expect(strategy.getReplyOptions().onPartialReply).toBeUndefined();
+            expect(strategy.getReplyOptions().onPartialReply).toBeDefined();
         });
 
         it("streams partial answers into the card timeline when cardStreamingMode=answer", async () => {
@@ -116,6 +116,28 @@ describe("reply-strategy-card", () => {
 
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
             expect(streamAICardMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+        });
+
+        it("buffers partial answers locally when cardStreamingMode=off and reuses them during finalize", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).not.toHaveBeenCalled();
+
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("阶段性答案");
+            expect(rendered).not.toContain("✅ Done");
+            expect(strategy.getFinalText()).toBe("阶段性答案");
         });
 
         it("always registers onReasoningStream and onAssistantMessageStart", () => {
@@ -217,7 +239,11 @@ describe("reply-strategy-card", () => {
             }));
             const opts = strategy.getReplyOptions();
 
-            expect(opts.onPartialReply).toBeUndefined();
+            expect(opts.onPartialReply).toBeDefined();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_先检查当前目录_" });
             await vi.advanceTimersByTimeAsync(0);
@@ -298,7 +324,7 @@ describe("reply-strategy-card", () => {
             expect(streamAICardMock.mock.calls[1]?.[1]).toContain("兼容模式答案");
         });
 
-        it("legacy fallback keeps the faster 300ms default throttle when cardStreamInterval is unset", async () => {
+        it("legacy fallback uses the unified 1000ms default throttle when cardStreamInterval is unset", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
@@ -310,7 +336,7 @@ describe("reply-strategy-card", () => {
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
 
             await opts.onReasoningStream?.({ text: "快速推理2" });
-            await vi.advanceTimersByTimeAsync(299);
+            await vi.advanceTimersByTimeAsync(999);
             expect(streamAICardMock).toHaveBeenCalledTimes(1);
 
             await vi.advanceTimersByTimeAsync(1);
@@ -331,7 +357,11 @@ describe("reply-strategy-card", () => {
             }));
             const opts = strategy.getReplyOptions();
 
-            expect(opts.onPartialReply).toBeUndefined();
+            expect(opts.onPartialReply).toBeDefined();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 优先显式模式" });
             await vi.advanceTimersByTimeAsync(0);
@@ -542,6 +572,7 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("结论：3天");
             expect(rendered).toContain("> 1. 任务总量设为 1。");
             expect(rendered).not.toContain("Reasoning:\n_1. 任务总量设为 1。_");
+            expect(rendered.match(/> 1\. 任务总量设为 1。/g)?.length ?? 0).toBe(1);
             expect(rendered.indexOf("> 1. 任务总量设为 1。")).toBeLessThan(rendered.indexOf("结论：3天"));
         });
 
@@ -908,6 +939,7 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("经过分步计算，结论如下：任务预计 3 天完成。");
             expect(rendered).toContain("> 1. 先计算每个人的效率");
             expect(rendered).not.toContain("Reasoning:\n_1. 先计算每个人的效率_");
+            expect(rendered.match(/> 1\. 先计算每个人的效率/g)?.length ?? 0).toBe(1);
             expect(rendered.indexOf("> 1. 先计算每个人的效率")).toBeLessThan(
                 rendered.indexOf("经过分步计算，结论如下：任务预计 3 天完成。"),
             );

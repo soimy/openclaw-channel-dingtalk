@@ -27,7 +27,7 @@ function normalizeLearningConfig(
       ? config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
       : config.learningNoteTtlMs,
     cardStreamingMode: options.applyDefaults
-      ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? undefined : "off"))
+      ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? "all" : "off"))
       : config.cardStreamingMode,
   };
 }
