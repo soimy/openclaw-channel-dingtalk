@@ -703,12 +703,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
       );
+      const quotePreview =
+        extractedContent.quoted?.previewText || data.content?.quoteContent || "";
       const aiCard = await createAICard(dingtalkConfig, to, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
         hasQuote: Boolean(quotedRef),
-        quoteContent: extractedContent.text || "",
+        quoteContent: quotedRef ? quotePreview : "",
       });
       if (aiCard) {
         currentAICard = aiCard;

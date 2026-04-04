@@ -14,6 +14,7 @@ import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler"
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { sendBySession, sendMessage, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
@@ -181,7 +182,17 @@ export function createCardReplyStrategy(
         if (payload.mediaUrls.length > 0) {
           for (const url of payload.mediaUrls) {
             try {
-              const result = await uploadMedia(config, url, "image", log);
+              const prepared = await prepareMediaInput(url, log);
+              const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
+              if (mediaType !== "image") {
+                // Non-image attachments are not embeddable in cards; skip silently
+                // (they will be available via fallback path if needed)
+                log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+                await prepared.cleanup?.();
+                continue;
+              }
+              const result = await uploadMedia(config, prepared.path, "image", log);
+              await prepared.cleanup?.();
               if (result?.mediaId) {
                 await controller.appendImageBlock(result.mediaId);
               }
@@ -228,7 +239,17 @@ export function createCardReplyStrategy(
       if (payload.mediaUrls.length > 0) {
         for (const url of payload.mediaUrls) {
           try {
-            const result = await uploadMedia(config, url, "image", log);
+            const prepared = await prepareMediaInput(url, log);
+            const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
+            if (mediaType !== "image") {
+              // Non-image attachments are not embeddable in cards; skip silently
+              // (they will be available via fallback path if needed)
+              log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+              await prepared.cleanup?.();
+              continue;
+            }
+            const result = await uploadMedia(config, prepared.path, "image", log);
+            await prepared.cleanup?.();
             if (result?.mediaId) {
               await controller.appendImageBlock(result.mediaId);
             }
