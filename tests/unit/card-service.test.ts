@@ -96,6 +96,8 @@ describe('card-service', () => {
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
             stop_action: 'true',
+            hasQuote: 'false',
+            quoteContent: '',
         });
         expect(body.cardTemplateId).toBe(BUILTIN_DINGTALK_CARD_TEMPLATE_ID);
         expect(body.imGroupOpenDeliverModel).toEqual({
