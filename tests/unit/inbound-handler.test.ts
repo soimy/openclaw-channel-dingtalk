@@ -3989,7 +3989,7 @@ describe("inbound-handler", () => {
       .fn()
       .mockImplementation(async ({ dispatcherOptions }) => {
         await dispatcherOptions.deliver(
-          { text: "final output", mediaUrl: "https://cdn.example.com/report.pdf" },
+          { text: "final output", mediaUrl: "https://cdn.example.com/photo.png" },
           { kind: "final" },
         );
         return { queuedFinal: true };
@@ -3998,6 +3998,11 @@ describe("inbound-handler", () => {
 
     const card = { cardInstanceId: "card_media_final", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/photo.png",
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("image");
     shared.uploadMediaMock.mockResolvedValueOnce({ mediaId: "media_img_123" });
 
     await handleDingTalkMessage({
@@ -4020,9 +4025,17 @@ describe("inbound-handler", () => {
     } as any);
 
     // Media should be uploaded and embedded as image block in card, not sent via sendMessage
+    expect(shared.prepareMediaInputMock).toHaveBeenCalledWith(
+      "https://cdn.example.com/photo.png",
+      undefined,
+    );
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/photo.png",
+      asVoice: false,
+    });
     expect(shared.uploadMediaMock).toHaveBeenCalledWith(
       expect.objectContaining({ dmPolicy: "open", messageType: "card" }),
-      "https://cdn.example.com/report.pdf",
+      "/tmp/prepared/photo.png",
       "image",
       undefined,
     );

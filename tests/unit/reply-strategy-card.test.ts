@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCardReplyStrategy } from "../../src/reply-strategy-card";
 import * as cardService from "../../src/card-service";
 import * as sendService from "../../src/send-service";
+import * as mediaUtils from "../../src/media-utils";
 import { AICardStatus } from "../../src/types";
 import type { AICardInstance } from "../../src/types";
 import type { ReplyStrategyContext } from "../../src/reply-strategy";
@@ -30,11 +31,28 @@ vi.mock("../../src/send-service", async (importOriginal) => {
     };
 });
 
+vi.mock("../../src/media-utils", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../src/media-utils")>();
+    return {
+        ...actual,
+        prepareMediaInput: vi.fn().mockImplementation(async (input: string) => ({ path: input })),
+        resolveOutboundMediaType: vi.fn().mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            // Detect media type based on file extension
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
+                return "image";
+            }
+            return "file";
+        }),
+    };
+});
+
 const finishAICardMock = vi.mocked(cardService.finishAICard);
 const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
+const prepareMediaInputMock = vi.mocked(mediaUtils.prepareMediaInput);
+const resolveOutboundMediaTypeMock = vi.mocked(mediaUtils.resolveOutboundMediaType);
 
 function makeCard(overrides: Partial<AICardInstance> = {}): AICardInstance {
     return {
@@ -75,6 +93,14 @@ describe("reply-strategy-card", () => {
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
+        uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id" });
+        prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
+        resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
+                return "image";
+            }
+            return "file";
+        });
     });
 
     afterEach(() => {
@@ -271,10 +297,10 @@ describe("reply-strategy-card", () => {
         it("deliver(block) delivers media as image blocks", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
-            await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.pdf"], kind: "block" });
+            await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.png"], kind: "block" });
             expect(uploadMediaMock).toHaveBeenCalledWith(
                 expect.anything(),
-                "/tmp/file.pdf",
+                "/tmp/file.png",
                 "image",
                 expect.anything(),
             );
