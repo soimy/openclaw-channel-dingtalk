@@ -8,7 +8,6 @@
   <a href="https://github.com/openclaw/openclaw"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.24-0A7CFF"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm version" src="https://img.shields.io/npm/v/%40soimy%2Fdingtalk"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40soimy%2Fdingtalk"></a>
-  <a href="https://github.com/soimy/openclaw-channel-dingtalk/actions/workflows/docs-pages.yml"><img alt="Docs" src="https://img.shields.io/github/actions/workflow/status/soimy/openclaw-channel-dingtalk/docs-pages.yml?branch=main&label=Docs"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/soimy/openclaw-channel-dingtalk"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/CITATION.cff"><img alt="Citation" src="https://img.shields.io/badge/Citation-CITATION.cff-1277B5"></a>
 </p>
@@ -28,7 +27,7 @@
 
 ## 文档入口
 
-- 文档站点：<https://soimy.github.io/openclaw-channel-dingtalk/>
+- 线上文档站点：<https://dingtalk-channel.nanoo.app/>
 - 用户文档入口：[docs/user/index.md](docs/user/index.md)
 - 参与贡献入口：[docs/contributor/index.md](docs/contributor/index.md)
 - 发布记录：[docs/releases/index.md](docs/releases/index.md)

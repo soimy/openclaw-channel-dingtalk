@@ -24,6 +24,7 @@ pnpm test:coverage
 ```
 
 文档站基于 VitePress，开发态使用 `pnpm run docs:dev`，构建产物预览使用 `pnpm run docs:preview`。
+仓库线上文档发布由 GitHub Actions 驱动，通过 Vercel CLI 在 CI 内执行预构建与部署；启用该流程需要在仓库 Secrets 中配置 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`。
 
 ## 推荐仓库布局
 

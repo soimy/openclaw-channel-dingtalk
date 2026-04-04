@@ -1,0 +1,111 @@
+name: Docs Vercel
+
+on:
+  pull_request:
+    branches:
+      - "**"
+    paths:
+      - README.md
+      - package.json
+      - pnpm-lock.yaml
+      - docs/**
+      - vercel.json
+      - .github/workflows/docs-vercel.yml
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - package.json
+      - pnpm-lock.yaml
+      - docs/**
+      - vercel.json
+      - .github/workflows/docs-vercel.yml
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deployment target"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-vercel-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check Vercel secrets
+        id: vercel-secrets
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping Vercel deployment because one or more Vercel secrets are missing."
+          fi
+
+      - name: Checkout
+        if: steps.vercel-secrets.outputs.available == 'true'
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        if: steps.vercel-secrets.outputs.available == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        if: steps.vercel-secrets.outputs.available == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        if: steps.vercel-secrets.outputs.available == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve Vercel deployment target
+        id: target
+        if: steps.vercel-secrets.outputs.available == 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "vercel_environment=production" >> "$GITHUB_OUTPUT"
+            echo "vercel_build_args=--prod" >> "$GITHUB_OUTPUT"
+            echo "vercel_deploy_args=--prod" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.target }}" = "production" ]; then
+            echo "vercel_environment=production" >> "$GITHUB_OUTPUT"
+            echo "vercel_build_args=--prod" >> "$GITHUB_OUTPUT"
+            echo "vercel_deploy_args=--prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "vercel_environment=preview" >> "$GITHUB_OUTPUT"
+            echo "vercel_build_args=" >> "$GITHUB_OUTPUT"
+            echo "vercel_deploy_args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull Vercel environment information
+        if: steps.vercel-secrets.outputs.available == 'true'
+        run: pnpm dlx vercel@latest pull --yes --environment="${{ steps.target.outputs.vercel_environment }}" --token="$VERCEL_TOKEN"
+
+      - name: Build Vercel output
+        if: steps.vercel-secrets.outputs.available == 'true'
+        run: pnpm dlx vercel@latest build ${{ steps.target.outputs.vercel_build_args }} --token="$VERCEL_TOKEN"
+
+      - name: Deploy to Vercel
+        if: steps.vercel-secrets.outputs.available == 'true'
+        run: pnpm dlx vercel@latest deploy --prebuilt ${{ steps.target.outputs.vercel_deploy_args }} --token="$VERCEL_TOKEN"
