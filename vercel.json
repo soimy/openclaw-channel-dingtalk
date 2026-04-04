@@ -3,6 +3,9 @@
   "buildCommand": "DOCS_BASE=/ pnpm run docs:build",
   "outputDirectory": "docs/.vitepress/dist",
   "installCommand": "pnpm install --frozen-lockfile",
+  "git": {
+    "deploymentEnabled": false
+  },
   "framework": null,
   "cleanUrls": true,
   "trailingSlash": false
