@@ -27,8 +27,7 @@
 
 ## 文档入口
 
-- 文档部署工作流：<https://github.com/soimy/openclaw-channel-dingtalk/actions/workflows/docs-vercel.yml>
-- 线上文档站点：由 GitHub Actions 构建并发布到当前 Vercel Project 的 Production Domain
+- 线上文档站点：<https://dingtalk-channel.nanoo.app/>
 - 用户文档入口：[docs/user/index.md](docs/user/index.md)
 - 参与贡献入口：[docs/contributor/index.md](docs/contributor/index.md)
 - 发布记录：[docs/releases/index.md](docs/releases/index.md)

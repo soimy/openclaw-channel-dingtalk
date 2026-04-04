@@ -40,7 +40,8 @@ describe("docs deployment configuration", () => {
         const readme = readFileSync(resolve(repoRoot, "README.md"), "utf8");
         const developmentDoc = readFileSync(resolve(repoRoot, "docs/contributor/development.md"), "utf8");
 
-        expect(readme).toContain("actions/workflows/docs-vercel.yml");
+        expect(readme).toContain("https://dingtalk-channel.nanoo.app/");
+        expect(readme).not.toContain("文档部署工作流");
         expect(readme).not.toContain("actions/workflows/docs-pages.yml");
         expect(developmentDoc).toContain("GitHub Actions");
         expect(developmentDoc).toContain("Vercel");
