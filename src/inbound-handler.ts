@@ -695,6 +695,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
 
+  // Build quotedRef early for card creation
+  const quotedRef = buildInboundQuotedRef(data, extractedContent);
+
   if (useCardMode) {
     try {
       log?.debug?.(
@@ -704,6 +707,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
+        hasQuote: Boolean(quotedRef),
+        quoteContent: extractedContent.text || "",
       });
       if (aiCard) {
         currentAICard = aiCard;
@@ -731,7 +736,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
-  const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
   const hasLegacyQuoteContent =

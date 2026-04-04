@@ -324,6 +324,10 @@ interface CreateAICardOptions {
   storePath?: string;
   persistPending?: boolean;
   contextConversationId?: string;
+  /** Whether to show quote section on the card (default: false) */
+  hasQuote?: boolean;
+  /** Quote content to display when hasQuote is true */
+  quoteContent?: string;
 }
 
 interface PendingCardRecord {
@@ -706,6 +710,8 @@ export async function createAICard(
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
       [template.streamingKey]: "",
+      hasQuote: String(Boolean(options.hasQuote)),
+      quoteContent: options.quoteContent || "",
       stop_action: STOP_ACTION_VISIBLE,
     };
     const createAndDeliverBody = {
