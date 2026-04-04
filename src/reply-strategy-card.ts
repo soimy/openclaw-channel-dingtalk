@@ -26,53 +26,13 @@ export function createCardReplyStrategy(
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
 
-  const controller = createCardDraftController({
-    card,
-    log,
-    realTimeStreamEnabled: config.cardRealTimeStream ?? false,
-  });
+  const controller = createCardDraftController({ card, log });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
     attachCardRunController(card.outTrackId, controller);
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
-  let currentTurnSawExplicitReasoning = false;
-  let currentTurnSawPartialAnswer = false;
-  let currentTurnSawStableAnswer = false;
-
-  const resetCurrentTurnAnswerTracking = () => {
-    currentTurnSawExplicitReasoning = false;
-    currentTurnSawPartialAnswer = false;
-    currentTurnSawStableAnswer = false;
-  };
-
-  const notePartialAnswerDraft = (text: string | undefined) => {
-    if (typeof text === "string" && text.trim()) {
-      currentTurnSawPartialAnswer = true;
-    }
-  };
-
-  const noteStableAnswer = (text: string | undefined) => {
-    if (typeof text === "string" && text.trim()) {
-      currentTurnSawStableAnswer = true;
-    }
-  };
-
-  const shouldDiscardCurrentAnswerDraft = (): boolean =>
-    currentTurnSawExplicitReasoning
-    && currentTurnSawPartialAnswer
-    && !currentTurnSawStableAnswer;
-
-  const discardCurrentAnswerDraft = (scope: string) => {
-    if (!shouldDiscardCurrentAnswerDraft()) {
-      return false;
-    }
-    controller.discardCurrentAnswer();
-    currentTurnSawPartialAnswer = false;
-    log?.debug?.(`[DingTalk][Card] Dropped partial-only answer draft after explicit reasoning in ${scope}`);
-    return true;
-  };
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
     const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
@@ -92,9 +52,6 @@ export function createCardReplyStrategy(
   };
 
   const ingestReasoningSnapshot = async (text: string | undefined): Promise<void> => {
-    if (typeof text === "string" && text.trim()) {
-      currentTurnSawExplicitReasoning = true;
-    }
     const blocks = reasoningAssembler.ingestSnapshot(text);
     if (
       blocks.length === 0
@@ -116,8 +73,8 @@ export function createCardReplyStrategy(
   return {
     getReplyOptions(): ReplyOptions {
       return {
-        // Card mode follows the runtime block-streaming contract passed from
-        // inbound-handler while still consuming explicit reasoning callbacks.
+        // Card mode keeps runtime block streaming disabled, but still consumes
+        // reasoning blocks through explicit callbacks and delivery metadata.
         disableBlockStreaming: ctx.disableBlockStreaming ?? true,
 
         onAssistantMessageStart: async () => {
@@ -126,12 +83,7 @@ export function createCardReplyStrategy(
           }
           const pendingReasoningBlocks = reasoningAssembler.flushPendingAtBoundary();
           reasoningAssembler.reset();
-          const discardActiveAnswer = shouldDiscardCurrentAnswerDraft();
-          if (discardActiveAnswer) {
-            log?.debug?.("[DingTalk][Card] Dropping partial-only answer draft before starting a new assistant turn");
-          }
-          const turnBoundary = controller.notifyNewAssistantTurn({ discardActiveAnswer });
-          resetCurrentTurnAnswerTracking();
+          const turnBoundary = controller.notifyNewAssistantTurn();
           if (pendingReasoningBlocks.length > 0) {
             await turnBoundary;
             await appendAssembledThinkingBlocks(pendingReasoningBlocks);
@@ -143,7 +95,6 @@ export function createCardReplyStrategy(
         onPartialReply: config.cardRealTimeStream
           ? async (payload) => {
               if (payload.text && !isStopRequested?.()) {
-                notePartialAnswerDraft(payload.text);
                 await controller.updateAnswer(payload.text);
               }
             }
@@ -183,7 +134,6 @@ export function createCardReplyStrategy(
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
-          noteStableAnswer(rawFinalText);
           finalTextForFallback = rawFinalText;
         }
         return;
@@ -195,7 +145,6 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk] Card failed, skipping tool result (will send full reply on final)");
           return;
         }
-        discardCurrentAnswerDraft("tool.boundary");
         await flushPendingReasoning();
         log?.info?.(
           `[DingTalk] Tool result received, streaming to AI Card: ${(textToSend ?? "").slice(0, 100)}`,
@@ -209,7 +158,6 @@ export function createCardReplyStrategy(
         if (isReasoningBlock) {
           await ingestReasoningSnapshot(textToSend);
         } else {
-          noteStableAnswer(textToSend);
           await controller.updateAnswer(textToSend);
         }
       }
@@ -247,7 +195,6 @@ export function createCardReplyStrategy(
 
       // Card failed -> markdown fallback (bypass sendMessage to avoid duplicate card).
       if (card.state === AICardStatus.FAILED || controller.isFailed()) {
-        discardCurrentAnswerDraft("card.failure");
         const fallbackText = getRenderedTimeline({ preferFinalAnswer: true })
           || controller.getLastAnswerContent()
           || controller.getLastContent()
@@ -275,14 +222,7 @@ export function createCardReplyStrategy(
 
       // Normal finalize.
       try {
-        discardCurrentAnswerDraft("card.finalize");
         await flushPendingReasoning();
-
-        // Clear any remaining streaming content before final commit
-        if (controller.isRealTimeStreamEnabled() && controller.clearStreamingContent) {
-          await controller.clearStreamingContent();
-        }
-
         await controller.flush();
         await controller.waitForInFlight();
         const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });

@@ -705,7 +705,7 @@ export async function createAICard(
     // Status is set to "streaming" via the streaming API immediately after creation.
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
-      [template.streamingKey]: "",
+      [template.contentKey]: "",
       stop_action: STOP_ACTION_VISIBLE,
     };
     const createAndDeliverBody = {
@@ -806,7 +806,7 @@ export async function createAICard(
     // This sends an empty content stream (isFull=true, isFinalize=false) which transitions
     // the card from PROCESSING to INPUTING on the DingTalk side.
     try {
-      await putAICardStreamingField(aiCardInstance, template.streamingKey, "", false, log);
+      await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log);
       aiCardInstance.state = AICardStatus.INPUTING;
     } catch (kickErr: any) {
       log?.debug?.(`[DingTalk][AICard] Non-critical: failed to kick card into streaming mode: ${kickErr.message}`);
@@ -836,139 +836,6 @@ export async function createAICard(
   }
 }
 
-/**
- * Update blockList via PUT /v1.0/card/instances API.
- * Required because streaming API returns 500 for complex loopArray types.
- */
-export async function updateAICardBlockList(
-  card: AICardInstance,
-  blockListJson: string,
-  log?: Logger,
-): Promise<void> {
-  if (isCardInTerminalState(card.state)) {
-    log?.debug?.(
-      `[DingTalk][AICard] Skip blockList update because card already terminal: outTrackId=${card.cardInstanceId} state=${card.state}`,
-    );
-    return;
-  }
-
-  const template = DINGTALK_CARD_TEMPLATE;
-  const params: Record<string, unknown> = {
-    [template.blockListKey]: blockListJson,
-  };
-
-  try {
-    await updateCardVariables(
-      card.outTrackId || card.cardInstanceId,
-      params,
-      card.accessToken,
-      card.config,
-    );
-    card.lastStreamedContent = blockListJson;
-    card.lastUpdated = Date.now();
-    if (card.state === AICardStatus.PROCESSING) {
-      card.state = AICardStatus.INPUTING;
-    }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log?.error?.(`[DingTalk][AICard] BlockList update failed: ${message}`);
-    throw err;
-  }
-}
-
-/**
- * Stream answer text to content key for real-time display.
- * Only used when cardRealTimeStream=true.
- * Uses streaming API because content is a simple string type.
- */
-export async function streamAICardContent(
-  card: AICardInstance,
-  text: string,
-  log?: Logger,
-): Promise<void> {
-  if (isCardInTerminalState(card.state)) {
-    return;
-  }
-  const template = DINGTALK_CARD_TEMPLATE;
-  await putAICardStreamingField(card, template.streamingKey, text, false, log);
-}
-
-/**
- * Clear the streaming content key.
- * Called when transitioning from streaming to blockList commit.
- */
-export async function clearAICardStreamingContent(
-  card: AICardInstance,
-  log?: Logger,
-): Promise<void> {
-  if (isCardInTerminalState(card.state)) {
-    return;
-  }
-  const template = DINGTALK_CARD_TEMPLATE;
-  try {
-    await putAICardStreamingField(card, template.streamingKey, "", false, log);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log?.debug?.(`[DingTalk][AICard] Non-critical: failed to clear streaming content: ${message}`);
-  }
-}
-
-/**
- * Commit blocks to blockList via instances API.
- * On finalize, also syncs content for copy action.
- */
-export async function commitAICardBlocks(
-  card: AICardInstance,
-  blockListJson: string,
-  isFinalize: boolean,
-  log?: Logger,
-): Promise<void> {
-  if (isCardInTerminalState(card.state)) {
-    return;
-  }
-
-  const template = DINGTALK_CARD_TEMPLATE;
-
-  // On finalize, write content for copy action first
-  if (isFinalize && blockListJson.trim()) {
-    const plainTextContent = extractAnswerTextFromBlockList(blockListJson);
-    if (plainTextContent.trim()) {
-      try {
-        await putAICardStreamingField(card, template.streamingKey, plainTextContent, false, log);
-      } catch (contentErr: unknown) {
-        const message = contentErr instanceof Error ? contentErr.message : String(contentErr);
-        log?.debug?.(`[DingTalk][AICard] Non-critical: failed to sync content for copy: ${message}`);
-      }
-    }
-  }
-
-  // Update blockList via instances API
-  await updateAICardBlockList(card, blockListJson, log);
-
-  if (isFinalize) {
-    card.state = AICardStatus.FINISHED;
-    removePendingCard(card, log);
-  }
-}
-
-/**
- * Extract plain answer text from CardBlock[] JSON for copy action.
- */
-function extractAnswerTextFromBlockList(blockListJson: string): string {
-  try {
-    const blocks = JSON.parse(blockListJson) as Array<{ type?: number; markdown?: string }>;
-    if (!Array.isArray(blocks)) {
-      return blockListJson;
-    }
-    return blocks
-      .filter((b) => b.type === 0 && b.markdown)
-      .map((b) => b.markdown)
-      .join("\n\n");
-  } catch {
-    return blockListJson;
-  }
-}
-
 export async function streamAICard(
   card: AICardInstance,
   content: string,
@@ -984,7 +851,7 @@ export async function streamAICard(
   const template = DINGTALK_CARD_TEMPLATE;
 
   try {
-    await putAICardStreamingField(card, template.streamingKey, content, finished, log);
+    await putAICardStreamingField(card, template.contentKey, content, finished, log);
     card.lastStreamedContent = content;
     if (finished) {
       card.state = AICardStatus.FINISHED;
@@ -1050,7 +917,7 @@ export async function finishStoppedAICard(
   }
   const template = DINGTALK_CARD_TEMPLATE;
   try {
-    await putAICardStreamingField(card, template.streamingKey, content, true, log);
+    await putAICardStreamingField(card, template.contentKey, content, true, log);
   } finally {
     // Ensure local state is consistent even when the streaming API call fails.
     // The card is logically stopped regardless of whether DingTalk acknowledged it.

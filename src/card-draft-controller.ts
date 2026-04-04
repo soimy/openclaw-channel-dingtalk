@@ -10,11 +10,7 @@
  * {@link createDraftStreamLoop}.
  */
 
-import {
-    clearAICardStreamingContent,
-    streamAICardContent,
-    updateAICardBlockList,
-} from "./card-service";
+import { streamAICard } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
 import type { AICardInstance, Logger } from "./types";
 
@@ -32,12 +28,8 @@ export interface CardDraftController {
     appendThinkingBlock: (text: string) => Promise<void>;
     updateTool: (text: string) => Promise<void>;
     appendTool: (text: string) => Promise<void>;
-    /** Drop the current answer draft while keeping sealed earlier turns intact. */
-    discardCurrentAnswer: () => void;
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
-    notifyNewAssistantTurn: (options?: {
-        discardActiveAnswer?: boolean;
-    }) => Promise<void>;
+    notifyNewAssistantTurn: () => Promise<void>;
     startAssistantTurn: () => Promise<void>;
     flush: () => Promise<void>;
     waitForInFlight: () => Promise<void>;
@@ -55,12 +47,6 @@ export interface CardDraftController {
         overrideAnswer?: string;
         compactProcessAnswerSpacing?: boolean;
     }) => string;
-    /** Stream answer text to content key for real-time display. Only available when realTimeStreamEnabled=true. */
-    streamContent?: (text: string) => Promise<void>;
-    /** Clear the streaming content key. Only available when realTimeStreamEnabled=true. */
-    clearStreamingContent?: () => Promise<void>;
-    /** Whether real-time streaming is enabled. */
-    isRealTimeStreamEnabled: () => boolean;
 }
 
 function normalizeProcessText(text: string | undefined): string {
@@ -87,8 +73,6 @@ export function createCardDraftController(params: {
     throttleMs?: number;
     /** Legacy compatibility: verbose mode previously lowered the throttle. */
     verboseMode?: boolean;
-    /** Enable real-time streaming to content key for answer display. */
-    realTimeStreamEnabled?: boolean;
     log?: Logger;
 }): CardDraftController {
     let failed = false;
@@ -102,34 +86,6 @@ export function createCardDraftController(params: {
     let pendingBoundaryPromise: Promise<void> | null = null;
 
     const effectiveThrottleMs = params.throttleMs ?? (params.verboseMode ? 50 : 300);
-    const realTimeStreamEnabled = params.realTimeStreamEnabled ?? false;
-    let hasStreamingContent = false;
-
-    const streamContentToCard = async (text: string) => {
-        if (!realTimeStreamEnabled) {
-            return;
-        }
-        try {
-            await streamAICardContent(params.card, text, params.log);
-            hasStreamingContent = true;
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            params.log?.debug?.(`[DingTalk][AICard] Failed to stream content: ${message}`);
-        }
-    };
-
-    const clearStreamingContentFromCard = async () => {
-        if (!realTimeStreamEnabled || !hasStreamingContent) {
-            return;
-        }
-        try {
-            await clearAICardStreamingContent(params.card, params.log);
-            hasStreamingContent = false;
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            params.log?.debug?.(`[DingTalk][AICard] Failed to clear streaming content: ${message}`);
-        }
-    };
 
     const getFinalAnswerContent = (): string => {
         return timelineEntries
@@ -223,24 +179,8 @@ export function createCardDraftController(params: {
         activeAnswerIndex = null;
     };
 
-    const discardCurrentAnswer = () => {
-        if (activeAnswerIndex === null) {
-            return;
-        }
-        removeTimelineEntry(activeAnswerIndex);
-        queueRender();
-    };
-
     const queueRender = () => {
         const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
-
-        // Stream to content key for real-time display (if enabled and has active answer)
-        if (realTimeStreamEnabled && activeAnswerIndex !== null) {
-            const currentAnswer = timelineEntries[activeAnswerIndex]?.text || "";
-            void streamContentToCard(currentAnswer);
-        }
-
-        // Always update blockList via instances API (throttled)
         if (rendered) {
             loop.update(rendered);
             return;
@@ -251,10 +191,6 @@ export function createCardDraftController(params: {
     const flushBoundaryFrame = async () => {
         if (stopped || failed) {
             return;
-        }
-        // Clear streaming content before committing blockList at boundary
-        if (hasStreamingContent) {
-            await clearStreamingContentFromCard();
         }
         await loop.flush();
         await loop.waitForInFlight();
@@ -285,14 +221,13 @@ export function createCardDraftController(params: {
         isStopped: () => stopped || failed,
         sendOrEditStreamMessage: async (content: string) => {
             try {
-                // Use instances API for blockList (not streaming API)
-                await updateAICardBlockList(params.card, content, params.log);
+                await streamAICard(params.card, content, false, params.log);
                 lastSentContent = content;
                 lastAnswerContent = getFinalAnswerContent();
             } catch (err: unknown) {
                 failed = true;
                 const message = err instanceof Error ? err.message : String(err);
-                params.log?.warn?.(`[DingTalk][AICard] BlockList update failed: ${message}`);
+                params.log?.warn?.(`[DingTalk][AICard] Stream failed: ${message}`);
             }
         },
     });
@@ -388,18 +323,12 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
-    const notifyNewAssistantTurn = async (options: {
-        discardActiveAnswer?: boolean;
-    } = {}) => {
+    const notifyNewAssistantTurn = async () => {
         if (stopped || failed) {
             return;
         }
         if (activeAnswerIndex !== null) {
-            if (options.discardActiveAnswer) {
-                discardCurrentAnswer();
-            } else {
-                sealCurrentAnswer();
-            }
+            sealCurrentAnswer();
             await beginBoundaryFlush();
             return;
         }
@@ -416,7 +345,6 @@ export function createCardDraftController(params: {
         appendThinkingBlock,
         updateTool,
         appendTool: updateTool,
-        discardCurrentAnswer,
         notifyNewAssistantTurn,
         startAssistantTurn: notifyNewAssistantTurn,
         flush: () => loop.flush(),
@@ -432,9 +360,5 @@ export function createCardDraftController(params: {
         getLastAnswerContent: () => lastAnswerContent,
         getFinalAnswerContent,
         getRenderedContent: renderTimeline,
-
-        streamContent: realTimeStreamEnabled ? streamContentToCard : undefined,
-        clearStreamingContent: realTimeStreamEnabled ? clearStreamingContentFromCard : undefined,
-        isRealTimeStreamEnabled: () => realTimeStreamEnabled,
     };
 }
