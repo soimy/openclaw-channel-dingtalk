@@ -14,7 +14,7 @@ import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler"
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
-import { sendBySession, sendMessage } from "./send-service";
+import { sendBySession, sendMessage, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
@@ -179,7 +179,17 @@ export function createCardReplyStrategy(
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
         if (payload.mediaUrls.length > 0) {
-          await ctx.deliverMedia(payload.mediaUrls);
+          for (const url of payload.mediaUrls) {
+            try {
+              const result = await uploadMedia(config, url, "image", log);
+              if (result?.mediaId) {
+                await controller.appendImageBlock(result.mediaId);
+              }
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
+            }
+          }
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
@@ -216,7 +226,17 @@ export function createCardReplyStrategy(
 
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls);
+        for (const url of payload.mediaUrls) {
+          try {
+            const result = await uploadMedia(config, url, "image", log);
+            if (result?.mediaId) {
+              await controller.appendImageBlock(result.mediaId);
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
+          }
+        }
       }
     },
 
