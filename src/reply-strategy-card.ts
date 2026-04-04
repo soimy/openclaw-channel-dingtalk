@@ -78,6 +78,17 @@ export function createCardReplyStrategy(
     }
   };
 
+  const applyModeAwareDeliveredReasoning = async (text: string | undefined): Promise<void> => {
+    if (typeof text !== "string" || !text.trim() || isStopRequested?.()) {
+      return;
+    }
+    if (streamThinkingLive) {
+      await controller.appendThinkingBlock(text);
+      return;
+    }
+    await applyModeAwareReasoningSnapshot(text);
+  };
+
   const applyModeAwareReasoningSnapshot = async (text: string | undefined): Promise<void> => {
     if (typeof text !== "string" || !text.trim() || isStopRequested?.()) {
       return;
@@ -153,17 +164,24 @@ export function createCardReplyStrategy(
 
   const applyDeliveredContent = async (
     normalized: { reasoningText?: string; answerText?: string },
-    options: { routeReasoningThroughModePolicy: boolean },
+    options: {
+      routeReasoningThroughModePolicy: boolean;
+      answerHandling?: "update" | "capture" | "ignore";
+    },
   ): Promise<void> => {
     if (normalized.reasoningText) {
       if (options.routeReasoningThroughModePolicy) {
-        await applyModeAwareReasoningSnapshot(normalized.reasoningText);
+        await applyModeAwareDeliveredReasoning(normalized.reasoningText);
       } else {
         // Conservative local split fallback: keep existing behavior for mixed payloads.
         await controller.appendThinkingBlock(normalized.reasoningText);
       }
     }
-    if (normalized.answerText) {
+    if (normalized.answerText && options.answerHandling !== "ignore") {
+      if (options.answerHandling === "capture") {
+        finalTextForFallback = normalized.answerText;
+        return;
+      }
       await controller.updateAnswer(normalized.answerText);
     }
   };
@@ -180,14 +198,13 @@ export function createCardReplyStrategy(
 
   const applySplitTextToTimeline = async (
     text: string,
-    options: { allowAnswerUpdate?: boolean } = {},
+    options: { answerHandling?: "update" | "capture" | "ignore" } = {},
   ) => {
-    const allowAnswerUpdate = options.allowAnswerUpdate !== false;
     const normalized = normalizeDeliveredText(text, { isReasoning: false });
-    await applyDeliveredContent({
-      reasoningText: normalized.reasoningText,
-      answerText: allowAnswerUpdate ? normalized.answerText : undefined,
-    }, { routeReasoningThroughModePolicy: false });
+    await applyDeliveredContent(normalized, {
+      routeReasoningThroughModePolicy: true,
+      answerHandling: options.answerHandling ?? "update",
+    });
     return normalized;
   };
 
@@ -257,15 +274,13 @@ export function createCardReplyStrategy(
             await applyModeAwareReasoningSnapshot(rawFinalText);
             await flushPendingReasoning();
           } else {
-            const normalizedFinal = normalizeDeliveredText(rawFinalText, { isReasoning: false });
-            if (normalizedFinal.reasoningText) {
-              await controller.appendThinkingBlock(normalizedFinal.reasoningText);
-            }
-            if (isFirstFinalDelivery && normalizedFinal.answerText) {
-              finalTextForFallback = normalizedFinal.answerText;
-            } else if (isFirstFinalDelivery && !normalizedFinal.reasoningText) {
+            const normalizedFinal = await applySplitTextToTimeline(rawFinalText, {
+              answerHandling: "capture",
+            });
+            if (isFirstFinalDelivery && !normalizedFinal.answerText && !normalizedFinal.reasoningText) {
               finalTextForFallback = rawFinalText;
             }
+            await flushPendingReasoning();
           }
         }
         return;
@@ -293,10 +308,13 @@ export function createCardReplyStrategy(
       if (typeof textToSend === "string" && textToSend.trim()) {
         if (isReasoningBlock) {
           const normalized = normalizeDeliveredText(textToSend, { isReasoning: true });
-          await applyDeliveredContent(normalized, { routeReasoningThroughModePolicy: false });
+          await applyDeliveredContent(normalized, {
+            routeReasoningThroughModePolicy: true,
+            answerHandling: "ignore",
+          });
         } else {
           await applySplitTextToTimeline(textToSend, {
-            allowAnswerUpdate: lifecycleState === "open",
+            answerHandling: lifecycleState === "open" ? "update" : "capture",
           });
         }
       }

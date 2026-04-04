@@ -63,9 +63,9 @@ function buildCtx(
 describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
-        finishAICardMock.mockClear();
-        streamAICardMock.mockClear().mockResolvedValue(undefined);
-        sendMessageMock.mockClear().mockResolvedValue({ ok: true });
+        finishAICardMock.mockReset().mockResolvedValue(undefined as any);
+        streamAICardMock.mockReset().mockResolvedValue(undefined);
+        sendMessageMock.mockReset().mockResolvedValue({ ok: true });
     });
 
     afterEach(() => {
@@ -444,9 +444,36 @@ describe("reply-strategy-card", () => {
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
-        it("deliver(block) routes reasoning-on blocks into the card timeline", async () => {
+        it("deliver(block) with explicit reasoning metadata respects off-mode buffering before final", async () => {
             const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card));
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
+            }));
+
+            await strategy.deliver({
+                text: "Reasoning:\n_Reason: 先检查当前目录_",
+                mediaUrls: [],
+                kind: "block",
+                isReasoning: true,
+            });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardMock).not.toHaveBeenCalled();
+
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(streamAICardMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> Reason: 先检查当前目录");
+            expect(rendered).toContain("最终答案");
+        });
+
+        it("deliver(block) with explicit reasoning metadata streams live in all mode", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "all" } as any,
+            }));
 
             await strategy.deliver({
                 text: "Reasoning:\n_Reason: 先检查当前目录_",
@@ -909,7 +936,7 @@ describe("reply-strategy-card", () => {
             expect(strategy.getFinalText()).toBe("阶段性答案 + 最终补充");
         });
 
-        it("freezes answer updates after first final while still accepting late reasoning and tool tails", async () => {
+        it("ignores late partial snapshots after first final while still accepting late answer blocks/finals, reasoning, and tool tails", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 config: {
@@ -925,25 +952,24 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
 
             await replyOptions.onPartialReply?.({ text: "晚到 partial 答案（应忽略）" });
-            await strategy.deliver({ text: "晚到 block 答案（应忽略）", mediaUrls: [], kind: "block" });
+            await strategy.deliver({ text: "晚到 block 答案（应吸收）", mediaUrls: [], kind: "block" });
             await replyOptions.onReasoningStream?.({ text: "Reasoning:\n_Reason: 最后补齐思考_" });
             await strategy.deliver({ text: "late tool output", mediaUrls: [], kind: "tool" });
-            await strategy.deliver({ text: "晚到 final 覆盖答案（应忽略）", mediaUrls: [], kind: "final" });
+            await strategy.deliver({ text: "晚到 final 覆盖答案（应吸收）", mediaUrls: [], kind: "final" });
 
             await strategy.finalize();
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("首个最终答案");
             expect(rendered).toContain("> Reason: 最后补齐思考");
             expect(rendered).toContain("> late tool output");
             expect(rendered.indexOf("> late tool output")).toBeLessThan(
-                rendered.indexOf("首个最终答案"),
+                rendered.indexOf("晚到 final 覆盖答案（应吸收）"),
             );
             expect(rendered).not.toContain("晚到 partial 答案（应忽略）");
-            expect(rendered).not.toContain("晚到 block 答案（应忽略）");
-            expect(rendered).not.toContain("晚到 final 覆盖答案（应忽略）");
-            expect(strategy.getFinalText()).toBe("首个最终答案");
+            expect(rendered).not.toContain("首个最终答案");
+            expect(rendered).not.toContain("阶段性答案");
+            expect(strategy.getFinalText()).toBe("晚到 final 覆盖答案（应吸收）");
         });
 
         it("in final_seen inserts late tool before the last sealed answer that gets overridden at finalize", async () => {

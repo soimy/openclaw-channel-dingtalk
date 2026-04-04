@@ -273,11 +273,13 @@ _Reason: 先检查当前目录_
 - 继续接受 late `thinking_block`
 - 继续接受 late `tool_block`
 - 不再接受会修改最终答案的 late `answer_snapshot`
+- 继续接受 late `answer` block / final payload，并用它们刷新冻结中的最终答案
 
 也就是说：
 
 - 允许“补过程”
-- 不允许“改定稿 answer”
+- 不允许“late partial snapshot 改写定稿 answer”
+- 允许“late block / final answer 补齐或替换定稿 answer”
 
 ### `sealed`
 

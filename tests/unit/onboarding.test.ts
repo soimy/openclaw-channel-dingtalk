@@ -98,6 +98,7 @@ describe("dingtalk setup wizard", () => {
 
         const select = vi
             .fn()
+            .mockResolvedValueOnce("answer")
             .mockResolvedValueOnce("allowlist")
             .mockResolvedValueOnce("allowlist")
             .mockResolvedValueOnce("all");
@@ -119,6 +120,7 @@ describe("dingtalk setup wizard", () => {
         expect((dingtalkConfig as any).corpId).toBeUndefined();
         expect((dingtalkConfig as any).agentId).toBeUndefined();
         expect(dingtalkConfig.messageType).toBe("card");
+        expect(dingtalkConfig.cardStreamingMode).toBe("answer");
         expect(dingtalkConfig.cardTemplateId).toBeUndefined();
         expect(dingtalkConfig.cardTemplateKey).toBeUndefined();
         expect(dingtalkConfig.allowFrom).toEqual(["user_a", "user_b"]);

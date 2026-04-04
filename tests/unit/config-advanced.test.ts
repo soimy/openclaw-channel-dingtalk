@@ -116,6 +116,20 @@ describe('config advanced', () => {
         expect(resolved.cardStreamingMode).toBe('all');
     });
 
+    it('getConfig resolves effective cardStreamingMode to off when both new and legacy flags are absent', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'top_id',
+                    clientSecret: 'top_sec',
+                },
+            },
+        } as any;
+
+        const resolved = getConfig(cfg);
+        expect(resolved.cardStreamingMode).toBe('off');
+    });
+
     it('named account inherits top-level cardStreamingMode when account-level value is omitted', () => {
         const cfg = {
             channels: {

@@ -7,6 +7,8 @@ const AckReactionSchema = z.union([
   z.string().min(1),
 ]);
 
+const CardStreamingModeSchema = z.enum(["off", "answer", "all"]);
+
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
   name: z.string().optional(),
@@ -117,7 +119,7 @@ const DingTalkAccountConfigShape = {
    *  - off: disable incremental streaming
    *  - answer: stream answer text
    *  - all: stream answer + reasoning text */
-  cardStreamingMode: z.enum(["off", "answer", "all"]).optional(),
+  cardStreamingMode: CardStreamingModeSchema.optional(),
 
   /** Throttle interval in ms for card stream updates (default: 1000). */
   cardStreamInterval: z.number().int().min(200).optional().default(1000),

@@ -129,7 +129,7 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.aicardDegradeMs).toBe(120000);
     });
 
-    it('does not inject cardStreamingMode when omitted', () => {
+    it('does not inject cardStreamingMode into parsed config when omitted', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',
             clientSecret: 'secret',
@@ -148,6 +148,20 @@ describe('DingTalkConfigSchema', () => {
             mode: 'off',
             usedDeprecatedCardRealTimeStream: false,
         });
+    });
+
+    it('does not inject account-level cardStreamingMode when omitted so accounts can inherit top-level behavior', () => {
+        const parsed = DingTalkConfigSchema.parse({
+            cardStreamingMode: 'off',
+            accounts: {
+                main: {
+                    clientId: 'id',
+                    clientSecret: 'secret',
+                },
+            },
+        }) as { accounts: Record<string, { cardStreamingMode?: string }> };
+
+        expect(parsed.accounts.main?.cardStreamingMode).toBeUndefined();
     });
 
     it('accepts account-level cardStreamingMode override', () => {
@@ -182,6 +196,7 @@ describe('DingTalkConfigSchema', () => {
             cardRealTimeStream: true,
         }) as { cardStreamingMode?: 'off' | 'answer' | 'all'; cardRealTimeStream?: boolean };
 
+        expect(parsed.cardStreamingMode).toBeUndefined();
         expect(resolveCardStreamingMode(parsed)).toEqual({
             mode: 'all',
             usedDeprecatedCardRealTimeStream: true,

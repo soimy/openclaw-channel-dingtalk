@@ -5789,7 +5789,7 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("card flow keeps the first final answer while accepting late reasoning/tool tails after final", async () => {
+  it("card flow ignores late partial snapshots but still absorbs late answer blocks/finals after final", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
@@ -5798,11 +5798,11 @@ describe("inbound-handler", () => {
         await dispatcherOptions.deliver({ text: "首个最终答案" }, { kind: "final" });
         await replyOptions?.onPartialReply?.({ text: "晚到 partial 覆盖答案（应忽略）" });
         await dispatcherOptions.deliver(
-          { text: "晚到 block 覆盖答案（应忽略）\n\nReasoning:\n_Reason: final 后补齐推理_" },
+          { text: "晚到 block 覆盖答案（应吸收）\n\nReasoning:\n_Reason: final 后补齐推理_" },
           { kind: "block" },
         );
         await dispatcherOptions.deliver({ text: "late tool output" }, { kind: "tool" });
-        await dispatcherOptions.deliver({ text: "晚到 final 覆盖答案（应忽略）" }, { kind: "final" });
+        await dispatcherOptions.deliver({ text: "晚到 final 覆盖答案（应吸收）" }, { kind: "final" });
         return { queuedFinal: false };
       });
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
@@ -5841,15 +5841,15 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("首个最终答案");
     expect(finalContent).toContain("> Reason: final 后补齐推理");
     expect(finalContent).toContain("> late tool output");
     expect(finalContent.indexOf("> late tool output")).toBeLessThan(
-      finalContent.indexOf("首个最终答案"),
+      finalContent.indexOf("晚到 final 覆盖答案（应吸收）"),
     );
     expect(finalContent).not.toContain("晚到 partial 覆盖答案（应忽略）");
-    expect(finalContent).not.toContain("晚到 block 覆盖答案（应忽略）");
-    expect(finalContent).not.toContain("晚到 final 覆盖答案（应忽略）");
+    expect(finalContent).not.toContain("首个最终答案");
+    expect(finalContent).not.toContain("阶段性答案");
+    expect(finalContent).toContain("晚到 final 覆盖答案（应吸收）");
   });
 
   it("card flow inserts late tool before frozen final answer when the answer turn was sealed before first final", async () => {

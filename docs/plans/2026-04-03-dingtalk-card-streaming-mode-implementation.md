@@ -30,11 +30,13 @@
 - Create: `tests/unit/card-streaming-mode.test.ts`
   - Lock compatibility mapping, explicit-precedence behavior, and one-shot warnings.
 - Modify: `src/config-schema.ts`
-  - Add `cardStreamingMode`, keep `cardStreamInterval`, deprecate `cardRealTimeStream`, and drop `cardStreamReasoning`.
+  - Add `cardStreamingMode`, keep `cardStreamInterval`, deprecate `cardRealTimeStream`, and drop `cardStreamReasoning` from the public config surface.
 - Modify: `src/types.ts`
   - Add the enum config field to both DingTalk config interfaces and `resolveDingTalkAccount`, mark `cardRealTimeStream` deprecated, and stop copying `cardStreamReasoning`.
 - Modify: `src/config.ts`
-  - Strip `cardStreamReasoning` from merged configs so removed legacy state does not leak through account inheritance.
+  - Strip `cardStreamReasoning` from merged public config surfaces so removed legacy state does not leak through account inheritance, while preserving internal compatibility.
+- Modify: `src/onboarding.ts`
+  - Expose `cardStreamingMode` in the setup wizard when card mode is enabled.
 - Modify: `tests/unit/config-schema.test.ts`
   - Cover the new enum field and confirm removed legacy fields do not surface.
 - Modify: `tests/unit/config-advanced.test.ts`
@@ -87,8 +89,9 @@ expect(resolveCardStreamingMode({}))
 
 Also add schema/type/config tests for:
 
-- `cardStreamingMode` defaults to `off`
+- top-level effective `cardStreamingMode` defaults to `off`
 - account-level `cardStreamingMode` can override top-level defaults
+- account-level omission still allows inheritance from the top-level effective mode
 - `cardStreamReasoning` is stripped from parsed/resolved configs
 - `cardRealTimeStream` still parses for backward compatibility
 
@@ -133,11 +136,12 @@ export function resolveCardStreamingMode(
 
 Implementation requirements:
 
-- add `cardStreamingMode: z.enum(["off", "answer", "all"]).optional().default("off")` to `src/config-schema.ts`
+- add `cardStreamingMode` to the config surface while preserving account inheritance and legacy fallback semantics
 - keep `cardStreamInterval` as the unified throttle field
 - mark `cardRealTimeStream` as deprecated in `src/types.ts`
 - remove `cardStreamReasoning` from public config interfaces and from `resolveDingTalkAccount()`
 - extend `stripRemovedLegacyFields()` in `src/config.ts` so it also removes `cardStreamReasoning`
+- expose `cardStreamingMode` via `src/onboarding.ts` when AI card mode is enabled
 
 - [ ] **Step 4: Run the focused tests again and confirm they pass**
 
@@ -376,7 +380,8 @@ Apply these rules in `src/reply-strategy-card.ts`:
 - on the first `deliver(kind="final")`, set lifecycle state to `final_seen`
 - while `final_seen`:
   - accept late reasoning snapshots and sealed thinking/tool blocks
-  - reject any late answer snapshots from `onPartialReply` or split block/final text
+  - reject late answer snapshots from `onPartialReply`
+  - still accept late answer block/final payloads and use them to refresh the frozen final answer
 - after a successful `finishAICard(...)`, set lifecycle state to `sealed`
 - while `sealed`, ignore all incoming callbacks/deliveries
 
@@ -396,7 +401,7 @@ pnpm exec vitest run tests/unit/reply-strategy-card.test.ts tests/unit/inbound-h
 
 Expected:
 
-- PASS for late process preservation and late answer freeze
+- PASS for late process preservation, late partial freeze, and late block/final answer absorption
 
 - [ ] **Step 5: Commit the lifecycle hardening**
 

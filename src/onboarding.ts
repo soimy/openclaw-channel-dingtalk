@@ -126,6 +126,7 @@ function applyAccountConfig(params: {
       ? { mediaUrlAllowlist: input.mediaUrlAllowlist }
       : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
+    ...(input.cardStreamingMode ? { cardStreamingMode: input.cardStreamingMode } : {}),
     ...(typeof input.maxReconnectCycles === "number"
       ? { maxReconnectCycles: input.maxReconnectCycles }
       : {}),
@@ -233,6 +234,7 @@ async function configureDingTalkAccount(params: {
   });
 
   let messageType: "markdown" | "card" = "markdown";
+  let cardStreamingMode: DingTalkConfig["cardStreamingMode"];
 
   if (wantsCardMode) {
     await prompter.note(
@@ -244,6 +246,15 @@ async function configureDingTalkAccount(params: {
       "Built-in AI Card Template",
     );
     messageType = "card";
+    cardStreamingMode = (await prompter.select({
+      message: "Card streaming mode",
+      options: [
+        { label: "Off - answer does not stream incrementally", value: "off" },
+        { label: "Answer - only answer streams incrementally", value: "answer" },
+        { label: "All - answer and thinking stream incrementally", value: "all" },
+      ],
+      initialValue: resolved.cardStreamingMode ?? (resolved.cardRealTimeStream ? "all" : "off"),
+    })) as DingTalkConfig["cardStreamingMode"];
   }
 
   const dmPolicyValue = await prompter.select({
@@ -410,6 +421,7 @@ async function configureDingTalkAccount(params: {
       displayNameResolution: displayNameResolutionValue as "disabled" | "all",
       mediaUrlAllowlist,
       messageType,
+      cardStreamingMode,
       maxReconnectCycles,
       mediaMaxMb,
       journalTTLDays,
