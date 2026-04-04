@@ -679,6 +679,12 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       }
 
       const useConnectionManager = config.useConnectionManager ?? true;
+      const applyStatusPatch = (patch: Record<string, unknown>) => {
+        ctx.setStatus({
+          ...ctx.getStatus(),
+          ...patch,
+        });
+      };
 
       // Factory that creates a fresh DWClient with the TOPIC_ROBOT callback
       // already registered. Each client captures its own reference for
@@ -721,6 +727,14 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           };
           try {
             const data = JSON.parse(res.data) as DingTalkInboundMessage;
+            // Record the latest inbound callback arrival for status/UI projection.
+            // This intentionally tracks "message reached the plugin callback" rather
+            // than "message passed dedup and completed processing".
+            applyStatusPatch({
+              connected: true,
+              lastInboundAt: getCurrentTimestamp(),
+              lastEventAt: getCurrentTimestamp(),
+            });
 
             const robotKey = resolveRobotCode(config) || account.accountId;
             const msgId = data.msgId || messageId;
@@ -912,9 +926,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           nativeStopResolve?.();
         }
 
-        ctx.setStatus({
-          ...ctx.getStatus(),
+        applyStatusPatch({
           running: false,
+          connected: false,
+          lastEventAt: getCurrentTimestamp(),
           lastStopAt: getCurrentTimestamp(),
         });
 
@@ -931,9 +946,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             `[${account.accountId}] Abort signal already active, skipping connection`,
           );
 
-          ctx.setStatus({
-            ...ctx.getStatus(),
+          applyStatusPatch({
             running: false,
+            connected: false,
+            lastEventAt: getCurrentTimestamp(),
             lastStopAt: getCurrentTimestamp(),
             lastError: "Connection aborted before start",
           });
@@ -956,9 +972,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         try {
           await client.connect();
           if (!stopped) {
-            ctx.setStatus({
-              ...ctx.getStatus(),
+            applyStatusPatch({
               running: true,
+              connected: true,
+              lastConnectedAt: getCurrentTimestamp(),
+              lastEventAt: getCurrentTimestamp(),
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
@@ -974,9 +992,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               `[${account.accountId}] Failed to establish connection: ${err.message}`,
             ) ?? `[${account.accountId}] Failed to establish connection: ${err.message}`,
           );
-          ctx.setStatus({
-            ...ctx.getStatus(),
+          applyStatusPatch({
             running: false,
+            connected: false,
+            lastEventAt: getCurrentTimestamp(),
             lastError: err.message || "Connection failed",
           });
           throw err;
@@ -1004,9 +1023,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             `[${account.accountId}] Connection state changed to: ${state}${error ? ` (${error})` : ""}`,
           );
           if (state === ConnectionState.CONNECTED) {
-            ctx.setStatus({
-              ...ctx.getStatus(),
+            applyStatusPatch({
               running: true,
+              connected: true,
+              lastConnectedAt: getCurrentTimestamp(),
+              lastEventAt: getCurrentTimestamp(),
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
@@ -1027,9 +1048,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
                 `[${account.accountId}] Cleared ${cleared} stale in-flight lock(s) on disconnect`,
               );
             }
-            ctx.setStatus({
-              ...ctx.getStatus(),
+            applyStatusPatch({
               running: false,
+              connected: false,
+              lastEventAt: getCurrentTimestamp(),
               lastError: error || `Connection ${state.toLowerCase()}`,
             });
           }
@@ -1054,9 +1076,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         await connectionManager.connect();
 
         if (!stopped && connectionManager.isConnected()) {
-          ctx.setStatus({
-            ...ctx.getStatus(),
+          applyStatusPatch({
             running: true,
+            connected: true,
+            lastConnectedAt: getCurrentTimestamp(),
+            lastEventAt: getCurrentTimestamp(),
             lastStartAt: getCurrentTimestamp(),
             lastError: null,
           });
@@ -1079,9 +1103,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
           ) ?? `[${account.accountId}] Failed to establish connection: ${err.message}`,
         );
 
-        ctx.setStatus({
-          ...ctx.getStatus(),
+        applyStatusPatch({
           running: false,
+          connected: false,
+          lastEventAt: getCurrentTimestamp(),
           lastError: err.message || "Connection failed",
         });
         throw err;
@@ -1098,7 +1123,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     defaultRuntime: {
       accountId: "default",
       running: false,
+      connected: false,
       lastEventAt: null,
+      lastConnectedAt: null,
+      lastInboundAt: null,
       lastStartAt: null,
       lastStopAt: null,
       lastError: null,
@@ -1155,7 +1183,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         configured: account.configured,
         clientId: account.config?.clientId ?? null,
         running,
+        connected: runtime?.connected ?? snapshot?.connected ?? null,
         lastEventAt: running ? getCurrentTimestamp() : persistedLastEventAt,
+        lastConnectedAt: runtime?.lastConnectedAt ?? snapshot?.lastConnectedAt ?? null,
+        lastInboundAt: runtime?.lastInboundAt ?? snapshot?.lastInboundAt ?? null,
         lastStartAt: runtime?.lastStartAt ?? snapshot?.lastStartAt ?? null,
         lastStopAt: runtime?.lastStopAt ?? snapshot?.lastStopAt ?? null,
         lastError: runtime?.lastError ?? snapshot?.lastError ?? null,

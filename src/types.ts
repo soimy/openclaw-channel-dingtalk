@@ -258,6 +258,8 @@ export interface DingTalkInboundMessage {
     recognition?: string;
     spaceId?: string;
     fileId?: string;
+    text?: string;
+    title?: string;
     biz_custom_action_url?: string;
     richText?: Array<{
       type: string;

@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress'
 import { applyTaskListPlugin } from './task-list-plugin'
 
-const siteBase = '/openclaw-channel-dingtalk/'
+// Vercel 部署时设置 env.DOCS_BASE=/ ，否则使用 GitHub Pages 的默认路径
+const siteBase = process.env.DOCS_BASE ?? '/openclaw-channel-dingtalk/'
 
 function rewriteDocsLink(target: string): string {
   if (target === 'docs/assets/dingclaw.svg') {
