@@ -8,6 +8,7 @@ const shared = vi.hoisted(() => ({
   sendBySessionMock: vi.fn(),
   sendMessageMock: vi.fn(),
   sendProactiveMediaMock: vi.fn(),
+  uploadMediaMock: vi.fn(),
   extractMessageContentMock: vi.fn(),
   downloadGroupFileMock: vi.fn(),
   getRuntimeMock: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock("../../src/send-service", () => ({
   sendBySession: shared.sendBySessionMock,
   sendMessage: shared.sendMessageMock,
   sendProactiveMedia: shared.sendProactiveMediaMock,
+  uploadMedia: shared.uploadMediaMock,
 }));
 
 vi.mock("../../src/media-utils", async () => {
@@ -3572,7 +3574,7 @@ describe("inbound-handler", () => {
       },
     });
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> tool output");
+    expect(finalizeContent).toContain("tool output");
     expect(finalizeContent).not.toContain("🛠 工具");
     expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
       expect.anything(),
@@ -3990,7 +3992,7 @@ describe("inbound-handler", () => {
     ).toBe(true);
   });
 
-  it("card mode + media bypasses finalContent accumulation and still finalizes with text", async () => {
+  it("card mode + media embeds media as image block in card", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
@@ -4005,6 +4007,7 @@ describe("inbound-handler", () => {
 
     const card = { cardInstanceId: "card_media_final", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.uploadMediaMock.mockResolvedValueOnce({ mediaId: "media_img_123" });
 
     await handleDingTalkMessage({
       cfg: {},
@@ -4025,22 +4028,21 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.sendMessageMock).toHaveBeenCalledWith(
-      expect.anything(),
-      "user_1",
-      "",
-      expect.objectContaining({
-        sessionWebhook: "https://session.webhook",
-        mediaPath: "/tmp/prepared/report.pdf",
-        mediaType: "file",
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m_card_media_text",
-        },
-      }),
+    // Media should be uploaded and embedded as image block in card, not sent via sendMessage
+    expect(shared.uploadMediaMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dmPolicy: "open", messageType: "card" }),
+      "https://cdn.example.com/report.pdf",
+      "image",
+      undefined,
     );
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "final output", undefined, {
+    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+      card,
+      JSON.stringify([
+        { type: 3, mediaId: "media_img_123" },
+        { type: 0, markdown: "final output" },
+      ]),
+      undefined,
+      {
       quotedRef: {
         targetDirection: "inbound",
         key: "msgId",
@@ -5408,7 +5410,7 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("Reason: 先检查当前目录");
     expect(finalContent).toContain("最终答案");
     expect(finalContent.indexOf("Reason: 先检查当前目录")).toBeLessThan(
       finalContent.indexOf("最终答案"),
@@ -5482,7 +5484,7 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("> Reason: 先检查当前目录");
+    expect(finalContent).toContain("Reason: 先检查当前目录");
     expect(finalContent).toContain("最终答案");
   });
 
@@ -5645,8 +5647,8 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("> Reason: 先检查当前目录");
-    expect(finalContent).toContain("> 还在整理发送链路");
+    expect(finalContent).toContain("Reason: 先检查当前目录");
+    expect(finalContent).toContain("还在整理发送链路");
     expect(finalContent).toContain("最终答案");
   });
 
@@ -5701,8 +5703,8 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("> Reason: 第一轮未封口");
-    expect(finalContent).toContain("> Reason: 第二轮新思考");
+    expect(finalContent).toContain("Reason: 第一轮未封口");
+    expect(finalContent).toContain("Reason: 第二轮新思考");
     expect(finalContent).toContain("最终答案");
     expect(finalContent.indexOf("Reason: 第一轮未封口")).toBeLessThan(
       finalContent.indexOf("Reason: 第二轮新思考"),
@@ -6382,7 +6384,7 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> deep thinking about the problem");
+    expect(finalizeContent).toContain("deep thinking about the problem");
     expect(finalizeContent).toContain("Here is the final answer.");
     expect(finalizeContent).not.toContain("> Here is the final answer.");
     expect(finalizeContent).not.toContain("🤔 思考");
@@ -6430,7 +6432,7 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("> Let me send the file");
+    expect(finalizeContent).toContain("Let me send the file");
     expect(finalizeContent).toContain("✅ Done");
     expect(finalizeContent).not.toContain("🤔 思考");
   });
