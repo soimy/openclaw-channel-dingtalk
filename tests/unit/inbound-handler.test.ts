@@ -3574,7 +3574,8 @@ describe("inbound-handler", () => {
       },
     });
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("tool output");
+    // getRenderedContent now returns answer-only markdown, not tool blocks
+    expect(finalizeContent).not.toContain("tool output");
     expect(finalizeContent).not.toContain("🛠 工具");
     expect(shared.sendMessageMock).not.toHaveBeenCalledWith(
       expect.anything(),
@@ -4037,10 +4038,7 @@ describe("inbound-handler", () => {
     );
     expect(shared.finishAICardMock).toHaveBeenCalledWith(
       card,
-      JSON.stringify([
-        { type: 3, mediaId: "media_img_123" },
-        { type: 0, markdown: "final output" },
-      ]),
+      "final output",  // answer-only markdown (image block excluded)
       undefined,
       {
       quotedRef: {
@@ -5410,11 +5408,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("Reason: 先检查当前目录");
+    // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
-    expect(finalContent.indexOf("Reason: 先检查当前目录")).toBeLessThan(
-      finalContent.indexOf("最终答案"),
-    );
+    expect(finalContent).not.toContain("Reason: 先检查当前目录");
   });
 
   it("card flow enables block streaming for reasoning-on sessions so runtime can emit reasoning blocks", async () => {
@@ -5484,8 +5480,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("Reason: 先检查当前目录");
+    // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
+    expect(finalContent).not.toContain("Reason: 先检查当前目录");
   });
 
   it("card flow keeps answer text when reasoning-on sessions deliver answer blocks without a final payload", async () => {
@@ -5647,9 +5644,10 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("Reason: 先检查当前目录");
-    expect(finalContent).toContain("还在整理发送链路");
+    // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
+    expect(finalContent).not.toContain("Reason: 先检查当前目录");
+    expect(finalContent).not.toContain("还在整理发送链路");
   });
 
   it("card flow flushes pending reasoning and resets assembly across assistant turns", async () => {
@@ -5703,12 +5701,10 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalContent).toContain("Reason: 第一轮未封口");
-    expect(finalContent).toContain("Reason: 第二轮新思考");
+    // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
-    expect(finalContent.indexOf("Reason: 第一轮未封口")).toBeLessThan(
-      finalContent.indexOf("Reason: 第二轮新思考"),
-    );
+    expect(finalContent).not.toContain("Reason: 第一轮未封口");
+    expect(finalContent).not.toContain("Reason: 第二轮新思考");
   });
 
   it("sends proactive permission hint when proactive API risk was observed", async () => {
@@ -6384,8 +6380,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("deep thinking about the problem");
+    // Only answer text is included, reasoning blocks are excluded
     expect(finalizeContent).toContain("Here is the final answer.");
+    expect(finalizeContent).not.toContain("deep thinking about the problem");
     expect(finalizeContent).not.toContain("> Here is the final answer.");
     expect(finalizeContent).not.toContain("🤔 思考");
   });
@@ -6432,8 +6429,9 @@ describe("inbound-handler", () => {
 
     expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
     const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
-    expect(finalizeContent).toContain("Let me send the file");
+    // Only placeholder answer, reasoning blocks are excluded
     expect(finalizeContent).toContain("✅ Done");
+    expect(finalizeContent).not.toContain("Let me send the file");
     expect(finalizeContent).not.toContain("🤔 思考");
   });
 

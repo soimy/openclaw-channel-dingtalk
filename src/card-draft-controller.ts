@@ -52,7 +52,13 @@ export interface CardDraftController {
     getLastAnswerContent: () => string;
     /** Current answer-only content composed from all completed answer turns. */
     getFinalAnswerContent: () => string;
-    /** Current rendered timeline, including process blocks and answer text. */
+    /** Current rendered timeline as CardBlock[] JSON string for blockList parameter. */
+    getRenderedBlocks: (options?: {
+        fallbackAnswer?: string;
+        overrideAnswer?: string;
+        compactProcessAnswerSpacing?: boolean;
+    }) => string;
+    /** Current rendered timeline as pure markdown text for content parameter and fallback. */
     getRenderedContent: (options?: {
         fallbackAnswer?: string;
         overrideAnswer?: string;
@@ -445,12 +451,20 @@ export function createCardDraftController(params: {
         getLastContent: () => lastSentContent,
         getLastAnswerContent: () => lastAnswerContent,
         getFinalAnswerContent,
-        getRenderedContent: (options?: { fallbackAnswer?: string; overrideAnswer?: string }) => {
+        getRenderedBlocks: (options?: { fallbackAnswer?: string; overrideAnswer?: string }) => {
             const blocks = renderTimelineAsBlocks(options);
             if (blocks.length === 0) {
                 return "";
             }
             return JSON.stringify(blocks);
+        },
+        getRenderedContent: (options?: { fallbackAnswer?: string; overrideAnswer?: string; compactProcessAnswerSpacing?: boolean }) => {
+            const blocks = renderTimelineAsBlocks(options);
+            // Extract markdown from answer blocks (type: 0) and join with double newlines
+            const answerTexts = blocks
+                .filter((block) => block.type === 0 && "markdown" in block && block.markdown)
+                .map((block) => ("markdown" in block ? block.markdown : ""));
+            return answerTexts.join("\n\n");
         },
 
         streamContent: realTimeStreamEnabled ? streamContentToCard : undefined,

@@ -122,11 +122,11 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("Reason: 先检查当前目录");
-        expect(rendered).toContain("最终答案");
-        expect(rendered.indexOf("Reason: 先检查当前目录")).toBeLessThan(
-            rendered.indexOf("最终答案"),
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("最终答案");
+        expect(blocksJson.indexOf("Reason: 先检查当前目录")).toBeLessThan(
+            blocksJson.indexOf("最终答案"),
         );
     });
 
@@ -144,11 +144,11 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 再确认输出后给结论");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const firstThinkingIndex = rendered.indexOf("Reason: 先检查当前目录");
-        const toolIndex = rendered.indexOf("Exec: pwd");
-        const lateThinkingIndex = rendered.indexOf("Reason: 再确认输出后给结论");
-        const answerIndex = rendered.indexOf("pwd 输出是 /Users/sym/clawd");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const firstThinkingIndex = blocksJson.indexOf("Reason: 先检查当前目录");
+        const toolIndex = blocksJson.indexOf("Exec: pwd");
+        const lateThinkingIndex = blocksJson.indexOf("Reason: 再确认输出后给结论");
+        const answerIndex = blocksJson.indexOf("pwd 输出是 /Users/sym/clawd");
 
         expect(firstThinkingIndex).toBeGreaterThanOrEqual(0);
         expect(toolIndex).toBeGreaterThan(firstThinkingIndex);
@@ -395,10 +395,10 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("任务预计 3 天完成。");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("Reason: 先检查当前目录");
-        expect(rendered).toContain("任务预计 3 天完成。");
-        expect(rendered).not.toContain("分步推理过程如下：先计算每个人的效率");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("任务预计 3 天完成。");
+        expect(blocksJson).not.toContain("分步推理过程如下：先计算每个人的效率");
     });
 
     it("getLastAnswerContent only tracks answer phase sends", async () => {
@@ -422,7 +422,7 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("先检查改动");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.getRenderedBlocks).toBe("function");
         expect(typeof ctrl.updateTool).toBe("function");
 
         await ctrl.updateTool("git diff --stat");
@@ -431,8 +431,8 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("这里是最终回复");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const blocks = parseBlocks(rendered);
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const blocks = parseBlocks(blocksJson);
         expect(blocks).toHaveLength(3);
         expect(blocks[0].type).toBe(1); // thinking
         expect(blocks[1].type).toBe(2); // tool
@@ -446,7 +446,7 @@ describe("card-draft-controller", () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
-        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.getRenderedBlocks).toBe("function");
 
         ctrl.updateReasoning("第一版思考");
         await vi.advanceTimersByTimeAsync(0);
@@ -454,9 +454,9 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("第二版思考");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("第二版思考");
-        expect(rendered).not.toContain("第一版思考");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("第二版思考");
+        expect(blocksJson).not.toContain("第一版思考");
     });
 
     it("appends completed thinking blocks without live replacement semantics", async () => {
@@ -470,9 +470,9 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 再确认 reply strategy 入口");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("Reason: 先检查当前目录");
-        expect(rendered).toContain("Reason: 再确认 reply strategy 入口");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("Reason: 再确认 reply strategy 入口");
     });
 
     it("notifyNewAssistantTurn keeps earlier answer text and appends the next answer turn", async () => {
@@ -518,8 +518,8 @@ describe("card-draft-controller", () => {
         await ctrl.updateTool("<div>hello</div>");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("<div>hello</div>");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("<div>hello</div>");
     });
 
     it("sends tool and answer as separate blocks", async () => {
@@ -577,7 +577,7 @@ describe("card-draft-controller", () => {
         expect(getBlockText(blocks, 1)).toBe("Exec: printf ok");
     });
 
-    it("getRenderedContent returns JSON blocks array", async () => {
+    it("getRenderedBlocks returns JSON blocks array", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
@@ -586,11 +586,45 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const finalRendered = ctrl.getRenderedContent?.() ?? "";
-        const blocks = parseBlocks(finalRendered);
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const blocks = parseBlocks(blocksJson);
         expect(blocks).toHaveLength(2);
         expect(blocks[0].type).toBe(2); // tool
         expect(blocks[1].type).toBe(0); // answer
+    });
+
+    it("getRenderedContent returns pure markdown text from answer blocks", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const markdown = ctrl.getRenderedContent?.() ?? "";
+        // Should be pure markdown, not JSON
+        expect(markdown).toBe("当前工作目录是 /Users/sym/clawd");
+        expect(markdown).not.toContain('"type"');
+        expect(markdown).not.toContain('"markdown"');
+    });
+
+    it("getRenderedContent joins multiple answer blocks with double newlines", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateAnswer("Turn 1 answer");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.notifyNewAssistantTurn();
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.updateAnswer("Turn 2 answer");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const markdown = ctrl.getRenderedContent?.() ?? "";
+        expect(markdown).toBe("Turn 1 answer\n\nTurn 2 answer");
+        // Should not contain tool block text
+        expect(markdown).not.toContain("Exec: pwd");
     });
 
     it("preserves interleaved answer and tool blocks in event order", async () => {
@@ -614,12 +648,12 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("阶段3答案：两次工具都已完成");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
-        const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
-        const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
-        const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
-        const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const phase1Index = blocksJson.indexOf("阶段1答案：准备先检查当前目录");
+        const tool1Index = blocksJson.indexOf("🛠️ Exec: pwd");
+        const phase2Index = blocksJson.indexOf("阶段2答案：pwd 已返回结果");
+        const tool2Index = blocksJson.indexOf("🛠️ Exec: printf ok");
+        const phase3Index = blocksJson.indexOf("阶段3答案：两次工具都已完成");
 
         expect(phase1Index).toBeGreaterThanOrEqual(0);
         expect(tool1Index).toBeGreaterThan(phase1Index);

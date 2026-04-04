@@ -400,7 +400,7 @@ describe("reply-strategy-card", () => {
     });
 
     describe("finalize", () => {
-        it("calls finishAICard with the rendered timeline instead of answer-only text", async () => {
+        it("calls finishAICard with answer-only markdown (not including reasoning/tool blocks)", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             strategy.getReplyOptions().onReasoningStream?.({ text: "先检查差异" });
@@ -410,12 +410,13 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("先检查差异");
-            expect(rendered).toContain("git diff --stat");
-            expect(rendered).toContain("the answer");
+            // getRenderedContent now returns only answer markdown, not JSON with all blocks
+            expect(rendered).toBe("the answer");
+            expect(rendered).not.toContain("先检查差异");  // reasoning not included
+            expect(rendered).not.toContain("git diff --stat");  // tool not included
         });
 
-        it("preserves answer and tool blocks in event order during finalize", async () => {
+        it("finalize renders answer blocks in order excluding tool blocks", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(
                 buildCtx(card, {
@@ -442,17 +443,19 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            // Only answer blocks should be in the rendered content
             const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
-            const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
             const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
-            const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
             const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
 
+            // Answers should be in order
             expect(phase1Index).toBeGreaterThanOrEqual(0);
-            expect(tool1Index).toBeGreaterThan(phase1Index);
-            expect(phase2Index).toBeGreaterThan(tool1Index);
-            expect(tool2Index).toBeGreaterThan(phase2Index);
-            expect(phase3Index).toBeGreaterThan(tool2Index);
+            expect(phase2Index).toBeGreaterThan(phase1Index);
+            expect(phase3Index).toBeGreaterThan(phase2Index);
+
+            // Tool blocks should NOT be in the rendered content (it's markdown, not JSON)
+            expect(rendered).not.toContain("🛠️ Exec: pwd");
+            expect(rendered).not.toContain("🛠️ Exec: printf ok");
         });
 
         it("skips finalize when card is already FINISHED", async () => {
@@ -462,7 +465,7 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
         });
 
-        it("sends markdown fallback with the rendered timeline when card FAILED", async () => {
+        it("sends markdown fallback with answer-only content when card FAILED", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             strategy.getReplyOptions().onReasoningStream?.({ text: "分析上下文" });
@@ -474,9 +477,10 @@ describe("reply-strategy-card", () => {
             expect(finishAICardMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
-            expect(fallbackText).toContain("分析上下文");
-            expect(fallbackText).toContain("git status");
+            // Fallback should only contain answer text, not reasoning/tool blocks
             expect(fallbackText).toContain("full answer");
+            expect(fallbackText).not.toContain("分析上下文");
+            expect(fallbackText).not.toContain("git status");
             expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
                 forceMarkdown: true,
             });
@@ -541,8 +545,9 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("我来发附件");
-            expect(rendered).toContain("✅ Done");
+            // Only placeholder answer, reasoning is not included in answer-only content
+            expect(rendered).toBe("✅ Done");
+            expect(rendered).not.toContain("我来发附件");
         });
 
         it("uses the standard empty final reply when process blocks exist but no answer text was delivered", async () => {
@@ -563,9 +568,10 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("Reason: 先执行 pwd");
-            expect(rendered).toContain("pwd");
-            expect(rendered).toContain("✅ Done");
+            // Only answer placeholder, reasoning/tool blocks are not included
+            expect(rendered).toBe("✅ Done");
+            expect(rendered).not.toContain("Reason: 先执行 pwd");
+            expect(rendered).not.toContain("pwd");
             expect(rendered).not.toContain("/Users/sym/clawd");
         });
 
@@ -593,7 +599,9 @@ describe("reply-strategy-card", () => {
             expect(readFinalAnswerFromTranscript).not.toHaveBeenCalled();
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("✅ Done");
+            // Only placeholder answer, reasoning/tool blocks are not included
+            expect(rendered).toBe("✅ Done");
+            expect(rendered).not.toContain("Reason: 先执行 pwd");
             expect(rendered).not.toContain("/Users/sym/clawd");
         });
 
@@ -612,7 +620,7 @@ describe("reply-strategy-card", () => {
             expect(rendered).not.toContain("✅ Done");
         });
 
-        it("finalize keeps late pure-reasoning blocks before the current answer in the same segment", async () => {
+        it("finalize renders only answer blocks, excluding pure-reasoning blocks", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
                 disableBlockStreaming: false,
@@ -633,11 +641,9 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("The user is asking me to send a message that doesn't require tools.");
+            // Only answer text is included, reasoning blocks are excluded
             expect(rendered).toContain("收到！这是一条完全不需要工具的消息。");
-            expect(rendered.indexOf("> The user is asking me to send a message that doesn't require tools.")).toBeLessThan(
-                rendered.indexOf("收到！这是一条完全不需要工具的消息。"),
-            );
+            expect(rendered).not.toContain("The user is asking me to send a message that doesn't require tools.");
         });
 
         it("finalize treats late visible Reasoning text without metadata as ordinary answer text", async () => {
@@ -764,8 +770,9 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("Reason: 先检查当前目录");
+            // Only answer text is included, reasoning and discarded partial are excluded
             expect(rendered).toContain("任务预计 3 天完成。");
+            expect(rendered).not.toContain("Reason: 先检查当前目录");
             expect(rendered).not.toContain("分步推理过程如下：");
         });
 
@@ -794,9 +801,10 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("Reason: 先检查当前目录");
-            expect(rendered).toContain("pwd");
-            expect(rendered).toContain("✅ Done");
+            // Only placeholder answer, reasoning/tool/partial are excluded
+            expect(rendered).toBe("✅ Done");
+            expect(rendered).not.toContain("Reason: 先检查当前目录");
+            expect(rendered).not.toContain("pwd");
             expect(rendered).not.toContain("分步推理过程如下：");
         });
 
@@ -862,9 +870,10 @@ describe("reply-strategy-card", () => {
 
             expect(finishAICardMock).toHaveBeenCalledTimes(1);
             const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("Reason: 先检查当前目录");
-            expect(rendered).toContain("还在整理发送链路");
+            // Only answer text is included, reasoning blocks are excluded
             expect(rendered).toContain("最终答案");
+            expect(rendered).not.toContain("Reason: 先检查当前目录");
+            expect(rendered).not.toContain("还在整理发送链路");
         });
     });
 
