@@ -44,3 +44,5 @@ credentials.json
 
 # playwright-generated files
 .playwright*/
+.vercel
+.env*.local
