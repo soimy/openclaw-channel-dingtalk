@@ -183,7 +183,7 @@ export function createCardDraftController(params: {
 
         const blocks: CardBlock[] = [];
         for (const entry of entries) {
-            if (!entry) continue;
+            if (!entry) { continue; }
             switch (entry.kind) {
                 case "answer":
                     if (entry.text?.trim()) {
