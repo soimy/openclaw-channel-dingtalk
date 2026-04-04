@@ -920,59 +920,93 @@ export async function clearAICardStreamingContent(
 }
 
 /**
- * Commit blocks to blockList via instances API.
- * On finalize, also syncs content for copy action.
+ * Options for finalizing an AI Card via instances API.
+ * All variables are written in a single API call for V2 template compatibility.
+ */
+export interface FinalizeCardOptions {
+  /** CardBlock[] JSON string for blockList variable */
+  blockListJson: string;
+  /** Pure markdown answer text for copy action (content variable) */
+  content: string;
+  /** Optional quoted message preview text */
+  quoteContent?: string;
+  /** Optional task metadata JSON string */
+  taskInfoJson?: string;
+  /** Optional quoted message reference for caching */
+  quotedRef?: QuotedRef;
+}
+
+/**
+ * Commit blocks and finalize card via single instances API call.
+ * V2 template requires finalize through instances API (not streaming API).
+ * Writes blockList, content, quoteContent, taskInfo, and flowStatus in one call.
  */
 export async function commitAICardBlocks(
   card: AICardInstance,
-  blockListJson: string,
-  isFinalize: boolean,
+  options: FinalizeCardOptions,
   log?: Logger,
 ): Promise<void> {
   if (isCardInTerminalState(card.state)) {
+    log?.debug?.(
+      `[DingTalk][AICard] Skip finalize because card already terminal: outTrackId=${card.cardInstanceId} state=${card.state}`,
+    );
     return;
   }
 
   const template = DINGTALK_CARD_TEMPLATE;
+  const updates: Record<string, unknown> = {
+    [template.blockListKey]: options.blockListJson,
+    [template.streamingKey]: options.content, // content for copy action
+    flowStatus: 3, // completed state - V2 template hides stop button automatically
+  };
 
-  // On finalize, write content for copy action first
-  if (isFinalize && blockListJson.trim()) {
-    const plainTextContent = extractAnswerTextFromBlockList(blockListJson);
-    if (plainTextContent.trim()) {
-      try {
-        await putAICardStreamingField(card, template.streamingKey, plainTextContent, false, log);
-      } catch (contentErr: unknown) {
-        const message = contentErr instanceof Error ? contentErr.message : String(contentErr);
-        log?.debug?.(`[DingTalk][AICard] Non-critical: failed to sync content for copy: ${message}`);
-      }
-    }
+  // Optional fields
+  if (options.quoteContent?.trim()) {
+    updates.quoteContent = options.quoteContent;
+  }
+  if (options.taskInfoJson?.trim()) {
+    updates.taskInfo = options.taskInfoJson;
   }
 
-  // Update blockList via instances API
-  await updateAICardBlockList(card, blockListJson, log);
+  log?.debug?.(
+    `[DingTalk][AICard] Finalizing via instances API: outTrackId=${card.outTrackId || card.cardInstanceId} ` +
+    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=3`,
+  );
 
-  if (isFinalize) {
-    card.state = AICardStatus.FINISHED;
-    removePendingCard(card, log);
-  }
-}
-
-/**
- * Extract plain answer text from CardBlock[] JSON for copy action.
- */
-function extractAnswerTextFromBlockList(blockListJson: string): string {
   try {
-    const blocks = JSON.parse(blockListJson) as Array<{ type?: number; markdown?: string }>;
-    if (!Array.isArray(blocks)) {
-      return blockListJson;
-    }
-    return blocks
-      .filter((b) => b.type === 0 && b.markdown)
-      .map((b) => b.markdown)
-      .join("\n\n");
-  } catch {
-    return blockListJson;
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      updates,
+      card.accessToken,
+      card.config,
+    );
+    card.lastStreamedContent = options.blockListJson;
+    card.lastUpdated = Date.now();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.error?.(`[DingTalk][AICard] Finalize via instances API failed: ${message}`);
+    throw err;
   }
+
+  // Cache card content for quote recovery
+  if (card.conversationId && options.content.trim() && card.accountId && card.processQueryKey) {
+    const primaryConversationId = card.contextConversationId || card.conversationId;
+    cacheCardContentByProcessQueryKey(
+      card.accountId,
+      primaryConversationId,
+      card.processQueryKey,
+      options.content,
+      card.storePath,
+      options.quotedRef,
+      log,
+    );
+  }
+
+  // Update local state
+  card.state = AICardStatus.FINISHED;
+  card.lastUpdated = Date.now();
+  removePendingCard(card, log);
+  log?.info?.(`[DingTalk][AICard] Card finalized: outTrackId=${card.outTrackId || card.cardInstanceId} state=FINISHED`);
 }
 
 export async function streamAICard(
@@ -1012,6 +1046,14 @@ export async function streamAICard(
   }
 }
 
+/**
+ * Finalize AI Card via streaming API.
+ *
+ * @deprecated For V2 template, use `commitAICardBlocks()` instead which finalizes
+ * via instances API (single call writes blockList, content, flowStatus=3).
+ * This function is kept for backward compatibility with V1 template and for
+ * card-stop-handler which uses streaming API for immediate stop acknowledgment.
+ */
 export async function finishAICard(
   card: AICardInstance,
   content: string,

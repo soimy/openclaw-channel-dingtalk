@@ -7,7 +7,7 @@
  */
 
 import {
-  finishAICard,
+  commitAICardBlocks,
   isCardInTerminalState,
 } from "./card-service";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
@@ -293,7 +293,7 @@ export function createCardReplyStrategy(
         return;
       }
 
-      // Normal finalize.
+      // Normal finalize (V2 template path: single instances API call).
       try {
         discardCurrentAnswerDraft("card.finalize");
         await flushPendingReasoning();
@@ -305,17 +305,32 @@ export function createCardReplyStrategy(
 
         await controller.flush();
         await controller.waitForInFlight();
-        const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });
-        const finalText = renderedTimeline || EMPTY_FINAL_REPLY;
+
+        // Prepare finalize options for single instances API call
+        const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
+        const blockListJson = controller.getRenderedBlocks({
+          fallbackAnswer,
+          overrideAnswer: finalTextForFallback,
+        });
+        const content = controller.getRenderedContent({
+          fallbackAnswer,
+          overrideAnswer: finalTextForFallback,
+        }) || fallbackAnswer || EMPTY_FINAL_REPLY;
+
         controller.stop();
         log?.info?.(
-          `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
+          `[DingTalk][Finalize] Calling commitAICardBlocks — ` +
+          `blockListLen=${blockListJson.length} contentLen=${content.length} ` +
           `source=${finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
-          `preview="${finalText.slice(0, 120)}"`,
+          `preview="${content.slice(0, 120)}"`,
         );
-        await finishAICard(card, finalText, log, {
+
+        await commitAICardBlocks(card, {
+          blockListJson,
+          content,
+          // quoteContent is set during card creation, not needed in finalize
           quotedRef: ctx.replyQuotedRef,
-        });
+        }, log);
 
         // In group chats, send a lightweight @mention via session webhook
         // so the sender gets a notification — card API doesn't support @mention.
@@ -349,7 +364,12 @@ export function createCardReplyStrategy(
         controller.stop();
         await controller.waitForInFlight();
         try {
-          await finishAICard(card, "❌ 处理失败", log);
+          // For V2 template, finalize via instances API
+          const errorBlockListJson = JSON.stringify([{ type: 0, markdown: "❌ 处理失败" }]);
+          await commitAICardBlocks(card, {
+            blockListJson: errorBlockListJson,
+            content: "❌ 处理失败",
+          }, log);
         } catch (cardCloseErr: unknown) {
           log?.debug?.(`[DingTalk] Failed to finalize card after dispatch error: ${(cardCloseErr as Error).message}`);
           card.state = AICardStatus.FAILED;

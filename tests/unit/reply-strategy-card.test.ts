@@ -11,6 +11,7 @@ vi.mock("../../src/card-service", async (importOriginal) => {
     return {
         ...actual,
         finishAICard: vi.fn(),
+        commitAICardBlocks: vi.fn(),
         streamAICard: vi.fn(),
         updateAICardBlockList: vi.fn(),
         streamAICardContent: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../../src/send-service", async (importOriginal) => {
 });
 
 const finishAICardMock = vi.mocked(cardService.finishAICard);
+const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
@@ -69,6 +71,7 @@ describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         finishAICardMock.mockClear();
+        commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
@@ -205,7 +208,7 @@ describe("reply-strategy-card", () => {
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
             expect(sendMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(strategy.getFinalText()).toBe("final answer");
         });
 
@@ -307,8 +310,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("用户要求分步思考后给结论，纯推理任务。");
             expect(rendered).not.toContain("REMOVED_NEVER");
         });
@@ -343,8 +346,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("结论：3天");
             expect(rendered).toContain("1. 任务总量设为 1。");
         });
@@ -367,8 +370,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("**分步思考过程**：");
             expect(rendered).toContain("**第一步：设定基准并计算单人效率**");
             expect(rendered).toContain("- 第1人效率：1 ÷ 10 = 1/10");
@@ -385,8 +388,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("这是通过 block 投递的答案");
             expect(rendered).not.toContain("✅ Done");
         });
@@ -408,8 +411,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "the answer", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls[0][1]?.content;
             // getRenderedContent now returns only answer markdown, not JSON with all blocks
             expect(rendered).toBe("the answer");
             expect(rendered).not.toContain("先检查差异");  // reasoning not included
@@ -442,7 +445,7 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only answer blocks should be in the rendered content
             const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
             const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
@@ -462,7 +465,7 @@ describe("reply-strategy-card", () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.finalize();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
         });
 
         it("sends markdown fallback with answer-only content when card FAILED", async () => {
@@ -474,7 +477,7 @@ describe("reply-strategy-card", () => {
             card.state = AICardStatus.FAILED;
             await strategy.finalize();
 
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
             // Fallback should only contain answer text, not reasoning/tool blocks
@@ -488,7 +491,7 @@ describe("reply-strategy-card", () => {
 
         it("sets card state to FAILED when finishAICard throws", async () => {
             const card = makeCard();
-            finishAICardMock.mockRejectedValueOnce(new Error("api error"));
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("api error"));
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "text", mediaUrls: [], kind: "final" });
             await strategy.finalize();
@@ -498,7 +501,7 @@ describe("reply-strategy-card", () => {
         it("logs error payload when finishAICard throws with response data", async () => {
             const card = makeCard();
             const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-            finishAICardMock.mockRejectedValueOnce({
+            commitAICardBlocksMock.mockRejectedValueOnce({
                 message: "finalize failed",
                 response: { data: { code: "invalidParameter", message: "bad param" } },
             });
@@ -533,7 +536,7 @@ describe("reply-strategy-card", () => {
             // No deliver(final), no lastStreamedContent — controller never received content
             // so getRenderedTimeline returns empty → no sendMessage, no finishAICard
             await strategy.finalize();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
         });
 
         it("uses a file-only placeholder answer when no answer text is available", async () => {
@@ -543,8 +546,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls[0][1]?.content;
             // Only placeholder answer, reasoning is not included in answer-only content
             expect(rendered).toBe("✅ Done");
             expect(rendered).not.toContain("我来发附件");
@@ -566,8 +569,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only answer placeholder, reasoning/tool blocks are not included
             expect(rendered).toBe("✅ Done");
             expect(rendered).not.toContain("Reason: 先执行 pwd");
@@ -597,8 +600,8 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(readFinalAnswerFromTranscript).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only placeholder answer, reasoning/tool blocks are not included
             expect(rendered).toBe("✅ Done");
             expect(rendered).not.toContain("Reason: 先执行 pwd");
@@ -614,8 +617,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "block" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("最终答案");
             expect(rendered).not.toContain("✅ Done");
         });
@@ -639,8 +642,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only answer text is included, reasoning blocks are excluded
             expect(rendered).toContain("收到！这是一条完全不需要工具的消息。");
             expect(rendered).not.toContain("The user is asking me to send a message that doesn't require tools.");
@@ -664,8 +667,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("1. 先计算每个人的效率");
             expect(rendered).toContain("_2. 再汇总总效率_");
             expect(rendered).not.toContain("REMOVED_NEVER");
@@ -684,8 +687,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("经过分步计算，结论如下：任务预计 3 天完成。");
             expect(rendered).toContain("1. 先计算每个人的效率");
         });
@@ -705,8 +708,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "阶段性答案 + 最终补充", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("阶段性答案 + 最终补充");
             expect(rendered).not.toContain("阶段性答案\n");
             expect(strategy.getFinalText()).toBe("阶段性答案 + 最终补充");
@@ -768,8 +771,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only answer text is included, reasoning and discarded partial are excluded
             expect(rendered).toContain("任务预计 3 天完成。");
             expect(rendered).not.toContain("Reason: 先检查当前目录");
@@ -799,8 +802,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only placeholder answer, reasoning/tool/partial are excluded
             expect(rendered).toBe("✅ Done");
             expect(rendered).not.toContain("Reason: 先检查当前目录");
@@ -835,8 +838,8 @@ describe("reply-strategy-card", () => {
             });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("**分步思考过程**：");
             expect(rendered).toContain("1. 设总任务量为1");
         });
@@ -868,8 +871,8 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             // Only answer text is included, reasoning blocks are excluded
             expect(rendered).toContain("最终答案");
             expect(rendered).not.toContain("Reason: 先检查当前目录");
@@ -882,13 +885,13 @@ describe("reply-strategy-card", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls[0][1]).toContain("处理失败");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            expect(commitAICardBlocksMock.mock.calls[0][1]?.content).toContain("处理失败");
         });
 
         it("sets card FAILED when finishAICard throws during abort", async () => {
             const card = makeCard();
-            finishAICardMock.mockRejectedValueOnce(new Error("cannot finalize"));
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("cannot finalize"));
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
             expect(card.state).toBe(AICardStatus.FAILED);
@@ -898,7 +901,7 @@ describe("reply-strategy-card", () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
         });
     });
 });

@@ -15,6 +15,7 @@ const shared = vi.hoisted(() => ({
   getUnionIdByStaffIdMock: vi.fn(),
   createAICardMock: vi.fn(),
   finishAICardMock: vi.fn(),
+  commitAICardBlocksMock: vi.fn(),
   resolveQuotedFileMock: vi.fn(),
   updateAICardBlockListMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
@@ -71,6 +72,7 @@ vi.mock("../../src/media-utils", async () => {
 vi.mock("../../src/card-service", () => ({
   createAICard: shared.createAICardMock,
   finishAICard: shared.finishAICardMock,
+  commitAICardBlocks: shared.commitAICardBlocksMock,
   formatContentForCard: shared.formatContentForCardMock,
   isCardInTerminalState: shared.isCardInTerminalStateMock,
   streamAICard: shared.updateAICardBlockListMock,
@@ -205,7 +207,7 @@ describe("inbound-handler", () => {
     shared.createAICardMock.mockReset();
     shared.downloadGroupFileMock.mockReset();
     shared.downloadGroupFileMock.mockResolvedValue(null);
-    shared.finishAICardMock.mockReset();
+    shared.commitAICardBlocksMock.mockReset();
     shared.getUnionIdByStaffIdMock.mockReset();
     shared.getUnionIdByStaffIdMock.mockResolvedValue("union_1");
     shared.resolveQuotedFileMock.mockReset();
@@ -1571,7 +1573,7 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
     expect(shared.updateAICardBlockListMock).toHaveBeenCalled();
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalled();
   });
@@ -3454,14 +3456,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "✅ Done", undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m6",
-      },
-    });
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(card, expect.objectContaining({ content: "✅ Done" }), undefined);
   });
 
   it("handleDingTalkMessage sends DONE in markdown mode when no visible output is produced", async () => {
@@ -3527,7 +3523,7 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
     expect(shared.sendMessageMock).toHaveBeenCalled();
     const cardSends = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
     expect(cardSends).toHaveLength(0);
@@ -3565,15 +3561,9 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, expect.any(String), undefined, {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m6_tool",
-      },
-    });
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(card, expect.objectContaining({ content: expect.any(String) }), undefined);
+    const finalizeContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // getRenderedContent now returns answer-only markdown, not tool blocks
     expect(finalizeContent).not.toContain("tool output");
     expect(finalizeContent).not.toContain("🛠 工具");
@@ -3615,7 +3605,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
   });
 
   it("deliver callback sends single media payload through session webhook", async () => {
@@ -4036,17 +4026,11 @@ describe("inbound-handler", () => {
       "image",
       undefined,
     );
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(
       card,
-      "final output",  // answer-only markdown (image block excluded)
+      expect.objectContaining({ content: "final output" }),  // answer-only markdown (image block excluded)
       undefined,
-      {
-      quotedRef: {
-        targetDirection: "inbound",
-        key: "msgId",
-        value: "m_card_media_text",
-      },
-    });
+    );
   });
 
   it("deliver callback falls back to proactive media send when sessionWebhook is absent", async () => {
@@ -4695,8 +4679,8 @@ describe("inbound-handler", () => {
       await vi.advanceTimersByTimeAsync(1200);
       await handlePromise;
 
-      expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-      const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+      expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+      const finalizeContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
       expect(finalizeContent).toContain("final answer only");
       expect(finalizeContent).not.toContain("🛠 工具");
 
@@ -5169,7 +5153,7 @@ describe("inbound-handler", () => {
       "tool output",
       expect.objectContaining({ cardUpdateMode: "append" }),
     );
-    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
   });
 
   it("handleDingTalkMessage marks card FAILED when finishAICard throws", async () => {
@@ -5177,7 +5161,7 @@ describe("inbound-handler", () => {
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
     const card = { cardInstanceId: "card_3", state: "1", lastUpdated: Date.now() } as any;
     shared.createAICardMock.mockResolvedValueOnce(card);
-    shared.finishAICardMock.mockRejectedValueOnce({
+    shared.commitAICardBlocksMock.mockRejectedValueOnce({
       message: "finish failed",
       response: { data: { code: "invalidParameter", message: "cannot finalize" } },
     });
@@ -5262,7 +5246,7 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses payload.text for outbound reply delivery even when markdown is present", async () => {
@@ -5406,8 +5390,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("Reason: 先检查当前目录");
@@ -5478,8 +5462,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
     // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("Reason: 先检查当前目录");
@@ -5542,8 +5526,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("✅ Done");
   });
@@ -5642,8 +5626,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("Reason: 先检查当前目录");
@@ -5699,8 +5683,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // Only answer text is included, reasoning blocks are excluded
     expect(finalContent).toContain("最终答案");
     expect(finalContent).not.toContain("Reason: 第一轮未封口");
@@ -5968,9 +5952,9 @@ describe("inbound-handler", () => {
     await promiseA;
 
     expect(shared.createAICardMock).toHaveBeenCalledTimes(2);
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(2);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(2);
 
-    const finishCalls = shared.finishAICardMock.mock.calls;
+    const finishCalls = shared.commitAICardBlocksMock.mock.calls;
     const finishedCardIds = finishCalls.map((call: any[]) => call[0].cardInstanceId);
     expect(finishedCardIds).toContain("card_A");
     expect(finishedCardIds).toContain("card_B");
@@ -6086,7 +6070,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
     const cardSendCalls = shared.sendMessageMock.mock.calls.filter((call: any[]) => call[3]?.card);
     expect(cardSendCalls).toHaveLength(0);
   });
@@ -6240,8 +6224,8 @@ describe("inbound-handler", () => {
       } as any),
     ).rejects.toThrow("dispatch crash");
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(card, "❌ 处理失败", expect.anything());
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(card, expect.objectContaining({ content: "❌ 处理失败" }), expect.anything());
   });
 
   it("cardRealTimeStream finalize uses accumulated multi-turn content instead of last-turn-only deliver text", async () => {
@@ -6296,8 +6280,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalizeContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     expect(finalizeContent).toContain("Turn 1");
     expect(finalizeContent).toContain("Turn 2");
     expect(finalizeContent).not.toBe("Turn 2 short summary");
@@ -6336,7 +6320,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
   });
 
   it("cardRealTimeStream=false: finalize keeps the rendered timeline", async () => {
@@ -6378,8 +6362,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalizeContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // Only answer text is included, reasoning blocks are excluded
     expect(finalizeContent).toContain("Here is the final answer.");
     expect(finalizeContent).not.toContain("deep thinking about the problem");
@@ -6427,8 +6411,8 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalizeContent = shared.finishAICardMock.mock.calls[0][1];
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const finalizeContent = shared.commitAICardBlocksMock.mock.calls[0][1]?.content;
     // Only placeholder answer, reasoning blocks are excluded
     expect(finalizeContent).toContain("✅ Done");
     expect(finalizeContent).not.toContain("Let me send the file");
@@ -7333,6 +7317,7 @@ describe("inbound-handler", () => {
       expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
       // abort text should be written to card, not sent as plain text
       expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      // Abort flow uses finishAICard (streaming API) for quick acknowledgment
       expect(shared.finishAICardMock).toHaveBeenCalledWith(
         card,
         "⚙️ Agent was aborted.",
