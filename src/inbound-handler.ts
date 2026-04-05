@@ -703,14 +703,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
       );
-      const quotePreview =
-        extractedContent.quoted?.previewText || data.content?.quoteContent || "";
+      // quoteContent always shows the inbound message text so the user can
+      // identify which of their messages this card is replying to.
+      const inboundQuoteText = extractedContent.text.trim().slice(0, 200);
       const aiCard = await createAICard(dingtalkConfig, to, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
-        hasQuote: Boolean(quotedRef),
-        quoteContent: quotedRef ? quotePreview : "",
+        hasQuote: inboundQuoteText.length > 0,
+        quoteContent: inboundQuoteText,
       });
       if (aiCard) {
         currentAICard = aiCard;
@@ -1532,6 +1533,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
+      inboundText: extractedContent.text,
     });
 
     try {

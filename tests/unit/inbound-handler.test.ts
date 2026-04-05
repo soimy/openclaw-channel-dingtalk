@@ -1790,6 +1790,52 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("sets quoteContent to inbound message text even without quotedRef", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/dm-account-store.json")
+      .mockReturnValueOnce("/tmp/dm-agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "你好世界",
+      messageType: "text",
+    });
+    shared.createAICardMock.mockResolvedValueOnce({
+      cardInstanceId: "card_test",
+      outTrackId: "card_test",
+      state: "1",
+      lastUpdated: Date.now(),
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      data: {
+        msgId: "m_quote_test",
+        text: { content: " 你好世界" },
+        conversationType: "2",
+        conversationId: "cid_quote_test",
+        msgtype: "text",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+        // no originalMsgId, no content.quoteContent — not a reply-to message
+      },
+    } as any);
+
+    // createAICard should have been called with quoteContent = "你好世界"
+    expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+    const callArgs = shared.createAICardMock.mock.calls[0];
+    const options = callArgs[3] as { hasQuote?: boolean; quoteContent?: string };
+    expect(options.hasQuote).toBe(true);
+    expect(options.quoteContent).toBe("你好世界");
+  });
+
   it("writes normalized inbound journal text without quoted prefix noise", async () => {
     const runtime = buildRuntime();
     runtime.channel.session.resolveStorePath = vi

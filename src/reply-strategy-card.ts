@@ -346,10 +346,11 @@ export function createCardReplyStrategy(
           `preview="${content.slice(0, 120)}"`,
         );
 
+        const inboundQuoteText = (ctx.inboundText || "").trim().slice(0, 200);
         await commitAICardBlocks(card, {
           blockListJson,
           content,
-          // quoteContent is set during card creation, not needed in finalize
+          quoteContent: inboundQuoteText || undefined,
           quotedRef: ctx.replyQuotedRef,
         }, log);
 

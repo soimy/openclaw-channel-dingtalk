@@ -60,6 +60,8 @@ export interface ReplyStrategyContext {
   replyQuotedRef?: QuotedRef;
   deliverMedia: (urls: string[]) => Promise<void>;
   isStopRequested?: () => boolean;
+  /** Inbound message text for quoteContent in card template. */
+  inboundText?: string;
 }
 
 // ---- Factory -----------------------------------------------------
