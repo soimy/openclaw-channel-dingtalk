@@ -5,5 +5,329 @@
     "type": "object",
     "additionalProperties": true,
     "properties": {}
+  },
+  "channelConfigs": {
+    "dingtalk": {
+      "label": "DingTalk",
+      "description": "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean", "default": true },
+          "agentId": { "type": "integer" },
+          "corpId": { "type": "string" },
+          "clientId": { "type": "string" },
+          "clientSecret": { "type": "string" },
+          "dmPolicy": {
+            "type": "string",
+            "enum": ["open", "pairing", "allowlist"],
+            "default": "open"
+          },
+          "groupPolicy": {
+            "type": "string",
+            "enum": ["open", "allowlist", "disabled"],
+            "default": "open"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "groupAllowFrom": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "displayNameResolution": {
+            "type": "string",
+            "enum": ["disabled", "all"],
+            "default": "disabled"
+          },
+          "mediaUrlAllowlist": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "ackReaction": {
+            "anyOf": [
+              { "type": "string", "const": "" },
+              { "type": "string", "enum": ["off", "emoji", "kaomoji"] },
+              { "type": "string", "minLength": 1 }
+            ]
+          },
+          "journalTTLDays": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 7
+          },
+          "debug": { "type": "boolean", "default": false },
+          "messageType": {
+            "type": "string",
+            "enum": ["markdown", "card"],
+            "default": "markdown"
+          },
+          "cardTemplateId": { "type": "string" },
+          "cardTemplateKey": { "type": "string", "default": "content" },
+          "groups": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "systemPrompt": { "type": "string" },
+                "requireMention": { "type": "boolean" },
+                "groupAllowFrom": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
+          "maxConnectionAttempts": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10
+          },
+          "initialReconnectDelay": {
+            "type": "integer",
+            "minimum": 100,
+            "default": 1000
+          },
+          "maxReconnectDelay": {
+            "type": "integer",
+            "minimum": 1000,
+            "default": 60000
+          },
+          "reconnectJitter": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.3
+          },
+          "maxReconnectCycles": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10
+          },
+          "reconnectDeadlineMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "default": 50000
+          },
+          "useConnectionManager": { "type": "boolean", "default": true },
+          "mediaMaxMb": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "keepAlive": { "type": "boolean" },
+          "bypassProxyForSend": { "type": "boolean", "default": false },
+          "proactivePermissionHint": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "cooldownHours": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 720,
+                "default": 24
+              }
+            }
+          },
+          "cardRealTimeStream": { "type": "boolean", "default": false },
+          "aicardDegradeMs": {
+            "type": "integer",
+            "minimum": 60000,
+            "default": 1800000
+          },
+          "learningEnabled": { "type": "boolean" },
+          "learningAutoApply": { "type": "boolean" },
+          "learningNoteTtlMs": {
+            "type": "integer",
+            "minimum": 60000
+          },
+          "convertMarkdownTables": { "type": "boolean", "default": true },
+          "cardAtSender": { "type": "string" },
+          "showThinkingStream": { "type": "boolean" },
+          "asyncMode": { "type": "boolean" },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "enabled": { "type": "boolean", "default": true },
+                "clientId": { "type": "string" },
+                "clientSecret": { "type": "string" },
+                "dmPolicy": {
+                  "type": "string",
+                  "enum": ["open", "pairing", "allowlist"],
+                  "default": "open"
+                },
+                "groupPolicy": {
+                  "type": "string",
+                  "enum": ["open", "allowlist", "disabled"],
+                  "default": "open"
+                },
+                "allowFrom": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "groupAllowFrom": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "displayNameResolution": {
+                  "type": "string",
+                  "enum": ["disabled", "all"],
+                  "default": "disabled"
+                },
+                "mediaUrlAllowlist": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "ackReaction": {
+                  "anyOf": [
+                    { "type": "string", "const": "" },
+                    { "type": "string", "enum": ["off", "emoji", "kaomoji"] },
+                    { "type": "string", "minLength": 1 }
+                  ]
+                },
+                "journalTTLDays": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 7
+                },
+                "debug": { "type": "boolean", "default": false },
+                "messageType": {
+                  "type": "string",
+                  "enum": ["markdown", "card"],
+                  "default": "markdown"
+                },
+                "cardTemplateId": { "type": "string" },
+                "cardTemplateKey": { "type": "string", "default": "content" },
+                "groups": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "systemPrompt": { "type": "string" },
+                      "requireMention": { "type": "boolean" },
+                      "groupAllowFrom": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    }
+                  }
+                },
+                "maxConnectionAttempts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 10
+                },
+                "initialReconnectDelay": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "default": 1000
+                },
+                "maxReconnectDelay": {
+                  "type": "integer",
+                  "minimum": 1000,
+                  "default": 60000
+                },
+                "reconnectJitter": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.3
+                },
+                "maxReconnectCycles": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 10
+                },
+                "reconnectDeadlineMs": {
+                  "type": "integer",
+                  "minimum": 5000,
+                  "default": 50000
+                },
+                "useConnectionManager": { "type": "boolean", "default": true },
+                "mediaMaxMb": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "keepAlive": { "type": "boolean" },
+                "bypassProxyForSend": { "type": "boolean", "default": false },
+                "proactivePermissionHint": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "cooldownHours": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 720,
+                      "default": 24
+                    }
+                  }
+                },
+                "cardRealTimeStream": { "type": "boolean", "default": false },
+                "aicardDegradeMs": {
+                  "type": "integer",
+                  "minimum": 60000,
+                  "default": 1800000
+                },
+                "learningEnabled": { "type": "boolean" },
+                "learningAutoApply": { "type": "boolean" },
+                "learningNoteTtlMs": {
+                  "type": "integer",
+                  "minimum": 60000
+                },
+                "convertMarkdownTables": { "type": "boolean", "default": true },
+                "cardAtSender": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "uiHints": {
+        "": {
+          "label": "DingTalk",
+          "help": "DingTalk Stream-mode channel configuration including auth, delivery, targeting, and AI Card behavior."
+        },
+        "clientId": {
+          "label": "DingTalk Client ID",
+          "help": "App Key used to authenticate DingTalk API requests."
+        },
+        "clientSecret": {
+          "label": "DingTalk Client Secret",
+          "help": "App Secret used to obtain DingTalk access tokens.",
+          "sensitive": true
+        },
+        "messageType": {
+          "label": "Reply Message Type",
+          "help": "Choose markdown for standard replies or card for AI Card delivery."
+        },
+        "ackReaction": {
+          "label": "Ack Reaction",
+          "help": "Native acknowledgement reaction mode. Supports preset values or a custom string for backward compatibility."
+        },
+        "displayNameResolution": {
+          "label": "Display Name Resolution",
+          "help": "Keep disabled unless you explicitly want learned display-name targeting for all callers."
+        },
+        "cardTemplateId": {
+          "label": "AI Card Template ID",
+          "help": "Optional DingTalk Developer Console template ID for AI Card replies."
+        },
+        "proactivePermissionHint.enabled": {
+          "label": "Proactive Permission Hint Enabled"
+        },
+        "proactivePermissionHint.cooldownHours": {
+          "label": "Proactive Hint Cooldown (hours)"
+        }
+      }
+    }
   }
 }

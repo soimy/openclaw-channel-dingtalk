@@ -64,7 +64,7 @@
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.24"
+    "openclaw": ">=2026.3.28"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -73,10 +73,10 @@
   },
   "openclaw": {
     "compat": {
-      "pluginApi": ">=2026.3.24"
+      "pluginApi": ">=2026.3.28"
     },
     "build": {
-      "openclawVersion": "2026.3.24"
+      "openclawVersion": "2026.3.28"
     },
     "extensions": [
       "./index.ts"
@@ -99,7 +99,7 @@
       ]
     },
     "install": {
-      "minHostVersion": ">=2026.3.24",
+      "minHostVersion": ">=2026.3.28",
       "npmSpec": "@soimy/dingtalk",
       "localPath": ".",
       "defaultChoice": "npm"

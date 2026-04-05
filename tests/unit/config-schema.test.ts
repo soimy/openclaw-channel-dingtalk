@@ -294,4 +294,22 @@ describe('DingTalkConfigSchema', () => {
         expect(jsonSchema.properties?.accounts?.additionalProperties?.type).toBe('object');
     });
 
+    it('keeps runtime schema coverage for manifest-backed host fields', () => {
+        const jsonSchema = DingTalkConfigSchema.toJSONSchema({
+            target: 'draft-07',
+            unrepresentable: 'any',
+        }) as {
+            properties?: Record<string, any>;
+        };
+
+        expect(jsonSchema.properties?.groups?.type).toBe('object');
+        expect(jsonSchema.properties?.groups?.additionalProperties?.type).toBe('object');
+        expect(jsonSchema.properties?.accounts?.type).toBe('object');
+        expect(jsonSchema.properties?.accounts?.additionalProperties?.type).toBe('object');
+        expect(Array.isArray(jsonSchema.properties?.ackReaction?.anyOf)).toBe(true);
+        expect(jsonSchema.properties?.proactivePermissionHint?.type).toBe('object');
+        expect(jsonSchema.properties?.proactivePermissionHint?.properties?.enabled?.type).toBe('boolean');
+        expect(jsonSchema.properties?.proactivePermissionHint?.properties?.cooldownHours?.type).toBe('integer');
+    });
+
 });

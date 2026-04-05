@@ -1,0 +1,55 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const repoRoot = resolve(__dirname, "../..");
+
+function readJsonFile<T>(relativePath: string): T {
+    return JSON.parse(readFileSync(resolve(repoRoot, relativePath), "utf8")) as T;
+}
+
+describe("plugin manifest channel metadata", () => {
+    it("publishes DingTalk channel config metadata for the host WebUI", () => {
+        const manifest = readJsonFile<{
+            channelConfigs?: Record<
+                string,
+                {
+                    label?: string;
+                    description?: string;
+                    schema?: {
+                        type?: string;
+                        properties?: Record<string, unknown>;
+                    };
+                    uiHints?: Record<string, { label?: string; sensitive?: boolean }>;
+                }
+            >;
+        }>("openclaw.plugin.json");
+
+        expect(manifest.channelConfigs?.dingtalk?.label).toBe("DingTalk");
+        expect(manifest.channelConfigs?.dingtalk?.schema?.type).toBe("object");
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.clientId).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.accounts).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.agentId).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.corpId).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.showThinkingStream).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.schema?.properties?.asyncMode).toBeDefined();
+        expect(manifest.channelConfigs?.dingtalk?.uiHints?.clientSecret?.sensitive).toBe(true);
+        expect(manifest.channelConfigs?.dingtalk?.uiHints?.messageType?.label).toBeTruthy();
+    });
+
+    it("raises the minimum OpenClaw version to the first manifest channelConfigs release", () => {
+        const packageJson = readJsonFile<{
+            peerDependencies?: Record<string, string>;
+            openclaw?: {
+                compat?: { pluginApi?: string };
+                build?: { openclawVersion?: string };
+                install?: { minHostVersion?: string };
+            };
+        }>("package.json");
+
+        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.28");
+        expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.3.28");
+        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.3.28");
+        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.3.28");
+    });
+});
