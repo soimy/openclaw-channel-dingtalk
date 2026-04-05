@@ -12,6 +12,14 @@ import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 
 // ---- Public types ------------------------------------------------
 
+/** Agent run metadata for card taskInfo display. */
+export interface TaskMeta {
+  model?: string;
+  effort?: string;
+  usage?: number;
+  elapsedMs?: number;
+}
+
 export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
@@ -62,6 +70,8 @@ export interface ReplyStrategyContext {
   isStopRequested?: () => boolean;
   /** Inbound message text for quoteContent in card template. */
   inboundText?: string;
+  /** Agent run metadata for taskInfo in card template. */
+  taskMeta?: TaskMeta;
 }
 
 // ---- Factory -----------------------------------------------------

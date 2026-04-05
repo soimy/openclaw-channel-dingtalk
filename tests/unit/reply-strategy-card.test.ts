@@ -980,4 +980,44 @@ describe("reply-strategy-card", () => {
             expect((options.quoteContent as string).length).toBe(200);
         });
     });
+
+    describe("taskInfo from taskMeta", () => {
+        it("passes taskMeta as taskInfoJson to commitAICardBlocks on finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    effort: "medium",
+                    usage: 12,
+                    elapsedMs: 3400,
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.taskInfoJson).toBeDefined();
+            const taskInfo = JSON.parse(options.taskInfoJson!);
+            expect(taskInfo.model).toBe("gpt-5.4");
+            expect(taskInfo.effort).toBe("medium");
+            expect(taskInfo.dapi_usage).toBe(12);
+            expect(taskInfo.taskTime).toBe(3); // rounded to seconds
+        });
+
+        it("omits taskInfoJson when taskMeta is not provided", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.taskInfoJson).toBeUndefined();
+        });
+    });
 });

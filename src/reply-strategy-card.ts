@@ -347,10 +347,25 @@ export function createCardReplyStrategy(
         );
 
         const inboundQuoteText = (ctx.inboundText || "").trim().slice(0, 200);
+
+        // Build taskInfo JSON for card template
+        let taskInfoJson: string | undefined;
+        if (ctx.taskMeta) {
+          const info: Record<string, unknown> = {};
+          if (ctx.taskMeta.model) info.model = ctx.taskMeta.model;
+          if (ctx.taskMeta.effort) info.effort = ctx.taskMeta.effort;
+          if (typeof ctx.taskMeta.usage === "number") info.dapi_usage = ctx.taskMeta.usage;
+          if (typeof ctx.taskMeta.elapsedMs === "number") info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000);
+          if (Object.keys(info).length > 0) {
+            taskInfoJson = JSON.stringify(info);
+          }
+        }
+
         await commitAICardBlocks(card, {
           blockListJson,
           content,
           quoteContent: inboundQuoteText || undefined,
+          taskInfoJson,
           quotedRef: ctx.replyQuotedRef,
         }, log);
 
