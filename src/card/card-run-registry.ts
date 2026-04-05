@@ -103,8 +103,8 @@ export function resolveCardRunByConversation(
   const lowerCid = conversationId.toLowerCase();
   let latest: CardRunRecord | null = null;
   for (const record of records.values()) {
-    if (record.accountId !== accountId) continue;
-    if (!record.sessionKey.toLowerCase().includes(lowerCid)) continue;
+    if (record.accountId !== accountId) { continue; }
+    if (!record.sessionKey.toLowerCase().includes(lowerCid)) { continue; }
     if (!latest || record.registeredAt > latest.registeredAt) {
       latest = record;
     }
