@@ -8,6 +8,7 @@ const AckReactionSchema = z.union([
 ]);
 
 const CardStreamingModeSchema = z.enum(["off", "answer", "all"]);
+const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
 
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
@@ -36,6 +37,9 @@ const DingTalkAccountConfigShape = {
 
   /** Default disabled. Enabling "all" allows learned displayName lookup but may misroute on stale/duplicate names and is available to all callers until upstream exposes requester authz context. */
   displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
+
+  /** Controls how much supplemental host context remains visible to the reply runtime. */
+  contextVisibility: ContextVisibilitySchema.optional(),
 
   mediaUrlAllowlist: z.array(z.string()).optional(),
 

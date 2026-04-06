@@ -37,6 +37,27 @@ describe("plugin manifest channel metadata", () => {
         expect(manifest.channelConfigs?.dingtalk?.uiHints?.messageType?.label).toBeTruthy();
     });
 
+    it("publishes contextVisibility in both top-level and account-level DingTalk schema", () => {
+        const manifest = readJsonFile<{
+            channelConfigs?: Record<
+                string,
+                {
+                    schema?: {
+                        properties?: Record<string, any>;
+                    };
+                }
+            >;
+        }>("openclaw.plugin.json");
+
+        expect(
+            manifest.channelConfigs?.dingtalk?.schema?.properties?.contextVisibility,
+        ).toBeDefined();
+        expect(
+            manifest.channelConfigs?.dingtalk?.schema?.properties?.accounts?.additionalProperties
+                ?.properties?.contextVisibility,
+        ).toBeDefined();
+    });
+
     it("raises the minimum OpenClaw version to the first manifest channelConfigs release", () => {
         const packageJson = readJsonFile<{
             peerDependencies?: Record<string, string>;

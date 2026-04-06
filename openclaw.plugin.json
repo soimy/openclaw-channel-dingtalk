@@ -43,6 +43,10 @@
             "enum": ["disabled", "all"],
             "default": "disabled"
           },
+          "contextVisibility": {
+            "type": "string",
+            "enum": ["all", "allowlist", "allowlist_quote"]
+          },
           "mediaUrlAllowlist": {
             "type": "array",
             "items": { "type": "string" }
@@ -182,6 +186,10 @@
                   "enum": ["disabled", "all"],
                   "default": "disabled"
                 },
+                "contextVisibility": {
+                  "type": "string",
+                  "enum": ["all", "allowlist", "allowlist_quote"]
+                },
                 "mediaUrlAllowlist": {
                   "type": "array",
                   "items": { "type": "string" }
@@ -316,6 +324,10 @@
         "displayNameResolution": {
           "label": "Display Name Resolution",
           "help": "Keep disabled unless you explicitly want learned display-name targeting for all callers."
+        },
+        "contextVisibility": {
+          "label": "Context Visibility",
+          "help": "Host-level context filtering. allowlist_quote is the safest advanced mode when you only want explicit quote/reply context."
         },
         "cardTemplateId": {
           "label": "AI Card Template ID",

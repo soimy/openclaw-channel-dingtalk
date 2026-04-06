@@ -122,6 +122,7 @@ function applyAccountConfig(params: {
       ? { groupAllowFrom: input.groupAllowFrom }
       : {}),
     ...(input.displayNameResolution ? { displayNameResolution: input.displayNameResolution } : {}),
+    ...(input.contextVisibility ? { contextVisibility: input.contextVisibility } : {}),
     ...(input.mediaUrlAllowlist && input.mediaUrlAllowlist.length > 0
       ? { mediaUrlAllowlist: input.mediaUrlAllowlist }
       : {}),
@@ -343,6 +344,22 @@ async function configureDingTalkAccount(params: {
     ],
     initialValue: resolved.displayNameResolution ?? "disabled",
   });
+
+  await prompter.note(
+    [
+      "Advanced host context visibility is available as channels.dingtalk.contextVisibility.",
+      "Recommended advanced mode: allowlist_quote.",
+      "Modes:",
+      "- all: preserve the current host supplemental-context behavior",
+      "- allowlist: keep only host allowlisted supplemental context",
+      "- allowlist_quote: keep explicit quote/reply context while filtering extra context",
+      "This is separate from displayNameResolution and should be set manually if needed.",
+      resolved.contextVisibility
+        ? `Current resolved value: ${resolved.contextVisibility}`
+        : "Current resolved value: host default",
+    ].join("\n"),
+    "Advanced context visibility",
+  );
 
   let maxReconnectCycles: number | undefined;
   const wantsReconnectLimits = await prompter.confirm({
