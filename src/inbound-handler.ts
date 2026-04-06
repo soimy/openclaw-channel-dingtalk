@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import * as path from "node:path";
 import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
@@ -9,7 +10,7 @@ import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
-import { resolveAckReactionSetting, resolveGroupConfig, resolveRobotCode } from "./config";
+import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
 import {
   isCardRunStopRequested,
@@ -59,11 +60,36 @@ import {
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData } from "./utils";
 import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
+import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
 const MAX_DYNAMIC_ACK_DISPOSE_WAIT_MS = 500;
 const ATTACHMENT_TEXT_PREFIX = "[附件内容摘录]";
+const MEDIA_DIRECTIVE_PREFIX = "MEDIA:";
+const STANDALONE_MEDIA_PATH_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".bmp",
+  ".ogg",
+  ".amr",
+  ".mp3",
+  ".wav",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".zip",
+  ".pdf",
+  ".rar",
+]);
 const proactiveHintLastSentAt = new Map<string, number>();
 const sessionReasoningLevelCache = new Map<string, {
   updatedAt?: number;
@@ -1428,8 +1454,96 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
+  function parseInlineReplyPayloadText(text: unknown): {
+    text?: string;
+    mediaUrls: string[];
+    audioAsVoice: boolean;
+  } {
+    if (typeof text !== "string") {
+      return { text: undefined, mediaUrls: [], audioAsVoice: false };
+    }
+
+    const normalizedText = text.replace(/\r\n/g, "\n");
+    const parsedInline = normalizedText.includes("[[")
+      ? parseInlineDirectives(normalizedText, {
+          stripAudioTag: true,
+          stripReplyTags: false,
+        })
+      : {
+          text: normalizedText,
+          audioAsVoice: false,
+          replyToCurrent: false,
+          hasAudioTag: false,
+          hasReplyTag: false,
+        };
+    const mediaUrls: string[] = [];
+    const contentLines: string[] = [];
+
+    for (const line of parsedInline.text.split("\n")) {
+      const trimmed = line.trim();
+      const mediaCandidate = trimmed.replace(/^(?:\[\[[^[\]]+\]\]\s*)+/, "");
+      if (mediaCandidate.startsWith(MEDIA_DIRECTIVE_PREFIX)) {
+        const mediaSource = mediaCandidate.slice(MEDIA_DIRECTIVE_PREFIX.length).trim();
+        if (mediaSource) {
+          mediaUrls.push(mediaSource);
+          continue;
+        }
+      }
+      contentLines.push(line);
+    }
+
+    const cleanedText = contentLines.join("\n").trim();
+    if (mediaUrls.length === 0) {
+      const standaloneMediaSource = extractStandaloneMediaSource(cleanedText);
+      if (standaloneMediaSource) {
+        return {
+          text: undefined,
+          mediaUrls: [standaloneMediaSource],
+          audioAsVoice: parsedInline.audioAsVoice,
+        };
+      }
+    }
+
+    return {
+      text: mediaUrls.length > 0 || parsedInline.hasAudioTag ? cleanedText || undefined : text,
+      mediaUrls,
+      audioAsVoice: parsedInline.audioAsVoice,
+    };
+  }
+
+  function extractStandaloneMediaSource(text: string): string | undefined {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.includes("\n") || /\s/.test(trimmed)) {
+      return undefined;
+    }
+
+    const hasPathLikeShape =
+      /^https?:\/\/\S+$/i.test(trimmed) ||
+      trimmed.startsWith("~/") ||
+      trimmed.startsWith("~\\") ||
+      trimmed.startsWith("./") ||
+      trimmed.startsWith(".\\") ||
+      trimmed.startsWith("../") ||
+      trimmed.startsWith("..\\") ||
+      trimmed.startsWith("/") ||
+      trimmed.startsWith("\\") ||
+      /^[a-zA-Z]:[\\/]/.test(trimmed) ||
+      trimmed.includes("/") ||
+      trimmed.includes("\\");
+    if (!hasPathLikeShape) {
+      return undefined;
+    }
+
+    return STANDALONE_MEDIA_PATH_EXTENSIONS.has(path.extname(trimmed).toLowerCase())
+      ? trimmed
+      : undefined;
+  }
+
   // ---- Shared media delivery helper ----
-  function extractSharedAudioAsVoice(payload: ReplyStreamPayload): boolean {
+  function extractSharedAudioAsVoice(
+    payload: ReplyStreamPayload,
+    inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
+  ): boolean {
     const richPayload = payload as ReplyStreamPayload & {
       audioAsVoice?: unknown;
       asVoice?: unknown;
@@ -1438,7 +1552,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (sharedValue !== undefined) {
       return sharedValue;
     }
-    return readBooleanLikeValue(richPayload.asVoice) === true;
+    if (readBooleanLikeValue(richPayload.asVoice) === true) {
+      return true;
+    }
+    return inlineReplyPayload?.audioAsVoice === true;
   }
 
   async function deliverMediaAttachments(urls: string[], options?: { audioAsVoice?: boolean }) {
@@ -1449,7 +1566,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         dingtalkConfig.mediaUrlAllowlist,
       );
       try {
-        const actualMediaPath = preparedMedia.path;
+        const actualMediaPath = preparedMedia.cleanup
+          ? preparedMedia.path
+          : resolveRelativePath(preparedMedia.path);
         const outMediaType = resolveOutboundMediaType({
           mediaPath: actualMediaPath,
           asVoice: options?.audioAsVoice === true,
@@ -1493,18 +1612,24 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   // ---- Extract mediaUrls from runtime payload ----
-  function extractMediaUrls(payload: ReplyStreamPayload): string[] {
+  function extractMediaUrls(
+    payload: ReplyStreamPayload,
+    inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
+  ): string[] {
     const richPayload = payload as typeof payload & {
       mediaUrl?: string;
       mediaUrls?: string[];
     };
-    return Array.isArray(richPayload.mediaUrls)
+    const explicitMediaUrls = Array.isArray(richPayload.mediaUrls)
       ? richPayload.mediaUrls.filter((entry: unknown) => typeof entry === "string" && entry.trim())
       : richPayload.mediaUrl &&
           typeof richPayload.mediaUrl === "string" &&
           richPayload.mediaUrl.trim()
         ? [richPayload.mediaUrl]
         : [];
+    return explicitMediaUrls.length > 0
+      ? explicitMediaUrls
+      : inlineReplyPayload?.mediaUrls ?? [];
   }
 
   // Serialize dispatchReply + card finalize per session to prevent the runtime
@@ -1597,7 +1722,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     });
 
     try {
-      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      let deliveredFinalCount = 0;
+      const dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
         cfg,
         dispatcherOptions: {
@@ -1606,14 +1732,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             if (isCurrentCardStopRequested()) {
               log?.debug?.("[DingTalk][CardStop] Ignoring reply delivery because stop was already requested");
               return;
-            }
+          }
             try {
-              const mediaUrls = extractMediaUrls(payload);
+              if (info?.kind === "final") {
+                deliveredFinalCount += 1;
+              }
+              const inlineReplyPayload = parseInlineReplyPayloadText(payload.text);
+              const mediaUrls = extractMediaUrls(payload, inlineReplyPayload);
               const richPayload = payload as ReplyStreamPayload & { isReasoning?: boolean };
               await strategy.deliver({
-                text: payload.text,
+                text: inlineReplyPayload.text,
                 mediaUrls,
-                audioAsVoice: extractSharedAudioAsVoice(payload),
+                audioAsVoice: extractSharedAudioAsVoice(payload, inlineReplyPayload),
                 kind: (info?.kind as DeliverPayload["kind"]) || "block",
                 isReasoning: richPayload.isReasoning === true,
               });
@@ -1629,6 +1759,36 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         },
         replyOptions: strategy.getReplyOptions(),
       });
+
+      const bufferedFinal =
+        dispatchResult && typeof dispatchResult === "object" && "queuedFinal" in dispatchResult
+          ? (dispatchResult as { queuedFinal?: unknown }).queuedFinal
+          : undefined;
+      const finalCount =
+        dispatchResult && typeof dispatchResult === "object" && "counts" in dispatchResult
+          ? (dispatchResult as { counts?: { final?: unknown } }).counts?.final
+          : undefined;
+
+      log?.info?.(
+        `[DingTalk][Dispatch] completed — deliveredFinalCount=${deliveredFinalCount} ` +
+        `counts.final=${typeof finalCount === "number" ? finalCount : "n/a"} ` +
+        `queuedFinalType=${typeof bufferedFinal}`,
+      );
+
+      if (deliveredFinalCount === 0 && typeof bufferedFinal === "string" && bufferedFinal.trim()) {
+        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinal);
+        const richBufferedPayload = {
+          text: bufferedFinal,
+          mediaUrls: [],
+        } as ReplyStreamPayload;
+        await strategy.deliver({
+          text: inlineReplyPayload.text,
+          mediaUrls: extractMediaUrls(richBufferedPayload, inlineReplyPayload),
+          audioAsVoice: extractSharedAudioAsVoice(richBufferedPayload, inlineReplyPayload),
+          kind: "final",
+          isReasoning: false,
+        });
+      }
     } catch (dispatchErr: unknown) {
       const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
       await strategy.abort(error);

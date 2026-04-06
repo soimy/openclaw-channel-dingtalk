@@ -11,6 +11,7 @@ vi.mock("../../src/card-service", async (importOriginal) => {
     return {
         ...actual,
         finishAICard: vi.fn(),
+        recallAICardMessage: vi.fn(),
         streamAICard: vi.fn(),
     };
 });
@@ -26,6 +27,7 @@ vi.mock("../../src/send-service", async (importOriginal) => {
 });
 
 const finishAICardMock = vi.mocked(cardService.finishAICard);
+const recallAICardMessageMock = vi.mocked(cardService.recallAICardMessage);
 const streamAICardMock = vi.mocked(cardService.streamAICard);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 
@@ -64,6 +66,7 @@ describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         finishAICardMock.mockReset().mockResolvedValue(undefined as any);
+        recallAICardMessageMock.mockReset().mockResolvedValue(true);
         streamAICardMock.mockReset().mockResolvedValue(undefined);
         sendMessageMock.mockReset().mockResolvedValue({ ok: true });
     });
@@ -776,6 +779,113 @@ describe("reply-strategy-card", () => {
             const rendered = finishAICardMock.mock.calls[0][1];
             expect(rendered).toContain("> 我来发附件");
             expect(rendered).toContain("✅ Done");
+        });
+
+        it("recalls an empty direct-chat card after media-only final delivery succeeds", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            const deliverMedia = vi.fn().mockResolvedValue(undefined);
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia,
+            }));
+
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
+            await strategy.finalize();
+
+            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-voice.mp3"], {
+                audioAsVoice: true,
+            });
+            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
+            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
+            expect(finishAICardMock).not.toHaveBeenCalled();
+        });
+
+        it("recalls an empty group card after media-only final delivery succeeds", async () => {
+            const card = makeCard({ conversationId: "cid//group-1" });
+            const deliverMedia = vi.fn().mockResolvedValue(undefined);
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: false,
+                to: "cid//group-1",
+                groupId: "cid//group-1",
+                sessionWebhook: "",
+                deliverMedia,
+            }) as any);
+
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-file.pdf"], kind: "final" });
+            await strategy.finalize();
+
+            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-file.pdf"], {
+                audioAsVoice: undefined,
+            });
+            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
+            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
+            expect(finishAICardMock).not.toHaveBeenCalled();
+        });
+
+        it("recalls an empty card when media is delivered outside final and no textual content exists", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            const deliverMedia = vi.fn().mockResolvedValue(undefined);
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia,
+            }));
+
+            await strategy.deliver({
+                text: "",
+                mediaUrls: ["/tmp/reply-voice.mp3"],
+                kind: "block",
+                audioAsVoice: true,
+            });
+            await strategy.finalize();
+
+            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-voice.mp3"], {
+                audioAsVoice: true,
+            });
+            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
+            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
+            expect(finishAICardMock).not.toHaveBeenCalled();
+        });
+
+        it("keeps the card when media-only final delivery still has reasoning content", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia: vi.fn().mockResolvedValue(undefined),
+            }));
+
+            await strategy.getReplyOptions().onReasoningStream?.({ text: "先说明我要发送语音附件" });
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
+            await strategy.finalize();
+
+            expect(recallAICardMessageMock).not.toHaveBeenCalled();
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("> 先说明我要发送语音附件");
+            expect(rendered).toContain("✅ Done");
+        });
+
+        it("falls back to Done finalization when empty-card recall fails", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            recallAICardMessageMock.mockResolvedValueOnce(false);
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia: vi.fn().mockResolvedValue(undefined),
+            }));
+
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
+            await strategy.finalize();
+
+            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("✅ Done");
         });
 
         it("uses the standard empty final reply when process blocks exist but no answer text was delivered", async () => {

@@ -9,6 +9,7 @@
 import {
   finishAICard,
   isCardInTerminalState,
+  recallAICardMessage,
 } from "./card-service";
 import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
@@ -58,6 +59,8 @@ export function createCardReplyStrategy(
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
+  let successfulMediaDeliveries = 0;
+  let failedMediaDeliveries = 0;
   /** Tracks the latest reasoning snapshot text for non-streaming boundary flush. */
   let latestReasoningSnapshot = "";
 
@@ -68,6 +71,12 @@ export function createCardReplyStrategy(
       overrideAnswer: options.preferFinalAnswer ? finalTextForFallback : undefined,
     });
   };
+
+  const getRawRenderedTimeline = (): string =>
+    controller.getRenderedContent({
+      fallbackAnswer: undefined,
+      overrideAnswer: undefined,
+    });
 
   const appendAssembledThinkingBlocks = async (blocks: string[]): Promise<void> => {
     for (const block of blocks) {
@@ -213,6 +222,22 @@ export function createCardReplyStrategy(
     return normalized;
   };
 
+  const deliverMediaWithTracking = async (
+    mediaUrls: string[],
+    options: { audioAsVoice?: boolean },
+  ): Promise<void> => {
+    if (mediaUrls.length === 0) {
+      return;
+    }
+    try {
+      await ctx.deliverMedia(mediaUrls, options);
+      successfulMediaDeliveries += mediaUrls.length;
+    } catch (err) {
+      failedMediaDeliveries += mediaUrls.length;
+      throw err;
+    }
+  };
+
   return {
     getReplyOptions(): ReplyOptions {
       return {
@@ -269,7 +294,7 @@ export function createCardReplyStrategy(
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
         if (payload.mediaUrls.length > 0) {
-          await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
+          await deliverMediaWithTracking(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
@@ -324,7 +349,7 @@ export function createCardReplyStrategy(
 
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
+        await deliverMediaWithTracking(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
       }
     },
 
@@ -390,6 +415,28 @@ export function createCardReplyStrategy(
         await controller.flush();
         await controller.waitForInFlight();
         const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });
+        const rawRenderedTimeline = getRawRenderedTimeline();
+        const hasRenderedCardContent = Boolean(rawRenderedTimeline.trim());
+        const hasMeaningfulCardContent = hasRenderedCardContent
+          || Boolean((finalTextForFallback || "").trim())
+          || Boolean((controller.getFinalAnswerContent() || "").trim())
+          || Boolean((controller.getLastAnswerContent() || "").trim())
+          || Boolean((controller.getLastContent() || "").trim());
+        const shouldRecallEmptyCard =
+          successfulMediaDeliveries > 0
+          && failedMediaDeliveries === 0
+          && !hasMeaningfulCardContent;
+        if (shouldRecallEmptyCard) {
+          controller.stop();
+          log?.info?.(
+            `[DingTalk][Finalize] Attempting to recall empty card after successful media delivery ` +
+            `mediaCount=${successfulMediaDeliveries} conversationId=${card.conversationId}`,
+          );
+          if (await recallAICardMessage(card, log)) {
+            lifecycleState = "sealed";
+            return;
+          }
+        }
         const finalText = renderedTimeline || EMPTY_FINAL_REPLY;
         controller.stop();
         log?.info?.(

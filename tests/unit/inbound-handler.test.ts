@@ -14,6 +14,7 @@ const shared = vi.hoisted(() => ({
   getUnionIdByStaffIdMock: vi.fn(),
   createAICardMock: vi.fn(),
   finishAICardMock: vi.fn(),
+  recallAICardMessageMock: vi.fn(),
   resolveQuotedFileMock: vi.fn(),
   streamAICardMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
@@ -71,6 +72,7 @@ vi.mock("../../src/card-service", () => ({
   finishAICard: shared.finishAICardMock,
   formatContentForCard: shared.formatContentForCardMock,
   isCardInTerminalState: shared.isCardInTerminalStateMock,
+  recallAICardMessage: shared.recallAICardMessageMock,
   streamAICard: shared.streamAICardMock,
 }));
 
@@ -203,6 +205,8 @@ describe("inbound-handler", () => {
     shared.downloadGroupFileMock.mockReset();
     shared.downloadGroupFileMock.mockResolvedValue(null);
     shared.finishAICardMock.mockReset();
+    shared.recallAICardMessageMock.mockReset();
+    shared.recallAICardMessageMock.mockResolvedValue(true);
     shared.getUnionIdByStaffIdMock.mockReset();
     shared.getUnionIdByStaffIdMock.mockResolvedValue("union_1");
     shared.resolveQuotedFileMock.mockReset();
@@ -3939,6 +3943,272 @@ describe("inbound-handler", () => {
         },
       }),
     );
+  });
+
+  it("deliver callback parses inline media directives from text-only final payloads", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          {
+            text: "[[audio_as_voice]]\nMEDIA:/Users/sym/clawd/dingtalk-probes/reply-voice-bridge.mp3",
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/reply-voice-bridge.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+    const card = { cardInstanceId: "card_inline_media", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card", ackReaction: "" } as any,
+      data: {
+        msgId: "m_inline_media_text",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+      asVoice: true,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+        mediaType: "voice",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_inline_media_text",
+        },
+      }),
+    );
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(card, undefined);
+    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("deliver callback parses inline media directives when audio tag and MEDIA share one line", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          {
+            text: "[[audio_as_voice]] MEDIA:/Users/sym/clawd/dingtalk-probes/reply-voice-bridge.mp3",
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/reply-voice-bridge.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+    const card = { cardInstanceId: "card_inline_media_same_line", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card", ackReaction: "" } as any,
+      data: {
+        msgId: "m_inline_media_same_line",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+      asVoice: true,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+        mediaType: "voice",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_inline_media_same_line",
+        },
+      }),
+    );
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(card, undefined);
+    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays queuedFinal media directives when dispatcher buffers the final without deliver callback", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockResolvedValue({
+        queuedFinal: "[[audio_as_voice]]\nMEDIA:/Users/sym/clawd/dingtalk-probes/reply-voice-bridge.mp3",
+        counts: { final: 0 },
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/reply-voice-bridge.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+    const card = { cardInstanceId: "card_queued_final_media", state: "1", lastUpdated: Date.now() } as any;
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card", ackReaction: "" } as any,
+      data: {
+        msgId: "m_queued_final_media",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+      asVoice: true,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: "/tmp/prepared/reply-voice-bridge.mp3",
+        mediaType: "voice",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_queued_final_media",
+        },
+      }),
+    );
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(card, undefined);
+    expect(shared.finishAICardMock).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("deliver callback treats standalone relative audio paths as media replies", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          {
+            text: "dingtalk-probes/reply-voice-bridge.mp3",
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const relativeMediaPath = "dingtalk-probes/reply-voice-bridge.mp3";
+    const resolvedMediaPath = path.resolve(process.cwd(), relativeMediaPath);
+    const card = { cardInstanceId: "card_standalone_relative_audio", state: "1", lastUpdated: Date.now() } as any;
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: relativeMediaPath,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card", ackReaction: "" } as any,
+      data: {
+        msgId: "m_standalone_relative_audio",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: resolvedMediaPath,
+      asVoice: false,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: resolvedMediaPath,
+        mediaType: "voice",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_standalone_relative_audio",
+        },
+      }),
+    );
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(card, undefined);
+    expect(shared.finishAICardMock).not.toHaveBeenCalled();
   });
 
   it("markdown flow disables block streaming when session reasoning is on", async () => {
