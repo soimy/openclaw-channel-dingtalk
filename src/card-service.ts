@@ -904,6 +904,117 @@ export async function finishAICard(
   }
 }
 
+function getCardRecallTarget(card: AICardInstance): {
+  isGroup: boolean;
+  conversationId?: string;
+} {
+  const { targetId, isExplicitUser } = stripTargetPrefix(card.conversationId);
+  const resolvedTarget = resolveOriginalPeerId(targetId);
+  const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+  return {
+    isGroup,
+    conversationId: resolvedTarget || undefined,
+  };
+}
+
+function parseRecallFailureEntries(payload: unknown): Array<[string, string]> {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  return Object.entries(payload as Record<string, unknown>)
+    .map(([key, value]) => [String(key), String(value ?? "")] as [string, string]);
+}
+
+export async function recallAICardMessage(
+  card: AICardInstance,
+  log?: Logger,
+): Promise<boolean> {
+  const config = card.config;
+  const processQueryKey = card.processQueryKey?.trim();
+  const robotCode = config ? resolveRobotCode(config) : "";
+
+  if (!config || !processQueryKey || !robotCode) {
+    log?.warn?.(
+      `[DingTalk][AICard] Skip recall because required metadata is missing: ` +
+      `card=${card.cardInstanceId} hasConfig=${Boolean(config)} ` +
+      `processQueryKey=${processQueryKey || "(none)"} robotCode=${robotCode || "(none)"}`,
+    );
+    return false;
+  }
+
+  const target = getCardRecallTarget(card);
+  if (!target.conversationId) {
+    log?.warn?.(
+      `[DingTalk][AICard] Skip recall because conversationId is invalid: card=${card.cardInstanceId} conversationId=${card.conversationId}`,
+    );
+    return false;
+  }
+
+  const url = target.isGroup
+    ? `${DINGTALK_API}/v1.0/robot/groupMessages/recall`
+    : `${DINGTALK_API}/v1.0/robot/otoMessages/batchRecall`;
+  const body: Record<string, unknown> = {
+    robotCode,
+    processQueryKeys: [processQueryKey],
+  };
+  if (target.isGroup) {
+    body.openConversationId = target.conversationId;
+  }
+
+  try {
+    const token = await getAccessToken(config, log);
+    const response = await axios.post(url, body, {
+      headers: {
+        "x-acs-dingtalk-access-token": token,
+        "Content-Type": "application/json",
+      },
+      ...getProxyBypassOption(config),
+    });
+    const successResults = Array.isArray((response.data as Record<string, unknown> | undefined)?.successResult)
+      ? ((response.data as Record<string, unknown>).successResult as unknown[])
+          .map((item) => String(item))
+      : [];
+    const failedEntries = parseRecallFailureEntries(
+      (response.data as Record<string, unknown> | undefined)?.failedResult,
+    );
+    if (failedEntries.length > 0) {
+      log?.warn?.(
+        `[DingTalk][AICard] Recall reported failedResult: card=${card.cardInstanceId} ` +
+        `processQueryKey=${processQueryKey} failed=${JSON.stringify(failedEntries)}`,
+      );
+      return false;
+    }
+    if (!successResults.includes(processQueryKey)) {
+      log?.warn?.(
+        `[DingTalk][AICard] Recall response missing successResult for processQueryKey=${processQueryKey} ` +
+        `payload=${JSON.stringify(response.data)}`,
+      );
+      return false;
+    }
+
+    card.state = AICardStatus.FINISHED;
+    card.lastUpdated = Date.now();
+    removePendingCard(card, log);
+    log?.info?.(
+      `[DingTalk][AICard] Recalled empty card message: card=${card.cardInstanceId} ` +
+      `conversationId=${target.conversationId} processQueryKey=${processQueryKey} mode=${target.isGroup ? "group" : "direct"}`,
+    );
+    return true;
+  } catch (err: any) {
+    log?.warn?.(`[DingTalk][AICard] Recall failed for card=${card.cardInstanceId}: ${err.message}`);
+    if (err.response?.data !== undefined) {
+      log?.warn?.(
+        formatDingTalkErrorPayloadLog(
+          target.isGroup ? "card.groupRecall" : "card.directRecall",
+          err.response.data,
+          "[DingTalk][AICard]",
+        ),
+      );
+    }
+    return false;
+  }
+}
+
 export async function finishStoppedAICard(
   card: AICardInstance,
   content: string,
