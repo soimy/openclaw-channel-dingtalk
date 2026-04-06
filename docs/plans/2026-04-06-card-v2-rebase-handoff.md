@@ -2,191 +2,157 @@
 
 **Date:** 2026-04-06
 **Branch:** `card-template-v2-clean`
-**Base commit:** `f32bb40` on `card-template-v2-clean`
+**Rebase commit:** `c161e6e` (squash of 21 V2 commits, rebased onto origin/main)
 
 ## Summary
 
-Task 1-3（代码修复）已完成，Task 4（rebase PR #494）进行中，遇到 8 文件冲突，已解决 4 个，剩余 4 个待继续。
+Rebase 已完成，type-check 已通过。剩余 21 个测试失败需要修复，根因已定位。
 
 ---
 
-## Completed Tasks
+## Current State
+
+### ✅ Done
+
+- Rebase 完成：`git rebase origin/main` 成功，19 files changed, +1890/-960
+- Type-check 通过：`pnpm run type-check` clean
+- `src/card/card-template.ts` 修复：`DingTalkCardTemplateContract` 接口增加 `streamingKey` + `blockListKey`
+- `tests/unit/card-draft-controller.test.ts` 修复：line 719 缺少 `});` 关闭 `it()` block
+- card-draft-controller.test.ts 全部通过（72 tests pass）
+
+### ❌ Remaining: 21 Test Failures
+
+| File | Failures | Root Cause |
+|------|----------|------------|
+| `tests/unit/inbound-handler.test.ts` | 20 | **card-service mock 缺少 3 个导出** |
+| `tests/unit/reply-strategy-card.test.ts` | 1 | `deliver(block, isReasoning:true)` 在 block streaming 关闭时未路由到 controller |
+
+---
+
+## Fix 1: inbound-handler.test.ts — 20 failures
+
+**Root cause:** `card-draft-controller.ts` imports `updateAICardBlockList`, `streamAICardContent`, `clearAICardStreamingContent` from `card-service`。但 inbound-handler.test.ts 的 card-service mock（lines 72-79）只提供了：
+
+```typescript
+vi.mock("../../src/card-service", () => ({
+  createAICard: shared.createAICardMock,
+  finishAICard: shared.finishAICardMock,
+  commitAICardBlocks: shared.commitAICardBlocksMock,
+  formatContentForCard: shared.formatContentForCardMock,
+  isCardInTerminalState: shared.isCardInTerminalStateMock,
+  streamAICard: shared.streamAICardMock,
+  // ⚠️ MISSING: updateAICardBlockList, streamAICardContent, clearAICardStreamingContent
+}));
+```
+
+当 `card-draft-controller` 调用 `updateAICardBlockList` 时得到 `undefined`，抛异常，card 进入 FAILED 状态，导致 `commitAICardBlocks` 永远不会被调用。
+
+**Fix:** 在 card-service mock 中补上缺失的导出。需要：
+1. 在 `vi.hoisted` shared 对象中新增 `updateAICardBlockListMock`、`streamAICardContentMock`、`clearAICardStreamingContentMock`
+2. 在 `vi.mock("../../src/card-service", ...)` factory 中加入这三个 mock
+3. 在 `beforeEach` 中 reset 这些 mock
+4. line 1586 的 `shared.updateAICardBlockListMock` 应该能正常工作（目前引用 undefined mock 但 `toHaveBeenCalled()` 在 undefined 上不报错，只是永远 false）
+
+**Mock 补充参考（reply-strategy-card.test.ts 的写法）：**
+```typescript
+// shared 对象新增:
+updateAICardBlockListMock: vi.fn(),
+streamAICardContentMock: vi.fn(),
+clearAICardStreamingContentMock: vi.fn(),
+
+// card-service mock factory 新增:
+updateAICardBlockList: shared.updateAICardBlockListMock,
+streamAICardContent: shared.streamAICardContentMock,
+clearAICardStreamingContent: shared.clearAICardStreamingContentMock,
+
+// beforeEach 新增:
+shared.updateAICardBlockListMock.mockReset().mockResolvedValue(undefined);
+shared.streamAICardContentMock.mockReset().mockResolvedValue(undefined);
+shared.clearAICardStreamingContentMock.mockReset().mockResolvedValue(undefined);
+```
+
+另外，`createAICardMock` 返回的 card 对象（line 229-233）可能需要更多字段。当前返回：
+```typescript
+{ cardInstanceId: "card_1", state: "1", lastUpdated: Date.now() }
+```
+如果 `reply-strategy-card.ts` 在 deliver/finalize 中检查 `card.state` 为 `AICardStatus.PROCESSING`，那么 `state: "1"` 就是正确的（PROCESSING 枚举值是 "1"）。但缺少 `accessToken` 和 `conversationId` 字段可能导致某些路径失败。需要视测试结果验证。
+
+---
+
+## Fix 2: reply-strategy-card.test.ts — 1 failure
+
+**Test:** `deliver(block) routes reasoning-on blocks into the card timeline`（line 355-369）
+
+**Current behavior:** `deliver({ text: "Reasoning:\n_Reason: ..._", kind: "block", isReasoning: true })` 没有触发 `updateAICardBlockList`。
+
+**Context:** `buildCtx(card)` 默认 `disableBlockStreaming: true`。在 PR#494 合并后的 `reply-strategy-card.ts` 中，`deliver(block)` 的路由逻辑可能已经改变：
+- PR#494 引入了 `splitCardReasoningAnswerText()` 和 mode-aware routing
+- 当 `disableBlockStreaming` 为 true 且无 `cardStreamingMode` 配置时，reasoning block 可能走的是"buffer locally"路径而非"stream to card"路径
+
+**Debug approach:** 在 `reply-strategy-card.ts` 的 `deliver` 方法中，找到 `kind: "block"` 的处理分支，检查当 `isReasoning: true` 且 `disableBlockStreaming: true` 时，是否仍然调用 `controller.appendThinkingBlock()` 或类似方法。如果不是，需要修改代码或修改测试期望。
+
+**可能的原因：** 测试期望可能是 ours 版本的行为（reasoning block 始终路由到 card），但 PR#494 的 mode-aware routing 在 `off` 模式（默认）下会 buffer 而非 stream。可以：
+1. 在测试中加 `disableBlockStreaming: false` 使其符合 PR#494 的行为
+2. 或者修改代码使 `isReasoning: true` 的 block 始终路由到 card（即使 block streaming 关闭）
+
+---
+
+## Unstaged Changes (working tree)
+
+```
+ src/card/card-template.ts                | 7 +++++++
+ tests/unit/card-draft-controller.test.ts | 1 +
+ 2 files changed, 8 insertions(+)
+```
+
+这两个修复尚未 commit。修复完测试后应一并 `git add -A && git commit --amend --no-edit`。
+
+---
+
+## Completed Tasks (archived)
 
 ### Task 1: quoteContent 语义修复 ✅
-
 **Commit:** `9846d64` fix(card): quoteContent always shows inbound message text
 
-**Changes:**
-- `src/inbound-handler.ts` — quoteContent 改为 `extractedContent.text.trim().slice(0, 200)`，hasQuote 改为 `inboundQuoteText.length > 0`
-- `src/reply-strategy.ts` — ReplyStrategyContext 增加 `inboundText?: string`
-- `src/reply-strategy-card.ts` — finalize 中从 ctx.inboundText 构建 quoteContent 传给 commitAICardBlocks
-- 测试：inbound-handler + reply-strategy-card 各新增测试
-
-**Review status:**
-- Spec review ✅ — 所有 6 项要求满足
-- Code quality ✅ — 1 个 Important: sub-agent context hint 泾漏到 quoteContent（超出计划范围，记录为已知限制）
-
 ### Task 2: taskInfo 补传 ✅
-
 **Commit:** `c5f9272` feat(card): pass taskInfo to finalize for model/usage/elapsed display
 
-**Changes:**
-- `src/reply-strategy.ts` — 新增 TaskMeta interface，ReplyStrategyContext 增加 `taskMeta?: TaskMeta`
-- `src/reply-strategy-card.ts` — finalize 中构建 taskInfoJson 并传给 commitAICardBlocks
-- 测试：reply-strategy-card 新增 2 个测试（with/without taskMeta）
-
-**Review status:**
-- Spec review ✅
-- Code quality：跳过（改动 65 行，清晰简洁）
-
 ### Task 3: mediaId 桥接 ✅
-
 **Commit:** `fcbf4e1` feat(card): bridge sendMedia mediaId to active card via run registry (+ `f32bb40` style fix)
 
-**Changes:**
-- `src/card/card-run-registry.ts` — 新增 resolveCardRunByConversation(accountId, cid)，registerCardRun 增加 registeredAt 参数
-- `src/send-service.ts` — sendProactiveMedia 返回值增加 mediaId
-- `src/channel.ts` — sendMedia 成功后桥接到活跃卡片 appendImageBlock
-- `tests/unit/card-run-registry.test.ts` — 新建，4 个测试
+### Task 4: Rebase PR #494 ✅ (rebase complete, test fixes pending)
 
-**Review status:**
-- Spec review ✅
-- Code quality ✅ — 1 个 Important: curly lint（已修复），1 个 Important: 缺少 channel.ts bridge 雛成测试（建议后续补）
+**Rebase steps completed:**
+1. `git fetch origin main` ✅
+2. Squash 21 commits → 1 ✅
+3. `git rebase origin/main` ✅ (8 conflict files resolved)
+4. `src/card/card-template.ts` type fix ✅
+5. `tests/unit/card-draft-controller.test.ts` brace fix ✅
+6. Fix remaining 21 test failures ⬅️ **HERE**
 
 ---
 
-## In-Progress: Task 4 — Rebase PR #494
+## Conflict Resolution Details
 
-### Background
-
-PR #494 (`d268a2e`) 引入了：
-- `cardStreamingMode: off | answer | all` 配置替代 `cardRealTimeStream` 布尔值
-- `open → final_seen → sealed` 生命周期状态机
-- `CardDraftController` 去重追踪 (`lastQueuedContent` / `inFlightContent`)
-- `appendToolBeforeCurrentAnswer` — late tool 排序
-- `sealActiveThinking` — 显式 seal thinking
-- `splitCardReasoningAnswerText` — 混合 reasoning+answer 文本拆分
-
-main 同时包含 PR #495（rollback card v2）和 PR #496（docs CI）。
-
-### Rebase Approach
-
-采用 squash + rebase（19 commits → 1 squash commit），减少冲突解决轮次。
-
-### Conflict Analysis
-
-8 个冲突文件，已解决 4 个：
+8 个冲突文件，全部已解决：
 
 | File | Strategy | Status |
 |------|----------|--------|
-| `docs/assets/card-data-mock-v2.json` | take ours | ✅ Done |
-| `src/reply-strategy.ts` | combine（TaskMeta + InternalReplyStrategyConfig） | ✅ Done |
-| `src/card-service.ts` | take ours（commitAICardBlocks） | ✅ Done |
-| `src/card-draft-controller.ts` | **combine** — ✅ Done（手写合并版） |
-
-4 个未解决：
-
-| File | Strategy | Complexity | Notes |
-|------|----------|-----------|-------|
-| `src/reply-strategy-card.ts` | **combine** | **最高** | PR#494 生命周期 + cardStreamingMode + 我们的 commitAICardBlocks + image + quoteContent + taskInfo |
-| `tests/unit/card-draft-controller.test.ts` | combine | 高 | 10 个冲突，需适配新接口 |
-| `tests/unit/inbound-handler.test.ts` | combine | 低 | 1 个冲突 |
-| `tests/unit/reply-strategy-card.test.ts` | adapt | 中 | 无冲突标记，但需适配新接口 |
-
-### card-draft-controller.ts 合并详情（已完成）
-
-合并了两边的改动：
-
-**来自 PR#494:**
-- `appendToolBeforeCurrentAnswer` — late tool 插入到当前 answer 前
-- `findLastAnswerEntryIndex` — 辅助方法
-- `updateAnswer(text, { stream?: boolean })` — stream:false 静默捕获
-- `sealActiveThinking` — 显式 seal thinking
-- 去重追踪: `lastQueuedContent` / `inFlightContent` / `clearPendingRender`
-- Transport: `streamAICard`（markdown streaming API）
-
-**来自我们:**
-- `image` timeline entry kind + `appendImageBlock` — 图片块支持
-- `discardCurrentAnswer` — 丢弃当前 answer draft
-- `notifyNewAssistantTurn({ discardActiveAnswer })` — 支持丢弃参数
-- CardBlock[] 渲染 (`renderTimelineAsBlocks`) 替代 markdown
-- `getRenderedBlocks` + `getRenderedContent` 双输出
-- 实时流式: `streamContentToCard` / `clearStreamingContentFromCard`
-- Transport: `updateAICardBlockList`（instances API）
-
-### reply-strategy-card.ts 合并策略（待执行）
-
-这是最关键的文件。策略是**从 PR#494 的版本出发，补入我们的 V2 特性**：
-
-**保留 PR#494 的骨架（控制流）:**
-1. `CardReplyLifecycleState` 类型 (`"open" | "final_seen" | "sealed"`)
-2. `resolveCardStreamingMode()` — cardStreamingMode 配置解析
-3. `shouldWarnDeprecatedCardRealTimeStreamOnce()` — 弃用警告
-4. `splitCardReasoningAnswerText()` — 混合文本拆分
-5. `lifecycleState` 状态转换: deliver(final) → "final_seen", finalize() → "sealed", abort() → "sealed"
-6. Mode-aware routing: `streamAnswerLive` / `streamThinkingLive` from config
-7. Late tool handling: `deliver(tool)` + `lifecycleState === "final_seen"` → `appendToolBeforeCurrentAnswer`
-8. `handleAnswerSnapshot()` — lifecycle-aware answer 更新
-9. `applySplitTextToTimeline()` — 文本拆分 + mode-aware routing
-10. `normalizeDeliveredText()` / `applyDeliveredContent()` — text routing helpers
-
-**补入我们的 V2 特性（行为层）:**
-1. `commitAICardBlocks` finalize（替代 `finishAICard`）— 使用 `getRenderedBlocks` 生成 blockListJson
-2. inline media upload — `prepareMediaInput` + `uploadMedia` → `controller.appendImageBlock`
-3. `discardCurrentAnswerDraft` — 部分答案丢弃逻辑
-4. `quoteContent` 从 `ctx.inboundText` 构建
-5. `taskInfoJson` 从 `ctx.taskMeta` 构建
-6. `attachCardRunController` — 注册 controller 到 run registry
-
-**需要导入的新模块:**
-- `./card/reasoning-answer-split` — PR#494 新增
-- `./card/card-streaming-mode` — PR#494 新增
-
-**需要替换的调用:**
-- `finishAICard(card, content, log, ...)` → `commitAICardBlocks(card, { blockListJson, content, ... }, log)`
-- `ctx.deliverMedia(urls)` → inline `prepareMediaInput` + `uploadMedia` + `controller.appendImageBlock`
-
-### 测试文件适配
-
-**card-draft-controller.test.ts（10 个冲突）:**
-- Controller 接口变了（多了 appendToolBeforeCurrentAnswer, appendImageBlock, discardCurrentAnswer 等）
-- 需要适配 mock controller 对象
-- 渲染方法名从 `renderTimeline` 改为 `renderTimelineAsBlocks`
-
-**inbound-handler.test.ts（1 个冲突）:**
-- 可能是 `createAICard` 参数冲突（新增 `inboundText` 传给 strategy context）
-
-**reply-strategy-card.test.ts（无冲突标记）:**
-- 需要更新 mock 导入（`commitAICardBlocks` 替代 `finishAICard`）
-- 新增 `card-streaming-mode` 和 `reasoning-answer-split` 的 mock
-- 新增 lifecycle state 相关测试
-
----
-
-## Rebase 操作步骤
-
-1. `git fetch origin main`
-2. 软重置到 merge-base: `git reset --soft $(git merge-base HEAD origin/main)`
-3. 创建 squash commit
-4. `git rebase origin/main`
-5. 解决冲突（按上述策略）
-6. `pnpm test && pnpm run type-check`
-7. 真机验证
-
----
-
-## PR#494 新增文件（需在合并后可用）
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `src/card/card-streaming-mode.ts` | TAKE THEIRS | resolveCardStreamingMode() + deprecation warning |
-| `src/card/reasoning-answer-split.ts` | TAKE THEIRS | splitCardReasoningAnswerText() |
+| `docs/assets/card-data-mock-v2.json` | take ours | ✅ |
+| `src/reply-strategy.ts` | combine (TaskMeta + InternalReplyStrategyConfig) | ✅ |
+| `src/card-service.ts` | take ours (commitAICardBlocks) | ✅ |
+| `src/card-draft-controller.ts` | hand-merge (PR#494 dedup + V2 block rendering) | ✅ |
+| `src/reply-strategy-card.ts` | combine (PR#494 lifecycle + V2 APIs) | ✅ |
+| `tests/unit/card-draft-controller.test.ts` | combine (brace fix applied) | ✅ |
+| `tests/unit/inbound-handler.test.ts` | combine | ✅ (mock 补全 pending) |
+| `tests/unit/reply-strategy-card.test.ts` | adapt | ✅ (1 test pending) |
 
 ---
 
 ## Known Issues / Future Work
 
 1. **Sub-agent context hint 泄漏:** `extractedContent.text` 在 sub-agent 模式下被注入 `[你被 @ 为"AgentName"]` 前缀，会泄漏到 quoteContent。需在 inbound-handler 中 capture 原始文本后再注入前缀。
-2. **channel.ts bridge 集成测试缺失:** sendMedia → card bridge 路径没有 channel 级别的集成测试，只有 registry 单元测试。
-3. **resolveCardRunByConversation 假阳性风险:** substring 匹配在极端情况下可能误匹配（DingTalk base64 conversationId 在实践中使这不太可能）。
-4. **cardStreamingMode 与 cardRealTimeStream 兼容:** 合并后 `reply-strategy-card.ts` 需要使用 PR#494 的 `resolveCardStreamingMode()` 替代直接读取 `config.cardRealTimeStream`。
+2. **channel.ts bridge 集成测试缺失:** sendMedia → card bridge 路径没有 channel 级别的集成测试。
+3. **resolveCardRunByConversation 假阳性风险:** substring 匹配在极端情况下可能误匹配。
+4. **tsconfig `.at()` warnings:** `es2022` target needed for `.at()` on arrays — pre-existing, not from merge。
+5. **CardBlock type union:** `Property 'markdown' does not exist on type '{ type: 3; mediaId: string }'` — pre-existing, tests use `as any` workaround in `getBlockText` helper。

@@ -716,6 +716,7 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
+    });
 
     it("does not send the same rendered timeline twice", async () => {
         const card = makeCard();

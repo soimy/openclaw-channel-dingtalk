@@ -333,7 +333,7 @@ export function createCardReplyStrategy(
         if (isReasoningBlock) {
           const normalized = normalizeDeliveredText(textToSend, { isReasoning: true });
           await applyDeliveredContent(normalized, {
-            routeReasoningThroughModePolicy: true,
+            routeReasoningThroughModePolicy: false,
             answerHandling: "ignore",
           });
         } else {

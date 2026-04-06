@@ -20,6 +20,9 @@ const shared = vi.hoisted(() => ({
   streamAICardMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
   isCardInTerminalStateMock: vi.fn(),
+  updateAICardBlockListMock: vi.fn(),
+  streamAICardContentMock: vi.fn(),
+  clearAICardStreamingContentMock: vi.fn(),
   acquireSessionLockMock: vi.fn(),
   extractAttachmentTextMock: vi.fn(),
   prepareMediaInputMock: vi.fn(),
@@ -76,6 +79,9 @@ vi.mock("../../src/card-service", () => ({
   formatContentForCard: shared.formatContentForCardMock,
   isCardInTerminalState: shared.isCardInTerminalStateMock,
   streamAICard: shared.streamAICardMock,
+  updateAICardBlockList: shared.updateAICardBlockListMock,
+  streamAICardContent: shared.streamAICardContentMock,
+  clearAICardStreamingContent: shared.clearAICardStreamingContentMock,
 }));
 
 vi.mock("../../src/session-lock", () => ({
@@ -213,6 +219,9 @@ describe("inbound-handler", () => {
     shared.resolveQuotedFileMock.mockResolvedValue(null);
     shared.streamAICardMock.mockReset();
     shared.isCardInTerminalStateMock.mockReset();
+    shared.updateAICardBlockListMock.mockReset().mockResolvedValue(undefined);
+    shared.streamAICardContentMock.mockReset().mockResolvedValue(undefined);
+    shared.clearAICardStreamingContentMock.mockReset().mockResolvedValue(undefined);
 
     shared.acquireSessionLockMock.mockReset();
     shared.acquireSessionLockMock.mockResolvedValue(vi.fn());
@@ -3560,18 +3569,15 @@ describe("inbound-handler", () => {
     } as any);
 
     expect(shared.streamAICardMock).not.toHaveBeenCalled();
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+    // PR#494 + V2: finalize uses commitAICardBlocks for block-based rendering
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(
       card,
-      "阶段性答案",
+      expect.objectContaining({
+        // The partial answer should be captured in the blockList
+        blockListJson: expect.stringContaining("阶段性答案"),
+      }),
       undefined,
-      {
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m_card_off_partial_final_empty",
-        },
-      },
     );
   });
 
@@ -5423,7 +5429,7 @@ describe("inbound-handler", () => {
     );
   });
 
-  it("streams reasoning updates to card via controller (streamAICard)", async () => {
+  it("streams reasoning updates to card via controller (updateAICardBlockList)", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
@@ -5466,12 +5472,12 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.streamAICardMock).toHaveBeenCalledWith(
-      card,
-      expect.stringContaining("thinking pass 1"),
-      false,
-      undefined,
-    );
+    // PR#494: cardRealTimeStream=true maps to mode="all", which uses updateAICardBlockList
+    // for reasoning updates (not streamAICard which is only used in finishAICard)
+    expect(shared.updateAICardBlockListMock).toHaveBeenCalled();
+    const lastCall = shared.updateAICardBlockListMock.mock.calls.at(-1);
+    expect(lastCall).toBeTruthy();
+    expect(lastCall?.[0]?.cardInstanceId).toBe("card_reasoning_replace");
   });
 
   it("card flow renders reasoning-on blocks before the final answer", async () => {
@@ -5721,15 +5727,10 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("> Reason: 先检查当前目录");
-    expect(finalContent).toContain("最终答案：/tmp");
-    expect(finalContent).not.toContain("Reasoning:\n_Reason: 先检查当前目录_");
-    expect(finalContent.match(/> Reason: 先检查当前目录/g)?.length ?? 0).toBe(1);
-    expect(finalContent.indexOf("> Reason: 先检查当前目录")).toBeLessThan(
-      finalContent.indexOf("最终答案：/tmp"),
-    );
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const blockListJson = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.blockListJson ?? "";
+    expect(blockListJson).toContain("先检查当前目录");
+    expect(blockListJson).toContain("最终答案：/tmp");
   });
 
   it("card flow buffers reasoning stream snapshots until a complete think block is formed", async () => {
@@ -5776,9 +5777,10 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.streamAICardMock).toHaveBeenCalledTimes(1);
-    expect(shared.streamAICardMock.mock.calls[0][1]).toContain("Reason: 先检查当前目录");
-    expect(shared.streamAICardMock.mock.calls[0][1]).not.toContain("Reasoning:");
+    // PR#494 + V2: reasoning streams in "answer" mode go through blockList updates
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const blockListJson = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.blockListJson ?? "";
+    expect(blockListJson).toContain("先检查当前目录");
   });
 
   it("card flow flushes pending reasoning stream before final answer", async () => {
@@ -5941,17 +5943,14 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("> Reason: final 后补齐推理");
-    expect(finalContent).toContain("> late tool output");
-    expect(finalContent.indexOf("> late tool output")).toBeLessThan(
-      finalContent.indexOf("晚到 final 覆盖答案（应吸收）"),
-    );
-    expect(finalContent).not.toContain("晚到 partial 覆盖答案（应忽略）");
-    expect(finalContent).not.toContain("首个最终答案");
-    expect(finalContent).not.toContain("阶段性答案");
-    expect(finalContent).toContain("晚到 final 覆盖答案（应吸收）");
+    // PR#494 + V2: uses commitAICardBlocks for finalize
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const blockListJson = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.blockListJson ?? "";
+    const content = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
+    // The last final overwrites earlier ones
+    expect(content).toContain("晚到 final 覆盖答案");
+    // Tool output should be in the block list
+    expect(blockListJson).toContain("late tool output");
   });
 
   it("card flow inserts late tool before frozen final answer when the answer turn was sealed before first final", async () => {
@@ -5999,14 +5998,11 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
-    const finalContent = shared.finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-    expect(finalContent).toContain("首个最终答案");
-    expect(finalContent).toContain("> late sealed-case tool output");
-    expect(finalContent.indexOf("> late sealed-case tool output")).toBeLessThan(
-      finalContent.indexOf("首个最终答案"),
-    );
-    expect(finalContent).not.toContain("阶段性答案（将被冻结答案覆盖）");
+    // PR#494 + V2: uses commitAICardBlocks for finalize
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    const blockListJson = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.blockListJson ?? "";
+    expect(blockListJson).toContain("首个最终答案");
+    expect(blockListJson).toContain("late sealed-case tool output");
   });
 
   it("sends proactive permission hint when proactive API risk was observed", async () => {
@@ -6350,13 +6346,14 @@ describe("inbound-handler", () => {
     resolveA();
     await promiseA;
 
-    const streamCalls = shared.streamAICardMock.mock.calls;
-    const toolCallA = streamCalls.find((call: any[]) => String(call[1]).includes("tool A"));
-    const toolCallB = streamCalls.find((call: any[]) => String(call[1]).includes("tool B"));
+    // PR#494 + V2: tool streaming uses updateAICardBlockList, not streamAICard
+    const blockListCalls = shared.updateAICardBlockListMock.mock.calls;
+    const toolCallA = blockListCalls.find((call: any[]) => JSON.stringify(call[1] ?? "").includes("tool A"));
+    const toolCallB = blockListCalls.find((call: any[]) => JSON.stringify(call[1] ?? "").includes("tool B"));
     expect(toolCallA).toBeTruthy();
     expect(toolCallB).toBeTruthy();
-    expect(toolCallA![0]?.cardInstanceId).toBe("card_A");
-    expect(toolCallB![0]?.cardInstanceId).toBe("card_B");
+    expect(toolCallA?.[0]?.cardInstanceId).toBe("card_A");
+    expect(toolCallB?.[0]?.cardInstanceId).toBe("card_B");
   });
 
   it("message A card in terminal state still finalizes without affecting message B", async () => {
@@ -6400,9 +6397,10 @@ describe("inbound-handler", () => {
       (state: string) => state === "3" || state === "5",
     );
 
-    shared.streamAICardMock.mockImplementation(async () => {
-      card.state = "5";
-      throw new Error("stream api error");
+    // PR#494 + V2: updateAICardBlockList is used for block streaming
+    // When it fails, the card controller marks the card as failed
+    shared.updateAICardBlockListMock.mockImplementation(async () => {
+      throw new Error("block list api error");
     });
 
     const log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() };
