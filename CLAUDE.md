@@ -103,6 +103,14 @@ New code should align with these logical boundaries (physical moves are incremen
 - `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
 - When work involves DingTalk real-device validation, PR-scoped test checklist generation, `验证 TODO` drafting, or contributor guidance for that workflow, read and follow `skills/dingtalk-real-device-testing/SKILL.md` first.
 
+### Test File Scale Control
+
+- Target: <500 lines per test file; files >800 lines should be split
+- Split pattern: `source-module-{domain}.test.ts` (e.g., `inbound-handler-quote.test.ts`)
+- Shared fixtures: `tests/unit/fixtures/` for mock factories and test utilities
+- Redundancy check before split: merge tests that validate identical behavior
+- Main file retains core end-to-end flow; domain-specific tests go to split files
+
 ## Important Anti-Patterns
 
 - Do not add business logic to `src/channel.ts`

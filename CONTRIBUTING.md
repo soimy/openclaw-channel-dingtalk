@@ -142,6 +142,31 @@ What each command covers:
 
 The test suite uses mocks for network calls. Do not depend on real DingTalk API access in automated tests.
 
+## Test File Maintenance
+
+When adding new tests or maintaining existing test files, follow these scale guidelines:
+
+### Scale Thresholds
+
+| Lines | Action |
+|-------|--------|
+| <500 | Acceptable, no action needed |
+| 500-800 | Plan split for future work |
+| >800 | Split required before merge |
+
+### Split Strategy
+
+1. **Identify feature domains** — Group tests by the feature they validate (e.g., quote handling, card lifecycle)
+2. **Extract shared mocks** — Create fixture module in `tests/unit/fixtures/` for reusable mock setup
+3. **Split by domain** — Create `source-module-{domain}.test.ts` files, each with 10-25 tests
+4. **Retain core flows** — Keep end-to-end pipeline tests in the main file
+5. **Clean redundancy** — Before splitting, merge tests that validate identical behavior ≥3 times
+
+### Naming Convention
+
+- Split files: `inbound-handler-quote.test.ts`, `send-service-media.test.ts`
+- Fixture files: `tests/unit/fixtures/inbound-handler-fixture.ts`
+
 ## Manual Testing Expectations
 
 If your change affects runtime behavior, include a short manual test note in the PR description.

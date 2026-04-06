@@ -295,6 +295,31 @@ When reviewing or opening a PR, ask:
 4. Does the change introduce a new generic helper file that is really hiding missing domain boundaries?
 5. Could the same behavior be implemented with a small new module instead of widening an unrelated one?
 
+## Test File Maintenance
+
+Test files should follow the same domain boundaries as source code.
+
+### Scale Thresholds
+
+| Lines | Action |
+|-------|--------|
+| <500 | Acceptable, no action needed |
+| 500-800 | Plan split for future work |
+| >800 | Split required before merge |
+
+### Split Strategy
+
+1. **Identify feature domains** — Group tests by the feature they validate
+2. **Extract shared mocks** — Create fixture module in `tests/unit/fixtures/`
+3. **Split by domain** — Create `source-module-{domain}.test.ts` files with 10-25 tests each
+4. **Retain core flows** — Keep end-to-end pipeline tests in the main file
+5. **Clean redundancy** — Merge tests that validate identical behavior ≥3 times
+
+### Naming Convention
+
+- Split files: `inbound-handler-quote.test.ts`, `send-service-media.test.ts`
+- Fixture files: `tests/unit/fixtures/inbound-handler-fixture.ts`
+
 ## Related Entry Points
 
 - `README.md` for project overview and developer entry points

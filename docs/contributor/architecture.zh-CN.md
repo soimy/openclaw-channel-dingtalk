@@ -295,6 +295,31 @@ src/
 4. 这次改动是否又引入了一个泛化 helper 文件，掩盖了领域边界缺失？
 5. 这个行为是否可以通过新增一个小模块来实现，而不是继续放大一个无关模块？
 
+## 测试文件维护
+
+测试文件应遵循与源码相同的领域边界原则。
+
+### 规模阈值
+
+| 行数 | 处理 |
+|------|------|
+| <500 | 正常，无需处理 |
+| 500-800 | 规划拆分，可在后续工作中执行 |
+| >800 | 必须拆分后再合并 |
+
+### 拆分策略
+
+1. **识别功能域** — 按被测功能分组（如 quote handling、card lifecycle）
+2. **提取共享 mock** — 在 `tests/unit/fixtures/` 创建 fixture 模块
+3. **按域拆分** — 创建 `source-module-{domain}.test.ts`，每个文件 10-25 个测试
+4. **保留核心流程** — 端到端 pipeline 测试留在主文件
+5. **清理冗余** — 拆分前合并重复验证相同行为 ≥3 次的测试
+
+### 命名规范
+
+- 拆分文件：`inbound-handler-quote.test.ts`、`send-service-media.test.ts`
+- Fixture 文件：`tests/unit/fixtures/inbound-handler-fixture.ts`
+
 ## 相关入口
 
 - `README.md`
