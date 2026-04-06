@@ -37,6 +37,21 @@ That means:
 5. Preserve stable low-level boundaries.
    Existing focused modules with clear responsibilities should stay focused instead of absorbing adjacent concerns.
 
+## Host-Version-Aware Behavior
+
+When maintaining the DingTalk plugin, separate behavior that the plugin must implement itself from behavior that becomes active automatically after a host upgrade.
+
+- `before_agent_reply`:
+  This is a host reply-runtime hook. As long as DingTalk continues to dispatch through the shared host reply pipeline, newer OpenClaw hosts will apply it automatically without extra plugin wiring.
+- `audioAsVoice`:
+  This is a shared outbound / reply payload semantic. DingTalk should not depend on private field names or file-extension luck when mapping voice sends. Keep this compatibility logic in the `messaging/` domain.
+- `contextVisibility`:
+  This is a host channel-level config semantic. The plugin must surface it through its own schema, manifest, setup/docs, or the host support will remain unusable from the DingTalk channel surface.
+- `taskFlow`:
+  This repository does not directly consume `runtime.taskFlow` today. Do not migrate the normal reply mainline into TaskFlow unless there is a dedicated effort to solve AI Card run / stop lifecycle state across stages.
+- Sub-agent session keys:
+  On the current minimum supported host version, rely on the host-provided `buildAgentSessionKey` helper instead of synthesizing plugin-local fallback keys, so routing semantics stay aligned with the shared runtime.
+
 ## Logical Domains
 
 The current and future code should be reasoned about in these domains, even before the repository is physically rearranged.
