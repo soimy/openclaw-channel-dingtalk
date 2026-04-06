@@ -73,24 +73,61 @@ describe("plugin manifest channel metadata", () => {
         const topLevelProperties = manifest.channelConfigs?.dingtalk?.schema?.properties;
         const accountLevelProperties = topLevelProperties?.accounts?.additionalProperties?.properties;
 
-        expect(topLevelProperties?.cardStreamingMode).toEqual({
+        expect(topLevelProperties?.cardStreamingMode).toEqual(expect.objectContaining({
             type: "string",
             enum: ["off", "answer", "all"],
-        });
-        expect(topLevelProperties?.cardStreamInterval).toEqual({
+        }));
+        expect(topLevelProperties?.cardStreamInterval).toEqual(expect.objectContaining({
             type: "integer",
             minimum: 200,
             default: 1000,
-        });
-        expect(accountLevelProperties?.cardStreamingMode).toEqual({
+        }));
+        expect(accountLevelProperties?.cardStreamingMode).toEqual(expect.objectContaining({
             type: "string",
             enum: ["off", "answer", "all"],
-        });
-        expect(accountLevelProperties?.cardStreamInterval).toEqual({
+        }));
+        expect(accountLevelProperties?.cardStreamInterval).toEqual(expect.objectContaining({
             type: "integer",
             minimum: 200,
             default: 1000,
-        });
+        }));
+    });
+
+    it("documents active and legacy DingTalk config fields for WebUI operators", () => {
+        const manifest = readJsonFile<{
+            channelConfigs?: Record<
+                string,
+                {
+                    schema?: {
+                        properties?: Record<string, any>;
+                    };
+                    uiHints?: Record<string, { help?: string }>;
+                }
+            >;
+        }>("openclaw.plugin.json");
+
+        const topLevelProperties = manifest.channelConfigs?.dingtalk?.schema?.properties;
+        const accountLevelProperties = topLevelProperties?.accounts?.additionalProperties?.properties;
+
+        expect(topLevelProperties?.cardStreamingMode?.description).toMatch(/stream|incremental|answer|reasoning/i);
+        expect(topLevelProperties?.cardStreamInterval?.description).toMatch(/throttle|interval|millisecond|ms/i);
+        expect(topLevelProperties?.cardRealTimeStream?.description).toMatch(/deprecated|compat/i);
+        expect(topLevelProperties?.cardTemplateId?.description).toMatch(/deprecated|ignored|compat/i);
+        expect(topLevelProperties?.showThinkingStream?.description).toMatch(/legacy|deprecated|compat|ignored/i);
+
+        expect(accountLevelProperties?.cardStreamingMode?.description).toBe(
+            topLevelProperties?.cardStreamingMode?.description,
+        );
+        expect(accountLevelProperties?.cardRealTimeStream?.description).toBe(
+            topLevelProperties?.cardRealTimeStream?.description,
+        );
+
+        expect(manifest.channelConfigs?.dingtalk?.uiHints?.cardStreamingMode?.help).toMatch(
+            /stream|answer|reasoning/i,
+        );
+        expect(manifest.channelConfigs?.dingtalk?.uiHints?.cardRealTimeStream?.help).toMatch(
+            /deprecated|compat/i,
+        );
     });
 
     it("raises the minimum OpenClaw version to the first manifest channelConfigs release", () => {
