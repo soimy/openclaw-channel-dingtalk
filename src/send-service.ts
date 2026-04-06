@@ -389,7 +389,7 @@ export async function sendProactiveMedia(
   mediaPath: string,
   mediaType: "image" | "voice" | "video" | "file",
   options: SendMessageOptions & { accountId?: string } = {},
-): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string }> {
+): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string; mediaId?: string }> {
   const log = options.log || getLogger();
 
   try {
@@ -476,7 +476,7 @@ export async function sendProactiveMedia(
         kind: "proactive-media",
       },
     });
-    return { ok: true, data: result.data, messageId };
+    return { ok: true, data: result.data, messageId, mediaId };
   } catch (err: any) {
     log?.error?.(`[DingTalk] Failed to send proactive media: ${err.message}`);
     const normalizedTarget = resolveOriginalPeerId(stripTargetPrefix(target).targetId);

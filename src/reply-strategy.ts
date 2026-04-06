@@ -17,6 +17,14 @@ type InternalReplyStrategyConfig = DingTalkConfig & {
   cardStreamReasoning?: boolean;
 };
 
+/** Agent run metadata for card taskInfo display. */
+export interface TaskMeta {
+  model?: string;
+  effort?: string;
+  usage?: number;
+  elapsedMs?: number;
+}
+
 export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
@@ -65,6 +73,10 @@ export interface ReplyStrategyContext {
   replyQuotedRef?: QuotedRef;
   deliverMedia: (urls: string[]) => Promise<void>;
   isStopRequested?: () => boolean;
+  /** Inbound message text for quoteContent in card template. */
+  inboundText?: string;
+  /** Agent run metadata for taskInfo in card template. */
+  taskMeta?: TaskMeta;
 }
 
 // ---- Factory -----------------------------------------------------

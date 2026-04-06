@@ -870,3 +870,16 @@ export function resolveDingTalkAccount(
     configured: false,
   };
 }
+
+/**
+ * CardBlock types for AI Card v2 blockList.
+ * - 0 = answer (markdown text)
+ * - 1 = thinking process
+ * - 2 = tool result
+ * - 3 = image (uploaded mediaId)
+ */
+export type CardBlock =
+  | { type: 0; markdown: string }
+  | { type: 1; markdown: string }
+  | { type: 2; markdown: string }
+  | { type: 3; mediaId: string };

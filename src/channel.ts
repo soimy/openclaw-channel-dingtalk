@@ -596,6 +596,28 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
 
         if (result.ok) {
+          // Bridge: embed uploaded image in any active card for this conversation.
+          if (mediaType === "image" && result.mediaId) {
+            try {
+              const { resolveCardRunByConversation } = await import("./card/card-run-registry");
+              const activeRun = resolveCardRunByConversation(
+                accountId ?? "default",
+                to,
+              );
+              if (activeRun?.controller?.appendImageBlock) {
+                await activeRun.controller.appendImageBlock(result.mediaId);
+                effectiveLog?.debug?.(
+                  `[DingTalk] Embedded uploaded media in active card: mediaId=${result.mediaId} card=${activeRun.outTrackId}`,
+                );
+              }
+            } catch (bridgeErr: any) {
+              // Best-effort: failure to embed in card should not block the send.
+              effectiveLog?.debug?.(
+                `[DingTalk] Failed to embed media in active card: ${bridgeErr.message}`,
+              );
+            }
+          }
+
           const data = result.data;
           const messageId = String(
             result.messageId || data?.processQueryKey || data?.messageId || randomUUID(),

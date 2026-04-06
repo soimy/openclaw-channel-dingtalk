@@ -61,6 +61,8 @@ export function registerCardRun(
     agentId: string;
     ownerUserId?: string;
     card?: AICardInstance;
+    /** Override registeredAt timestamp (useful for tests). */
+    registeredAt?: number;
   },
 ): void {
   const trimmed = outTrackId.trim();
@@ -74,7 +76,7 @@ export function registerCardRun(
     agentId: params.agentId,
     ownerUserId: params.ownerUserId,
     card: params.card,
-    registeredAt: Date.now(),
+    registeredAt: params.registeredAt ?? Date.now(),
   });
   ensureSweepTimer();
 }
@@ -88,6 +90,26 @@ export function attachCardRunController(outTrackId: string, controller: CardDraf
 
 export function resolveCardRun(outTrackId: string): CardRunRecord | null {
   return records.get(outTrackId.trim()) ?? null;
+}
+
+/**
+ * Find the most recently registered card run for a given account + conversation.
+ * Uses case-insensitive match of the conversationId within sessionKey.
+ */
+export function resolveCardRunByConversation(
+  accountId: string,
+  conversationId: string,
+): CardRunRecord | null {
+  const lowerCid = conversationId.toLowerCase();
+  let latest: CardRunRecord | null = null;
+  for (const record of records.values()) {
+    if (record.accountId !== accountId) { continue; }
+    if (!record.sessionKey.toLowerCase().includes(lowerCid)) { continue; }
+    if (!latest || record.registeredAt > latest.registeredAt) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 export function markCardRunStopRequested(outTrackId: string): void {

@@ -718,15 +718,23 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
 
+  // Build quotedRef early for card creation
+  const quotedRef = buildInboundQuotedRef(data, extractedContent);
+
   if (useCardMode) {
     try {
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
       );
+      // quoteContent always shows the inbound message text so the user can
+      // identify which of their messages this card is replying to.
+      const inboundQuoteText = extractedContent.text.trim().slice(0, 200);
       const aiCard = await createAICard(dingtalkConfig, to, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
+        hasQuote: inboundQuoteText.length > 0,
+        quoteContent: inboundQuoteText,
       });
       if (aiCard) {
         currentAICard = aiCard;
@@ -754,7 +762,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
-  const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
   const hasLegacyQuoteContent =
@@ -1557,6 +1564,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
+      inboundText: extractedContent.text,
     });
 
     try {

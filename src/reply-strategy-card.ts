@@ -7,7 +7,7 @@
  */
 
 import {
-  finishAICard,
+  commitAICardBlocks,
   isCardInTerminalState,
 } from "./card-service";
 import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
@@ -19,7 +19,8 @@ import {
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
-import { sendBySession, sendMessage } from "./send-service";
+import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
+import { sendBySession, sendMessage, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
@@ -50,6 +51,7 @@ export function createCardReplyStrategy(
   const controller = createCardDraftController({
     card,
     log,
+    realTimeStreamEnabled: streamAnswerLive,
     throttleMs: config.cardStreamInterval ?? 1000,
   });
   const reasoningAssembler = createReasoningBlockAssembler();
@@ -268,8 +270,27 @@ export function createCardReplyStrategy(
           `lastAnswer="${(controller.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
+        // Inline media upload → image blocks in card
         if (payload.mediaUrls.length > 0) {
-          await ctx.deliverMedia(payload.mediaUrls);
+          for (const url of payload.mediaUrls) {
+            try {
+              const prepared = await prepareMediaInput(url, log);
+              const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
+              if (mediaType !== "image") {
+                log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+                await prepared.cleanup?.();
+                continue;
+              }
+              const result = await uploadMedia(config, prepared.path, "image", log);
+              await prepared.cleanup?.();
+              if (result?.mediaId) {
+                await controller.appendImageBlock(result.mediaId);
+              }
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
+            }
+          }
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
@@ -324,7 +345,25 @@ export function createCardReplyStrategy(
 
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls);
+        for (const url of payload.mediaUrls) {
+          try {
+            const prepared = await prepareMediaInput(url, log);
+            const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
+            if (mediaType !== "image") {
+              log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+              await prepared.cleanup?.();
+              continue;
+            }
+            const result = await uploadMedia(config, prepared.path, "image", log);
+            await prepared.cleanup?.();
+            if (result?.mediaId) {
+              await controller.appendImageBlock(result.mediaId);
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
+          }
+        }
       }
     },
 
@@ -384,22 +423,59 @@ export function createCardReplyStrategy(
         return;
       }
 
-      // Normal finalize.
+      // Normal finalize (V2 template path: single instances API call).
       try {
         await flushPendingReasoning();
+
+        // Clear any remaining streaming content before final commit
+        if (controller.isRealTimeStreamEnabled() && controller.clearStreamingContent) {
+          await controller.clearStreamingContent();
+        }
+
         await controller.flush();
         await controller.waitForInFlight();
-        const renderedTimeline = getRenderedTimeline({ preferFinalAnswer: true });
-        const finalText = renderedTimeline || EMPTY_FINAL_REPLY;
+
+        // Prepare finalize options for single instances API call
+        const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
+        const blockListJson = controller.getRenderedBlocks({
+          fallbackAnswer,
+          overrideAnswer: finalTextForFallback,
+        });
+        const content = controller.getRenderedContent({
+          fallbackAnswer,
+          overrideAnswer: finalTextForFallback,
+        }) || fallbackAnswer || EMPTY_FINAL_REPLY;
+
         controller.stop();
         log?.info?.(
-          `[DingTalk][Finalize] Calling finishAICard — finalTextLen=${finalText.length} ` +
+          `[DingTalk][Finalize] Calling commitAICardBlocks — ` +
+          `blockListLen=${blockListJson.length} contentLen=${content.length} ` +
           `source=${finalTextForFallback ? "final.payload" : controller.getFinalAnswerContent() ? "timeline.answer" : sawFinalDelivery ? "timeline.fileOnly" : "fallbackDone"} ` +
-          `preview="${finalText.slice(0, 120)}"`,
+          `preview="${content.slice(0, 120)}"`,
         );
-        await finishAICard(card, finalText, log, {
+
+        const inboundQuoteText = (ctx.inboundText || "").trim().slice(0, 200);
+
+        // Build taskInfo JSON for card template
+        let taskInfoJson: string | undefined;
+        if (ctx.taskMeta) {
+          const info: Record<string, unknown> = {};
+          if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
+          if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
+          if (typeof ctx.taskMeta.usage === "number") { info.dapi_usage = ctx.taskMeta.usage; }
+          if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
+          if (Object.keys(info).length > 0) {
+            taskInfoJson = JSON.stringify(info);
+          }
+        }
+
+        await commitAICardBlocks(card, {
+          blockListJson,
+          content,
+          quoteContent: inboundQuoteText || undefined,
+          taskInfoJson,
           quotedRef: ctx.replyQuotedRef,
-        });
+        }, log);
         lifecycleState = "sealed";
 
         // In group chats, send a lightweight @mention via session webhook
@@ -437,7 +513,12 @@ export function createCardReplyStrategy(
         controller.stop();
         await controller.waitForInFlight();
         try {
-          await finishAICard(card, "❌ 处理失败", log);
+          // For V2 template, finalize via instances API
+          const errorBlockListJson = JSON.stringify([{ type: 0, markdown: "❌ 处理失败" }]);
+          await commitAICardBlocks(card, {
+            blockListJson: errorBlockListJson,
+            content: "❌ 处理失败",
+          }, log);
         } catch (cardCloseErr: unknown) {
           log?.debug?.(`[DingTalk] Failed to finalize card after dispatch error: ${(cardCloseErr as Error).message}`);
           card.state = AICardStatus.FAILED;

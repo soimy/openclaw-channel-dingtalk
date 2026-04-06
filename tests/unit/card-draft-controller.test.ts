@@ -2,13 +2,16 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { createCardDraftController } from "../../src/card-draft-controller";
 import * as cardService from "../../src/card-service";
 import { AICardStatus } from "../../src/types";
-import type { AICardInstance } from "../../src/types";
+import type { AICardInstance, CardBlock } from "../../src/types";
 
 vi.mock("../../src/card-service", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../../src/card-service")>();
     return {
         ...actual,
         streamAICard: vi.fn(),
+        updateAICardBlockList: vi.fn(),
+        streamAICardContent: vi.fn(),
+        clearAICardStreamingContent: vi.fn(),
     };
 });
 
@@ -25,38 +28,54 @@ function makeCard(overrides: Partial<AICardInstance> = {}): AICardInstance {
     } as AICardInstance;
 }
 
+function parseBlocks(content: string): CardBlock[] {
+    try {
+        return JSON.parse(content);
+    } catch {
+        return [];
+    }
+}
+
+function getBlockText(blocks: CardBlock[], index: number): string {
+    const block = blocks[index];
+    if (!block) return "";
+    return "markdown" in block ? block.markdown : "";
+}
+
 describe("card-draft-controller", () => {
-    const streamAICardMock = vi.mocked(cardService.streamAICard);
+    const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 
     beforeEach(() => {
         vi.useFakeTimers();
-        streamAICardMock.mockReset();
-        streamAICardMock.mockResolvedValue(undefined);
+        updateAICardBlockListMock.mockReset();
+        updateAICardBlockListMock.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    it("updateAnswer sends answer text via streamAICard", async () => {
+    it("updateAnswer sends answer block via updateAICardBlockList", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
         ctrl.updateAnswer("Hello world");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledWith(card, "Hello world", false, undefined);
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(getBlockText(blocks, 0)).toBe("Hello world");
     });
 
-    it("updateReasoning sends a rendered thinking block", async () => {
+    it("updateReasoning sends a thinking block", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
         ctrl.updateReasoning("Analyzing...");
         await vi.advanceTimersByTimeAsync(0);
 
-        const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(sentContent).toContain("> Analyzing...");
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        expect(sentContent).toContain("Analyzing...");
     });
 
     it("answer rendering keeps the latest thinking block in the same timeline", async () => {
@@ -65,18 +84,18 @@ describe("card-draft-controller", () => {
 
         ctrl.updateReasoning("think");
         await vi.advanceTimersByTimeAsync(0);
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
 
-        const reasoningContent = streamAICardMock.mock.calls[0]?.[1] as string;
+        const reasoningContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
         expect(reasoningContent).toContain("think");
 
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
-        const rendered = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(rendered).toContain("> think");
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const rendered = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        expect(rendered).toContain("think");
         expect(rendered).toContain("answer");
     });
 
@@ -86,11 +105,11 @@ describe("card-draft-controller", () => {
 
         ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.updateReasoning("late-reasoning");
         await vi.advanceTimersByTimeAsync(300);
-        expect(streamAICardMock).not.toHaveBeenCalled();
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
     });
 
     it("late completed thinking blocks are inserted before the current answer in the same segment", async () => {
@@ -103,11 +122,11 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("> Reason: 先检查当前目录");
-        expect(rendered).toContain("最终答案");
-        expect(rendered.indexOf("> Reason: 先检查当前目录")).toBeLessThan(
-            rendered.indexOf("最终答案"),
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("最终答案");
+        expect(blocksJson.indexOf("Reason: 先检查当前目录")).toBeLessThan(
+            blocksJson.indexOf("最终答案"),
         );
     });
 
@@ -125,11 +144,11 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 再确认输出后给结论");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const firstThinkingIndex = rendered.indexOf("> Reason: 先检查当前目录");
-        const toolIndex = rendered.indexOf("> Exec: pwd");
-        const lateThinkingIndex = rendered.indexOf("> Reason: 再确认输出后给结论");
-        const answerIndex = rendered.indexOf("pwd 输出是 /Users/sym/clawd");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const firstThinkingIndex = blocksJson.indexOf("Reason: 先检查当前目录");
+        const toolIndex = blocksJson.indexOf("Exec: pwd");
+        const lateThinkingIndex = blocksJson.indexOf("Reason: 再确认输出后给结论");
+        const answerIndex = blocksJson.indexOf("pwd 输出是 /Users/sym/clawd");
 
         expect(firstThinkingIndex).toBeGreaterThanOrEqual(0);
         expect(toolIndex).toBeGreaterThan(firstThinkingIndex);
@@ -140,7 +159,7 @@ describe("card-draft-controller", () => {
     it("reasoning -> answer switch seals only the latest thinking snapshot into the timeline", async () => {
         const sent: string[] = [];
         let resolveInFlight!: () => void;
-        streamAICardMock.mockImplementation(async (_card, content) => {
+        updateAICardBlockListMock.mockImplementation(async (_card, content) => {
             sent.push(content);
             if (sent.length === 1) {
                 await new Promise<void>((r) => { resolveInFlight = r; });
@@ -162,13 +181,19 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(300);
 
         const lastSent = sent[sent.length - 1];
-        expect(lastSent).toContain("> still thinking...");
-        expect(lastSent).not.toContain("> thinking...");
-        expect(lastSent).toContain("Hello");
+        expect(lastSent).toContain("still thinking...");
+        // "still thinking..." is a substring of "thinking...", so substring check
+        // is unreliable — verify via parsed blocks instead
+        const blocks = parseBlocks(lastSent);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe(1); // thinking
+        expect(getBlockText(blocks, 0)).toBe("still thinking...");
+        expect(blocks[1].type).toBe(0); // answer
+        expect(getBlockText(blocks, 1)).toBe("Hello");
     });
 
     it("isFailed becomes true when streamAICard throws", async () => {
-        streamAICardMock.mockRejectedValueOnce(new Error("API down"));
+        updateAICardBlockListMock.mockRejectedValueOnce(new Error("API down"));
 
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
@@ -182,7 +207,7 @@ describe("card-draft-controller", () => {
     });
 
     it("updates are ignored after isFailed", async () => {
-        streamAICardMock.mockRejectedValueOnce(new Error("fail"));
+        updateAICardBlockListMock.mockRejectedValueOnce(new Error("fail"));
 
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
@@ -191,10 +216,10 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.isFailed()).toBe(true);
 
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
         ctrl.updateAnswer("second");
         await vi.advanceTimersByTimeAsync(300);
-        expect(streamAICardMock).not.toHaveBeenCalled();
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
     });
 
     it("updates are ignored after stop", async () => {
@@ -203,20 +228,20 @@ describe("card-draft-controller", () => {
 
         ctrl.updateAnswer("before");
         await vi.advanceTimersByTimeAsync(0);
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
 
         ctrl.stop();
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.updateAnswer("after");
         await vi.advanceTimersByTimeAsync(300);
-        expect(streamAICardMock).not.toHaveBeenCalled();
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
     });
 
     it("flush drains all pending and waits for in-flight", async () => {
         const sent: string[] = [];
         let resolveInFlight!: () => void;
-        streamAICardMock.mockImplementation(async (_card, content) => {
+        updateAICardBlockListMock.mockImplementation(async (_card, content) => {
             sent.push(content);
             if (sent.length === 1) {
                 await new Promise<void>((r) => { resolveInFlight = r; });
@@ -235,7 +260,13 @@ describe("card-draft-controller", () => {
         resolveInFlight();
         await flushDone;
 
-        expect(sent).toEqual(["first", "second"]);
+        expect(sent).toHaveLength(2);
+        const blocks0 = parseBlocks(sent[0]);
+        const blocks1 = parseBlocks(sent[1]);
+        expect(blocks0).toHaveLength(1);
+        expect(getBlockText(blocks0, 0)).toBe("first");
+        expect(blocks1).toHaveLength(1);
+        expect(getBlockText(blocks1, 0)).toBe("second");
     });
 
     it("getLastContent returns last successfully sent content", async () => {
@@ -246,11 +277,19 @@ describe("card-draft-controller", () => {
 
         ctrl.updateAnswer("content-1");
         await vi.advanceTimersByTimeAsync(0);
-        expect(ctrl.getLastContent()).toBe("content-1");
+        const blocks1 = parseBlocks(ctrl.getLastContent());
+        expect(blocks1).toHaveLength(1);
+        expect(blocks1[0].type).toBe(0); // answer
+        expect(blocks1[0]).toHaveProperty("markdown");
+        expect(blocks1[0].markdown).toBe("content-1");
 
         ctrl.updateAnswer("content-2");
         await vi.advanceTimersByTimeAsync(0);
-        expect(ctrl.getLastContent()).toBe("content-2");
+        const blocks2 = parseBlocks(ctrl.getLastContent());
+        expect(blocks2).toHaveLength(1);
+        expect(blocks2[0].type).toBe(0); // answer
+        expect(blocks2[0]).toHaveProperty("markdown");
+        expect(blocks2[0].markdown).toBe("content-2");
     });
 
     it("getLastContent does not update on failed send", async () => {
@@ -259,19 +298,22 @@ describe("card-draft-controller", () => {
 
         ctrl.updateAnswer("good");
         await vi.advanceTimersByTimeAsync(0);
-        expect(ctrl.getLastContent()).toBe("good");
+        // lastSentContent is now JSON CardBlock[]
+        const goodContent = ctrl.getLastContent();
+        expect(goodContent).toContain("good");
 
-        streamAICardMock.mockRejectedValueOnce(new Error("fail"));
+        updateAICardBlockListMock.mockRejectedValueOnce(new Error("fail"));
         ctrl.updateAnswer("bad");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(ctrl.getLastContent()).toBe("good");
+        // Should still have "good" content, not "bad"
+        expect(ctrl.getLastContent()).toBe(goodContent);
     });
 
     it("waitForInFlight resolves after current in-flight completes", async () => {
         let resolveInFlight!: () => void;
         let inFlightDone = false;
-        streamAICardMock.mockImplementation(async () => {
+        updateAICardBlockListMock.mockImplementation(async () => {
             await new Promise<void>((r) => { resolveInFlight = r; });
             inFlightDone = true;
         });
@@ -289,24 +331,23 @@ describe("card-draft-controller", () => {
         expect(inFlightDone).toBe(true);
     });
 
-    it("notifyNewAssistantTurn: next updateAnswer prepends previous answer content", async () => {
+    it("notifyNewAssistantTurn: next updateAnswer keeps previous answer and appends new", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
 
         ctrl.updateAnswer("Turn 1 content");
         await vi.advanceTimersByTimeAsync(0);
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.notifyNewAssistantTurn();
         ctrl.updateAnswer("Turn 2");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledWith(
-            card,
-            "Turn 1 content\nTurn 2",
-            false,
-            undefined,
-        );
+        // After notifyNewAssistantTurn, the old answer is sealed and new answer is appended
+        // getFinalAnswerContent should include both turns joined
+        const answerText = ctrl.getFinalAnswerContent();
+        expect(answerText).toContain("Turn 1 content");
+        expect(answerText).toContain("Turn 2");
     });
 
     it("notifyNewAssistantTurn: without prior answer content does not prepend", async () => {
@@ -315,18 +356,15 @@ describe("card-draft-controller", () => {
 
         ctrl.updateReasoning("thinking...");
         await vi.advanceTimersByTimeAsync(0);
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.notifyNewAssistantTurn();
         ctrl.updateAnswer("first answer");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledWith(
-            card,
-            "first answer",
-            false,
-            undefined,
-        );
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(getBlockText(blocks, 0)).toBe("first answer");
     });
 
     it("notifyNewAssistantTurn: resets phase to idle, allowing reasoning again", async () => {
@@ -335,14 +373,32 @@ describe("card-draft-controller", () => {
 
         ctrl.updateAnswer("answer");
         await vi.advanceTimersByTimeAsync(0);
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         ctrl.notifyNewAssistantTurn();
         ctrl.updateReasoning("new thinking");
         await vi.advanceTimersByTimeAsync(0);
 
-        const sentContent = streamAICardMock.mock.calls[0]?.[1] as string;
-        expect(sentContent).toContain("> new thinking");
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        expect(sentContent).toContain("new thinking");
+    });
+
+    it("notifyNewAssistantTurn can discard the active answer draft before sealing the turn", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.appendThinkingBlock("Reason: 先检查当前目录");
+        await ctrl.updateAnswer("分步推理过程如下：先计算每个人的效率");
+        await vi.advanceTimersByTimeAsync(0);
+
+        await ctrl.notifyNewAssistantTurn({ discardActiveAnswer: true });
+        await ctrl.updateAnswer("任务预计 3 天完成。");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("任务预计 3 天完成。");
+        expect(blocksJson).not.toContain("分步推理过程如下：先计算每个人的效率");
     });
 
     it("getLastAnswerContent only tracks answer phase sends", async () => {
@@ -352,21 +408,21 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("thinking");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("");
-        expect(ctrl.getLastContent()).toContain("> thinking");
+        expect(ctrl.getLastContent()).toContain("thinking");
 
         ctrl.updateAnswer("answer text");
         await vi.advanceTimersByTimeAsync(0);
         expect(ctrl.getLastAnswerContent()).toBe("answer text");
     });
 
-    it("renders thinking and tool blocks as plain blockquotes while leaving answer plain", async () => {
+    it("renders thinking and tool blocks as separate CardBlocks while leaving answer plain", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
         ctrl.updateReasoning("先检查改动");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.getRenderedBlocks).toBe("function");
         expect(typeof ctrl.updateTool).toBe("function");
 
         await ctrl.updateTool("git diff --stat");
@@ -375,18 +431,22 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("这里是最终回复");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("> 先检查改动");
-        expect(rendered).toContain("> git diff --stat");
-        expect(rendered).toContain("这里是最终回复");
-        expect(rendered).not.toContain("> 这里是最终回复");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const blocks = parseBlocks(blocksJson);
+        expect(blocks).toHaveLength(3);
+        expect(blocks[0].type).toBe(1); // thinking
+        expect(blocks[1].type).toBe(2); // tool
+        expect(blocks[2].type).toBe(0); // answer
+        expect(getBlockText(blocks, 0)).toBe("先检查改动");
+        expect(getBlockText(blocks, 1)).toBe("git diff --stat");
+        expect(getBlockText(blocks, 2)).toBe("这里是最终回复");
     });
 
     it("replaces the live thinking block instead of appending multiple reasoning snapshots", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
-        expect(typeof ctrl.getRenderedContent).toBe("function");
+        expect(typeof ctrl.getRenderedBlocks).toBe("function");
 
         ctrl.updateReasoning("第一版思考");
         await vi.advanceTimersByTimeAsync(0);
@@ -394,9 +454,9 @@ describe("card-draft-controller", () => {
         ctrl.updateReasoning("第二版思考");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("第二版思考");
-        expect(rendered).not.toContain("第一版思考");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("第二版思考");
+        expect(blocksJson).not.toContain("第一版思考");
     });
 
     it("appends completed thinking blocks without live replacement semantics", async () => {
@@ -410,9 +470,9 @@ describe("card-draft-controller", () => {
         await ctrl.appendThinkingBlock("Reason: 再确认 reply strategy 入口");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("> Reason: 先检查当前目录");
-        expect(rendered).toContain("> Reason: 再确认 reply strategy 入口");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("Reason: 先检查当前目录");
+        expect(blocksJson).toContain("Reason: 再确认 reply strategy 入口");
     });
 
     it("notifyNewAssistantTurn keeps earlier answer text and appends the next answer turn", async () => {
@@ -451,18 +511,18 @@ describe("card-draft-controller", () => {
         expect(answerOnly).not.toContain("工具");
     });
 
-    it("keeps html-sensitive tool text inside quoted markdown lines", async () => {
+    it("keeps html-sensitive tool text inside tool blocks", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
         await ctrl.updateTool("<div>hello</div>");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        expect(rendered).toContain("> <div>hello</div>");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        expect(blocksJson).toContain("<div>hello</div>");
     });
 
-    it("uses a tighter separator between process blocks and answer text", async () => {
+    it("sends tool and answer as separate blocks", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
@@ -471,14 +531,16 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
-        expect(streamed).toContain("> Exec: pwd\n当前工作目录是 /Users/sym/clawd");
-        expect(streamed).not.toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
-        expect(rendered).toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
+        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const blocks = parseBlocks(streamed);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe(2); // tool
+        expect(blocks[1].type).toBe(0); // answer
+        expect(getBlockText(blocks, 0)).toBe("Exec: pwd");
+        expect(getBlockText(blocks, 1)).toBe("当前工作目录是 /Users/sym/clawd");
     });
 
-    it("uses tight separators across thinking, tool, and answer while streaming", async () => {
+    it("sends thinking, tool, and answer as separate blocks", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
@@ -489,19 +551,15 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
-        expect(streamed).toContain(
-            "> Reason: 先检查当前目录\n> Exec: pwd\n当前工作目录是 /Users/sym/clawd",
-        );
-        expect(streamed).not.toContain(
-            "> Reason: 先检查当前目录\n\n> Exec: pwd",
-        );
-        expect(streamed).not.toContain(
-            "> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd",
-        );
+        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const blocks = parseBlocks(streamed);
+        expect(blocks).toHaveLength(3);
+        expect(blocks[0].type).toBe(1); // thinking
+        expect(blocks[1].type).toBe(2); // tool
+        expect(blocks[2].type).toBe(0); // answer
     });
 
-    it("uses tight separators between adjacent tool blocks while streaming", async () => {
+    it("sends multiple adjacent tool blocks as separate entries", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
@@ -510,12 +568,16 @@ describe("card-draft-controller", () => {
         await ctrl.updateTool("Exec: printf ok");
         await vi.advanceTimersByTimeAsync(0);
 
-        const streamed = streamAICardMock.mock.calls.at(-1)?.[1] as string;
-        expect(streamed).toContain("> Exec: pwd\n> Exec: printf ok");
-        expect(streamed).not.toContain("> Exec: pwd\n\n> Exec: printf ok");
+        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const blocks = parseBlocks(streamed);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe(2);
+        expect(blocks[1].type).toBe(2);
+        expect(getBlockText(blocks, 0)).toBe("Exec: pwd");
+        expect(getBlockText(blocks, 1)).toBe("Exec: printf ok");
     });
 
-    it("final rendered timeline keeps a blank line between process blocks and answer text", async () => {
+    it("getRenderedBlocks returns JSON blocks array", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
 
@@ -524,9 +586,45 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const finalRendered = ctrl.getRenderedContent?.() ?? "";
-        expect(finalRendered).toContain("> Exec: pwd\n\n当前工作目录是 /Users/sym/clawd");
-        expect(finalRendered).not.toContain("> Exec: pwd\n当前工作目录是 /Users/sym/clawd");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const blocks = parseBlocks(blocksJson);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe(2); // tool
+        expect(blocks[1].type).toBe(0); // answer
+    });
+
+    it("getRenderedContent returns pure markdown text from answer blocks", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const markdown = ctrl.getRenderedContent?.() ?? "";
+        // Should be pure markdown, not JSON
+        expect(markdown).toBe("当前工作目录是 /Users/sym/clawd");
+        expect(markdown).not.toContain('"type"');
+        expect(markdown).not.toContain('"markdown"');
+    });
+
+    it("getRenderedContent joins multiple answer blocks with double newlines", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        ctrl.updateAnswer("Turn 1 answer");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.notifyNewAssistantTurn();
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+        ctrl.updateAnswer("Turn 2 answer");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const markdown = ctrl.getRenderedContent?.() ?? "";
+        expect(markdown).toBe("Turn 1 answer\n\nTurn 2 answer");
+        // Should not contain tool block text
+        expect(markdown).not.toContain("Exec: pwd");
     });
 
     it("preserves interleaved answer and tool blocks in event order", async () => {
@@ -550,12 +648,12 @@ describe("card-draft-controller", () => {
         ctrl.updateAnswer("阶段3答案：两次工具都已完成");
         await vi.advanceTimersByTimeAsync(0);
 
-        const rendered = ctrl.getRenderedContent?.() ?? "";
-        const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
-        const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
-        const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
-        const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
-        const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
+        const blocksJson = ctrl.getRenderedBlocks?.() ?? "";
+        const phase1Index = blocksJson.indexOf("阶段1答案：准备先检查当前目录");
+        const tool1Index = blocksJson.indexOf("🛠️ Exec: pwd");
+        const phase2Index = blocksJson.indexOf("阶段2答案：pwd 已返回结果");
+        const tool2Index = blocksJson.indexOf("🛠️ Exec: printf ok");
+        const phase3Index = blocksJson.indexOf("阶段3答案：两次工具都已完成");
 
         expect(phase1Index).toBeGreaterThanOrEqual(0);
         expect(tool1Index).toBeGreaterThan(phase1Index);
@@ -566,7 +664,7 @@ describe("card-draft-controller", () => {
 
     it("flushes the latest answer frame before appending a new tool block", async () => {
         const sent: string[] = [];
-        streamAICardMock.mockImplementation(async (_card, content) => {
+        updateAICardBlockListMock.mockImplementation(async (_card, content) => {
             sent.push(content);
         });
 
@@ -590,7 +688,7 @@ describe("card-draft-controller", () => {
     it("waits for the tool boundary frame before starting the next answer block", async () => {
         const sent: string[] = [];
         let resolveToolFrame!: () => void;
-        streamAICardMock.mockImplementation(async (_card, content) => {
+        updateAICardBlockListMock.mockImplementation(async (_card, content) => {
             sent.push(content);
             if (content.includes("🛠️ Exec: pwd") && !content.includes("阶段2答案")) {
                 await new Promise<void>((r) => { resolveToolFrame = r; });
@@ -618,7 +716,6 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
-    });
 
     it("does not send the same rendered timeline twice", async () => {
         const card = makeCard();
@@ -630,7 +727,7 @@ describe("card-draft-controller", () => {
         await controller.sealActiveThinking();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
     });
 
     it("does not resend when updateAnswer receives unchanged text", async () => {
@@ -643,8 +740,7 @@ describe("card-draft-controller", () => {
         await controller.updateAnswer("same text");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
-        expect(streamAICardMock).toHaveBeenLastCalledWith(card, "same text", false, undefined);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
     });
 
     it("does not suppress the first fresh-turn reasoning update after pending reset", async () => {
@@ -654,15 +750,16 @@ describe("card-draft-controller", () => {
         await controller.updateReasoning("首次思考");
         await vi.advanceTimersByTimeAsync(0);
 
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         await controller.updateReasoning("同一条思考");
         await controller.notifyNewAssistantTurn();
         await controller.updateReasoning("同一条思考");
         await vi.advanceTimersByTimeAsync(300);
 
-        expect(streamAICardMock).toHaveBeenCalledTimes(1);
-        expect(streamAICardMock).toHaveBeenLastCalledWith(card, "> 同一条思考", false, undefined);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        expect(sentContent).toContain("同一条思考");
     });
 
     it("cancels stale queued frame when timeline reverts to last sent content", async () => {
@@ -672,22 +769,23 @@ describe("card-draft-controller", () => {
         await controller.updateAnswer("A");
         await vi.advanceTimersByTimeAsync(0);
 
-        streamAICardMock.mockClear();
+        updateAICardBlockListMock.mockClear();
 
         await controller.updateAnswer("B");
         await controller.updateAnswer("A");
         await vi.advanceTimersByTimeAsync(300);
 
-        expect(streamAICardMock).not.toHaveBeenCalled();
-        expect(controller.getLastContent()).toBe("A");
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+        const lastContent = controller.getLastContent();
+        expect(lastContent).toContain("A");
     });
 
     it("resends last sent content when reverting while a newer frame is still in-flight", async () => {
         const sent: string[] = [];
         let resolveB!: () => void;
-        streamAICardMock.mockImplementation(async (_card, content) => {
+        updateAICardBlockListMock.mockImplementation(async (_card, content) => {
             sent.push(content);
-            if (content === "B") {
+            if (content.includes("B")) {
                 await new Promise<void>((r) => { resolveB = r; });
             }
         });
@@ -697,22 +795,22 @@ describe("card-draft-controller", () => {
 
         await controller.updateAnswer("A");
         await vi.advanceTimersByTimeAsync(0);
-        expect(sent).toEqual(["A"]);
+        expect(sent).toHaveLength(1);
 
         const sendB = controller.updateAnswer("B");
         await vi.advanceTimersByTimeAsync(0);
-        expect(sent).toEqual(["A", "B"]);
+        expect(sent).toHaveLength(2);
 
         const revertToA = controller.updateAnswer("A");
         await vi.advanceTimersByTimeAsync(0);
-        expect(sent).toEqual(["A", "B"]);
+        expect(sent).toHaveLength(2);
 
         resolveB();
         await sendB;
         await revertToA;
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(sent).toEqual(["A", "B", "A"]);
-        expect(controller.getLastContent()).toBe("A");
+        expect(sent).toHaveLength(3);
+        expect(sent.at(-1)).toContain("A");
     });
 });

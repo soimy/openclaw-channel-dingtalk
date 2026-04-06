@@ -4,21 +4,26 @@
  * The controller keeps a single rendered card timeline made of:
  * - sealed process blocks (`thinking` / `tool`)
  * - an optional live thinking block
- * - accumulated answer turns rendered as plain markdown
+ * - accumulated answer turns rendered as JSON CardBlock[]
  *
  * It delegates throttling and single-flight transport guarantees to
  * {@link createDraftStreamLoop}.
  */
 
-import { streamAICard } from "./card-service";
+import {
+    clearAICardStreamingContent,
+    streamAICardContent,
+    updateAICardBlockList,
+} from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
-import type { AICardInstance, Logger } from "./types";
+import type { AICardInstance, CardBlock, Logger } from "./types";
 
-type TimelineEntryKind = "thinking" | "tool" | "answer";
+type TimelineEntryKind = "thinking" | "tool" | "answer" | "image";
 
 type TimelineEntry = {
     kind: TimelineEntryKind;
     text: string;
+    mediaId?: string;
 };
 
 export interface CardDraftController {
@@ -28,9 +33,15 @@ export interface CardDraftController {
     appendThinkingBlock: (text: string) => Promise<void>;
     updateTool: (text: string) => Promise<void>;
     appendTool: (text: string) => Promise<void>;
+    /** Append an image block (type=3) with an uploaded mediaId. */
+    appendImageBlock: (mediaId: string) => Promise<void>;
     appendToolBeforeCurrentAnswer: (text: string) => Promise<void>;
+    /** Drop the current answer draft while keeping sealed earlier turns intact. */
+    discardCurrentAnswer: () => void;
     /** Signal that a new assistant turn has started (e.g. after a tool call). */
-    notifyNewAssistantTurn: () => Promise<void>;
+    notifyNewAssistantTurn: (options?: {
+        discardActiveAnswer?: boolean;
+    }) => Promise<void>;
     startAssistantTurn: () => Promise<void>;
     /** Seal the active thinking entry (keep it in timeline) without removing it. */
     sealActiveThinking: () => Promise<void>;
@@ -44,12 +55,24 @@ export interface CardDraftController {
     getLastAnswerContent: () => string;
     /** Current answer-only content composed from all completed answer turns. */
     getFinalAnswerContent: () => string;
-    /** Current rendered timeline, including process blocks and answer text. */
+    /** Current rendered timeline as CardBlock[] JSON string for blockList parameter. */
+    getRenderedBlocks: (options?: {
+        fallbackAnswer?: string;
+        overrideAnswer?: string;
+        compactProcessAnswerSpacing?: boolean;
+    }) => string;
+    /** Current rendered timeline as pure markdown text for content parameter and fallback. */
     getRenderedContent: (options?: {
         fallbackAnswer?: string;
         overrideAnswer?: string;
         compactProcessAnswerSpacing?: boolean;
     }) => string;
+    /** Stream answer text to content key for real-time display. Only available when realTimeStreamEnabled=true. */
+    streamContent?: (text: string) => Promise<void>;
+    /** Clear the streaming content key. Only available when realTimeStreamEnabled=true. */
+    clearStreamingContent?: () => Promise<void>;
+    /** Whether real-time streaming is enabled. */
+    isRealTimeStreamEnabled: () => boolean;
 }
 
 function normalizeProcessText(text: string | undefined): string {
@@ -60,22 +83,13 @@ function normalizeAnswerText(text: string | undefined): string {
     return typeof text === "string" ? text.trimStart() : "";
 }
 
-function quoteMarkdown(text: string): string {
-    return text
-        .split("\n")
-        .map((line) => line.trim() ? `> ${line.trim()}` : ">")
-        .join("\n");
-}
-
-function renderProcessBlock(_kind: "thinking" | "tool", text: string): string {
-    return quoteMarkdown(text);
-}
-
 export function createCardDraftController(params: {
     card: AICardInstance;
     throttleMs?: number;
     /** Legacy compatibility: verbose mode previously lowered the throttle. */
     verboseMode?: boolean;
+    /** Enable real-time streaming to content key for answer display. */
+    realTimeStreamEnabled?: boolean;
     log?: Logger;
 }): CardDraftController {
     let failed = false;
@@ -91,6 +105,34 @@ export function createCardDraftController(params: {
     let pendingBoundaryPromise: Promise<void> | null = null;
 
     const effectiveThrottleMs = params.throttleMs ?? (params.verboseMode ? 50 : 300);
+    const realTimeStreamEnabled = params.realTimeStreamEnabled ?? false;
+    let hasStreamingContent = false;
+
+    const streamContentToCard = async (text: string) => {
+        if (!realTimeStreamEnabled) {
+            return;
+        }
+        try {
+            await streamAICardContent(params.card, text, params.log);
+            hasStreamingContent = true;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            params.log?.debug?.(`[DingTalk][AICard] Failed to stream content: ${message}`);
+        }
+    };
+
+    const clearStreamingContentFromCard = async () => {
+        if (!realTimeStreamEnabled || !hasStreamingContent) {
+            return;
+        }
+        try {
+            await clearAICardStreamingContent(params.card, params.log);
+            hasStreamingContent = false;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            params.log?.debug?.(`[DingTalk][AICard] Failed to clear streaming content: ${message}`);
+        }
+    };
 
     const getFinalAnswerContent = (): string => {
         return timelineEntries
@@ -135,11 +177,10 @@ export function createCardDraftController(params: {
         return null;
     };
 
-    const renderTimeline = (options: {
+    const renderTimelineAsBlocks = (options: {
         fallbackAnswer?: string;
         overrideAnswer?: string;
-        compactProcessAnswerSpacing?: boolean;
-    } = {}): string => {
+    } = {}): CardBlock[] => {
         const entries = timelineEntries.map((entry) => ({ ...entry }));
 
         const overrideAnswer = normalizeAnswerText(options.overrideAnswer);
@@ -160,29 +201,33 @@ export function createCardDraftController(params: {
             }
         }
 
-        let rendered = "";
-        const compactProcessAnswerSpacing = options.compactProcessAnswerSpacing === true;
-        for (let index = 0; index < entries.length; index += 1) {
-            const entry = entries[index];
-            if (!entry?.text) {
-                continue;
+        const blocks: CardBlock[] = [];
+        for (const entry of entries) {
+            if (!entry) { continue; }
+            switch (entry.kind) {
+                case "answer":
+                    if (entry.text?.trim()) {
+                        blocks.push({ type: 0, markdown: entry.text });
+                    }
+                    break;
+                case "thinking":
+                    if (entry.text?.trim()) {
+                        blocks.push({ type: 1, markdown: entry.text });
+                    }
+                    break;
+                case "tool":
+                    if (entry.text?.trim()) {
+                        blocks.push({ type: 2, markdown: entry.text });
+                    }
+                    break;
+                case "image":
+                    if (entry.mediaId?.trim()) {
+                        blocks.push({ type: 3, mediaId: entry.mediaId });
+                    }
+                    break;
             }
-            const part = entry.kind === "answer"
-                ? entry.text
-                : renderProcessBlock(entry.kind, entry.text);
-            if (!rendered) {
-                rendered = part;
-                continue;
-            }
-            const previousKind = entries[index - 1]?.kind;
-            const separator =
-                compactProcessAnswerSpacing && previousKind
-                    ? "\n"
-                    : "\n\n";
-            rendered += `${separator}${part}`;
         }
-
-        return rendered;
+        return blocks;
     };
 
     const sealLiveThinking = () => {
@@ -193,14 +238,31 @@ export function createCardDraftController(params: {
         activeAnswerIndex = null;
     };
 
+    const discardCurrentAnswer = () => {
+        if (activeAnswerIndex === null) {
+            return;
+        }
+        removeTimelineEntry(activeAnswerIndex);
+        queueRender();
+    };
+
     const clearPendingRender = () => {
         loop.resetPending();
         lastQueuedContent = "";
     };
 
     const queueRender = () => {
-        const rendered = renderTimeline({ compactProcessAnswerSpacing: true });
-        if (!rendered) {
+        const blocks = renderTimelineAsBlocks();
+        const rendered = JSON.stringify(blocks);
+
+        // Stream to content key for real-time display (if enabled and has active answer)
+        if (realTimeStreamEnabled && activeAnswerIndex !== null) {
+            const currentAnswer = timelineEntries[activeAnswerIndex]?.text || "";
+            void streamContentToCard(currentAnswer);
+        }
+
+        // Always update blockList via instances API (throttled)
+        if (blocks.length === 0) {
             clearPendingRender();
             return;
         }
@@ -221,6 +283,10 @@ export function createCardDraftController(params: {
     const flushBoundaryFrame = async () => {
         if (stopped || failed) {
             return;
+        }
+        // Clear streaming content before committing blockList at boundary
+        if (hasStreamingContent) {
+            await clearStreamingContentFromCard();
         }
         await loop.flush();
         await loop.waitForInFlight();
@@ -252,14 +318,15 @@ export function createCardDraftController(params: {
         sendOrEditStreamMessage: async (content: string) => {
             inFlightContent = content;
             try {
-                await streamAICard(params.card, content, false, params.log);
+                // Use instances API for blockList (not streaming API)
+                await updateAICardBlockList(params.card, content, params.log);
                 lastSentContent = content;
                 lastQueuedContent = "";
                 lastAnswerContent = getFinalAnswerContent();
             } catch (err: unknown) {
                 failed = true;
                 const message = err instanceof Error ? err.message : String(err);
-                params.log?.warn?.(`[DingTalk][AICard] Stream failed: ${message}`);
+                params.log?.warn?.(`[DingTalk][AICard] BlockList update failed: ${message}`);
             } finally {
                 if (inFlightContent === content) {
                     inFlightContent = "";
@@ -392,12 +459,18 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
-    const notifyNewAssistantTurn = async () => {
+    const notifyNewAssistantTurn = async (options: {
+        discardActiveAnswer?: boolean;
+    } = {}) => {
         if (stopped || failed) {
             return;
         }
         if (activeAnswerIndex !== null) {
-            sealCurrentAnswer();
+            if (options.discardActiveAnswer) {
+                discardCurrentAnswer();
+            } else {
+                sealCurrentAnswer();
+            }
             await beginBoundaryFlush();
             return;
         }
@@ -407,6 +480,23 @@ export function createCardDraftController(params: {
         }
     };
 
+    const appendImageBlock = async (mediaId: string) => {
+        await waitForPendingBoundary();
+        if (stopped || failed) {
+            return;
+        }
+        if (!mediaId.trim()) {
+            return;
+        }
+        if (timelineEntries.length > 0) {
+            await flushBoundaryFrame();
+        }
+        sealLiveThinking();
+        sealCurrentAnswer();
+        timelineEntries.push({ kind: "image", text: "", mediaId });
+        queueRender();
+    };
+
     return {
         updateAnswer,
         updateReasoning,
@@ -414,7 +504,9 @@ export function createCardDraftController(params: {
         appendThinkingBlock,
         updateTool,
         appendTool: updateTool,
+        appendImageBlock,
         appendToolBeforeCurrentAnswer,
+        discardCurrentAnswer,
         notifyNewAssistantTurn,
         startAssistantTurn: notifyNewAssistantTurn,
         sealActiveThinking: async () => {
@@ -438,6 +530,24 @@ export function createCardDraftController(params: {
         getLastContent: () => lastSentContent,
         getLastAnswerContent: () => lastAnswerContent,
         getFinalAnswerContent,
-        getRenderedContent: renderTimeline,
+        getRenderedBlocks: (options?: { fallbackAnswer?: string; overrideAnswer?: string }) => {
+            const blocks = renderTimelineAsBlocks(options);
+            if (blocks.length === 0) {
+                return "";
+            }
+            return JSON.stringify(blocks);
+        },
+        getRenderedContent: (options?: { fallbackAnswer?: string; overrideAnswer?: string; compactProcessAnswerSpacing?: boolean }) => {
+            const blocks = renderTimelineAsBlocks(options);
+            // Extract markdown from answer blocks (type: 0) and join with double newlines
+            const answerTexts = blocks
+                .filter((block) => block.type === 0 && "markdown" in block && block.markdown)
+                .map((block) => ("markdown" in block ? block.markdown : ""));
+            return answerTexts.join("\n\n");
+        },
+
+        streamContent: realTimeStreamEnabled ? streamContentToCard : undefined,
+        clearStreamingContent: realTimeStreamEnabled ? clearStreamingContentFromCard : undefined,
+        isRealTimeStreamEnabled: () => realTimeStreamEnabled,
     };
 }
