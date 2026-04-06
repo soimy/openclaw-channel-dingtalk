@@ -18,7 +18,8 @@ import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDing
 
 /**
  * Build a session key for a specific agent using the runtime API.
- * Falls back to framework's resolveAgentRoute if buildAgentSessionKey is unavailable.
+ * On supported host versions, sub-agent routing must use the shared helper
+ * instead of synthesizing plugin-local fallback keys.
  */
 export function buildAgentSessionKey(params: {
   rt: ReturnType<typeof getDingTalkRuntime>;
@@ -30,31 +31,21 @@ export function buildAgentSessionKey(params: {
 }): string {
   const { rt, cfg, accountId, agentId, peerKind, peerId } = params;
   const routing = rt.channel.routing as Record<string, unknown>;
-  if (typeof routing.buildAgentSessionKey === "function") {
-    return (
-      (routing.buildAgentSessionKey as (p: unknown) => string)({
-        agentId,
-        channel: "dingtalk",
-        accountId,
-        peer: { kind: peerKind, id: peerId },
-        dmScope: cfg.session?.dmScope,
-        identityLinks: cfg.session?.identityLinks,
-      })
-    ).toLowerCase();
+  if (typeof routing.buildAgentSessionKey !== "function") {
+    throw new Error(
+      "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.",
+    );
   }
-  // Fallback: derive a session key with agentId suffix to ensure isolation.
-  // resolveAgentRoute routes to the default agent, so we append the target
-  // agentId to prevent session key collisions between sub-agents.
-  // @migration-note: When SDK exposes buildAgentSessionKey in type definitions,
-  // sessions created via this fallback path will become orphaned. Remove this
-  // fallback and the typeof check once the SDK is updated.
-  const fallbackRoute = rt.channel.routing.resolveAgentRoute({
-    cfg,
-    channel: "dingtalk",
-    accountId,
-    peer: { kind: peerKind, id: peerId },
-  });
-  return `${fallbackRoute.sessionKey}:subagent:${agentId}`;
+  return (
+    (routing.buildAgentSessionKey as (p: unknown) => string)({
+      agentId,
+      channel: "dingtalk",
+      accountId,
+      peer: { kind: peerKind, id: peerId },
+      dmScope: cfg.session?.dmScope,
+      identityLinks: cfg.session?.identityLinks,
+    })
+  ).toLowerCase();
 }
 
 /**

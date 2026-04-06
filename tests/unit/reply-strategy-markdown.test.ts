@@ -228,7 +228,9 @@ describe("reply-strategy-markdown", () => {
 
         await strategy.deliver({ text: undefined, mediaUrls: ["/tmp/img.png"], kind: "block" });
 
-        expect(deliverMedia).toHaveBeenCalledWith(["/tmp/img.png"]);
+        expect(deliverMedia).toHaveBeenCalledWith(["/tmp/img.png"], {
+            audioAsVoice: undefined,
+        });
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 

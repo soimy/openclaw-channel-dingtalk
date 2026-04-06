@@ -122,6 +122,32 @@ describe('dingtalkPlugin.actions.send', () => {
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 
+    it('forces voice mediaType when audioAsVoice=true with media input', async () => {
+        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'voice_2', data: { messageId: 'voice_2' } });
+
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                media: '/tmp/audio.mp3',
+                audioAsVoice: true,
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            '/tmp/audio.mp3',
+            'voice',
+            expect.objectContaining({ accountId: 'default' })
+        );
+        expect(sendMessageMock).not.toHaveBeenCalled();
+    });
+
     it('describes message tool with send action and card capability when card mode is enabled', () => {
         expect(
             dingtalkPlugin.actions?.describeMessageTool?.({

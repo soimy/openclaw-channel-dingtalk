@@ -305,6 +305,31 @@ type ReplyChunkInfo = {
 const INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS = 15_000;
 const DINGTALK_API_HOST = "api.dingtalk.com";
 
+function readBooleanLikeValue(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Download DingTalk media file via runtime media service (sandbox-compatible).
  * Files are stored in the global media inbound directory.
@@ -1404,7 +1429,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   }
 
   // ---- Shared media delivery helper ----
-  async function deliverMediaAttachments(urls: string[]) {
+  function extractSharedAudioAsVoice(payload: ReplyStreamPayload): boolean {
+    const richPayload = payload as ReplyStreamPayload & {
+      audioAsVoice?: unknown;
+      asVoice?: unknown;
+    };
+    const sharedValue = readBooleanLikeValue(richPayload.audioAsVoice);
+    if (sharedValue !== undefined) {
+      return sharedValue;
+    }
+    return readBooleanLikeValue(richPayload.asVoice) === true;
+  }
+
+  async function deliverMediaAttachments(urls: string[], options?: { audioAsVoice?: boolean }) {
     for (const rawMediaUrl of urls) {
       const preparedMedia = await prepareMediaInput(
         rawMediaUrl,
@@ -1415,7 +1452,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         const actualMediaPath = preparedMedia.path;
         const outMediaType = resolveOutboundMediaType({
           mediaPath: actualMediaPath,
-          asVoice: false,
+          asVoice: options?.audioAsVoice === true,
         });
         if (sessionWebhook) {
           const sendResult = await sendMessage(dingtalkConfig, to, "", {
@@ -1576,6 +1613,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               await strategy.deliver({
                 text: payload.text,
                 mediaUrls,
+                audioAsVoice: extractSharedAudioAsVoice(payload),
                 kind: (info?.kind as DeliverPayload["kind"]) || "block",
                 isReasoning: richPayload.isReasoning === true,
               });

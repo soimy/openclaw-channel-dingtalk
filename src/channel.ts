@@ -213,6 +213,14 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
   return undefined;
 }
 
+function readSharedAudioAsVoiceParam(params: Record<string, unknown>): boolean {
+  const sharedValue = readBooleanLikeParam(params, "audioAsVoice");
+  if (sharedValue !== undefined) {
+    return sharedValue;
+  }
+  return readBooleanLikeParam(params, "asVoice") === true;
+}
+
 function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   actions: readonly ["send"] | readonly [];
   capabilities: readonly ["cards"] | readonly [];
@@ -261,7 +269,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       message = caption;
     }
 
-    const asVoice = readBooleanLikeParam(params, "asVoice") === true;
+    const asVoice = readSharedAudioAsVoiceParam(params);
     const requestedMediaType = readStringParam(params, "mediaType");
 
     const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
@@ -507,6 +515,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       filePath,
       mediaUrl,
       mediaType: providedMediaType,
+      audioAsVoice,
       asVoice,
       accountId,
       mediaLocalRoots,
@@ -570,7 +579,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         const mediaType = resolveOutboundMediaType({
           mediaType: typeof providedMediaType === "string" ? providedMediaType : undefined,
           mediaPath: actualMediaPath,
-          asVoice: asVoice === true,
+          asVoice: readSharedAudioAsVoiceParam({ audioAsVoice, asVoice }),
         });
         let result;
         try {

@@ -269,7 +269,7 @@ export function createCardReplyStrategy(
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
         if (payload.mediaUrls.length > 0) {
-          await ctx.deliverMedia(payload.mediaUrls);
+          await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
         }
         const rawFinalText = typeof textToSend === "string" ? textToSend : "";
         if (rawFinalText) {
@@ -324,7 +324,7 @@ export function createCardReplyStrategy(
 
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls);
+        await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
       }
     },
 

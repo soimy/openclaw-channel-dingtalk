@@ -119,7 +119,7 @@ export function createMarkdownReplyStrategy(
 
     async deliver(payload: DeliverPayload): Promise<void> {
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls);
+        await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
         sentVisibleContent = true;
       }
 

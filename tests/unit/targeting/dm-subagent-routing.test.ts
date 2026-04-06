@@ -9,7 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveAtAgents } from "../../../src/targeting/agent-name-matcher";
-import { resolveSubAgentRoute } from "../../../src/targeting/agent-routing";
+import { buildAgentSessionKey, resolveSubAgentRoute } from "../../../src/targeting/agent-routing";
 import { extractMessageContent } from "../../../src/message-utils";
 import { sendBySession } from "../../../src/send-service";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
@@ -258,5 +258,41 @@ describe("resolveSubAgentRoute in DM", () => {
 
     expect(result).not.toBeNull();
     expect(result?.matchedAgents[0]?.agentId).toBe("agent-alpha");
+  });
+});
+
+describe("buildAgentSessionKey", () => {
+  it("uses the runtime helper and preserves peer identity for sub-agent sessions", () => {
+    const buildAgentSessionKeyMock = vi.fn().mockReturnValue("Group_1:Agent-Alpha");
+
+    const sessionKey = buildAgentSessionKey({
+      rt: {
+        channel: {
+          routing: {
+            buildAgentSessionKey: buildAgentSessionKeyMock,
+          },
+        },
+      } as any,
+      cfg: {
+        session: {
+          dmScope: "shared",
+          identityLinks: true,
+        },
+      } as any,
+      accountId: "main",
+      agentId: "agent-alpha",
+      peerKind: "group",
+      peerId: "cid_group_1",
+    });
+
+    expect(buildAgentSessionKeyMock).toHaveBeenCalledWith({
+      agentId: "agent-alpha",
+      channel: "dingtalk",
+      accountId: "main",
+      peer: { kind: "group", id: "cid_group_1" },
+      dmScope: "shared",
+      identityLinks: true,
+    });
+    expect(sessionKey).toBe("group_1:agent-alpha");
   });
 });

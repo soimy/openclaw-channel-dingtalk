@@ -418,7 +418,9 @@ describe("reply-strategy-card", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, { deliverMedia }));
             await strategy.deliver({ text: "text", mediaUrls: ["/img.png"], kind: "final" });
-            expect(deliverMedia).toHaveBeenCalledWith(["/img.png"]);
+            expect(deliverMedia).toHaveBeenCalledWith(["/img.png"], {
+                audioAsVoice: undefined,
+            });
         });
 
         it("deliver(tool) appends to the controller instead of sendMessage append mode", async () => {
@@ -470,7 +472,9 @@ describe("reply-strategy-card", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, { deliverMedia }));
             await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.pdf"], kind: "block" });
-            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/file.pdf"]);
+            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/file.pdf"], {
+                audioAsVoice: undefined,
+            });
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 

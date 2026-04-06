@@ -3746,6 +3746,62 @@ describe("inbound-handler", () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it("deliver callback preserves audioAsVoice for runtime media payloads", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          { mediaUrl: "https://cdn.example.com/clip.mp3", audioAsVoice: true },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/clip.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_media_voice",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/clip.mp3",
+      asVoice: true,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: "/tmp/prepared/clip.mp3",
+        mediaType: "voice",
+      }),
+    );
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it("deliver callback sends multiple media payloads sequentially", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
@@ -7088,16 +7144,17 @@ describe("inbound-handler", () => {
       expect(webhookCalls[1].responsePrefix).toContain('**Agent2**');
     });
 
-    it('falls back to resolveAgentRoute with agentId suffix when buildAgentSessionKey is unavailable', async () => {
+    it('logs a helper-missing error instead of synthesizing a fallback sub-agent key', async () => {
       const runtime = buildRuntime();
-      // Remove buildAgentSessionKey to trigger fallback path
+      runtime.channel.routing.resolveAgentRoute.mockClear();
       delete (runtime.channel.routing as any).buildAgentSessionKey;
-      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      shared.getRuntimeMock.mockReturnValue(runtime);
       shared.extractMessageContentMock.mockReturnValue({
         text: '@expert1 help',
         messageType: 'text',
         atMentions: [{ name: 'expert1' }],
       });
+      const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
       await handleDingTalkMessage({
         cfg: {
@@ -7105,7 +7162,7 @@ describe("inbound-handler", () => {
         },
         accountId: 'main',
         sessionWebhook: 'https://session.webhook',
-        log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
+        log: log as any,
         dingtalkConfig: { dmPolicy: 'open', messageType: 'markdown' } as any,
         data: {
           msgId: 'fb1', msgtype: 'text', text: { content: '@expert1 help' },
@@ -7115,8 +7172,8 @@ describe("inbound-handler", () => {
         },
       } as any);
 
-      // resolveAgentRoute should be called (fallback path)
-      expect(runtime.channel.routing.resolveAgentRoute).toHaveBeenCalled();
+      expect(runtime.channel.routing.resolveAgentRoute).toHaveBeenCalledTimes(1);
+      expect(log.error).toHaveBeenCalledWith(expect.stringContaining('buildAgentSessionKey'));
     });
   });
 
