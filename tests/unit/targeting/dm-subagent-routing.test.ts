@@ -295,4 +295,23 @@ describe("buildAgentSessionKey", () => {
     });
     expect(sessionKey).toBe("group_1:agent-alpha");
   });
+
+  it("throws when the host runtime does not expose buildAgentSessionKey", () => {
+    expect(() =>
+      buildAgentSessionKey({
+        rt: {
+          channel: {
+            routing: {},
+          },
+        } as any,
+        cfg: {} as any,
+        accountId: "main",
+        agentId: "agent-alpha",
+        peerKind: "group",
+        peerId: "cid_group_1",
+      }),
+    ).toThrow(
+      "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.",
+    );
+  });
 });
