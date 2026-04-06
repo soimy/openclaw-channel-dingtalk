@@ -87,6 +87,7 @@ vi.mock("../../src/media-utils", async () => {
 import { handleDingTalkMessage, resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
 import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 import { clearTargetDirectoryStateCache } from "../../src/targeting/target-directory-store";
+import * as messageContextStore from "../../src/message-context-store";
 
 function buildRuntime() {
   return {
@@ -104,7 +105,7 @@ function buildRuntime() {
         }),
       },
       session: {
-        resolveStorePath: vi.fn().mockReturnValue("/tmp/store.json"),
+        resolveStorePath: vi.fn().mockReturnValue("/tmp/inbound-handler-commands-test/store.json"),
         readSessionUpdatedAt: vi.fn().mockReturnValue(null),
         recordInboundSession: vi.fn().mockResolvedValue(undefined),
       },
@@ -131,7 +132,7 @@ describe("inbound-handler slash commands", () => {
     resetProactivePermissionHintStateForTest();
     clearCardRunRegistryForTest();
     try {
-      fs.rmSync(path.join(path.dirname("/tmp/store.json"), "dingtalk-state"), {
+      fs.rmSync(path.join(path.dirname("/tmp/inbound-handler-commands-test/store.json"), "dingtalk-state"), {
         recursive: true,
         force: true,
       });
@@ -156,6 +157,8 @@ describe("inbound-handler slash commands", () => {
     shared.isAbortRequestTextMock.mockReset();
     shared.isAbortRequestTextMock.mockReturnValue(false);
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
+    shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
+    messageContextStore.clearMessageContextCacheForTest();
   });
 
   describe("whoami command", () => {

@@ -191,7 +191,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_reaction",
           msgtype: "text",
@@ -203,7 +203,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
@@ -262,14 +262,14 @@ describe("inbound-handler ack reaction", () => {
         cfg: {},
         accountId: "main",
         sessionWebhook: "https://session.webhook",
-        log: { debug: debugLog, warn: vi.fn(), error: vi.fn(), info: vi.fn() } as unknown as Parameters<typeof handleDingTalkMessage>[0]["log"],
+        log: { debug: debugLog, warn: vi.fn(), error: vi.fn(), info: vi.fn() } as any,
         dingtalkConfig: {
           clientId: "ding_client",
           clientSecret: "secret",
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_cleanup_timeout",
           msgtype: "text",
@@ -281,7 +281,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
 
       await vi.advanceTimersByTimeAsync(1700);
       await handlePromise;
@@ -315,7 +315,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_ackreaction_native",
           msgtype: "text",
@@ -327,7 +327,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
@@ -363,7 +363,7 @@ describe("inbound-handler ack reaction", () => {
           clientSecret: "secret",
           dmPolicy: "open",
           messageType: "markdown",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_global_ackreaction",
           msgtype: "text",
@@ -375,7 +375,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
@@ -415,7 +415,7 @@ describe("inbound-handler ack reaction", () => {
           clientSecret: "secret",
           dmPolicy: "open",
           messageType: "markdown",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_identity_ackreaction",
           msgtype: "text",
@@ -427,7 +427,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenCalledWith(
@@ -457,7 +457,7 @@ describe("inbound-handler ack reaction", () => {
           clientSecret: "secret",
           dmPolicy: "open",
           messageType: "markdown",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_default_ackreaction",
           msgtype: "text",
@@ -469,7 +469,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenCalledWith(
@@ -505,7 +505,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "emoji",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_emoji_ackreaction",
           msgtype: "text",
@@ -517,7 +517,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
@@ -554,7 +554,7 @@ describe("inbound-handler ack reaction", () => {
   it("uses kaomoji for initial reaction and switches on tool events", async () => {
     vi.useFakeTimers();
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    const runtime = buildRuntime();
+    const runtime = buildRuntime() as any;
     let agentEventListener: ((event: unknown) => void) | undefined;
     runtime.events = {
       onAgentEvent: vi.fn((listener: (event: unknown) => void) => {
@@ -563,7 +563,7 @@ describe("inbound-handler ack reaction", () => {
           agentEventListener = undefined;
         };
       }),
-    } as unknown as typeof runtime.events;
+    };
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
       .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
@@ -606,7 +606,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "kaomoji",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_kaomoji_ackreaction",
           msgtype: "text",
@@ -618,7 +618,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
       await handlePromise;
 
@@ -680,7 +680,7 @@ describe("inbound-handler ack reaction", () => {
   it("keeps ackReaction tool progress independent from visible tool blocks", async () => {
     vi.useFakeTimers();
 
-    const runtime = buildRuntime();
+    const runtime = buildRuntime() as any;
     let agentEventListener: ((event: unknown) => void) | undefined;
     runtime.events = {
       onAgentEvent: vi.fn((listener: (event: unknown) => void) => {
@@ -689,7 +689,7 @@ describe("inbound-handler ack reaction", () => {
           agentEventListener = undefined;
         };
       }),
-    } as unknown as typeof runtime.events;
+    };
 
     const card = { cardInstanceId: "card_tool_hidden", state: "1", lastUpdated: Date.now() } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
     shared.createAICardMock.mockResolvedValueOnce(card);
@@ -735,7 +735,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "card",
           ackReaction: "emoji",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_hidden_tool_ackreaction",
           msgtype: "text",
@@ -747,7 +747,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
       await handlePromise;
 
@@ -756,7 +756,7 @@ describe("inbound-handler ack reaction", () => {
       expect(finalizeContent).toContain("final answer only");
       expect(finalizeContent).not.toContain("🛠 工具");
 
-      const reactionNames = mockedAxiosPost.mock.calls.map((call: unknown[]) => (call as unknown[])[1]?.emotionName);
+      const reactionNames = mockedAxiosPost.mock.calls.map((call: any[]) => call[1]?.emotionName);
       expect(reactionNames).toContain("🤔思考中");
       expect(reactionNames).toContain("🛠️");
     } finally {
@@ -778,7 +778,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_reaction_prefer",
           msgtype: "text",
@@ -790,7 +790,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
@@ -819,7 +819,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "card",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_card_reaction",
           msgtype: "text",
@@ -831,7 +831,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenNthCalledWith(
@@ -867,7 +867,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "card",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_card_fallback_reaction",
           msgtype: "text",
@@ -879,7 +879,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
       await vi.advanceTimersByTimeAsync(1200);
 
       expect(mockedAxiosPost).toHaveBeenCalledTimes(2);
@@ -905,7 +905,7 @@ describe("inbound-handler ack reaction", () => {
           dmPolicy: "open",
           messageType: "markdown",
           ackReaction: "🤔思考中",
-        } as unknown as DingTalkConfig,
+        } as any,
         data: {
           msgId: "m5_reaction_fail",
           msgtype: "text",
@@ -917,7 +917,7 @@ describe("inbound-handler ack reaction", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as Parameters<typeof handleDingTalkMessage>[0]["data"]);
+      } as any);
 
       await vi.runAllTimersAsync();
       await expect(handlePromise).resolves.toBeUndefined();

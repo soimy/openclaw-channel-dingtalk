@@ -1296,6 +1296,7 @@ describe("inbound-handler quote handling", () => {
     it("uses cached filename when stored attachmentFileName exists (cached resolution)", async () => {
       const runtime = buildRuntime();
       shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      messageContextStore.clearMessageContextCacheForTest();
       // Set up cached doc card with stored filename
       messageContextStore.upsertInboundMessageContext({
         storePath: "/tmp/store.json",
@@ -1312,7 +1313,6 @@ describe("inbound-handler quote handling", () => {
         ttlMs: messageContextStore.DEFAULT_MEDIA_CONTEXT_TTL_MS,
         topic: null,
       });
-      messageContextStore.clearMessageContextCacheForTest();
       shared.extractMessageContentMock.mockReturnValueOnce({
         text: "继续看这个文档",
         messageType: "text",
