@@ -7144,11 +7144,12 @@ describe("inbound-handler", () => {
       expect(webhookCalls[1].responsePrefix).toContain('**Agent2**');
     });
 
-    it('logs a helper-missing error instead of synthesizing a fallback sub-agent key', async () => {
+    it('surfaces a helper-missing warning to the user instead of synthesizing a fallback sub-agent key', async () => {
       const runtime = buildRuntime();
       runtime.channel.routing.resolveAgentRoute.mockClear();
       delete (runtime.channel.routing as any).buildAgentSessionKey;
       shared.getRuntimeMock.mockReturnValue(runtime);
+      shared.sendBySessionMock.mockReset();
       shared.extractMessageContentMock.mockReturnValue({
         text: '@expert1 help',
         messageType: 'text',
@@ -7174,6 +7175,15 @@ describe("inbound-handler", () => {
 
       expect(runtime.channel.routing.resolveAgentRoute).toHaveBeenCalledTimes(1);
       expect(log.error).toHaveBeenCalledWith(expect.stringContaining('buildAgentSessionKey'));
+      expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        'https://session.webhook',
+        expect.stringContaining('当前宿主版本不支持'),
+        expect.objectContaining({
+          atUserId: 'u1',
+          log,
+        }),
+      );
     });
   });
 

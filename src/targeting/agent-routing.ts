@@ -177,9 +177,26 @@ export async function dispatchSubAgents(params: {
         preDownloadedMedia,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       log?.error?.(
-        `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${error instanceof Error ? error.message : String(error)}`,
+        `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`,
       );
+      if (message.includes("buildAgentSessionKey")) {
+        try {
+          const isGroup = data.conversationType !== "1";
+          const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };
+          await sendBySession(
+            dingtalkConfig,
+            sessionWebhook,
+            "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
+            sendOptions,
+          );
+        } catch (notifyError: any) {
+          log?.debug?.(
+            `[DingTalk] Failed to send sub-agent helper-missing notice: ${notifyError?.message || String(notifyError)}`,
+          );
+        }
+      }
     }
   }
 }
