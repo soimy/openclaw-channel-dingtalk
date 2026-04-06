@@ -22,7 +22,7 @@ vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 
-vi.mock('openclaw/plugin-sdk/telegram-core', () => ({
+vi.mock('openclaw/plugin-sdk/channel-actions', () => ({
     jsonResult: vi.fn((payload: unknown) => payload),
     readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
         const raw = params[key];
