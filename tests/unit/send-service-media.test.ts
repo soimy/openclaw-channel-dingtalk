@@ -175,7 +175,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_1', buffer: Buffer.from('data') });
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_1',
+            buffer: Buffer.from('data'),
+            uploadedPath: '/tmp/a.amr',
+        });
         mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
@@ -190,6 +194,30 @@ describe('send-service media branches', () => {
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
         expect(result.ok).toBe(true);
+    });
+
+    it('sendProactiveMedia uses transcoded voice path for duration probing', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_transcoded',
+            buffer: Buffer.from('ogg-data'),
+            uploadedPath: '/tmp/dingtalk_voice_123.ogg',
+        });
+        mockedGetVoiceDurationMs.mockResolvedValueOnce(7700);
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_transcoded' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'user_123',
+            '/tmp/original.wav',
+            'voice'
+        );
+
+        expect(mockedGetVoiceDurationMs).toHaveBeenCalledWith(
+            '/tmp/dingtalk_voice_123.ogg',
+            'voice',
+            undefined,
+            { preReadBuffer: Buffer.from('ogg-data') },
+        );
     });
 
     it('delegates proactive media journaling when storePath is provided', async () => {
