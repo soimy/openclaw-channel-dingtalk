@@ -14,6 +14,7 @@ import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";
 import { sendBySession } from "../send-service";
+import { getErrorMessage } from "../utils";
 import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, Logger, MessageContent } from "../types";
 
 /**
@@ -122,8 +123,8 @@ export async function resolveSubAgentRoute(params: {
       await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
         ...sendOptions,
       });
-    } catch (err: any) {
-      log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);
+    } catch (err: unknown) {
+      log?.debug?.(`[DingTalk] Failed to send fallback notice: ${getErrorMessage(err)}`);
     }
   }
 
@@ -191,9 +192,9 @@ export async function dispatchSubAgents(params: {
             "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
             sendOptions,
           );
-        } catch (notifyError: any) {
+        } catch (notifyError: unknown) {
           log?.debug?.(
-            `[DingTalk] Failed to send sub-agent helper-missing notice: ${notifyError?.message || String(notifyError)}`,
+            `[DingTalk] Failed to send sub-agent helper-missing notice: ${getErrorMessage(notifyError)}`,
           );
         }
       }
