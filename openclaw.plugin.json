@@ -138,6 +138,15 @@
             }
           },
           "cardRealTimeStream": { "type": "boolean", "default": false },
+          "cardStreamingMode": {
+            "type": "string",
+            "enum": ["off", "answer", "all"]
+          },
+          "cardStreamInterval": {
+            "type": "integer",
+            "minimum": 200,
+            "default": 1000
+          },
           "aicardDegradeMs": {
             "type": "integer",
             "minimum": 60000,
@@ -281,6 +290,15 @@
                   }
                 },
                 "cardRealTimeStream": { "type": "boolean", "default": false },
+                "cardStreamingMode": {
+                  "type": "string",
+                  "enum": ["off", "answer", "all"]
+                },
+                "cardStreamInterval": {
+                  "type": "integer",
+                  "minimum": 200,
+                  "default": 1000
+                },
                 "aicardDegradeMs": {
                   "type": "integer",
                   "minimum": 60000,

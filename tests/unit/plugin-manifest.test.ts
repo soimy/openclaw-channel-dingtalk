@@ -58,6 +58,41 @@ describe("plugin manifest channel metadata", () => {
         ).toBeDefined();
     });
 
+    it("publishes card streaming fields in both top-level and account-level DingTalk schema", () => {
+        const manifest = readJsonFile<{
+            channelConfigs?: Record<
+                string,
+                {
+                    schema?: {
+                        properties?: Record<string, any>;
+                    };
+                }
+            >;
+        }>("openclaw.plugin.json");
+
+        const topLevelProperties = manifest.channelConfigs?.dingtalk?.schema?.properties;
+        const accountLevelProperties = topLevelProperties?.accounts?.additionalProperties?.properties;
+
+        expect(topLevelProperties?.cardStreamingMode).toEqual({
+            type: "string",
+            enum: ["off", "answer", "all"],
+        });
+        expect(topLevelProperties?.cardStreamInterval).toEqual({
+            type: "integer",
+            minimum: 200,
+            default: 1000,
+        });
+        expect(accountLevelProperties?.cardStreamingMode).toEqual({
+            type: "string",
+            enum: ["off", "answer", "all"],
+        });
+        expect(accountLevelProperties?.cardStreamInterval).toEqual({
+            type: "integer",
+            minimum: 200,
+            default: 1000,
+        });
+    });
+
     it("raises the minimum OpenClaw version to the first manifest channelConfigs release", () => {
         const packageJson = readJsonFile<{
             peerDependencies?: Record<string, string>;
