@@ -84,7 +84,8 @@ vi.mock("../../src/media-utils", async () => {
   };
 });
 
-import { handleDingTalkMessage } from "../../src/inbound-handler";
+import { handleDingTalkMessage, resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
+import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 import { clearTargetDirectoryStateCache } from "../../src/targeting/target-directory-store";
 
 function buildRuntime() {
@@ -127,10 +128,16 @@ function buildRuntime() {
 describe("inbound-handler slash commands", () => {
   beforeEach(() => {
     clearTargetDirectoryStateCache();
-    fs.rmSync(path.join(path.dirname("/tmp/store.json"), "dingtalk-state"), {
-      recursive: true,
-      force: true,
-    });
+    resetProactivePermissionHintStateForTest();
+    clearCardRunRegistryForTest();
+    try {
+      fs.rmSync(path.join(path.dirname("/tmp/store.json"), "dingtalk-state"), {
+        recursive: true,
+        force: true,
+      });
+    } catch {
+      // Ignore ENOTEMPTY or other errors
+    }
     shared.sendBySessionMock.mockReset();
     shared.sendMessageMock.mockReset();
     shared.sendMessageMock.mockImplementation(

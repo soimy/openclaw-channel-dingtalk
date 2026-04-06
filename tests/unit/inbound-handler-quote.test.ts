@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DingTalkConfig } from "../../src/config";
+import type { DingTalkConfig } from "../../src/types";
 
 const shared = vi.hoisted(() => ({
   getRuntimeMock: vi.fn(),
