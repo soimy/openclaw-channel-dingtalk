@@ -229,4 +229,24 @@ describe("inbound-handler /btw bypass", () => {
     await invokeWithFakeInbound("/btw foo");
     expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
   });
+
+  it("dispatches via dispatchReplyWithBufferedBlockDispatcher with a custom deliver", async () => {
+    const rt = buildRuntime();
+    const dispatchSpy = vi.fn(async ({ dispatcherOptions }: any) => {
+      // Simulate openclaw streaming back a payload
+      await dispatcherOptions.deliver({ text: "side answer" });
+      return { queuedFinal: "queued" };
+    });
+    rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher = dispatchSpy;
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await invokeWithFakeInbound("/btw foo", { senderNick: "王滨" });
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
+    expect(shared.deliverBtwReplyMock).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(shared.deliverBtwReplyMock).mock.calls[0][0];
+    expect(call.senderName).toBe("王滨");
+    expect(call.rawQuestion).toBe("/btw foo");
+    expect(call.replyText).toBe("side answer");
+  });
 });
