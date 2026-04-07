@@ -249,4 +249,14 @@ describe("inbound-handler /btw bypass", () => {
     expect(call.rawQuestion).toBe("/btw foo");
     expect(call.replyText).toBe("side answer");
   });
+
+  it("falls through to normal path when isBtwRequestText is undefined (old openclaw)", async () => {
+    // Override the mock for this single test: treat isBtwRequestText as undefined
+    // by making mockImplementation throw (simulating missing export)
+    shared.isBtwRequestTextMock.mockImplementation(undefined as unknown as () => boolean);
+
+    await invokeWithFakeInbound("/btw foo");
+    expect(shared.acquireSessionLockMock).toHaveBeenCalledTimes(1);
+    expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
+  });
 });
