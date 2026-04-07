@@ -17,6 +17,13 @@ import { sendBySession } from "../send-service";
 import { getErrorMessage } from "../utils";
 import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, Logger, MessageContent } from "../types";
 
+export class HostRoutingHelperUnavailableError extends Error {
+  constructor(message = "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.") {
+    super(message);
+    this.name = "HostRoutingHelperUnavailableError";
+  }
+}
+
 /**
  * Build a session key for a specific agent using the runtime API.
  * On supported host versions, sub-agent routing must use the shared helper
@@ -33,9 +40,7 @@ export function buildAgentSessionKey(params: {
   const { rt, cfg, accountId, agentId, peerKind, peerId } = params;
   const routing = rt.channel.routing as Record<string, unknown>;
   if (typeof routing.buildAgentSessionKey !== "function") {
-    throw new Error(
-      "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.",
-    );
+    throw new HostRoutingHelperUnavailableError();
   }
   return (
     (routing.buildAgentSessionKey as (p: unknown) => string)({
@@ -178,11 +183,11 @@ export async function dispatchSubAgents(params: {
         preDownloadedMedia,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       log?.error?.(
         `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`,
       );
-      if (message.includes("buildAgentSessionKey")) {
+      if (error instanceof HostRoutingHelperUnavailableError) {
         try {
           const isGroup = data.conversationType !== "1";
           const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };

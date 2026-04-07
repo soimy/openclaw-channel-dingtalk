@@ -9,7 +9,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveAtAgents } from "../../../src/targeting/agent-name-matcher";
-import { buildAgentSessionKey, resolveSubAgentRoute } from "../../../src/targeting/agent-routing";
+import {
+  buildAgentSessionKey,
+  dispatchSubAgents,
+  HostRoutingHelperUnavailableError,
+  resolveSubAgentRoute,
+} from "../../../src/targeting/agent-routing";
 import { extractMessageContent } from "../../../src/message-utils";
 import { sendBySession } from "../../../src/send-service";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
@@ -312,6 +317,53 @@ describe("buildAgentSessionKey", () => {
       }),
     ).toThrow(
       "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.",
+    );
+  });
+});
+
+describe("dispatchSubAgents", () => {
+  const mockedSendBySession = vi.mocked(sendBySession);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("surfaces helper-missing warnings from a typed routing error instead of message sniffing", async () => {
+    await dispatchSubAgents({
+      matchedAgents: [{ agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" }],
+      cfg,
+      accountId: "main",
+      data: {
+        msgtype: "text",
+        text: { content: "@Alpha助手 你好" },
+        conversationType: "2",
+        conversationId: "cid_group_1",
+        senderId: "user-001",
+        chatbotUserId: "bot-001",
+        msgId: "msg-001",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      extractedContent: {
+        text: "@Alpha助手 你好",
+        messageType: "text",
+      },
+      handleMessage: vi.fn().mockRejectedValue(
+        new HostRoutingHelperUnavailableError("host helper unavailable without mentioning the old symbol"),
+      ),
+      downloadMedia: vi.fn().mockResolvedValue(null),
+      log,
+    });
+
+    expect(mockedSendBySession).toHaveBeenCalledWith(
+      dingtalkConfig,
+      "https://session.webhook",
+      expect.stringContaining("当前宿主版本不支持"),
+      expect.objectContaining({
+        atUserId: "user-001",
+        log,
+      }),
     );
   });
 });

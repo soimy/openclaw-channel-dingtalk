@@ -224,6 +224,31 @@ export function stringifyUnknown(value: unknown): string {
   }
 }
 
+export function parseBooleanLike(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
 export function getErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;

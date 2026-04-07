@@ -68,6 +68,7 @@ import {
   formatDingTalkConnectionErrorLog,
   formatDingTalkErrorPayloadLog,
   getCurrentTimestamp,
+  parseBooleanLike,
   resolvePluginDebugLog,
 } from "./utils";
 
@@ -188,29 +189,7 @@ function logInboundCounters(log: any, accountId: string, reason: string): void {
 }
 
 function readBooleanLikeParam(params: Record<string, unknown>, key: string): boolean | undefined {
-  const value = params[key];
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "number") {
-    if (value === 1) {
-      return true;
-    }
-    if (value === 0) {
-      return false;
-    }
-    return undefined;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
-      return true;
-    }
-    if (["0", "false", "no", "n", "off"].includes(normalized)) {
-      return false;
-    }
-  }
-  return undefined;
+  return parseBooleanLike(params[key]);
 }
 
 function readSharedAudioAsVoiceParam(params: Record<string, unknown>): boolean {
