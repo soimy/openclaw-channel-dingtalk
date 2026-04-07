@@ -290,6 +290,7 @@ export async function downloadMedia(
   config: DingTalkConfig,
   downloadCode: string,
   log?: any,
+  originalFilename?: string,
 ): Promise<MediaFile | null> {
   const rt = getDingTalkRuntime();
   let downloadUrl: string | undefined;
@@ -363,9 +364,13 @@ export async function downloadMedia(
 
     const maxBytes =
       config.mediaMaxMb && config.mediaMaxMb > 0 ? config.mediaMaxMb * 1024 * 1024 : undefined;
-    const saved = maxBytes
-      ? await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound", maxBytes)
-      : await rt.channel.media.saveMediaBuffer(buffer, contentType, "inbound");
+    const saved = await rt.channel.media.saveMediaBuffer(
+      buffer,
+      contentType,
+      "inbound",
+      maxBytes,
+      originalFilename,
+    );
     log?.debug?.(`[DingTalk] Media saved: ${saved.path}`);
     return { path: saved.path, mimeType: saved.contentType ?? contentType };
   } catch (err: any) {
@@ -795,7 +800,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     mediaType = preDownloadedMedia.mediaType;
   } else if (content.mediaPath && robotCode) {
     // Download media only if not pre-downloaded
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
+    const media = await downloadMedia(
+      dingtalkConfig,
+      content.mediaPath,
+      log,
+      attachmentContextFileName,
+    );
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
@@ -853,6 +863,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           content.docFileId,
           unionId,
           log,
+          attachmentContextFileName,
         );
         if (docMedia) {
           mediaPath = docMedia.path;
@@ -899,13 +910,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         fileId?: string;
       };
     } | null,
+    originalFilename?: string,
   ): Promise<MediaFile | null> => {
     if (!record?.media) {
       return null;
     }
     let media: MediaFile | null = null;
     if (record.media.downloadCode) {
-      media = await downloadMedia(dingtalkConfig, record.media.downloadCode, log);
+      media = await downloadMedia(dingtalkConfig, record.media.downloadCode, log, originalFilename);
       if (media) {
         log?.debug?.(
           `[DingTalk][QuotedRef] Recovered quoted media from cached downloadCode ` +
@@ -922,6 +934,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           record.media.fileId,
           unionId,
           log,
+          originalFilename,
         );
         if (media) {
           log?.debug?.(
@@ -938,9 +951,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
   // Quoted picture: download via existing downloadMedia.
   if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
+    const quotedOriginalFilename = content.quoted.previewFileName;
     const media =
-      (await tryDownloadFromRecord(quotedRecord)) ||
-      (await downloadMedia(dingtalkConfig, content.quoted.mediaDownloadCode, log));
+      (await tryDownloadFromRecord(quotedRecord, quotedOriginalFilename)) ||
+      (await downloadMedia(
+        dingtalkConfig,
+        content.quoted.mediaDownloadCode,
+        log,
+        quotedOriginalFilename,
+      ));
     if (media) {
       if (!quotedRecord) {
         log?.debug?.(
@@ -965,7 +984,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
     // Step 0: Direct download via downloadCode from quoted payload (file/audio/video msgType).
     if (!fileResolved && content.quoted.fileDownloadCode && robotCode) {
-      const media = await downloadMedia(dingtalkConfig, content.quoted.fileDownloadCode, log);
+      const media = await downloadMedia(
+        dingtalkConfig,
+        content.quoted.fileDownloadCode,
+        log,
+        content.quoted.previewFileName,
+      );
       if (media) {
         mediaPath = media.path;
         mediaType = media.mimeType;
@@ -982,7 +1006,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
     // Step 1: Prefer quotedRef-backed record lookup, then msgId-based cache.
     if (!fileResolved) {
-      const cachedMedia = await tryDownloadFromRecord(quotedRecord);
+      const cachedMedia = await tryDownloadFromRecord(
+        quotedRecord,
+        quotedRecord?.attachmentFileName || content.quoted.previewFileName,
+      );
       if (cachedMedia) {
         mediaPath = cachedMedia.path;
         mediaType = cachedMedia.mimeType;
@@ -1056,7 +1083,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (!mediaPath && content.quoted?.isQuotedDocCard) {
     let docResolved = false;
 
-    const cachedDocMedia = await tryDownloadFromRecord(quotedRecord);
+    const cachedDocMedia = await tryDownloadFromRecord(
+      quotedRecord,
+      quotedRecord?.attachmentFileName || content.quoted?.previewFileName,
+    );
     if (cachedDocMedia) {
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
