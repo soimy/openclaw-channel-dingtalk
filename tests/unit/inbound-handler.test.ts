@@ -4145,6 +4145,101 @@ describe("inbound-handler", () => {
     );
   });
 
+  it("deliver callback normalizes plain final text newlines without trimming surrounding spaces", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          {
+            text: "  first line\r\nsecond line  ",
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_plain_text_crlf",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "  first line\nsecond line  ",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_plain_text_crlf",
+        },
+      }),
+    );
+  });
+
+  it("queuedFinal plain text also normalizes newlines without trimming surrounding spaces", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockResolvedValue({
+        queuedFinal: "  queued first\r\nqueued second  ",
+        counts: { final: 0 },
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as any,
+      data: {
+        msgId: "m_plain_text_queued_crlf",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "  queued first\nqueued second  ",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_plain_text_queued_crlf",
+        },
+      }),
+    );
+  });
+
   it("deliver callback parses inline media directives from text-only final payloads", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi

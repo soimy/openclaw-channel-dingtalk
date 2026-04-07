@@ -1543,6 +1543,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
 
     const cleanedText = contentLines.join("\n").trim();
+    const inlineTextWasTransformed = parsedInline.text !== normalizedText;
     if (mediaUrls.length === 0) {
       const standaloneMediaSource = extractStandaloneMediaSource(cleanedText);
       if (standaloneMediaSource) {
@@ -1555,7 +1556,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
 
     return {
-      text: mediaUrls.length > 0 || parsedInline.hasAudioTag ? cleanedText || undefined : text,
+      // Keep ordinary text formatting stable except for newline normalization.
+      // Once inline parsing actually strips directives/media lines, return the
+      // cleaned body text instead of the original raw payload.
+      text: mediaUrls.length > 0 || inlineTextWasTransformed ? cleanedText || undefined : normalizedText,
       mediaUrls,
       audioAsVoice: parsedInline.audioAsVoice,
     };
