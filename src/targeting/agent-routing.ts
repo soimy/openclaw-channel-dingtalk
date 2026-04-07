@@ -165,6 +165,7 @@ export async function dispatchSubAgents(params: {
       preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };
     }
   }
+  let helperMissingWarningSent = false;
 
   for (const agentMatch of matchedAgents) {
     try {
@@ -187,7 +188,8 @@ export async function dispatchSubAgents(params: {
       log?.error?.(
         `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`,
       );
-      if (error instanceof HostRoutingHelperUnavailableError) {
+      if (error instanceof HostRoutingHelperUnavailableError && !helperMissingWarningSent) {
+        helperMissingWarningSent = true;
         try {
           const isGroup = data.conversationType !== "1";
           const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };

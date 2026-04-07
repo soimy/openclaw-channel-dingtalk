@@ -366,4 +366,47 @@ describe("dispatchSubAgents", () => {
       }),
     );
   });
+
+  it("sends the helper-missing warning only once when multiple agents hit the same host limitation", async () => {
+    await dispatchSubAgents({
+      matchedAgents: [
+        { agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" },
+        { agentId: "agent-beta", matchedName: "Beta助手", matchSource: "name" },
+      ],
+      cfg,
+      accountId: "main",
+      data: {
+        msgtype: "text",
+        text: { content: "@Alpha助手 @Beta助手 你好" },
+        conversationType: "2",
+        conversationId: "cid_group_1",
+        senderId: "user-001",
+        chatbotUserId: "bot-001",
+        msgId: "msg-002",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      extractedContent: {
+        text: "@Alpha助手 @Beta助手 你好",
+        messageType: "text",
+      },
+      handleMessage: vi.fn().mockRejectedValue(
+        new HostRoutingHelperUnavailableError("host helper unavailable without mentioning the old symbol"),
+      ),
+      downloadMedia: vi.fn().mockResolvedValue(null),
+      log,
+    });
+
+    expect(mockedSendBySession).toHaveBeenCalledTimes(1);
+    expect(mockedSendBySession).toHaveBeenCalledWith(
+      dingtalkConfig,
+      "https://session.webhook",
+      expect.stringContaining("当前宿主版本不支持"),
+      expect.objectContaining({
+        atUserId: "user-001",
+        log,
+      }),
+    );
+  });
 });
