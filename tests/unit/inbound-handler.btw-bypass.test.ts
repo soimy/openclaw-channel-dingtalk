@@ -270,4 +270,14 @@ describe("inbound-handler /btw bypass", () => {
     expect(shared.isBtwRequestTextMock).toHaveBeenCalledWith("/btw foo");
     expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
   });
+
+  it("abort branch runs before BTW branch", async () => {
+    shared.isAbortRequestTextMock.mockReturnValue(true);
+    shared.isBtwRequestTextMock.mockReturnValue(true);
+
+    await invokeWithFakeInbound("/stop");
+
+    // Abort branch returns early — BTW deliver must NOT be invoked
+    expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
+  });
 });
