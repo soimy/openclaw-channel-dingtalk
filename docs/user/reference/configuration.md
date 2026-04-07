@@ -15,7 +15,6 @@
 | `groupAllowFrom` | string[] | - | 群聊发送者白名单 |
 | `groups` | object | - | 群级配置 |
 | `displayNameResolution` | string | `disabled` | 是否允许基于本地目录做显示名解析 |
-| `contextVisibility` | string | 宿主默认值 | 是否限制宿主补充上下文、引用上下文与历史上下文的可见性 |
 | `bypassProxyForSend` | boolean | `false` | 发送链路是否绕过全局代理 |
 | `learningEnabled` | boolean | `false` | 是否开启学习信号采集 |
 | `learningAutoApply` | boolean | `false` | 是否自动注入学习结果 |
@@ -52,21 +51,6 @@
 - 权限扩散风险：当前没有 owner-only 粒度
 
 对敏感通知和不可撤回消息，建议优先使用显式 ID。
-
-## 关于 `contextVisibility`
-
-- `all`：沿用宿主当前的补充上下文行为
-- `allowlist`：只保留宿主 allowlist 范围内的补充上下文
-- `allowlist_quote`：优先保留显式引用 / 回复上下文，同时过滤额外补充上下文
-
-如果你只想让模型看到“用户明确引用的那条消息”，通常 `allowlist_quote` 是最稳妥的高级模式。
-
-它和 `displayNameResolution` 的职责不同：
-
-- `contextVisibility` 控制“宿主把多少上下文送进 reply runtime”
-- `displayNameResolution` 控制“插件是否允许根据本地学习目录解析群名或显示名”
-
-前者影响模型可见上下文，后者影响目标解析与投递安全；两者不要混用。
 
 ## 关于 `ackReaction`
 

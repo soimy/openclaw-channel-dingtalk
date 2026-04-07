@@ -28,24 +28,16 @@ Do not use this skill for pure unit-test work, docs-only edits unrelated to Ding
    - ensure the plugin directory points at the current repo or worktree
    - update `~/.openclaw/openclaw.json` only as needed for the target path
    - run `openclaw gateway restart` so the latest code and config are live
-   - immediately verify the restart with `openclaw channels status --probe --json`
-   - if the first probe lands during restart and shows `1006 abnormal closure`, wait a few seconds and probe again instead of misdiagnosing a channel bug
-   - do not start DingTalk-side testing until `channels.dingtalk.running=true` and `channelAccounts.dingtalk[0].connected=true`
 3. Build a PR-scoped checklist. Do not invent a fixed baseline matrix. For each affected path, give:
    - scenario name
    - trigger steps in DingTalk
    - expected user-visible result
    - minimal observation points only if the result is unclear
 4. Prefer objective probes. Choose prompts or interactions whose success can be checked externally. Avoid ambiguous prompts that the model could “guess” without exercising the changed path.
-   - for proactive outbound or host-invoked send paths, prefer `openclaw message send --channel dingtalk --target '<target>' --message '<probe>' --json`
-   - treat the CLI result as a first-pass gate only: confirm `handledBy: "plugin"` and `payload.ok: true`, then still check the DingTalk client for the actual rendered outcome when the PR changes user-visible delivery semantics
-   - for reply-path validation, especially media / quote / callback / sessionWebhook behavior, do not rely on CLI send as a substitute for a real inbound callback; send from the DingTalk client so the changed reply path is actually exercised
-   - when testing reply media, use deterministic prompts whose success is externally checkable, for example forcing the agent to emit an exact `MEDIA:` line or exact file path, and be ready to inspect whether the model emitted inline directive text, queued final text, or only a bare local path
 5. If a result is off, narrow it in this order:
    - did the test input really cover the changed path
    - was the mismatch in inbound handling, routing/context, outbound delivery, client display, callback, or recovery
    - do `~/.openclaw/logs/gateway.log`, `openclaw logs`, or the relevant session transcript add evidence
-   - for live triage, keep a `tail -n 0 -f ~/.openclaw/logs/gateway.log` session open so you can correlate the exact send time with final payload shape, media upload, proactive fallback, and card finalize / recall decisions
    - only use `scripts/dingtalk-connection-check.*` or `scripts/dingtalk-stream-monitor.mjs` when connection or stream intake itself is suspect
 6. Draft PR `验证 TODO` wording that states:
    - the environment was switched to the current repo/worktree and restarted
@@ -59,10 +51,6 @@ Do not use this skill for pure unit-test work, docs-only edits unrelated to Ding
 - Testing unrelated scenarios just to “look thorough”
 - Treating logs alone as success without confirming the DingTalk-side result
 - Forgetting `openclaw gateway restart` after switching code or config
-- Treating one failed `channels status --probe` during restart as evidence that DingTalk is broken
-- Using `openclaw message send` to “verify” reply-path behavior that only happens after a real DingTalk inbound callback
-- Using ambiguous prompts for reply-media tests, then concluding the plugin is broken when the model never emitted the required media directive or path
-- Confirming only “heard a sound” without separately checking whether DingTalk actually rendered a voice bubble, a normal file, a lingering card, or a successfully recalled empty card
 - Leaving the plugin path or temporary `openclaw.json` settings in a modified state
 - Writing `验证 TODO` as “已测试” without naming the scenarios that were run
 

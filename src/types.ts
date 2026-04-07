@@ -26,7 +26,6 @@ export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // explicit modes remain: "off" | "emoji" | "kaomoji".
 export type AckReactionConfigValue = string;
 export type CardStreamingMode = "off" | "answer" | "all";
-export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -41,7 +40,6 @@ export interface DingTalkConfig extends OpenClawConfig {
   allowFrom?: string[];
   groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
-  contextVisibility?: ContextVisibilityMode;
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
   ackReaction?: AckReactionConfigValue;
@@ -110,7 +108,6 @@ export interface DingTalkChannelConfig {
   allowFrom?: string[];
   groupAllowFrom?: string[];
   displayNameResolution?: "disabled" | "all";
-  contextVisibility?: ContextVisibilityMode;
   mediaUrlAllowlist?: string[];
   journalTTLDays?: number;
   ackReaction?: AckReactionConfigValue;
@@ -813,7 +810,6 @@ export function resolveDingTalkAccount(
       allowFrom: dingtalk?.allowFrom,
       groupAllowFrom: dingtalk?.groupAllowFrom,
       displayNameResolution: dingtalk?.displayNameResolution,
-      contextVisibility: dingtalk?.contextVisibility,
       journalTTLDays: dingtalk?.journalTTLDays,
       ackReaction: dingtalk?.ackReaction,
       debug: dingtalk?.debug,

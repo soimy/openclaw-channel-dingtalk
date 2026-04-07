@@ -93,27 +93,6 @@ describe('DingTalkConfigSchema', () => {
         expect(parsed.accounts.main?.displayNameResolution).toBe('all');
     });
 
-    it('accepts contextVisibility on top-level and account-level config', () => {
-        const parsed = DingTalkConfigSchema.parse({
-            clientId: 'id',
-            clientSecret: 'secret',
-            contextVisibility: 'allowlist_quote',
-            accounts: {
-                main: {
-                    clientId: 'id',
-                    clientSecret: 'secret',
-                    contextVisibility: 'allowlist',
-                },
-            },
-        }) as {
-            contextVisibility?: string;
-            accounts: Record<string, { contextVisibility?: string }>;
-        };
-
-        expect(parsed.contextVisibility).toBe('allowlist_quote');
-        expect(parsed.accounts.main?.contextVisibility).toBe('allowlist');
-    });
-
     it('keeps keepAlive undefined when omitted', () => {
         const parsed = DingTalkConfigSchema.parse({
             clientId: 'id',

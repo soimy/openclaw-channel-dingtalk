@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
-import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
 import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { jsonResult } from "openclaw/plugin-sdk/telegram-core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
@@ -213,14 +213,6 @@ function readBooleanLikeParam(params: Record<string, unknown>, key: string): boo
   return undefined;
 }
 
-function readSharedAudioAsVoiceParam(params: Record<string, unknown>): boolean {
-  const sharedValue = readBooleanLikeParam(params, "audioAsVoice");
-  if (sharedValue !== undefined) {
-    return sharedValue;
-  }
-  return readBooleanLikeParam(params, "asVoice") === true;
-}
-
 function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   actions: readonly ["send"] | readonly [];
   capabilities: readonly ["cards"] | readonly [];
@@ -269,7 +261,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       message = caption;
     }
 
-    const asVoice = readSharedAudioAsVoiceParam(params);
+    const asVoice = readBooleanLikeParam(params, "asVoice") === true;
     const requestedMediaType = readStringParam(params, "mediaType");
 
     const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
@@ -515,7 +507,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       filePath,
       mediaUrl,
       mediaType: providedMediaType,
-      audioAsVoice,
       asVoice,
       accountId,
       mediaLocalRoots,
@@ -579,7 +570,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         const mediaType = resolveOutboundMediaType({
           mediaType: typeof providedMediaType === "string" ? providedMediaType : undefined,
           mediaPath: actualMediaPath,
-          asVoice: readSharedAudioAsVoiceParam({ audioAsVoice, asVoice }),
+          asVoice: asVoice === true,
         });
         let result;
         try {

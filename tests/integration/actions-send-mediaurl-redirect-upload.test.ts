@@ -22,8 +22,31 @@ vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 
-vi.mock('openclaw/plugin-sdk/channel-actions', () => ({
+vi.mock('openclaw/plugin-sdk/telegram-core', () => ({
     jsonResult: vi.fn((payload: unknown) => payload),
+    readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
+        const raw = params[key];
+        if (raw == null) {
+            if (opts?.required) {
+                throw new Error(`${key} is required`);
+            }
+            return undefined;
+        }
+        if (typeof raw !== 'string') {
+            if (opts?.required) {
+                throw new Error(`${key} must be a string`);
+            }
+            return undefined;
+        }
+        const normalized = opts?.trim === false ? raw : raw.trim();
+        if (!opts?.allowEmpty && normalized.length === 0) {
+            if (opts?.required) {
+                throw new Error(`${key} is required`);
+            }
+            return undefined;
+        }
+        return normalized;
+    }),
 }));
 
 vi.mock('dingtalk-stream', () => ({

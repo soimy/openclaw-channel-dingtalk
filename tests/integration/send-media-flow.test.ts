@@ -204,39 +204,6 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
         );
     });
 
-    it('forces voice template when audioAsVoice=true', async () => {
-        const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('voice');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { messageId: 'voice_2' },
-            messageId: 'voice_2',
-        });
-
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
-            text: '',
-            mediaPath: '/tmp/audio.mp3',
-            audioAsVoice: true,
-            accountId: 'default',
-        };
-        await sendMedia(request as any);
-
-        expect(resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
-            mediaType: undefined,
-            mediaPath: '/tmp/audio.mp3',
-            asVoice: true,
-        });
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.any(Object),
-            'user_123',
-            '/tmp/audio.mp3',
-            'voice',
-            expect.any(Object)
-        );
-    });
-
     it('fails before proactive send when asVoice media is not audio', async () => {
         const sendMedia = requireSendMedia();
         resolveOutboundMediaTypeMock.mockImplementationOnce(() => {

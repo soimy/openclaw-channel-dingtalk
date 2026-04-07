@@ -8,77 +8,66 @@ const AckReactionSchema = z.union([
 ]);
 
 const CardStreamingModeSchema = z.enum(["off", "answer", "all"]);
-const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
 
-/**
- * Runtime-parsed DingTalk account config.
- *
- * Compatibility note:
- * - `agentId`, `corpId`, `showThinkingStream`, and `asyncMode` are intentionally
- *   not parsed here. They remain only in manifest metadata for legacy host/UI
- *   compatibility and are ignored by the current runtime.
- */
 const DingTalkAccountConfigShape = {
   /** Account name (optional display name) */
   name: z.string().optional(),
 
-  /** Enable or disable this DingTalk channel/account without deleting saved credentials. */
+  /** Whether this channel is enabled */
   enabled: z.boolean().optional().default(true),
 
-  /** DingTalk App Key (Client ID) used to authenticate API and Stream connections. */
+  /** DingTalk App Key (Client ID) - required for authentication */
   clientId: z.string().optional(),
 
-  /** DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. */
+  /** DingTalk App Secret (Client Secret) - required for authentication */
   clientSecret: z.string().optional(),
 
-  /** Direct-message access policy: open, pairing, or allowlist. */
+  /** Direct message policy: open, pairing, or allowlist */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),
 
-  /** Group-message access policy: open, allowlist, or disabled. */
+  /** Group message policy: open, allowlist, or disabled */
   groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional().default("open"),
 
-  /** User IDs allowed when `dmPolicy` is `allowlist`. */
+  /** List of allowed user IDs for allowlist policy */
   allowFrom: z.array(z.string()).optional(),
 
-  /** Sender IDs allowed when `groupPolicy` is `allowlist`. */
+  /** List of allowed user IDs for group allowlist policy */
   groupAllowFrom: z.array(z.string()).optional(),
 
-  /** Default disabled. Enabling `all` allows learned displayName lookup but may misroute on stale or duplicate names and is available to all callers until upstream exposes requester authz context. */
+  /** Default disabled. Enabling "all" allows learned displayName lookup but may misroute on stale/duplicate names and is available to all callers until upstream exposes requester authz context. */
   displayNameResolution: z.enum(["disabled", "all"]).optional().default("disabled"),
 
-  /** Controls how much supplemental host context remains visible to the reply runtime. `allowlist_quote` is the safest advanced mode when only explicit quotes or replies should remain visible. */
-  contextVisibility: ContextVisibilitySchema.optional(),
-
-  /** Allowed remote media download hosts, IPs, or CIDRs for media fetches. */
   mediaUrlAllowlist: z.array(z.string()).optional(),
 
-  /** Native acknowledgement reaction mode: off, emoji, kaomoji, or a custom compatibility string. */
+  /** Native ack reaction mode: off, emoji, or kaomoji */
   ackReaction: AckReactionSchema.optional(),
 
-  /** Retention window in days for short-lived message context used by quoting and media recovery. */
   journalTTLDays: z.number().int().min(1).optional().default(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
-  /** Enable verbose DingTalk channel debug logging. */
+  /** Enable debug logging */
   debug: z.boolean().optional().default(false),
 
-  /** Default reply delivery mode: markdown or card. */
+  /** Message type for replies: markdown or card */
   messageType: z.enum(["markdown", "card"]).optional().default("markdown"),
 
-  /** Deprecated and ignored. AI card replies now always use the built-in DingTalk template contract. Keep only for backward-compatible config parsing. */
+  /** Card template ID for AI interactive cards
+   * obtain the template ID from DingTalk Developer Console.
+   * ref: https://github.com/soimy/openclaw-channel-dingtalk/blob/main/README.md#3-%E5%BB%BA%E7%AB%8B%E5%8D%A1%E7%89%87%E6%A8%A1%E6%9D%BF%E5%8F%AF%E9%80%89
+   */
   cardTemplateId: z.string().optional(),
 
-  /** Deprecated and ignored. The built-in AI card contract owns the streaming field mapping. Keep only for backward-compatible config parsing. */
+  /** Card template key for streaming updates
+   * Default: 'content' - maps to the content field in the card template
+   * This key is used in the streaming API to update specific fields in the card.
+   */
   cardTemplateKey: z.string().optional().default("content"),
 
-  /** Per-group overrides keyed by conversationId. Supports `*` as a wildcard fallback. */
+  /** Per-group configuration, keyed by conversationId (supports "*" wildcard) */
   groups: z
     .record(
       z.string(),
       z.object({
-        /** Additional system prompt appended for this group. */
         systemPrompt: z.string().optional(),
-        /** Require an explicit @mention before the bot answers in this group. */
         requireMention: z.boolean().optional(),
-        /** Optional per-group sender allowlist for tighter access control than the channel default. */
         groupAllowFrom: z.array(z.string()).optional(),
       }),
     )
@@ -86,70 +75,68 @@ const DingTalkAccountConfigShape = {
 
   /** Connection robustness configuration */
 
-  /** Maximum connection attempts in a single reconnect cycle before backing off or giving up. */
+  /** Maximum number of connection attempts before giving up (default: 10) */
   maxConnectionAttempts: z.number().int().min(1).optional().default(10),
 
-  /** Initial reconnect backoff delay in milliseconds. */
+  /** Initial reconnection delay in milliseconds (default: 1000ms) */
   initialReconnectDelay: z.number().int().min(100).optional().default(1000),
 
-  /** Upper bound for reconnect backoff delay in milliseconds. */
+  /** Maximum reconnection delay in milliseconds for exponential backoff (default: 60000ms = 1 minute) */
   maxReconnectDelay: z.number().int().min(1000).optional().default(60000),
 
-  /** Randomization factor added to reconnect backoff to avoid synchronized reconnect storms. */
+  /** Jitter factor for reconnection delay randomization (0-1, default: 0.3) */
   reconnectJitter: z.number().min(0).max(1).optional().default(0.3),
 
-  /** Maximum reconnect cycles before the channel stops retrying and waits for the next lifecycle restart. */
+  /** Maximum number of runtime reconnect cycles before giving up (default: 10) */
   maxReconnectCycles: z.number().int().min(1).optional().default(10),
 
-  /** Time limit in milliseconds for one reconnect cycle before starting a fresh cycle. */
+  /** Maximum time (ms) for a single reconnect cycle before starting a new cycle (default: 50000) */
   reconnectDeadlineMs: z.number().int().min(5000).optional().default(50000),
 
-  /** Enable the plugin connection manager. Disable only when you intentionally rely on DWClient native keepAlive plus autoReconnect behavior. */
+  /** Whether to use ConnectionManager (default: true). When false, rely on DWClient native keepAlive+autoReconnect. */
   useConnectionManager: z.boolean().optional().default(true),
 
-  /** Maximum inbound media size in MB accepted by the plugin. When omitted, the runtime default is used. */
+  /** Maximum inbound media file size in MB (overrides runtime default when set) */
   mediaMaxMb: z.number().int().min(1).optional(),
 
-  /** Enable the underlying Stream client heartbeat. When omitted, runtime derives a default from `useConnectionManager`. */
+  /** Whether to enable underlying stream keepAlive heartbeat; defaults to !useConnectionManager when omitted */
   keepAlive: z.boolean().optional(),
-  /** Bypass global or system HTTP(S) proxy settings for DingTalk send, upload, and card APIs. */
+  /** Bypass system/global HTTP(S) proxy for DingTalk outbound send/card/upload APIs */
   bypassProxyForSend: z.boolean().optional().default(false),
-  /** Controls the proactive-send permission reminder shown when a conversation has not granted send rights yet. */
   proactivePermissionHint: z
     .object({
-      /** Show the proactive-send permission hint when the runtime detects missing DingTalk proactive permission. */
       enabled: z.boolean().optional().default(true),
-      /** Minimum cooldown in hours before the same proactive permission hint can be shown again. */
       cooldownHours: z.number().int().min(1).max(24 * 30).optional().default(24),
     })
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
 
-  /** Deprecated compatibility flag. When true and `cardStreamingMode` is unset, runtime resolves to `cardStreamingMode: "all"`. Do not use in new configs. */
+  /** Enable deprecated real-time card streaming compatibility.
+   *  When true and `cardStreamingMode` is unset, runtime resolves to `cardStreamingMode: "all"`. */
   cardRealTimeStream: z.boolean().optional(),
 
   /** Card streaming mode:
    *  - off: disable incremental streaming
    *  - answer: stream answer text
-   *  - all: stream answer + reasoning or thinking text */
+   *  - all: stream answer + reasoning text */
   cardStreamingMode: CardStreamingModeSchema.optional(),
 
-  /** Throttle interval in milliseconds between AI card streaming updates. */
+  /** Throttle interval in ms for card stream updates (default: 1000). */
   cardStreamInterval: z.number().int().min(200).optional().default(1000),
 
-  /** Cooldown window in milliseconds after AI card trigger errors. Replies fall back to non-card delivery during this period. */
+  /** AICard degrade duration in milliseconds after trigger errors (default: 30 minutes) */
   aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
 
-  /** Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. */
+  /** Enable local learning loop (default: false) */
   learningEnabled: z.boolean().optional(),
 
-  /** Automatically apply generated learning output into session notes or global rules when available. */
+  /** Auto-apply generated reflections into session notes/global rules (default: false) */
   learningAutoApply: z.boolean().optional(),
 
-  /** Retention window in milliseconds for temporary learning notes. */
+  /** Session learning note TTL in milliseconds (default: 6 hours) */
   learningNoteTtlMs: z.number().int().min(60_000).optional(),
 
-  /** Convert markdown tables to plain text before sending when you want more consistent DingTalk rendering. */
+  /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables: z.boolean().optional().default(true),
 
   /** @mention the sender after card finalization in group chats.

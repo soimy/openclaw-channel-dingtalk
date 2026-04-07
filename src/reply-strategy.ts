@@ -20,7 +20,6 @@ type InternalReplyStrategyConfig = DingTalkConfig & {
 export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
-  audioAsVoice?: boolean;
   kind: "block" | "final" | "tool";
   isReasoning?: boolean;
 }
@@ -64,7 +63,7 @@ export interface ReplyStrategyContext {
   groupId?: string;
   log?: Logger;
   replyQuotedRef?: QuotedRef;
-  deliverMedia: (urls: string[], options?: { audioAsVoice?: boolean }) => Promise<void>;
+  deliverMedia: (urls: string[]) => Promise<void>;
   isStopRequested?: () => boolean;
 }
 

@@ -7,21 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, uploadMedia } from '../../src/media-utils';
 
 const mockLoadWebMedia = vi.fn();
-const { mockRunFfmpeg, mockRunFfprobe } = vi.hoisted(() => ({
-    mockRunFfmpeg: vi.fn(),
-    mockRunFfprobe: vi.fn(),
-}));
-
 vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: () => ({
         media: { loadWebMedia: mockLoadWebMedia },
         channel: { media: { saveMediaBuffer: vi.fn() } },
     }),
-}));
-
-vi.mock('openclaw/plugin-sdk/media-runtime', () => ({
-    runFfmpeg: mockRunFfmpeg,
-    runFfprobe: mockRunFfprobe,
 }));
 
 vi.mock('axios', () => {
@@ -57,39 +47,10 @@ function createTempFileWithExt(content: Buffer, ext: string): string {
     return file;
 }
 
-function createSilentWavBuffer(durationMs: number, sampleRate = 16000): Buffer {
-    const channels = 1;
-    const bitsPerSample = 16;
-    const bytesPerSample = bitsPerSample / 8;
-    const sampleCount = Math.round(sampleRate * durationMs / 1000);
-    const dataSize = sampleCount * channels * bytesPerSample;
-    const byteRate = sampleRate * channels * bytesPerSample;
-    const blockAlign = channels * bytesPerSample;
-    const buffer = Buffer.alloc(44 + dataSize);
-
-    buffer.write('RIFF', 0);
-    buffer.writeUInt32LE(36 + dataSize, 4);
-    buffer.write('WAVE', 8);
-    buffer.write('fmt ', 12);
-    buffer.writeUInt32LE(16, 16);
-    buffer.writeUInt16LE(1, 20);
-    buffer.writeUInt16LE(channels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(byteRate, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(bitsPerSample, 34);
-    buffer.write('data', 36);
-    buffer.writeUInt32LE(dataSize, 40);
-
-    return buffer;
-}
-
 afterEach(() => {
     mockedAxiosGet.mockReset();
     mockedAxiosPost.mockReset();
     mockedDnsLookup.mockReset();
-    mockRunFfmpeg.mockReset();
-    mockRunFfprobe.mockReset();
 });
 
 beforeEach(() => {
@@ -100,7 +61,6 @@ describe('media-utils', () => {
     it('detects media type from file extension', () => {
         expect(detectMediaTypeFromExtension('/tmp/a.jpg')).toBe('image');
         expect(detectMediaTypeFromExtension('/tmp/a.mp3')).toBe('voice');
-        expect(detectMediaTypeFromExtension('/tmp/a.ogg')).toBe('voice');
         expect(detectMediaTypeFromExtension('/tmp/a.mp4')).toBe('video');
         expect(detectMediaTypeFromExtension('/tmp/a.pdf')).toBe('file');
     });
@@ -123,26 +83,6 @@ describe('media-utils', () => {
         fs.rmSync(path.dirname(amrPath), { recursive: true, force: true });
     });
 
-    it('returns actual duration for valid wav voice files', async () => {
-        const wavPath = createTempFileWithExt(createSilentWavBuffer(2500), '.wav');
-
-        const durationMs = await getVoiceDurationMs(wavPath, 'voice');
-
-        expect(durationMs).toBe(2500);
-        fs.rmSync(path.dirname(wavPath), { recursive: true, force: true });
-    });
-
-    it('returns actual duration for ogg voice files via ffprobe', async () => {
-        const oggPath = createTempFileWithExt(Buffer.from('OggS'), '.ogg');
-        mockRunFfprobe.mockResolvedValueOnce('2.75\n');
-
-        const durationMs = await getVoiceDurationMs(oggPath, 'voice');
-
-        expect(durationMs).toBe(2750);
-        expect(mockRunFfprobe).toHaveBeenCalled();
-        fs.rmSync(path.dirname(oggPath), { recursive: true, force: true });
-    });
-
     it('uploads media and returns media_id on success', async () => {
         const mediaPath = createTempFile(Buffer.from('hello world'));
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_123' } } as any);
@@ -160,30 +100,6 @@ describe('media-utils', () => {
         expect(mockedAxiosPost.mock.calls[0]?.[0]).toContain('access_token=token_abc&type=file');
 
         fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
-    });
-
-    it('transcodes wav voice uploads to ogg before posting to DingTalk', async () => {
-        const wavPath = createTempFileWithExt(createSilentWavBuffer(1800), '.wav');
-        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_voice_ogg' } } as any);
-        mockRunFfprobe.mockResolvedValueOnce('1.8\n');
-        mockRunFfmpeg.mockImplementationOnce(async (args: string[]) => {
-            const outputPath = args[args.length - 1];
-            fs.writeFileSync(outputPath, Buffer.from('OggS converted voice'));
-            return '';
-        });
-
-        const result = await uploadMedia(
-            { clientId: 'id', clientSecret: 'sec' } as any,
-            wavPath,
-            'voice',
-            vi.fn().mockResolvedValue('token_abc')
-        );
-
-        expect(result?.mediaId).toBe('media_voice_ogg');
-        expect(result?.durationMs).toBe(1800);
-        expect(mockRunFfmpeg).toHaveBeenCalledTimes(1);
-        expect(mockRunFfmpeg.mock.calls[0]?.[0]?.at(-1)).toMatch(/\.ogg$/);
-        fs.rmSync(path.dirname(wavPath), { recursive: true, force: true });
     });
 
     it('downloads remote media to a temp file and cleans it up', async () => {
