@@ -654,7 +654,7 @@ export async function sendBySession(
         if (!delivery.messageId && !delivery.processQueryKey && !delivery.outTrackId) {
           log?.warn?.(
             `[DingTalk] Session webhook ${body.msgtype} response missing delivery metadata; ` +
-            `${summarizeSessionWebhookResponse(result.data)}`,
+            summarizeSessionWebhookResponse(result.data),
           );
         }
         return result.data;
