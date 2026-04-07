@@ -252,6 +252,10 @@ export interface DingTalkInboundMessage {
           atName?: string;
           downloadCode?: string;
         }>;
+        /** chatRecord 消息摘要 */
+        summary?: string;
+        /** chatRecord 消息标题 */
+        title?: string;
       };
     };
   };
