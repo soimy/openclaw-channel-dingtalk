@@ -31,7 +31,7 @@ There is already a precedent for bypassing this lock: `/stop` (abort) is detecte
 
 1. **`/btw` is fully implemented inside openclaw's auto-reply pipeline.** The channel does not need to dispatch any "side query event"; it just needs to deliver the inbound message to `dispatchReplyWithBufferedBlockDispatcher`. openclaw recognizes `/btw` via the `handleBtwCommand` `CommandHandler` registered in `commands-handlers.runtime.ts` and runs `runBtwSideQuestion` with `resolvedThinkLevel: "off"`.
 
-2. **`isBtwRequestText` is already exported** from `openclaw/src/plugin-sdk/reply-runtime.ts:32`. No openclaw PR required. (Need to confirm the current `peerDependencies` version `>=2026.3.28` includes this export; bump if not.)
+2. **`isBtwRequestText` is already exported** from `openclaw/src/plugin-sdk/reply-runtime.ts:32`. No openclaw PR required. **No `peerDependencies` bump either** — we treat this as a soft feature: `import { isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime"` and guard usage with `typeof isBtwRequestText === "function"`. If linked against an older openclaw without the export, the symbol is `undefined`, the bypass branch is skipped, and the message falls through to the normal session-lock path. Old openclaw will treat `/btw` as a regular chat message (degraded UX, no crash). Upgrading openclaw automatically activates BTW with zero config.
 
 3. **Dingtalk bot send APIs do not support protocol-level reply/quote.** The `quotedRef` field in `send-service.ts` is an internal-only persistence link used by `message-context-store` to recover quoted context for *inbound* messages — it never reaches dingtalk's wire protocol. Therefore, the only way to "show" what a BTW reply is responding to is to echo the original `/btw` message inside the reply body.
 
@@ -170,9 +170,8 @@ Per `skills/dingtalk-real-device-testing/SKILL.md`, add a 验证 TODO entry for 
 
 ## Open Questions / Risks
 
-1. **`peerDependencies` version** — confirm `openclaw >= 2026.3.28` exports `isBtwRequestText` from `plugin-sdk/reply-runtime`. If not, bump the peer range.
-2. **Concurrent card creation API limits** — until we test on a real device, we don't know whether dingtalk's card API accepts a second active card in the same conversation. The fallback-to-markdown path makes this a soft failure, not a blocker.
-3. **BTW reply might still be long** — even with think/reasoning off, the BTW answer is unbounded. Existing chunking (`DINGTALK_TEXT_CHUNK_LIMIT = 3800`) applies in markdown mode; card mode handles streaming natively.
+1. **Concurrent card creation API limits** — until we test on a real device, we don't know whether dingtalk's card API accepts a second active card in the same conversation. The fallback-to-markdown path makes this a soft failure, not a blocker.
+2. **BTW reply might still be long** — even with think/reasoning off, the BTW answer is unbounded. Existing chunking (`DINGTALK_TEXT_CHUNK_LIMIT = 3800`) applies in markdown mode; card mode handles streaming natively.
 
 ## Out of Scope
 
