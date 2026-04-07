@@ -80,30 +80,44 @@ acquireSessionLock                 │
 
 - `src/card/btw-card.ts` (new, only if needed for option B2) — minimal helper that creates a one-shot dingtalk AI Card outside `card-service`'s active cache. See "BTW card isolation" below.
 
-### BTW card isolation (option B2)
+### BTW card isolation
 
-`card-service.ts`'s active card cache is keyed by `accountId:conversationId`. The main run's card occupies that key. The BTW card MUST NOT collide with it.
+There is **no global "one active card per conversation" registry** on the channel side:
 
-**Decision:** BTW cards completely bypass `card-service`'s active cache. The BTW card is fire-and-forget:
+- The "main run's active card" is a per-request closure variable `currentAICard` in `inbound-handler.ts:785` — scoped to a single inbound handler invocation, not shared state.
+- The only `accountId:conversationId`-keyed structure in `card-service.ts` is `inMemoryCardContentStore` (lines 82-108), which is a **content history bucket** capped at N recent text snapshots per conversation, used for recovery hints. Multiple cards in the same conversation legitimately append to it; it is not a single-active-card lock.
 
-- Generated `cardInstanceId` uses a distinct prefix (e.g., `btw-<uuid>`) so it cannot collide with the main card's id namespace
-- Created via direct dingtalk `createAndDeliverCard` API call (or whatever the lower-level primitive is)
+Therefore the BTW bypass branch creates its own card entirely within its own scope and naturally cannot touch the main run's `currentAICard`. The BTW card is fire-and-forget:
+
+- Generated `cardInstanceId` uses a distinct prefix (e.g., `btw-<uuid>`)
 - Streamed to FINISHED inline within the BTW deliver callback
-- NEVER registered in `card-service`'s active cache, recovery list, createdAt fallback cache, or stop handler tracking
-- Therefore: `/stop` does not affect BTW cards, restart recovery does not see them, and the main card's state machine is untouched
+- Never tracked by recovery, createdAt fallback caches, or stop handler bookkeeping
+- Main run's card state machine is untouched
 
-**If creating a second card concurrently turns out to be impossible** (e.g., dingtalk rejects two active cards in the same conversation), the BTW card path returns `{ ok: false }` and the deliver callback automatically falls back to the markdown path. This mirrors the existing card→markdown fallback in `send-service.ts`.
+The only unknown is **whether the dingtalk server allows two concurrent active AI cards in the same conversation**. We cannot answer this from code — it requires real-device validation. If the second `createAndDeliverCard` call fails, the BTW deliver callback automatically falls back to the markdown path (mirroring the existing card→markdown fallback in `send-service.ts`), so this is a soft failure.
+
+### Interaction with `/stop`
+
+BTW abort behavior is **entirely owned by openclaw**; the channel does nothing special.
+
+- `runBtwSideQuestion` (`openclaw/src/agents/btw.ts:309`) wires `params.opts?.abortSignal` into the model call, so BTW is interruptible.
+- openclaw's abort routing (`auto-reply/reply/abort.ts`) targets in-flight runs by `sessionKey`. BTW runs against the same `sessionKey` as the main run, so a `/stop` from the user is expected to cancel both (subject to openclaw's internal abort scoping; channel does not depend on the exact policy).
+- The channel does **not** register the BTW card with the `/stop` bypass branch's tracking. There is no channel-side "in-flight BTW handle" to abort.
+- The BTW deliver callback must tolerate three abort outcomes returned by openclaw: empty payload (no message sent), text payload like `"aborted"` (delivered with blockquote prefix as usual), or error payload (markdown error path). The existing dispatch error handling already covers these cases.
 
 ### Reply format (echo template)
 
 ```
-> /btw <original question, with leading @mentions stripped>
+> <senderName>: /btw <original question, leading @mentions stripped, truncated to 80 chars + …>
 
 <openclaw BTW answer>
 ```
 
 - Blockquote uses the literal `/btw` prefix per user preference (more recognizable than a generic "BTW:" label)
-- The original question is taken from the in-memory `inboundText` closure variable already present in `inbound-handler.ts` — no caching, no store lookup
+- `senderName` is read from the existing `senderName` closure variable in `inbound-handler.ts:448` (`data.senderNick || "Unknown"`), zero extra lookup. Especially useful in groups where multiple people may BTW concurrently.
+- The original question is taken from the in-memory `inboundText` closure variable — no caching, no store lookup
+- **Truncation**: if the question (after `@mention` stripping) exceeds **80 characters**, truncate to 80 + `…`. The blockquote is meant to be a single-line *label* identifying which message is being answered, not a verbatim reproduction. Users can always see the full original message in their own message history. 80 ≈ one dingtalk row for English / ~40 Chinese characters.
+- No markdown escaping of `senderName` — dingtalk nicknames rarely contain markdown special chars, and even if they render as italics it does not impair recognition.
 
 ## Data Flow
 
