@@ -146,3 +146,31 @@ export function resolveAtAgents(
     hasInvalidAgentNames,
   };
 }
+
+/**
+ * Get agent display name for taskInfo in card template.
+ *
+ * Priority:
+ * 1. subAgentOptions.matchedName - user-friendly name from @mention (e.g., "代码专家")
+ * 2. agents.list lookup - name field from agent config
+ * 3. agentId fallback - technical identifier
+ */
+export function getAgentDisplayName(params: {
+  subAgentOptions?: { matchedName?: string };
+  agentId: string;
+  agentsList?: Array<{ id: string; name?: string }>;
+}): string {
+  // Priority 1: sub-agent matchedName (user-friendly)
+  if (params.subAgentOptions?.matchedName) {
+    return params.subAgentOptions.matchedName;
+  }
+  // Priority 2: lookup from agents.list
+  if (params.agentsList) {
+    const agent = params.agentsList.find((a) => a.id === params.agentId);
+    if (agent?.name) {
+      return agent.name;
+    }
+  }
+  // Priority 3: fallback to agentId
+  return params.agentId;
+}

@@ -23,6 +23,8 @@ export interface TaskMeta {
   effort?: string;
   usage?: number;
   elapsedMs?: number;
+  /** Agent display name for taskInfo */
+  agent?: string;
 }
 
 export interface DeliverPayload {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
+import { getAgentDisplayName } from "./targeting/agent-name-matcher";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
@@ -739,7 +740,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
-        hasQuote: inboundQuoteText.length > 0,
         quoteContent: inboundQuoteText,
       });
       if (aiCard) {
@@ -1581,6 +1581,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
       inboundText: extractedContent.text,
+      taskMeta: {
+        agent: getAgentDisplayName({
+          subAgentOptions,
+          agentId: route.agentId,
+          agentsList: cfg.agents?.list,
+        }),
+      },
     });
 
     try {

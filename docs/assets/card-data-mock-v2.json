@@ -1,44 +1,34 @@
 {
   "hasAction": true,
   "content": "# 流式富文本内容",
-  "hasQuote": true,
   "quoteContent": "这是一条测试引用文本",
   "blockList": [
     {
       "text": "Reason: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
-      "markdown": "## markdown 内容 1",
-      "isTool": true,
       "type": 1,
-      "mediaId": "",
-      "btns": []
+      "markdown": "# markdown 内容",
+      "mediaId": ""
     },
     {
       "text": "测试主题",
-      "markdown": "# markdown 内容",
       "type": 5,
-      "mediaId": "",
-      "btns": []
+      "markdown": "# markdown 内容",
+      "mediaId": ""
     },
     {
-      "text": "Reason: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
       "markdown": "## 富文本二级标题\n富文本正文",
       "type": 0,
-      "mediaId": "",
-      "btns": []
-    },
-    {
-      "text": "Exec: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
-      "markdown": "## markdown 内容 2",
-      "isTool": false,
-      "type": 2,
-      "mediaId": "",
-      "btns": []
-    },
-    {
       "text": "",
+      "mediaId": ""
+    },
+    {
+      "text": "￼ Exec: 思考消息,注意单段无法换行的思考消息。思考消息,注意单段无法换行的思考消息",
+      "type": 2,
       "markdown": "# markdown 内容",
+      "mediaId": ""
+    },
+    {
       "type": 4,
-      "mediaId": "@lALPDfmVRLVVAm_NBdzNBdw",
       "btns": [
         {
           "text": "允许",
@@ -82,21 +72,24 @@
             }
           }
         }
-      ]
-    },
-    {
+      ],
       "text": "",
       "markdown": "# markdown 内容",
+      "mediaId": ""
+    },
+    {
       "type": 3,
       "mediaId": "@lALPDfmVRLVVAm_NBdzNBdw",
-      "btns": []
+      "text": "",
+      "markdown": "# markdown 内容"
     }
   ],
   "taskInfo": {
     "model": "gpt-5.4",
     "effort": "medium",
     "dapi_usage": 12,
-    "taskTime": 24
+    "taskTime": 24,
+    "agent": "main"
   },
   "version": 1
 }

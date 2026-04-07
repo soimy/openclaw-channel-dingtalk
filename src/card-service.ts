@@ -53,7 +53,12 @@ export async function hideCardStopButton(
 ): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await updateCardVariables(outTrackId, { stop_action: STOP_ACTION_HIDDEN }, token, config);
+      await updateCardVariables(
+        outTrackId,
+        { hasAction: STOP_ACTION_HIDDEN, stop_action: String(STOP_ACTION_HIDDEN) },
+        token,
+        config,
+      );
       return;
     } catch (err) {
       if (attempt >= retries) {
@@ -324,9 +329,7 @@ interface CreateAICardOptions {
   storePath?: string;
   persistPending?: boolean;
   contextConversationId?: string;
-  /** Whether to show quote section on the card (default: false) */
-  hasQuote?: boolean;
-  /** Quote content to display when hasQuote is true */
+  /** Quote content to display in card header (shown when non-empty) */
   quoteContent?: string;
 }
 
@@ -730,9 +733,11 @@ export async function createAICard(
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
       [template.streamingKey]: "",
-      hasQuote: String(Boolean(options.hasQuote)),
       quoteContent: options.quoteContent || "",
-      stop_action: STOP_ACTION_VISIBLE,
+      // V2 template uses hasAction (boolean), V1 uses stop_action (string)
+      // Set both for compatibility during migration
+      hasAction: STOP_ACTION_VISIBLE,
+      stop_action: String(STOP_ACTION_VISIBLE),
     };
     const createAndDeliverBody = {
       cardTemplateId: template.templateId,

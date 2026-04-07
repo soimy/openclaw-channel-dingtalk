@@ -97,8 +97,8 @@ describe('card-service', () => {
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
+            hasAction: true,
             stop_action: 'true',
-            hasQuote: 'false',
             quoteContent: '',
         });
         expect(body.cardTemplateId).toBe(BUILTIN_DINGTALK_CARD_TEMPLATE_ID);

@@ -1,7 +1,7 @@
 /** Card variable value that shows the stop button. */
-export const STOP_ACTION_VISIBLE = "true";
+export const STOP_ACTION_VISIBLE = true;
 /** Card variable value that hides the stop button. */
-export const STOP_ACTION_HIDDEN = "false";
+export const STOP_ACTION_HIDDEN = false;
 
 export const BUILTIN_DINGTALK_CARD_TEMPLATE_ID =
   process.env.DINGTALK_CARD_TEMPLATE_ID || "51cd8c7e-0e7e-4464-a795-5b81499ada7a.schema";

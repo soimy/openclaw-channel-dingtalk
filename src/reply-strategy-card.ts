@@ -477,6 +477,7 @@ export function createCardReplyStrategy(
           if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
           if (typeof ctx.taskMeta.usage === "number") { info.dapi_usage = ctx.taskMeta.usage; }
           if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
+          if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
           if (Object.keys(info).length > 0) {
             taskInfoJson = JSON.stringify(info);
           }

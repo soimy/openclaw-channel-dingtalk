@@ -774,6 +774,27 @@ describe("reply-strategy-card", () => {
             const options = commitAICardBlocksMock.mock.calls[0][1];
             expect(options.taskInfoJson).toBeUndefined();
         });
+
+        it("includes agent in taskInfoJson when taskMeta.agent is set", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.taskInfoJson).toBeDefined();
+            const taskInfo = JSON.parse(options.taskInfoJson!);
+            expect(taskInfo.model).toBe("gpt-5.4");
+            expect(taskInfo.agent).toBe("代码专家");
+        });
     });
 
     describe("non-image media handling", () => {

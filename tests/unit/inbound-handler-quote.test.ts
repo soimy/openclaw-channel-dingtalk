@@ -537,8 +537,7 @@ describe("inbound-handler quote handling", () => {
 
       expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
       const callArgs = shared.createAICardMock.mock.calls[0];
-      const options = callArgs[3] as { hasQuote?: boolean; quoteContent?: string };
-      expect(options.hasQuote).toBe(true);
+      const options = callArgs[3] as { quoteContent?: string };
       expect(options.quoteContent).toBe("你好世界");
     });
   });
