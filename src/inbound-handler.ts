@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import * as path from "node:path";
+import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
@@ -30,6 +31,7 @@ import {
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
+import { deliverBtwReply } from "./messaging/btw-deliver";
 import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
 import {
   buildInboundQuotedRef,
@@ -1463,6 +1465,53 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
       }
+    }
+    return;
+  }
+
+  // ---- Pre-lock BTW: bypass session lock for /btw side questions ----
+  // /btw runs an isolated, tool-less side query in openclaw without polluting
+  // the main run's transcript. The dispatch must NOT acquire the session lock,
+  // otherwise it would queue behind the in-flight main task and lose its "side
+  // question" semantics.
+  //
+  // isBtwRequestText is soft-imported: older openclaw versions do not export it,
+  // in which case the typeof guard skips the bypass and the message falls through
+  // to the normal session-lock path (degraded UX, no crash).
+  const textForBtwCheck = inboundText.replace(/^(?:@\S+\s+)*/u, "").trim();
+  if (typeof isBtwRequestText === "function" && isBtwRequestText(textForBtwCheck)) {
+    log?.info?.(
+      `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
+    );
+    const btwSenderName = data.senderNick || "";
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) {
+              log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
+              return;
+            }
+            await deliverBtwReply({
+              config: dingtalkConfig,
+              sessionWebhook,
+              conversationId: groupId,
+              to,
+              senderName: btwSenderName,
+              rawQuestion: inboundText,
+              replyText: payload.text,
+              log,
+              accountId,
+              storePath: accountStorePath,
+            });
+          },
+        },
+      });
+    } catch (btwErr) {
+      log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
     }
     return;
   }
