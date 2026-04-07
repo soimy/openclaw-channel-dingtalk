@@ -4,8 +4,17 @@ import type { DingTalkConfig, Logger } from "../types";
 const MAX_QUESTION_LENGTH = 80;
 const LEADING_MENTIONS_RE = /^(?:@\S+\s+)*/u;
 
+/**
+ * Strip leading `@mention` tokens from inbound text. Used by both the abort and
+ * BTW bypass branches in `inbound-handler.ts` so that command detection works
+ * uniformly in DM and group chats.
+ */
+export function stripLeadingMentions(text: string): string {
+  return text.replace(LEADING_MENTIONS_RE, "");
+}
+
 export function buildBtwBlockquote(senderName: string, rawQuestion: string): string {
-  const stripped = rawQuestion.replace(LEADING_MENTIONS_RE, "");
+  const stripped = stripLeadingMentions(rawQuestion);
   const truncated =
     stripped.length > MAX_QUESTION_LENGTH ? `${stripped.slice(0, MAX_QUESTION_LENGTH)}…` : stripped;
   const senderPrefix = senderName ? `${senderName}: ` : "";

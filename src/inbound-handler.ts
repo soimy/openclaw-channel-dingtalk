@@ -31,7 +31,7 @@ import {
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
-import { deliverBtwReply } from "./messaging/btw-deliver";
+import { deliverBtwReply, stripLeadingMentions } from "./messaging/btw-deliver";
 import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
 import {
   buildInboundQuotedRef,
@@ -1366,7 +1366,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // "@Agent /stop" are correctly recognised as abort requests in both DM and group
   // chats. In groups DingTalk usually strips @BotName at the protocol level, but
   // in DMs with multi-agent routing the @mention prefix survives all the way here.
-  const textForAbortCheck = inboundText.replace(/^(?:@\S+\s+)*/u, "").trim();
+  const textForAbortCheck = stripLeadingMentions(inboundText).trim();
   if (isAbortRequestText(textForAbortCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
@@ -1420,11 +1420,16 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // isBtwRequestText is soft-imported: older openclaw versions do not export it,
   // in which case the typeof guard skips the bypass and the message falls through
   // to the normal session-lock path (degraded UX, no crash).
-  const textForBtwCheck = inboundText.replace(/^(?:@\S+\s+)*/u, "").trim();
+  const textForBtwCheck = stripLeadingMentions(inboundText).trim();
   if (typeof isBtwRequestText === "function" && isBtwRequestText(textForBtwCheck)) {
     log?.info?.(
       `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
     );
+    // Empty fallback (NOT "Unknown" like the file's main `senderName` variable):
+    // when the nickname is missing we want the blockquote to render as
+    // `> /btw <question>` rather than `> Unknown: /btw <question>`. Read locally
+    // here so the existing `senderName` semantics elsewhere in the file are not
+    // affected.
     const btwSenderName = data.senderNick || "";
     try {
       await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({

@@ -96,6 +96,7 @@ vi.mock("../../src/messaging/quoted-file-service", () => ({
 
 vi.mock("../../src/messaging/btw-deliver", () => ({
   deliverBtwReply: shared.deliverBtwReplyMock,
+  stripLeadingMentions: (text: string) => text.replace(/^(?:@\S+\s+)*/u, ""),
   buildBtwBlockquote: vi.fn((senderName: string, rawQuestion: string) => {
     const prefix = senderName ? `${senderName}: ` : "";
     return `> ${prefix}${rawQuestion}\n\n`;
