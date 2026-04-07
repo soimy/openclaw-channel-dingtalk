@@ -511,6 +511,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       accountId,
       mediaLocalRoots,
       log,
+      expectedCardOwnerId,
     }: any) => {
       const config = getConfig(cfg, accountId);
       const rt = getDingTalkRuntime();
@@ -597,17 +598,28 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
 
         if (result.ok) {
           // Bridge: embed uploaded image in any active card for this conversation.
+          // Only embed if we can verify the card owner matches the expected sender.
           if (mediaType === "image" && result.mediaId) {
             try {
               const { resolveCardRunByConversation } = await import("./card/card-run-registry");
-              const activeRun = resolveCardRunByConversation(
-                accountId ?? "default",
-                to,
-              );
+              // Only resolve with owner filter if expectedCardOwnerId is provided.
+              // Without owner verification, skip embedding to avoid cross-user data leaks.
+              const activeRun = expectedCardOwnerId
+                ? resolveCardRunByConversation(
+                    accountId ?? "default",
+                    to,
+                    { ownerUserId: expectedCardOwnerId },
+                  )
+                : null;
               if (activeRun?.controller?.appendImageBlock) {
                 await activeRun.controller.appendImageBlock(result.mediaId);
                 effectiveLog?.debug?.(
-                  `[DingTalk] Embedded uploaded media in active card: mediaId=${result.mediaId} card=${activeRun.outTrackId}`,
+                  `[DingTalk] Embedded uploaded media in active card: mediaId=${result.mediaId} ` +
+                  `card=${activeRun.outTrackId} owner=${activeRun.ownerUserId}`,
+                );
+              } else if (expectedCardOwnerId) {
+                effectiveLog?.debug?.(
+                  `[DingTalk] No active card found for owner=${expectedCardOwnerId}, skipping image embedding`,
                 );
               }
             } catch (bridgeErr: any) {

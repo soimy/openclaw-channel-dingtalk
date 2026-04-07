@@ -20,13 +20,20 @@ import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
-import { sendBySession, sendMessage, uploadMedia } from "./send-service";
+import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
 
 const EMPTY_FINAL_REPLY = "✅ Done";
+const DEFAULT_CARD_FAILED_MESSAGE = "回复生成失败，请重试";
 type CardReplyLifecycleState = "open" | "final_seen" | "sealed";
+
+/** Deferred media attachment for out-of-card delivery */
+interface DeferredMedia {
+  url: string;
+  type: "voice" | "video" | "file";
+}
 
 export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
@@ -62,6 +69,8 @@ export function createCardReplyStrategy(
   let sawFinalDelivery = false;
   /** Tracks the latest reasoning snapshot text for non-streaming boundary flush. */
   let latestReasoningSnapshot = "";
+  /** Non-image media attachments deferred for out-of-card delivery. */
+  let pendingNonImageMedia: DeferredMedia[] = [];
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
     const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
@@ -270,14 +279,18 @@ export function createCardReplyStrategy(
           `lastAnswer="${(controller.getLastAnswerContent() ?? "").slice(0, 80)}" ` +
           `lastContent="${(controller.getLastContent() ?? "").slice(0, 80)}"`,
         );
-        // Inline media upload → image blocks in card
+        // Inline media upload → image blocks in card; defer non-image attachments
         if (payload.mediaUrls.length > 0) {
           for (const url of payload.mediaUrls) {
             try {
               const prepared = await prepareMediaInput(url, log);
               const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
               if (mediaType !== "image") {
-                log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+                log?.debug?.(`[DingTalk][Card] Deferring non-image media (${mediaType}) for out-of-card delivery: ${url}`);
+                // Collect non-image attachments for later delivery
+                if (mediaType === "voice" || mediaType === "video" || mediaType === "file") {
+                  pendingNonImageMedia.push({ url, type: mediaType });
+                }
                 await prepared.cleanup?.();
                 continue;
               }
@@ -350,7 +363,8 @@ export function createCardReplyStrategy(
             const prepared = await prepareMediaInput(url, log);
             const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
             if (mediaType !== "image") {
-              log?.debug?.(`[DingTalk][Card] Skipping non-image media (${mediaType}) for card embedding: ${url}`);
+              log?.debug?.(`[DingTalk][Card] Deferring non-image media (${mediaType}) for out-of-card delivery: ${url}`);
+              pendingNonImageMedia.push({ url, type: mediaType });
               await prepared.cleanup?.();
               continue;
             }
@@ -399,8 +413,7 @@ export function createCardReplyStrategy(
       if (card.state === AICardStatus.FAILED || controller.isFailed()) {
         const fallbackText = getRenderedTimeline({ preferFinalAnswer: true })
           || controller.getLastAnswerContent()
-          || controller.getLastContent()
-          || card.lastStreamedContent;
+          || DEFAULT_CARD_FAILED_MESSAGE;
         if (fallbackText) {
           log?.debug?.("[DingTalk] Card failed during streaming, sending markdown fallback");
           const sendResult = await sendMessage(ctx.config, ctx.to, fallbackText, {
@@ -476,6 +489,49 @@ export function createCardReplyStrategy(
           taskInfoJson,
           quotedRef: ctx.replyQuotedRef,
         }, log);
+
+        // Send deferred non-image attachments after card finalize
+        // Use sessionWebhook for reply-session semantics; fallback to proactive if unavailable.
+        if (pendingNonImageMedia.length > 0) {
+          log?.debug?.(`[DingTalk][Card] Sending ${pendingNonImageMedia.length} deferred non-image attachments`);
+          for (const { url, type } of pendingNonImageMedia) {
+            try {
+              const prepared = await prepareMediaInput(url, log);
+              const actualMediaPath = prepared.path;
+
+              // Prefer sessionWebhook for reply-session permission semantics
+              if (ctx.sessionWebhook) {
+                const sendResult = await sendMessage(config, ctx.to, "", {
+                  sessionWebhook: ctx.sessionWebhook,
+                  mediaPath: actualMediaPath,
+                  mediaType: type,
+                  log,
+                  accountId: ctx.accountId,
+                  storePath: ctx.storePath,
+                });
+                if (!sendResult.ok) {
+                  log?.warn?.(`[DingTalk][Card] Deferred media session send failed: ${sendResult.error || "unknown"}`);
+                }
+              } else {
+                // Fallback: proactive send when no reply session available
+                const result = await sendProactiveMedia(config, ctx.to, actualMediaPath, type, {
+                  log,
+                  accountId: ctx.accountId,
+                });
+                if (!result.ok) {
+                  log?.warn?.(`[DingTalk][Card] Deferred media proactive send failed: ${result.error || "unknown"}`);
+                }
+              }
+
+              await prepared.cleanup?.();
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log?.warn?.(`[DingTalk][Card] Failed to send deferred media: ${msg}`);
+            }
+          }
+          pendingNonImageMedia = []; // Clear after sending
+        }
+
         lifecycleState = "sealed";
 
         // In group chats, send a lightweight @mention via session webhook

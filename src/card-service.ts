@@ -504,6 +504,26 @@ export function isCardInTerminalState(state: string): boolean {
   );
 }
 
+/**
+ * Ensure card access token is fresh (refresh if >90min old).
+ * Mutates card.accessToken in place if refreshed.
+ */
+async function ensureFreshToken(card: AICardInstance, log?: Logger): Promise<void> {
+  const tokenAge = Date.now() - card.createdAt;
+  const tokenRefreshThreshold = 90 * 60 * 1000;
+
+  if (tokenAge > tokenRefreshThreshold && card.config) {
+    log?.debug?.("[DingTalk][AICard] Token age exceeds threshold, refreshing...");
+    try {
+      card.accessToken = await getAccessToken(card.config, log);
+      log?.debug?.("[DingTalk][AICard] Token refreshed successfully");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log?.warn?.(`[DingTalk][AICard] Failed to refresh token: ${msg}`);
+    }
+  }
+}
+
 export function formatContentForCard(content: string | undefined, type: "thinking" | "tool"): string {
   if (!content) {
     return "";
@@ -858,6 +878,9 @@ export async function updateAICardBlockList(
     return;
   }
 
+  // Ensure token is fresh before API call
+  await ensureFreshToken(card, log);
+
   const template = DINGTALK_CARD_TEMPLATE;
   const params: Record<string, unknown> = {
     [template.blockListKey]: blockListJson,
@@ -952,6 +975,8 @@ export async function commitAICardBlocks(
     );
     return;
   }
+
+  await ensureFreshToken(card, log);
 
   const template = DINGTALK_CARD_TEMPLATE;
   const updates: Record<string, unknown> = {

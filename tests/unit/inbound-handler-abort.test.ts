@@ -10,6 +10,7 @@ const shared = vi.hoisted(() => ({
   isAbortRequestTextMock: vi.fn(),
   createAICardMock: vi.fn(),
   finishAICardMock: vi.fn(),
+  commitAICardBlocksMock: vi.fn(),
 }));
 
 vi.mock("../../src/auth", () => ({
@@ -34,7 +35,7 @@ vi.mock("../../src/send-service", () => ({
 vi.mock("../../src/card-service", () => ({
   createAICard: shared.createAICardMock,
   finishAICard: shared.finishAICardMock,
-  commitAICardBlocks: vi.fn(),
+  commitAICardBlocks: shared.commitAICardBlocksMock,
   formatContentForCard: vi.fn((s: string) => s),
   isCardInTerminalState: vi.fn(),
   streamAICard: vi.fn(),
@@ -297,12 +298,17 @@ describe("inbound-handler abort pre-lock bypass", () => {
     expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
     // abort text should be written to card, not sent as plain text
     expect(shared.sendBySessionMock).not.toHaveBeenCalled();
-    // Abort flow uses finishAICard (streaming API) for quick acknowledgment
-    expect(shared.finishAICardMock).toHaveBeenCalledWith(
+    // Abort flow uses commitAICardBlocks (V2 instances API) for consistent state transition
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(
       card,
-      "⚙️ Agent was aborted.",
+      expect.objectContaining({
+        blockListJson: expect.stringContaining("⚙️ Agent was aborted."),
+        content: "⚙️ Agent was aborted.",
+      }),
       undefined,
     );
+    // finishAICard should NOT be called (deprecated API)
+    expect(shared.finishAICardMock).not.toHaveBeenCalled();
   });
 
   it("strips leading @mention from group and DM messages before abort check", async () => {

@@ -7,7 +7,7 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
+import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
@@ -438,6 +438,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     return;
   }
 
+  // Preserve raw inbound text before any rewriting (e.g., sub-agent context hint)
+  // for use in card quoteContent which should show the user's original message.
+  const rawInboundText = extractedContent.text.trim();
+
   // Add context hint for sub-agent mode, stripping quoted prefix to avoid protocol noise in agent context.
   if (subAgentOptions) {
     const cleanText = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
@@ -728,7 +732,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
       // quoteContent always shows the inbound message text so the user can
       // identify which of their messages this card is replying to.
-      const inboundQuoteText = extractedContent.text.trim().slice(0, 200);
+      // Use rawInboundText ( preserved before sub-agent rewriting) to avoid
+      // showing internal routing context like "[你被 @ 为...]" in the card UI.
+      const inboundQuoteText = rawInboundText.slice(0, 200);
       const aiCard = await createAICard(dingtalkConfig, to, log, {
         accountId,
         storePath: accountStorePath,
@@ -1362,9 +1368,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
     // Finalize the card that was created for this message before the abort check.
     // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    // Use V2 finalize (commitAICardBlocks) for consistent state transition.
     if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
       try {
-        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+        const abortText = abortConfirmationText ?? "已停止";
+        const abortBlockList = [{ type: 2, markdown: abortText }];
+        const blockListJson = JSON.stringify(abortBlockList);
+
+        await commitAICardBlocks(currentAICard, {
+          blockListJson,
+          content: abortText,
+        }, log);
+
+        log?.debug?.(`[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`);
       } catch (cardErr) {
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;

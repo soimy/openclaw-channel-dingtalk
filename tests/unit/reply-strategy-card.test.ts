@@ -27,6 +27,7 @@ vi.mock("../../src/send-service", async (importOriginal) => {
         sendMessage: vi.fn().mockResolvedValue({ ok: true }),
         sendBySession: vi.fn().mockResolvedValue({}),
         sendProactiveTextOrMarkdown: vi.fn().mockResolvedValue({}),
+        sendProactiveMedia: vi.fn().mockResolvedValue({ ok: true, mediaId: "test-media-id" }),
         uploadMedia: vi.fn().mockResolvedValue({ mediaId: "test-media-id" }),
     };
 });
@@ -49,6 +50,7 @@ vi.mock("../../src/media-utils", async (importOriginal) => {
 const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
+const sendProactiveMediaMock = vi.mocked(sendService.sendProactiveMedia);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
 const prepareMediaInputMock = vi.mocked(mediaUtils.prepareMediaInput);
 const resolveOutboundMediaTypeMock = vi.mocked(mediaUtils.resolveOutboundMediaType);
@@ -90,11 +92,18 @@ describe("reply-strategy-card", () => {
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
-        uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id" });
+        sendProactiveMediaMock.mockClear().mockResolvedValue({ ok: true, mediaId: "test-media-id" });
+        uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id", buffer: Buffer.from("") });
         prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
         resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
             if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
                 return "image";
+            }
+            if (mediaPath.endsWith(".mp3") || mediaPath.endsWith(".wav")) {
+                return "voice";
+            }
+            if (mediaPath.endsWith(".mp4") || mediaPath.endsWith(".mov")) {
+                return "video";
             }
             return "file";
         });
@@ -764,6 +773,145 @@ describe("reply-strategy-card", () => {
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
             expect(options.taskInfoJson).toBeUndefined();
+        });
+    });
+
+    describe("non-image media handling", () => {
+        it("defers non-image attachments and sends them after card finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Setup: voice file should be deferred, not embedded in card
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".mp3") || mediaPath.endsWith(".m4a")) {
+                    return "voice";
+                }
+                return "file";
+            });
+            prepareMediaInputMock.mockImplementation(async (input) => ({ path: input, cleanup: vi.fn() }));
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: ["file://voice.mp3"] });
+            await strategy.finalize();
+
+            // Card should be finalized first
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+
+            // Non-image media should be sent via sessionWebhook when available
+            // The implementation prefers sessionWebhook for reply-session semantics
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            expect(sendMessageMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "cid_1",
+                "",
+                expect.objectContaining({
+                    sessionWebhook: "https://session.webhook",
+                    mediaPath: "file://voice.mp3",
+                    mediaType: "voice",
+                    accountId: "main",
+                    storePath: "/tmp/store.json",
+                })
+            );
+
+            // sendProactiveMedia should NOT be called since sessionWebhook is available
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+
+        it("embeds image media in card instead of sending separately", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg")) {
+                    return "image";
+                }
+                return "file";
+            });
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: ["file://image.png"] });
+            await strategy.finalize();
+
+            // Image should be uploaded for card embedding
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "file://image.png",
+                "image",
+                expect.anything()
+            );
+
+            // Non-image media should NOT be sent separately
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+
+        it("sends multiple non-image attachments after finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".mp3")) return "voice";
+                if (mediaPath.endsWith(".mp4")) return "video";
+                if (mediaPath.endsWith(".pdf")) return "file";
+                return "image";
+            });
+            prepareMediaInputMock.mockImplementation(async (input) => ({ path: input, cleanup: vi.fn() }));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "回复内容",
+                mediaUrls: ["file://voice.mp3", "file://video.mp4", "file://doc.pdf"]
+            });
+            await strategy.finalize();
+
+            // All three non-image attachments should be sent via sessionWebhook
+            expect(sendMessageMock).toHaveBeenCalledTimes(3);
+
+            // sendProactiveMedia should NOT be called since sessionWebhook is available
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("card failure fallback", () => {
+        it("sends user-friendly fallback message when card fails without answer content", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.finalize();
+
+            // Should send fallback message
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0][2];
+            // Should NOT be JSON (no blockList)
+            expect(sentText).not.toMatch(/^\[/);
+            expect(sentText).not.toMatch(/^\{/);
+        });
+
+        it("sends rendered timeline content when card fails with answer content", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Deliver final answer content
+            await strategy.deliver({ kind: "final", text: "最终答案内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0]?.[2];
+            expect(sentText).toContain("最终答案内容");
+        });
+
+        it("uses forceMarkdown when sending fallback after card failure", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const options = sendMessageMock.mock.calls[0]?.[3];
+            expect(options?.forceMarkdown).toBe(true);
         });
     });
 });
