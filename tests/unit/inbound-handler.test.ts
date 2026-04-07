@@ -8197,9 +8197,9 @@ describe("inbound-handler", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("finalizes the card with abort text when card mode is active", async () => {
-      const card = { cardInstanceId: "card_abort_1", state: "1", lastUpdated: Date.now() };
-      shared.createAICardMock.mockResolvedValue(card);
+    it("delivers abort confirmation via text (card mode: no card created for bypass branches)", async () => {
+      // createAICard is now hoisted below the abort/BTW bypass branches,
+      // so abort in card mode never creates a card — it delivers as plain text.
       shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
       shared.isAbortRequestTextMock.mockReturnValue(true);
 
@@ -8223,12 +8223,15 @@ describe("inbound-handler", () => {
 
       // session lock should NOT be acquired
       expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
-      // abort text should be written to card, not sent as plain text
-      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
-      expect(shared.finishAICardMock).toHaveBeenCalledWith(
-        card,
+      // No card created — abort confirmation goes out as plain text
+      expect(shared.createAICardMock).not.toHaveBeenCalled();
+      expect(shared.finishAICardMock).not.toHaveBeenCalled();
+      expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+      expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://session.webhook/abort",
         "⚙️ Agent was aborted.",
-        undefined,
+        expect.anything(),
       );
     });
 

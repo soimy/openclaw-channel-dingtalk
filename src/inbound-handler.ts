@@ -9,7 +9,7 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
+import { createAICard } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
@@ -805,46 +805,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
-  // 3) Select response mode (card vs markdown).
-  // Card creation runs BEFORE media download so the user sees immediate visual
-  // feedback while large files are still being downloaded.
-  let useCardMode = dingtalkConfig.messageType === "card";
-  let currentAICard: import("./types").AICardInstance | undefined;
-
-  if (useCardMode) {
-    try {
-      log?.debug?.(
-        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
-      );
-      const aiCard = await createAICard(dingtalkConfig, to, log, {
-        accountId,
-        storePath: accountStorePath,
-        contextConversationId: groupId,
-      });
-      if (aiCard) {
-        currentAICard = aiCard;
-        if (aiCard.outTrackId) {
-          registerCardRun(aiCard.outTrackId, {
-            accountId,
-            sessionKey: route.sessionKey,
-            agentId: route.agentId,
-            ownerUserId: senderId,
-            card: aiCard,
-          });
-        }
-      } else {
-        useCardMode = false;
-        log?.warn?.(
-          "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
-        );
-      }
-    } catch (err: any) {
-      useCardMode = false;
-      log?.warn?.(
-        `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
-      );
-    }
-  }
 
   const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
   const quotedRef = buildInboundQuotedRef(data, extractedContent);
@@ -1411,9 +1371,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
     );
-    // In card mode: capture the abort confirmation text so we can write it into
-    // the card (instead of sending a separate plain text message).
-    let abortConfirmationText: string | undefined;
     try {
       await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
@@ -1425,46 +1382,31 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
               return;
             }
-            if (currentAICard) {
-              // Card mode: capture text — will be written to card after dispatch.
-              abortConfirmationText = payload.text;
-            } else {
-              try {
-                if (sessionWebhook) {
-                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
-                    log,
-                    accountId,
-                    storePath: accountStorePath,
-                  });
-                } else {
-                  await sendMessage(dingtalkConfig, to, payload.text, {
-                    log,
-                    accountId,
-                    storePath: accountStorePath,
-                    conversationId: groupId,
-                  });
-                }
-              } catch (deliverErr) {
-                log?.warn?.(
-                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
-                );
+            try {
+              if (sessionWebhook) {
+                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                  log,
+                  accountId,
+                  storePath: accountStorePath,
+                });
+              } else {
+                await sendMessage(dingtalkConfig, to, payload.text, {
+                  log,
+                  accountId,
+                  storePath: accountStorePath,
+                  conversationId: groupId,
+                });
               }
+            } catch (deliverErr) {
+              log?.warn?.(
+                `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+              );
             }
           },
         },
       });
     } catch (abortErr) {
       log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
-    }
-    // Finalize the card that was created for this message before the abort check.
-    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
-    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
-      try {
-        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
-      } catch (cardErr) {
-        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
-        currentAICard.state = AICardStatus.FAILED;
-      }
     }
     return;
   }
@@ -1514,6 +1456,47 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
     }
     return;
+  }
+
+  // 3) Select response mode (card vs markdown).
+  // Card creation runs after bypass branches so that abort and /btw messages
+  // never create an orphan card (they return before reaching the main run).
+  let useCardMode = dingtalkConfig.messageType === "card";
+  let currentAICard: import("./types").AICardInstance | undefined;
+
+  if (useCardMode) {
+    try {
+      log?.debug?.(
+        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
+      );
+      const aiCard = await createAICard(dingtalkConfig, to, log, {
+        accountId,
+        storePath: accountStorePath,
+        contextConversationId: groupId,
+      });
+      if (aiCard) {
+        currentAICard = aiCard;
+        if (aiCard.outTrackId) {
+          registerCardRun(aiCard.outTrackId, {
+            accountId,
+            sessionKey: route.sessionKey,
+            agentId: route.agentId,
+            ownerUserId: senderId,
+            card: aiCard,
+          });
+        }
+      } else {
+        useCardMode = false;
+        log?.warn?.(
+          "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
+        );
+      }
+    } catch (err: any) {
+      useCardMode = false;
+      log?.warn?.(
+        `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
+      );
+    }
   }
 
   const ackReaction =

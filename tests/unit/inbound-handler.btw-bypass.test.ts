@@ -305,4 +305,35 @@ describe("inbound-handler /btw bypass", () => {
     await expect(invokeWithFakeInbound("/btw foo")).resolves.not.toThrow();
     expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
   });
+
+  it("card mode: does NOT call createAICard for /btw message", async () => {
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook/btw",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      data: { ...baseData, text: { content: "/btw foo" } },
+    } as any);
+
+    expect(shared.createAICardMock).not.toHaveBeenCalled();
+  });
+
+  it("card mode: does NOT call createAICard for abort (/stop) message", async () => {
+    shared.isAbortRequestTextMock.mockReturnValue(true);
+    shared.isBtwRequestTextMock.mockReturnValue(false);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook/btw",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      data: { ...baseData, text: { content: "/stop" } },
+    } as any);
+
+    expect(shared.createAICardMock).not.toHaveBeenCalled();
+    // Abort confirmation still delivered via normal text path
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+  });
 });
