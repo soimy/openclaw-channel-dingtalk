@@ -97,6 +97,71 @@ const sessionReasoningLevelCache = new Map<string, {
 }>();
 type ReplyMode = "card" | "markdown";
 
+function resolveQuotedContextAllowFrom(
+  config: DingTalkConfig,
+  groupId: string,
+): string[] | undefined {
+  const groupConfig = resolveGroupConfig(config, groupId);
+  return groupConfig?.groupAllowFrom ?? config.groupAllowFrom ?? config.allowFrom;
+}
+
+function resolveQuotedVisibilitySenderId(params: {
+  quotedSenderId?: string;
+  currentSenderId: string;
+  currentSenderOriginalId: string;
+}): string | undefined {
+  const quotedSenderId = (params.quotedSenderId || "").trim();
+  if (!quotedSenderId) {
+    return undefined;
+  }
+  if (quotedSenderId === params.currentSenderOriginalId) {
+    return params.currentSenderId;
+  }
+  return quotedSenderId;
+}
+
+function filterQuotedRuntimeContext(params: {
+  context: ReturnType<typeof resolveQuotedRuntimeContext>;
+  config: DingTalkConfig;
+  isDirect: boolean;
+  groupId: string;
+  quotedSenderId?: string;
+  currentSenderId: string;
+  currentSenderOriginalId: string;
+}): ReturnType<typeof resolveQuotedRuntimeContext> {
+  const { context, config, isDirect, groupId, quotedSenderId, currentSenderId, currentSenderOriginalId } = params;
+  if (!context || isDirect) {
+    return context;
+  }
+
+  const mode = config.contextVisibility || "all";
+  if (mode === "all") {
+    return context;
+  }
+
+  const allow = normalizeAllowFrom(resolveQuotedContextAllowFrom(config, groupId));
+  const senderId = resolveQuotedVisibilitySenderId({
+    quotedSenderId,
+    currentSenderId,
+    currentSenderOriginalId,
+  });
+  const senderAllowed =
+    allow.hasEntries && !!senderId
+      ? isSenderAllowed({ allow, senderId })
+      : false;
+
+  if (senderAllowed) {
+    return context;
+  }
+  if (mode === "allowlist_quote") {
+    return {
+      ...context,
+      untrustedContext: undefined,
+    };
+  }
+  return null;
+}
+
 function readSessionReasoningLevel(params: {
   storePath?: string;
   sessionKey: string;
@@ -845,6 +910,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       messageType: content.messageType,
       text: content.text,
       quotedRef,
+      senderId,
+      senderName,
       createdAt: data.createAt,
       ttlMs: ttlDaysToMs(journalTTLDays),
       ttlReferenceMs: data.createAt,
@@ -945,22 +1012,30 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     quotedRef,
     log,
   });
-  const quotedRuntimeContext = resolveQuotedRuntimeContext({
-    storePath: accountStorePath,
-    accountId,
-    conversationId: data.conversationId,
-    quotedRef,
-    firstRecord: quotedRecord,
-    firstPreview:
-      content.quoted?.previewText ||
-      content.quoted?.previewMessageType
-        ? {
-            text: content.quoted.previewText,
-            messageType: content.quoted.previewMessageType,
-            senderId: content.quoted.previewSenderId,
-          }
-        : undefined,
-    log,
+  const quotedRuntimeContext = filterQuotedRuntimeContext({
+    context: resolveQuotedRuntimeContext({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: data.conversationId,
+      quotedRef,
+      firstRecord: quotedRecord,
+      firstPreview:
+        content.quoted?.previewText ||
+        content.quoted?.previewMessageType
+          ? {
+              text: content.quoted.previewText,
+              messageType: content.quoted.previewMessageType,
+              senderId: content.quoted.previewSenderId,
+            }
+          : undefined,
+      log,
+    }),
+    config: dingtalkConfig,
+    isDirect,
+    groupId,
+    quotedSenderId: quotedRecord?.senderId || content.quoted?.previewSenderId,
+    currentSenderId: senderId,
+    currentSenderOriginalId: senderOriginalId,
   });
 
   // Try downloading a quoted file from cached downloadCode/spaceId+fileId.

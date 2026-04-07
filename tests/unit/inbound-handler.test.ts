@@ -2263,6 +2263,109 @@ describe("inbound-handler", () => {
     expect(finalized.UntrustedContext).toBeUndefined();
   });
 
+  it("hides quoted preview body in group allowlist mode when the quoted sender is outside the allowlist", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续这个话题",
+      messageType: "text",
+      quoted: {
+        msgId: "missing_preview_group_msg",
+        previewText: "这是外部成员的一跳引用预览",
+        previewMessageType: "text",
+        previewSenderId: "raw_sender_other_user",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_allowed_group", "manager8031"],
+        contextVisibility: "allowlist",
+        messageType: "markdown",
+      } as any,
+      data: {
+        msgId: "m_quote_preview_group_allowlist_1",
+        msgtype: "text",
+        text: { content: "继续这个话题", isReplyMsg: true },
+        originalMsgId: "missing_preview_group_msg",
+        conversationType: "2",
+        conversationId: "cid_allowed_group",
+        senderId: "raw_sender_manager8031",
+        senderStaffId: "manager8031",
+        senderNick: "管理员",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBeUndefined();
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBeUndefined();
+  });
+
+  it("keeps quoted preview body in group allowlist_quote mode even when the quoted sender is outside the allowlist", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续这个话题",
+      messageType: "text",
+      quoted: {
+        msgId: "missing_preview_group_msg_quote_mode",
+        previewText: "这是外部成员的一跳引用预览",
+        previewMessageType: "text",
+        previewSenderId: "raw_sender_other_user",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_allowed_group", "manager8031"],
+        contextVisibility: "allowlist_quote",
+        messageType: "markdown",
+      } as any,
+      data: {
+        msgId: "m_quote_preview_group_allowlist_quote_1",
+        msgtype: "text",
+        text: { content: "继续这个话题", isReplyMsg: true },
+        originalMsgId: "missing_preview_group_msg_quote_mode",
+        conversationType: "2",
+        conversationId: "cid_allowed_group",
+        senderId: "raw_sender_manager8031",
+        senderStaffId: "manager8031",
+        senderNick: "管理员",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToId).toBe("missing_preview_group_msg_quote_mode");
+    expect(finalized.ReplyToBody).toBe("这是外部成员的一跳引用预览");
+    expect(finalized.ReplyToSender).toBeUndefined();
+    expect(finalized.ReplyToIsQuote).toBe(true);
+  });
+
   it("injects a single JSON UntrustedContext block for multi-hop quoted chains starting at hop 2", async () => {
     const baseTs = Date.now();
     const runtime = buildRuntime();
