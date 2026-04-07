@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/send-service", () => ({
+  sendBySession: vi.fn(async () => ({ ok: true })),
+  sendMessage: vi.fn(async () => ({ ok: true })),
+}));
+
+import { deliverBtwReply } from "../../src/messaging/btw-deliver";
+import { sendBySession, sendMessage } from "../../src/send-service";
 import { buildBtwBlockquote } from "../../src/messaging/btw-deliver";
 
 describe("buildBtwBlockquote", () => {
@@ -39,5 +47,32 @@ describe("buildBtwBlockquote", () => {
     const result = buildBtwBlockquote("王滨", exact80);
     expect(result).toBe(`> 王滨: ${exact80}\n\n`);
     expect(result).not.toContain("…");
+  });
+});
+
+describe("deliverBtwReply", () => {
+  beforeEach(() => {
+    vi.mocked(sendBySession).mockClear();
+    vi.mocked(sendMessage).mockClear();
+  });
+
+  it("uses sendBySession when sessionWebhook is provided", async () => {
+    const result = await deliverBtwReply({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      config: {} as any,
+      sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?token=abc",
+      conversationId: "cidXXX",
+      to: "userA",
+      senderName: "王滨",
+      rawQuestion: "/btw foo",
+      replyText: "the answer",
+      log: undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(sendBySession).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    const call = vi.mocked(sendBySession).mock.calls[0];
+    expect(call[2]).toBe("> 王滨: /btw foo\n\nthe answer");
   });
 });
