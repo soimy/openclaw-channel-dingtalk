@@ -259,4 +259,15 @@ describe("inbound-handler /btw bypass", () => {
     expect(shared.acquireSessionLockMock).toHaveBeenCalledTimes(1);
     expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
   });
+
+  it("matches /btw even with leading @mention (group chat)", async () => {
+    // The bypass branch strips @mentions before passing to isBtwRequestText.
+    // Verify by checking the isBtwRequestText spy receives the cleaned text.
+    shared.isBtwRequestTextMock.mockClear();
+    shared.isBtwRequestTextMock.mockReturnValue(true);
+
+    await invokeWithFakeInbound("@Bot /btw foo");
+    expect(shared.isBtwRequestTextMock).toHaveBeenCalledWith("/btw foo");
+    expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+  });
 });
