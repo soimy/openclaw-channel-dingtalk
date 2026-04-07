@@ -870,6 +870,42 @@ describe("reply-strategy-card", () => {
             expect(rendered).toContain("✅ Done");
         });
 
+        it("does not recall when a media-only final is followed by a late textual final before finalize", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia: vi.fn().mockResolvedValue(undefined),
+            }));
+
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
+            await strategy.deliver({ text: "晚到 final 文本", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(recallAICardMessageMock).not.toHaveBeenCalled();
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("晚到 final 文本");
+        });
+
+        it("does not recall when media arrives before a later textual final in the same reply cycle", async () => {
+            const card = makeCard({ conversationId: "manager8031" });
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                isDirect: true,
+                to: "manager8031",
+                sessionWebhook: "",
+                deliverMedia: vi.fn().mockResolvedValue(undefined),
+            }));
+
+            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "block", audioAsVoice: true });
+            await strategy.deliver({ text: "最终文本答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(recallAICardMessageMock).not.toHaveBeenCalled();
+            expect(finishAICardMock).toHaveBeenCalledTimes(1);
+            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("最终文本答案");
+        });
+
         it("falls back to Done finalization when empty-card recall fails", async () => {
             const card = makeCard({ conversationId: "manager8031" });
             recallAICardMessageMock.mockResolvedValueOnce(false);
