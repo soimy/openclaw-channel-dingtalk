@@ -42,6 +42,7 @@
 
 > [!IMPORTANT]
 > 最小兼容版本为 `OpenClaw 2026.3.24`。安装前请先升级到最新版 OpenClaw。
+> 
 > 根据钉钉开放平台公告《[关于限时开放钉钉PaaS资源不限量额度以助力企业AI智能体集成的公告](https://open.dingtalk.com/document/development/open-ai-paas-report)》（更新于 `2026-03-11`），OpenClaw 调用钉钉 `API/Webhook/Stream` 的免费“不限量”额度默认有效至 `2026-03-31`；如已通过官方申请通道获批，豁免权益最晚有效至 `2026-04-30`。部署前请前往“钉钉开发者后台 -> 资源管理”核对当前额度状态。
 
 ```bash
