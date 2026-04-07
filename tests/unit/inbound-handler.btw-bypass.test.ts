@@ -294,4 +294,15 @@ describe("inbound-handler /btw bypass", () => {
     await invokeWithFakeInbound("/btw foo");
     expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
   });
+
+  it("catches and logs dispatcher errors without re-throwing", async () => {
+    const rt = buildRuntime();
+    rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn(async () => {
+      throw new Error("dispatcher boom");
+    });
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await expect(invokeWithFakeInbound("/btw foo")).resolves.not.toThrow();
+    expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
+  });
 });
