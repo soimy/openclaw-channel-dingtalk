@@ -75,4 +75,40 @@ describe("deliverBtwReply", () => {
     const call = vi.mocked(sendBySession).mock.calls[0];
     expect(call[2]).toBe("> 王滨: /btw foo\n\nthe answer");
   });
+
+  it("uses sendMessage when sessionWebhook is undefined", async () => {
+    const result = await deliverBtwReply({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      config: {} as any,
+      sessionWebhook: undefined,
+      conversationId: "cidXXX",
+      to: "userA",
+      senderName: "",
+      rawQuestion: "/btw bar",
+      replyText: "answer",
+      log: undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendBySession).not.toHaveBeenCalled();
+    expect(vi.mocked(sendMessage).mock.calls[0][2]).toBe("> /btw bar\n\nanswer");
+  });
+
+  it("returns ok=false when send throws", async () => {
+    vi.mocked(sendBySession).mockRejectedValueOnce(new Error("network down"));
+    const result = await deliverBtwReply({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      config: {} as any,
+      sessionWebhook: "https://example",
+      conversationId: "cidXXX",
+      to: "userA",
+      senderName: "王滨",
+      rawQuestion: "/btw foo",
+      replyText: "answer",
+      log: undefined,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("network down");
+  });
 });
