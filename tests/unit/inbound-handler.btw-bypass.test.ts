@@ -280,4 +280,18 @@ describe("inbound-handler /btw bypass", () => {
     // Abort branch returns early — BTW deliver must NOT be invoked
     expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
   });
+
+  it("skips delivery when payload.text is empty", async () => {
+    const rt = buildRuntime();
+    rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn(
+      async ({ dispatcherOptions }: any) => {
+        await dispatcherOptions.deliver({ text: "" });
+        return { queuedFinal: "" };
+      },
+    );
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await invokeWithFakeInbound("/btw foo");
+    expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
+  });
 });
