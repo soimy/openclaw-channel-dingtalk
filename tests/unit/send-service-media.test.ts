@@ -160,9 +160,8 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockResolvedValueOnce({
             mediaId: 'media_voice_proactive',
             buffer: Buffer.from('data'),
-            uploadedPath: '/tmp/a.amr',
+            durationMs: 1000,
         });
-        mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_session_reply' } } as any);
 
         const result = await sendMessage(
@@ -255,9 +254,8 @@ describe('send-service media branches', () => {
         mockedUploadMedia.mockResolvedValueOnce({
             mediaId: 'media_voice_1',
             buffer: Buffer.from('data'),
-            uploadedPath: '/tmp/a.amr',
+            durationMs: 1000,
         });
-        mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
         const result = await sendProactiveMedia(
@@ -270,16 +268,16 @@ describe('send-service media branches', () => {
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
         expect(result.ok).toBe(true);
     });
 
-    it('sendProactiveMedia uses transcoded voice path for duration probing', async () => {
+    it('sendProactiveMedia uses upload-time duration without requiring an uploaded temp path', async () => {
         mockedUploadMedia.mockResolvedValueOnce({
             mediaId: 'media_voice_transcoded',
             buffer: Buffer.from('ogg-data'),
-            uploadedPath: '/tmp/dingtalk_voice_123.ogg',
+            durationMs: 7700,
         });
-        mockedGetVoiceDurationMs.mockResolvedValueOnce(7700);
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_transcoded' } } as any);
 
         await sendProactiveMedia(
@@ -289,12 +287,34 @@ describe('send-service media branches', () => {
             'voice'
         );
 
-        expect(mockedGetVoiceDurationMs).toHaveBeenCalledWith(
-            '/tmp/dingtalk_voice_123.ogg',
-            'voice',
-            undefined,
-            { preReadBuffer: Buffer.from('ogg-data') },
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_transcoded', duration: '7700' });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
+    });
+
+    it('sendBySession voice media uses upload-time duration without requiring an uploaded temp path', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_session_duration',
+            buffer: Buffer.from('ogg-data'),
+            durationMs: 6400,
+        });
+        mockedAxios.mockResolvedValueOnce({
+            data: { success: true, result: true, messageId: 'session_voice_1' },
+        } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'https://session.webhook',
+            'ignored text',
+            { mediaPath: '/tmp/original.wav', mediaType: 'voice' }
         );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.data).toEqual({
+            msgtype: 'voice',
+            voice: { media_id: 'media_voice_session_duration', duration: '6400' },
+        });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
     it('delegates proactive media journaling when storePath is provided', async () => {

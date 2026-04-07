@@ -1598,6 +1598,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     payload: ReplyStreamPayload,
     inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
   ): boolean {
+    // Normalize all reply-time voice hints into the shared `audioAsVoice`
+    // semantic that strategies and media delivery use downstream.
     const richPayload = payload as ReplyStreamPayload & {
       audioAsVoice?: unknown;
       asVoice?: unknown;

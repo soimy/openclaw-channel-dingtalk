@@ -464,7 +464,7 @@ export async function sendProactiveMedia(
     if (!uploadResult) {
       return { ok: false, error: "Failed to upload media" };
     }
-    const { mediaId, buffer, uploadedPath, durationMs: uploadedDurationMs } = uploadResult;
+    const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
 
     const token = await getAccessToken(config, log);
     const { targetId, isExplicitUser } = stripTargetPrefix(target);
@@ -486,7 +486,7 @@ export async function sendProactiveMedia(
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
       const durationMs = uploadedDurationMs
-        ?? await getVoiceDurationMs(uploadedPath, mediaType, log, { preReadBuffer: buffer });
+        ?? await getVoiceDurationMs(mediaPath, mediaType, log, { preReadBuffer: buffer });
       msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
@@ -620,14 +620,14 @@ export async function sendBySession(
       mediaLocalRoots: options.mediaLocalRoots,
     });
     if (uploadResult) {
-      const { mediaId, buffer, uploadedPath, durationMs: uploadedDurationMs } = uploadResult;
+      const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
       let body: any;
 
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
         const durationMs = uploadedDurationMs
-          ?? await getVoiceDurationMs(uploadedPath, options.mediaType, log, { preReadBuffer: buffer });
+          ?? await getVoiceDurationMs(options.mediaPath, options.mediaType, log, { preReadBuffer: buffer });
         body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
         log?.debug?.(
           `[DingTalk] Sending session voice message mediaId=${mediaId} durationMs=${durationMs}`,

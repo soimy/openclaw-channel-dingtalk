@@ -20,6 +20,11 @@ type InternalReplyStrategyConfig = DingTalkConfig & {
 export interface DeliverPayload {
   text?: string;
   mediaUrls: string[];
+  /**
+   * Shared reply-runtime voice hint. Strategies forward this unchanged into the
+   * channel media delivery helper; inbound-handler is responsible for bridging
+   * legacy aliases (for example `asVoice`) into this single field.
+   */
   audioAsVoice?: boolean;
   kind: "block" | "final" | "tool";
   isReasoning?: boolean;
@@ -64,6 +69,11 @@ export interface ReplyStrategyContext {
   groupId?: string;
   log?: Logger;
   replyQuotedRef?: QuotedRef;
+  /**
+   * Channel-level media delivery hook. The `audioAsVoice` option is the same
+   * shared voice semantic carried on DeliverPayload, not a second independent
+   * config knob.
+   */
   deliverMedia: (urls: string[], options?: { audioAsVoice?: boolean }) => Promise<void>;
   isStopRequested?: () => boolean;
 }

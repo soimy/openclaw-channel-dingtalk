@@ -824,9 +824,11 @@ export interface UploadMediaResult {
   mediaId: string;
   /** The file buffer read during upload, reusable for voice duration parsing etc. */
   buffer: Buffer;
-  /** Actual local file path uploaded to DingTalk after any voice transcoding. */
-  uploadedPath: string;
-  /** Voice duration captured before any temporary transcoded file is cleaned up. */
+  /**
+   * Voice duration captured before any temporary transcoded file is cleaned up.
+   * This is the stable field callers should use instead of depending on any
+   * upload-time temp path lifecycle.
+   */
   durationMs?: number;
 }
 
@@ -887,7 +889,7 @@ export async function uploadMedia(
       log?.debug?.(
         `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${size} bytes)`,
       );
-      return { mediaId: response.data.media_id, buffer, uploadedPath: resolvedMediaPath, durationMs };
+      return { mediaId: response.data.media_id, buffer, durationMs };
     } else {
       log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
       return null;
