@@ -1365,8 +1365,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // "@Agent /stop" are correctly recognised as abort requests in both DM and group
   // chats. In groups DingTalk usually strips @BotName at the protocol level, but
   // in DMs with multi-agent routing the @mention prefix survives all the way here.
-  const textForAbortCheck = stripLeadingMentions(inboundText).trim();
-  if (isAbortRequestText(textForAbortCheck)) {
+  // Shared by both abort and BTW bypass branches: strip leading @mentions once.
+  const textForCommandCheck = stripLeadingMentions(inboundText).trim();
+  if (isAbortRequestText(textForCommandCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
     );
@@ -1419,8 +1420,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // isBtwRequestText is soft-imported: older openclaw versions do not export it,
   // in which case the typeof guard skips the bypass and the message falls through
   // to the normal session-lock path (degraded UX, no crash).
-  const textForBtwCheck = stripLeadingMentions(inboundText).trim();
-  if (typeof isBtwRequestText === "function" && isBtwRequestText(textForBtwCheck)) {
+  if (typeof isBtwRequestText === "function" && isBtwRequestText(textForCommandCheck)) {
     log?.info?.(
       `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
     );
