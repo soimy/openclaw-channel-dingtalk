@@ -17,7 +17,7 @@ export function buildBtwBlockquote(senderName: string, rawQuestion: string): str
   const stripped = stripLeadingMentions(rawQuestion);
   // Iterate by Unicode code points (not UTF-16 code units) so emoji /
   // surrogate pairs aren't sliced in half at the truncation boundary.
-  const codePoints = [...stripped];
+  const codePoints = Array.from(stripped);
   const truncated =
     codePoints.length > MAX_QUESTION_LENGTH
       ? `${codePoints.slice(0, MAX_QUESTION_LENGTH).join("")}…`
