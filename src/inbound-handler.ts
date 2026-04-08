@@ -9,7 +9,7 @@ import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard } from "./card-service";
+import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
@@ -809,6 +809,66 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
+  // Decide BTW bypass once, here. Two consequences depend on this single decision:
+  //   1. Skip createAICard below — /btw must never create a card it can't finalize
+  //      (CLAUDE.md anti-pattern: no multiple active cards per accountId:conversationId).
+  //   2. Drive the actual /btw bypass dispatch later in this function (see the
+  //      `if (isBtwBypass)` branch below, after the abort branch).
+  // Both consequences read this constant; nothing recomputes the check, so the two
+  // sites can never disagree. The check uses `content.text` (pre-OCR user body),
+  // not `inboundText` (which is content.text + attachment OCR), because /btw is a
+  // command typed by the user — we must not dispatch BTW because some attached
+  // image's OCR happens to start with "/btw". This data dependency is also why the
+  // sibling abort flag is NOT lifted here: abort uses `inboundText` (its historical
+  // input), and `inboundText` is not yet computed at this point in the pipeline.
+  const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
+
+  // 3) Select response mode (card vs markdown).
+  // Card creation runs BEFORE media download so the user sees immediate visual
+  // feedback while large files are still being downloaded.
+  // /btw is gated out here (`!isBtwBypass`) because it must never create a card —
+  // it has its own bypass dispatch later that returns before reaching the main
+  // run. Abort (/stop) is intentionally NOT gated: in card mode the existing
+  // abort branch finalizes the card with the abort confirmation text instead of
+  // sending a separate plain-text message.
+  let useCardMode = dingtalkConfig.messageType === "card";
+  let currentAICard: import("./types").AICardInstance | undefined;
+
+  if (useCardMode && !isBtwBypass) {
+    try {
+      log?.debug?.(
+        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
+      );
+      const aiCard = await createAICard(dingtalkConfig, to, log, {
+        accountId,
+        storePath: accountStorePath,
+        contextConversationId: groupId,
+      });
+      if (aiCard) {
+        currentAICard = aiCard;
+        if (aiCard.outTrackId) {
+          registerCardRun(aiCard.outTrackId, {
+            accountId,
+            sessionKey: route.sessionKey,
+            agentId: route.agentId,
+            ownerUserId: senderId,
+            card: aiCard,
+          });
+        }
+      } else {
+        useCardMode = false;
+        log?.warn?.(
+          "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
+        );
+      }
+    } catch (err: any) {
+      useCardMode = false;
+      log?.warn?.(
+        `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
+      );
+    }
+  }
+
   const hasLegacyQuoteContent =
     typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
 
@@ -1365,12 +1425,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // "@Agent /stop" are correctly recognised as abort requests in both DM and group
   // chats. In groups DingTalk usually strips @BotName at the protocol level, but
   // in DMs with multi-agent routing the @mention prefix survives all the way here.
-  // Shared by both abort and BTW bypass branches: strip leading @mentions once.
-  const textForCommandCheck = stripLeadingMentions(inboundText).trim();
-  if (isAbortRequestText(textForCommandCheck)) {
+  const textForAbortCheck = stripLeadingMentions(inboundText).trim();
+  if (isAbortRequestText(textForAbortCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
     );
+    // In card mode: capture the abort confirmation text so we can write it into
+    // the card (instead of sending a separate plain text message).
+    let abortConfirmationText: string | undefined;
     try {
       await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx,
@@ -1382,31 +1444,46 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
               return;
             }
-            try {
-              if (sessionWebhook) {
-                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
-                  log,
-                  accountId,
-                  storePath: accountStorePath,
-                });
-              } else {
-                await sendMessage(dingtalkConfig, to, payload.text, {
-                  log,
-                  accountId,
-                  storePath: accountStorePath,
-                  conversationId: groupId,
-                });
+            if (currentAICard) {
+              // Card mode: capture text — will be written to card after dispatch.
+              abortConfirmationText = payload.text;
+            } else {
+              try {
+                if (sessionWebhook) {
+                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                  });
+                } else {
+                  await sendMessage(dingtalkConfig, to, payload.text, {
+                    log,
+                    accountId,
+                    storePath: accountStorePath,
+                    conversationId: groupId,
+                  });
+                }
+              } catch (deliverErr) {
+                log?.warn?.(
+                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+                );
               }
-            } catch (deliverErr) {
-              log?.warn?.(
-                `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
-              );
             }
           },
         },
       });
     } catch (abortErr) {
       log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+    }
+    // Finalize the card that was created for this message before the abort check.
+    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
+      try {
+        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+      } catch (cardErr) {
+        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
+        currentAICard.state = AICardStatus.FAILED;
+      }
     }
     return;
   }
@@ -1416,7 +1493,13 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // the main run's transcript. The dispatch must NOT acquire the session lock,
   // otherwise it would queue behind the in-flight main task and lose its "side
   // question" semantics.
-  if (isBtwRequestText(textForCommandCheck)) {
+  //
+  // The `isBtwBypass` flag is computed once early (just after `content` is
+  // resolved, just before `createAICard`). The same constant gates `createAICard` above and
+  // drives this branch — single decision, two consequences. See the comment
+  // at the flag's definition for why /btw uses pre-OCR `content.text` while
+  // abort uses `inboundText`.
+  if (isBtwBypass) {
     log?.info?.(
       `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
     );
@@ -1443,7 +1526,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
               conversationId: groupId,
               to,
               senderName: btwSenderName,
-              rawQuestion: inboundText,
+              // Use pre-OCR content.text (consistent with isBtwBypass detection)
+              // so the blockquote shows the user's typed body, not body + OCR.
+              rawQuestion: content.text,
               replyText: payload.text,
               log,
               accountId,
@@ -1456,47 +1541,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
     }
     return;
-  }
-
-  // 3) Select response mode (card vs markdown).
-  // Card creation runs after bypass branches so that abort and /btw messages
-  // never create an orphan card (they return before reaching the main run).
-  let useCardMode = dingtalkConfig.messageType === "card";
-  let currentAICard: import("./types").AICardInstance | undefined;
-
-  if (useCardMode) {
-    try {
-      log?.debug?.(
-        `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
-      );
-      const aiCard = await createAICard(dingtalkConfig, to, log, {
-        accountId,
-        storePath: accountStorePath,
-        contextConversationId: groupId,
-      });
-      if (aiCard) {
-        currentAICard = aiCard;
-        if (aiCard.outTrackId) {
-          registerCardRun(aiCard.outTrackId, {
-            accountId,
-            sessionKey: route.sessionKey,
-            agentId: route.agentId,
-            ownerUserId: senderId,
-            card: aiCard,
-          });
-        }
-      } else {
-        useCardMode = false;
-        log?.warn?.(
-          "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
-        );
-      }
-    } catch (err: any) {
-      useCardMode = false;
-      log?.warn?.(
-        `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
-      );
-    }
   }
 
   const ackReaction =

@@ -297,7 +297,7 @@ describe("inbound-handler /btw bypass", () => {
     expect(shared.deliverBtwReplyMock).not.toHaveBeenCalled();
   });
 
-  it("card mode: does NOT call createAICard for /btw message", async () => {
+  it("card mode: does NOT call createAICard for /btw message (gated by isBtwBypass flag)", async () => {
     await handleDingTalkMessage({
       cfg: {},
       accountId: "main",
@@ -308,23 +308,5 @@ describe("inbound-handler /btw bypass", () => {
     } as any);
 
     expect(shared.createAICardMock).not.toHaveBeenCalled();
-  });
-
-  it("card mode: does NOT call createAICard for abort (/stop) message", async () => {
-    shared.isAbortRequestTextMock.mockReturnValue(true);
-    shared.isBtwRequestTextMock.mockReturnValue(false);
-
-    await handleDingTalkMessage({
-      cfg: {},
-      accountId: "main",
-      sessionWebhook: "https://session.webhook/btw",
-      log: undefined,
-      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-      data: { ...baseData, text: { content: "/stop" } },
-    } as any);
-
-    expect(shared.createAICardMock).not.toHaveBeenCalled();
-    // Abort confirmation still delivered via normal text path
-    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
   });
 });
