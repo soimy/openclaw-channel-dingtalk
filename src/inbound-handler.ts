@@ -826,6 +826,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         spaceId: data.content?.spaceId,
         fileId: data.content?.fileId,
       },
+      attachmentFileName: attachmentContextFileName,
       ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
       topic: null,
     });
@@ -850,6 +851,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         spaceId: content.docSpaceId,
         fileId: content.docFileId,
       },
+      attachmentFileName: attachmentContextFileName,
       ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
       topic: null,
     });
