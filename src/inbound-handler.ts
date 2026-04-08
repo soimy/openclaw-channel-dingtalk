@@ -5,7 +5,7 @@ import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
-import { attachNativeAckReaction, withAckReaction } from "./ack-reaction-service";
+import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
@@ -1430,38 +1430,32 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     // here so the existing `senderName` semantics elsewhere in the file are not
     // affected.
     const btwSenderName = data.senderNick || "";
-    // Attach a thinking ack reaction so the user sees immediate feedback while
-    // openclaw streams the BTW answer. Recalled when dispatch resolves (or
-    // throws). Fixed "🤔思考中" — independent of main-run ack reaction config.
-    const btwAckTarget = { msgId: data.msgId, conversationId: groupId, reactionName: "🤔思考中" };
     try {
-      await withAckReaction(dingtalkConfig, btwAckTarget, log, () =>
-        rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-          ctx,
-          cfg,
-          dispatcherOptions: {
-            responsePrefix: "",
-            deliver: async (payload) => {
-              if (!payload.text) {
-                log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
-                return;
-              }
-              await deliverBtwReply({
-                config: dingtalkConfig,
-                sessionWebhook,
-                conversationId: groupId,
-                to,
-                senderName: btwSenderName,
-                rawQuestion: inboundText,
-                replyText: payload.text,
-                log,
-                accountId,
-                storePath: accountStorePath,
-              });
-            },
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) {
+              log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
+              return;
+            }
+            await deliverBtwReply({
+              config: dingtalkConfig,
+              sessionWebhook,
+              conversationId: groupId,
+              to,
+              senderName: btwSenderName,
+              rawQuestion: inboundText,
+              replyText: payload.text,
+              log,
+              accountId,
+              storePath: accountStorePath,
+            });
           },
-        }),
-      );
+        },
+      });
     } catch (btwErr) {
       log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
     }
