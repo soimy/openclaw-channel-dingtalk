@@ -61,7 +61,6 @@ import {
 } from "./targeting/target-directory-store";
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData, parseBooleanLike } from "./utils";
-import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
