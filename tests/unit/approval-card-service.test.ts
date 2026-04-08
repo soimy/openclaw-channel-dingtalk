@@ -111,28 +111,6 @@ describe("buildApprovalCardParamMap", () => {
   });
 });
 
-describe("ApprovalCardStore", () => {
-  beforeEach(async () => {
-    const { approvalCardStore } = await import("../../src/approval-card-service");
-    approvalCardStore.clear();
-  });
-
-  it("stores and retrieves outTrackId by approvalId", async () => {
-    const { approvalCardStore } = await import("../../src/approval-card-service");
-    approvalCardStore.set("exec:abc", {
-      outTrackId: "track-123",
-      conversationId: "cid:test",
-      accountId: "default",
-      agentId: "main",
-      sessionKey: "agent:main:dingtalk:user:123",
-      expiresAt: Date.now() + 60_000,
-    });
-    expect(approvalCardStore.get("exec:abc")).toMatchObject({ outTrackId: "track-123" });
-    approvalCardStore.delete("exec:abc");
-    expect(approvalCardStore.get("exec:abc")).toBeUndefined();
-  });
-});
-
 describe("parseApprovalActionValue", () => {
   it("parses valid approval JSON", async () => {
     const { parseApprovalActionValue } = await import("../../src/approval-card-service");
@@ -188,83 +166,6 @@ describe("parseApprovalFromCardPrivateData", () => {
   });
 });
 
-describe("sendExecApprovalCard (createApprovalCard)", () => {
-  const mockConfig = { clientId: "test-id", clientSecret: "test-secret", robotCode: "test-robot" } as any;
-
-  beforeEach(async () => {
-    const { approvalCardStore } = await import("../../src/approval-card-service");
-    approvalCardStore.clear();
-    vi.mocked(axios.post).mockReset();
-    vi.mocked(axios.put).mockReset();
-    // Re-set mocks cleared by global mockReset
-    const { stripTargetPrefix } = await import("../../src/config");
-    vi.mocked(stripTargetPrefix).mockReturnValue({ targetId: "cidTestConv123" } as any);
-    const { resolveOriginalPeerId } = await import("../../src/peer-id-registry");
-    vi.mocked(resolveOriginalPeerId).mockReturnValue("cidTestConv123");
-    const { getAccessToken } = await import("../../src/auth");
-    vi.mocked(getAccessToken).mockResolvedValue("test-token");
-  });
-
-  it("uses effectiveOutTrackId from result.outTrackId when present", async () => {
-    vi.mocked(axios.post).mockResolvedValue({ data: { result: { outTrackId: "server-track-id" } } });
-    vi.mocked(axios.put).mockResolvedValue({ data: {} });
-    const { sendExecApprovalCard, approvalCardStore } = await import("../../src/approval-card-service");
-    const req = makeExecRequest();
-    const result = await sendExecApprovalCard(mockConfig, "dingtalk:cidTestConv123", "default", req, NOW_MS);
-    expect(result.ok).toBe(true);
-    expect(result.outTrackId).toBe("server-track-id");
-    expect(approvalCardStore.get("exec:test-id-1")?.outTrackId).toBe("server-track-id");
-  });
-
-  it("uses effectiveOutTrackId from top-level outTrackId when result is absent", async () => {
-    vi.mocked(axios.post).mockResolvedValue({ data: { outTrackId: "top-level-track" } });
-    vi.mocked(axios.put).mockResolvedValue({ data: {} });
-    const { sendExecApprovalCard, approvalCardStore } = await import("../../src/approval-card-service");
-    const req = makeExecRequest();
-    const result = await sendExecApprovalCard(mockConfig, "dingtalk:cidTestConv123", "default", req, NOW_MS);
-    expect(result.ok).toBe(true);
-    expect(result.outTrackId).toBe("top-level-track");
-    expect(approvalCardStore.get("exec:test-id-1")?.outTrackId).toBe("top-level-track");
-  });
-
-  it("falls back to original outTrackId when response has no outTrackId", async () => {
-    vi.mocked(axios.post).mockResolvedValue({ data: { success: true } });
-    vi.mocked(axios.put).mockResolvedValue({ data: {} });
-    const { sendExecApprovalCard, approvalCardStore } = await import("../../src/approval-card-service");
-    const req = makeExecRequest();
-    const result = await sendExecApprovalCard(mockConfig, "dingtalk:cidTestConv123", "default", req, NOW_MS);
-    expect(result.ok).toBe(true);
-    expect(result.outTrackId).toMatch(/^approval_/);
-    expect(approvalCardStore.get("exec:test-id-1")?.outTrackId).toBe(result.outTrackId);
-  });
-
-  it("streams content via PUT /v1.0/card/streaming after card creation", async () => {
-    vi.mocked(axios.post).mockResolvedValue({ data: { result: { outTrackId: "track-1" } } });
-    vi.mocked(axios.put).mockResolvedValue({ data: {} });
-    const { sendExecApprovalCard } = await import("../../src/approval-card-service");
-    const req = makeExecRequest();
-    await sendExecApprovalCard(mockConfig, "dingtalk:cidTestConv123", "default", req, NOW_MS);
-    // Verify streaming PUT was called with content
-    expect(axios.put).toHaveBeenCalledWith(
-      expect.stringContaining("/v1.0/card/streaming"),
-      expect.objectContaining({
-        outTrackId: "track-1",
-        key: "content",
-        isFull: true,
-        isFinalize: true,
-      }),
-      expect.anything(),
-    );
-  });
-
-  it("returns ok:false when axios.post throws", async () => {
-    vi.mocked(axios.post).mockRejectedValue(new Error("network error"));
-    const { sendExecApprovalCard } = await import("../../src/approval-card-service");
-    const req = makeExecRequest();
-    const result = await sendExecApprovalCard(mockConfig, "dingtalk:cidTestConv123", "default", req, NOW_MS);
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("network error");
-  });
-});
-
-// handleApprovalCardCallback tests are in approval-card-callback.test.ts
+// Card delivery (createAndDeliver), updateApprovalCardResolved, and store
+// have all moved to src/approval/approval-native-adapter.ts.
+// Coverage for those lives in tests/unit/approval-native-adapter.test.ts.

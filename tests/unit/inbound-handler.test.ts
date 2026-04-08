@@ -84,6 +84,11 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
 }));
 
+const resolveApprovalOverGatewayMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
+  resolveApprovalOverGateway: (...args: unknown[]) => resolveApprovalOverGatewayMock(...args),
+}));
+
 vi.mock("../../src/message-context-store", async () => {
   const actual = await vi.importActual<typeof import("../../src/message-context-store")>(
     "../../src/message-context-store",
@@ -8394,14 +8399,14 @@ describe("inbound-handler", () => {
 
   // ---- /approve text command bypass tests ----
 
-  it("/approve text command dispatches via command session (bypasses normal pipeline)", async () => {
+  it("/approve text command resolves via approval-gateway-runtime (bypasses normal pipeline)", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
     shared.extractMessageContentMock.mockReturnValue({
       text: "/approve exec:abc123 allow-once",
       messageType: "text",
     });
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValue(runtime);
-    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue({});
 
     await handleDingTalkMessage({
       cfg: {},
@@ -8422,39 +8427,28 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    // Should dispatch via command session, not normal dispatchReply with card/markdown
-    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    // Should call resolveApprovalOverGateway with parsed id + decision
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledTimes(1);
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        CommandSource: "native",
-        CommandAuthorized: true,
-        CommandBody: "/approve exec:abc123 allow-once",
+        approvalId: "exec:abc123",
+        decision: "allow-once",
+        senderId: "user_1",
       }),
     );
-    // CommandTargetSessionKey should point to the original session
-    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        CommandTargetSessionKey: "s1",
-      }),
-    );
-    // SessionKey should be the command-specific session (not the original)
-    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        SessionKey: expect.stringContaining("dingtalk:approve:user_1"),
-      }),
-    );
-    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
-    // Should NOT create an AI card
+    // Should NOT go through dispatchReply (session lock bypass) and NOT create AI card
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     expect(shared.createAICardMock).not.toHaveBeenCalled();
   });
 
   it("/approve in group chat strips @bot prefix before matching", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
     shared.extractMessageContentMock.mockReturnValue({
       text: "@bot /approve exec:xyz deny",
       messageType: "text",
     });
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValue(runtime);
-    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue({});
 
     await handleDingTalkMessage({
       cfg: {},
@@ -8476,15 +8470,17 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        CommandBody: "/approve exec:xyz deny",
+        approvalId: "exec:xyz",
+        decision: "deny",
+        senderId: "user_2",
       }),
     );
-    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
   });
 
   it("non-/approve message does not trigger approve bypass", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
     shared.extractMessageContentMock.mockReturnValue({
       text: "please approve my request",
       messageType: "text",
@@ -8511,8 +8507,7 @@ describe("inbound-handler", () => {
       },
     } as any);
 
-    // Should go through normal pipeline (with card creation), not the approve bypass
-    const finalizeCall = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
-    expect(finalizeCall?.CommandSource).not.toBe("native");
+    // Should NOT call resolveApprovalOverGateway for non-/approve messages
+    expect(resolveApprovalOverGatewayMock).not.toHaveBeenCalled();
   });
 });

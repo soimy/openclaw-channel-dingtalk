@@ -808,71 +808,41 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
-  // ---- Early /approve bypass: command session dispatch ----
+  // ---- Early /approve bypass: resolveApprovalOverGateway ----
   // Plugin approval's waitDecision blocks inside dispatchReply, holding the
-  // session lock. Routing /approve through the normal pipeline would deadlock
-  // on acquireSessionLock. Instead, construct a command session with a separate
-  // sessionKey and let SDK route the command to the target session via
-  // CommandTargetSessionKey — same pattern as command/card-stop-command.ts.
+  // session lock. Routing /approve through the normal inbound pipeline would
+  // deadlock on acquireSessionLock. Instead, intercept early and resolve the
+  // approval directly via the SDK's gateway API — no reply path, no session lock.
   const textForApproveCheck = !isDirect
     ? extractedContent.text.replace(/^(?:@\S+\s+)*/u, "").trim()
     : extractedContent.text.trim();
+  const approveMatch = textForApproveCheck.match(
+    /^\/approve\s+(\S+)\s+(allow-once|allow-always|deny)\s*$/i,
+  );
   if (/^\/approve\b/i.test(textForApproveCheck)) {
+    if (!approveMatch) {
+      log?.warn?.(
+        `[DingTalk] /approve command malformed, expected: /approve <id> <allow-once|allow-always|deny>`,
+      );
+      return;
+    }
+    const approvalId = approveMatch[1];
+    const decision = approveMatch[2].toLowerCase() as "allow-once" | "allow-always" | "deny";
     log?.info?.(
-      `[DingTalk] /approve command detected, dispatching via command session ` +
-      `(target=${route.sessionKey})`,
+      `[DingTalk] /approve command detected, resolving via gateway approvalId=${approvalId} decision=${decision}`,
     );
-    const commandSessionKey = `agent:${route.agentId}:dingtalk:approve:${senderId}`;
-    const ctx = rt.channel.reply.finalizeInboundContext({
-      Body: textForApproveCheck,
-      RawBody: textForApproveCheck,
-      CommandBody: textForApproveCheck,
-      SessionKey: commandSessionKey,
-      CommandTargetSessionKey: route.sessionKey,
-      CommandSource: "native" as const,
-      CommandAuthorized: true,
-      AccountId: accountId,
-      Provider: "dingtalk",
-      Surface: "dingtalk",
-      ChatType: isDirect ? "direct" : "group",
-      From: `dingtalk:approve:${senderId}`,
-      To: `approve:${senderId}`,
-      SenderId: senderId,
-      OriginatingChannel: "dingtalk",
-      OriginatingTo: to,
-    });
     try {
-      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx,
+      const { resolveApprovalOverGateway } = await import("openclaw/plugin-sdk/approval-gateway-runtime");
+      await resolveApprovalOverGateway({
         cfg,
-        dispatcherOptions: {
-          responsePrefix: "",
-          deliver: async (payload: ReplyStreamPayload) => {
-            if (!payload.text) {
-              return;
-            }
-            try {
-              if (sessionWebhook) {
-                await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
-                  log, accountId, storePath: accountStorePath,
-                });
-              } else {
-                await sendMessage(dingtalkConfig, to, payload.text, {
-                  log, accountId, storePath: accountStorePath,
-                  conversationId: groupId,
-                });
-              }
-            } catch (deliverErr) {
-              log?.warn?.(
-                `[DingTalk] /approve reply delivery failed: ${getErrorMessage(deliverErr)}`,
-              );
-            }
-          },
-        },
+        approvalId,
+        decision,
+        senderId,
+        clientDisplayName: "DingTalk",
       });
     } catch (approveErr) {
       log?.warn?.(
-        `[DingTalk] /approve command dispatch failed: ${getErrorMessage(approveErr)}`,
+        `[DingTalk] /approve resolve failed: ${getErrorMessage(approveErr)}`,
       );
     }
     return;

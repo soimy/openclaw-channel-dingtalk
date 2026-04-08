@@ -1,44 +1,17 @@
-import { randomUUID } from "node:crypto";
-import axios from "axios";
 import type {
   ExecApprovalRequest,
   PluginApprovalRequest,
 } from "openclaw/plugin-sdk/approval-runtime";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { getAccessToken } from "./auth";
-import { stripTargetPrefix } from "./config";
-import { getLogger } from "./logger-context";
-import { resolveOriginalPeerId } from "./peer-id-registry";
-import type { CardBtn, DingTalkConfig } from "./types";
-import { getProxyBypassOption } from "./utils";
+import type { CardBtn } from "./types";
 
-const DINGTALK_API = "https://api.dingtalk.com";
-
-// Current approval card template (same ID, updated to support btns/hasAction)
-// When PR #448 merges: replace with PRESET_CARD_TEMPLATE_ID
-const APPROVAL_CARD_TEMPLATE_ID = "bd04e9b9-832c-42b9-9d4f-a8361acebc09.schema";
-
-// Process-local store: approvalId → card metadata
-export type ApprovalCardEntry = {
-  outTrackId: string;
-  conversationId: string;
-  accountId: string | null | undefined;
-  agentId: string;
-  sessionKey: string;
-  expiresAt: number;
-};
-export const approvalCardStore = new Map<string, ApprovalCardEntry>();
-
-function cleanupExpiredApprovalCards(): void {
-  const now = Date.now();
-  for (const [key, entry] of approvalCardStore.entries()) {
-    if (entry.expiresAt < now) {
-      approvalCardStore.delete(key);
-    }
-  }
-}
-
-// --- Card param map builders ---
+/**
+ * Approval card param map builders + action callback parsers.
+ *
+ * Card delivery (createAndDeliver) and lifecycle updates are owned by
+ * `src/approval/approval-native-adapter.ts`. Callback resolution goes through
+ * `resolveApprovalOverGateway` (see channel.ts card callback handler) — no
+ * local store, no command session dispatch.
+ */
 
 function makeApprovalBtns(approvalId: string): CardBtn[] {
   return [
@@ -127,193 +100,6 @@ export function buildPluginApprovalCardParamMap(
   };
 }
 
-// --- Approval card creation ---
-
-async function createApprovalCard(
-  config: DingTalkConfig,
-  conversationId: string,
-  cardParamMap: Record<string, string>,
-  outTrackId: string,
-): Promise<{ ok: boolean; effectiveOutTrackId?: string; error?: string }> {
-  const log = getLogger();
-  try {
-    const token = await getAccessToken(config, log);
-    const isGroup = conversationId.startsWith("cid");
-    // AI Card template: initialize with button variables only (content is populated via streaming)
-    const { content, ...buttonParamMap } = cardParamMap;
-    const enrichedParamMap = {
-      ...buttonParamMap,
-      config: JSON.stringify({ autoLayout: true, enableForward: false }),
-    };
-    const body = {
-      cardTemplateId: APPROVAL_CARD_TEMPLATE_ID,
-      outTrackId,
-      cardData: { cardParamMap: enrichedParamMap },
-      callbackType: "STREAM",
-      imGroupOpenSpaceModel: { supportForward: false },
-      imRobotOpenSpaceModel: { supportForward: false },
-      openSpaceId: isGroup
-        ? `dtv1.card//IM_GROUP.${conversationId}`
-        : `dtv1.card//IM_ROBOT.${conversationId}`,
-      userIdType: 1,
-      imGroupOpenDeliverModel: isGroup
-        ? { robotCode: config.clientId, extension: { dynamicSummary: "true" } }
-        : undefined,
-      imRobotOpenDeliverModel: !isGroup
-        ? {
-            spaceType: "IM_ROBOT",
-            robotCode: config.clientId,
-            extension: { dynamicSummary: "true" },
-          }
-        : undefined,
-    };
-    log?.info?.(`[DingTalk][ApprovalCard] POST createAndDeliver outTrackId=${outTrackId}`);
-    const createResp = await axios.post(
-      `${DINGTALK_API}/v1.0/card/instances/createAndDeliver`,
-      body,
-      {
-        headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-        ...getProxyBypassOption(config),
-      },
-    );
-    // DingTalk may return a different outTrackId; use it for subsequent streaming updates
-    const respData = createResp.data as
-      | { result?: { outTrackId?: string }; outTrackId?: string }
-      | undefined;
-    const effectiveOutTrackId =
-      (typeof respData?.result?.outTrackId === "string" && respData.result.outTrackId) ||
-      (typeof respData?.outTrackId === "string" && respData.outTrackId) ||
-      outTrackId;
-    if (effectiveOutTrackId !== outTrackId) {
-      log?.info?.(
-        `[DingTalk][ApprovalCard] Response outTrackId differs: sent=${outTrackId} got=${effectiveOutTrackId}`,
-      );
-    }
-    // AI Card content must be populated via streaming endpoint (cardParamMap is ignored for content key)
-    // isFinalize: true → card enters done state, action buttons become visible
-    if (content) {
-      await axios.put(
-        `${DINGTALK_API}/v1.0/card/streaming`,
-        {
-          outTrackId: effectiveOutTrackId,
-          guid: randomUUID(),
-          key: "content",
-          content,
-          isFull: true,
-          isFinalize: true,
-        },
-        {
-          headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-          ...getProxyBypassOption(config),
-        },
-      );
-    }
-    return { ok: true, effectiveOutTrackId };
-  } catch (err: unknown) {
-    log?.error?.(`[DingTalk][ApprovalCard] Card creation failed: ${(err as Error).message}`);
-    return { ok: false, effectiveOutTrackId: outTrackId, error: (err as Error).message };
-  }
-}
-
-async function sendApprovalCard(
-  config: DingTalkConfig,
-  target: string,
-  accountId: string | null | undefined,
-  request: ExecApprovalRequest | PluginApprovalRequest,
-  cardParamMap: Record<string, string>,
-  approvalType: "exec" | "plugin",
-): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
-  const log = getLogger();
-  const { targetId } = stripTargetPrefix(target);
-  const conversationId = resolveOriginalPeerId(targetId);
-  const outTrackId = `approval_${randomUUID()}`;
-  const result = await createApprovalCard(config, conversationId, cardParamMap, outTrackId);
-  if (result.ok) {
-    const storedOutTrackId = result.effectiveOutTrackId ?? outTrackId;
-    cleanupExpiredApprovalCards();
-    approvalCardStore.set(request.id, {
-      outTrackId: storedOutTrackId,
-      conversationId,
-      accountId,
-      agentId: request.request.agentId ?? "main",
-      sessionKey: request.request.sessionKey ?? "",
-      expiresAt: request.expiresAtMs + 30_000,
-    });
-    log?.info?.(
-      `[DingTalk][ApprovalCard] Card sent for ${approvalType} approval ${request.id} outTrackId=${storedOutTrackId}`,
-    );
-  }
-  return {
-    ok: result.ok,
-    outTrackId: result.ok ? (result.effectiveOutTrackId ?? outTrackId) : undefined,
-    error: result.error,
-  };
-}
-
-export async function sendExecApprovalCard(
-  config: DingTalkConfig,
-  target: string,
-  accountId: string | null | undefined,
-  request: ExecApprovalRequest,
-  nowMs: number,
-): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
-  return sendApprovalCard(config, target, accountId, request, buildExecApprovalCardParamMap(request, nowMs), "exec");
-}
-
-export async function sendPluginApprovalCard(
-  config: DingTalkConfig,
-  target: string,
-  accountId: string | null | undefined,
-  request: PluginApprovalRequest,
-  nowMs: number,
-): Promise<{ ok: boolean; outTrackId?: string; error?: string }> {
-  return sendApprovalCard(config, target, accountId, request, buildPluginApprovalCardParamMap(request, nowMs), "plugin");
-}
-
-// --- Card update after resolution ---
-
-export async function updateApprovalCardResolved(
-  config: DingTalkConfig,
-  outTrackId: string,
-  decision: "allow-once" | "allow-always" | "deny",
-): Promise<void> {
-  const log = getLogger();
-  const resolvedText =
-    decision === "allow-once"
-      ? "✅ 已允许（单次）"
-      : decision === "allow-always"
-        ? "✅ 已加入白名单"
-        : "❌ 已拒绝";
-  try {
-    const token = await getAccessToken(config, log);
-    await axios.put(
-      `${DINGTALK_API}/v1.0/card/instances`,
-      {
-        outTrackId,
-        cardData: {
-          cardParamMap: {
-            status: resolvedText,
-            btns: JSON.stringify([]),
-            hasAction: "false",
-          },
-        },
-        cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
-      },
-      {
-        headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-        ...getProxyBypassOption(config),
-      },
-    );
-    log?.info?.(
-      `[DingTalk][ApprovalCard] Card updated to resolved: ${resolvedText} outTrackId=${outTrackId}`,
-    );
-  } catch (err: unknown) {
-    log?.warn?.(
-      `[DingTalk][ApprovalCard] Card update failed (non-critical): ${(err as Error).message}`,
-    );
-  }
-}
-
 // --- Action value parsing ---
 
 export type ApprovalAction = {
@@ -371,48 +157,4 @@ export function parseApprovalActionValue(raw: string): ApprovalAction | null {
     // not JSON or not an approval action
   }
   return null;
-}
-
-// --- Resolve approval via command session dispatch ---
-
-export async function handleApprovalCardCallback(
-  action: ApprovalAction,
-  cfg: OpenClawConfig,
-  config: DingTalkConfig,
-  clickerUserId?: string,
-): Promise<void> {
-  const log = getLogger();
-  const entry = approvalCardStore.get(action.id);
-  if (!entry) {
-    log?.warn?.(`[DingTalk][ApprovalCard] No store entry for ${action.id}, cannot resolve`);
-    return;
-  }
-  if (!entry.sessionKey) {
-    log?.warn?.(`[DingTalk][ApprovalCard] No sessionKey for ${action.id}, cannot route command`);
-    return;
-  }
-
-  try {
-    const { dispatchDingTalkCardApproveCommand } = await import("./command/card-approve-command");
-    await dispatchDingTalkCardApproveCommand({
-      cfg,
-      accountId: entry.accountId ?? "",
-      agentId: entry.agentId,
-      targetSessionKey: entry.sessionKey,
-      clickerUserId: clickerUserId ?? "unknown",
-      approvalId: action.id,
-      decision: action.d,
-      log,
-    });
-    log?.info?.(
-      `[DingTalk][ApprovalCard] Resolved ${action.id} decision=${action.d} via command session dispatch`,
-    );
-    // Store cleanup + card UI update after successful dispatch
-    approvalCardStore.delete(action.id);
-    await updateApprovalCardResolved(config, entry.outTrackId, action.d);
-  } catch (err: unknown) {
-    log?.error?.(
-      `[DingTalk][ApprovalCard] Command session dispatch failed for ${action.id}: ${(err as Error).message}`,
-    );
-  }
 }
