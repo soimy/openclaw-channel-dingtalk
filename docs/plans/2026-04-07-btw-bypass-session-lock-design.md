@@ -31,7 +31,7 @@ There is already a precedent for bypassing this lock: `/stop` (abort) is detecte
 
 1. **`/btw` is fully implemented inside openclaw's auto-reply pipeline.** The channel does not need to dispatch any "side query event"; it just needs to deliver the inbound message to `dispatchReplyWithBufferedBlockDispatcher`. openclaw recognizes `/btw` via the `handleBtwCommand` `CommandHandler` registered in `commands-handlers.runtime.ts` and runs `runBtwSideQuestion` with `resolvedThinkLevel: "off"`.
 
-2. **`isBtwRequestText` is already exported** from `openclaw/src/plugin-sdk/reply-runtime.ts:32`. No openclaw PR required. **No `peerDependencies` bump either** — we treat this as a soft feature: `import { isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime"` and guard usage with `typeof isBtwRequestText === "function"`. If linked against an older openclaw without the export, the symbol is `undefined`, the bypass branch is skipped, and the message falls through to the normal session-lock path. Old openclaw will treat `/btw` as a regular chat message (degraded UX, no crash). Upgrading openclaw automatically activates BTW with zero config.
+2. **`isBtwRequestText` is already exported** from `openclaw/src/plugin-sdk/reply-runtime.ts:32`, since openclaw `v2026.3.22`. The channel's existing `peerDependencies.openclaw >=2026.3.28` (set by an unrelated prior PR, not this one) sits comfortably above that floor, so any openclaw runtime that successfully loads the dingtalk plugin is guaranteed to have the export. We import it directly: `import { isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime"`. No soft-import guard, no fallback path, no `peerDependencies` change required by this PR.
 
 3. **Dingtalk bot send APIs do not support protocol-level reply/quote.** The `quotedRef` field in `send-service.ts` is an internal-only persistence link used by `message-context-store` to recover quoted context for *inbound* messages — it never reaches dingtalk's wire protocol. Therefore, the only way to "show" what a BTW reply is responding to is to echo the original `/btw` message inside the reply body.
 
@@ -62,7 +62,7 @@ inbound-handler.ts (existing prelude: dedup, content extract, auth, route)
 isAbortRequestText? ──yes──▶ existing abort bypass branch
         │ no
         ▼
-isBtwRequestText available && matches? ──yes──▶ NEW: BTW bypass branch
+isBtwRequestText matches? ──yes──▶ NEW: BTW bypass branch
         │ no                                       │
         ▼                                          │
 acquireSessionLock                                 │
@@ -81,7 +81,7 @@ acquireSessionLock                                 │
 
 ### New code locations
 
-- **`src/inbound-handler.ts`** — add a new bypass branch immediately after the existing abort branch (~line 1437). Follows the same shape as the abort branch: detect via `isBtwRequestText` (with `typeof === "function"` guard), log, call `dispatchReplyWithBufferedBlockDispatcher` without acquiring `acquireSessionLock`, with a custom `deliver` callback. Returns immediately after dispatch, never falls through to the main-run path.
+- **`src/inbound-handler.ts`** — add a new bypass branch immediately after the existing abort branch (~line 1437). Follows the same shape as the abort branch: detect via `isBtwRequestText`, log, call `dispatchReplyWithBufferedBlockDispatcher` without acquiring `acquireSessionLock`, with a custom `deliver` callback. Returns immediately after dispatch, never falls through to the main-run path.
 
 - **`src/messaging/btw-deliver.ts`** (new) — small, self-contained module exposing two pure helpers + one delivery function:
   - `buildBtwBlockquote(senderName: string, rawQuestion: string): string` — strips leading `@mention` tokens from `rawQuestion`, truncates to 80 chars + `…` if needed, formats as `> [<senderName>: ]/btw <question>\n\n` (sender prefix omitted when empty)
@@ -137,7 +137,7 @@ Rules:
 1. User sends `/btw <question>` while a main run is processing in the same conversation
 2. dingtalk inbound webhook → `inbound-handler.ts` runs prelude (dedup, content parsing, routing) — same as today
 3. `isAbortRequestText` check fails
-4. `isBtwRequestText` is available (function defined) and matches → enter BTW bypass branch
+4. `isBtwRequestText` matches → enter BTW bypass branch
 5. Log: `[DingTalk] BTW request detected, bypassing session lock for session=<key>`
 6. Channel calls `dispatchReplyWithBufferedBlockDispatcher` with a custom `deliver`. **No `acquireSessionLock` call.**
 7. openclaw's auto-reply pipeline sees the message, `handleBtwCommand` matches, `runBtwSideQuestion` runs (think/reasoning forced off)
@@ -149,7 +149,6 @@ Rules:
 
 | Failure mode | Behavior |
 |---|---|
-| `isBtwRequestText` not exported by linked openclaw | `typeof === "function"` guard fails, BTW branch skipped, message goes through normal session-lock path; old openclaw handles it as regular chat |
 | openclaw rejects /btw (no active session) | openclaw returns `"⚠️ /btw requires an active session..."` text — channel delivers it with blockquote prefix |
 | openclaw `runBtwSideQuestion` throws | openclaw returns `"⚠️ /btw failed: ..."` text — channel delivers with blockquote prefix |
 | `sendBySession` / `sendMessage` fails | Logged at `warn` level with `[DingTalk] BTW reply delivery failed: ...`; no retry, no fallback (BTW is best-effort) |
@@ -175,7 +174,6 @@ Rules:
 - **`inbound-handler.btw-bypass.test.ts`** (new):
   - `/btw foo` matched → `acquireSessionLock` is NEVER called, `dispatchReplyWithBufferedBlockDispatcher` is called once
   - `@Bot /btw foo` (group with leading mention) → still matches BTW
-  - `isBtwRequestText` mocked to `undefined` (simulating old openclaw) → BTW branch skipped, falls through to normal path (acquireSessionLock IS called)
   - Non-BTW message → BTW branch skipped, normal path runs
   - `/stop` and `/btw` cannot collide (one matches abort, one matches BTW), but verify abort branch runs first by sending `/stop` and asserting BTW path is not entered
   - BTW bypass returns early — assert that no main-run code (e.g., `attachNativeAckReaction`) runs after BTW dispatch
@@ -198,7 +196,6 @@ Per `skills/dingtalk-real-device-testing/SKILL.md`, add a 验证 TODO entry for 
 ## Open Questions / Risks
 
 1. **BTW reply might still be long** — even with think/reasoning off, the BTW answer is unbounded. Existing chunking (`DINGTALK_TEXT_CHUNK_LIMIT = 3800` in `send-service.ts`) handles this in markdown mode by splitting into multiple messages. The blockquote prefix lives in the first chunk only; subsequent chunks have no prefix, which is acceptable since they are continuations of the same answer.
-2. **Old openclaw silent degradation** — when `isBtwRequestText` is undefined, users get no signal that BTW is unsupported; their `/btw` message just gets answered as a normal chat. We accept this in exchange for not requiring a peer-dep bump. If complaints arise, we can add a CHANGELOG note recommending an openclaw version.
 
 ## Out of Scope
 
