@@ -1,112 +1,95 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository. It intentionally stays closely aligned with `AGENTS.md`, which remains the general project-level agent entrypoint for this public repository.
 
-## Project Overview
+## Overview
 
-DingTalk (钉钉) enterprise bot channel plugin for OpenClaw. Uses Stream mode (WebSocket, no public IP required). Published as `@soimy/dingtalk` on npm. The plugin runs directly via the OpenClaw runtime — there is no build step.
+DingTalk (钉钉) enterprise bot channel plugin for OpenClaw using Stream mode (WebSocket, no public IP required). Published as `@soimy/dingtalk` on npm. The plugin runs directly via the OpenClaw runtime — there is no build step.
 
-This repository is licensed under MIT. If you reuse code, retain the copyright and license notice required by MIT.
-If you substantially reuse this repository's documentation, prompts, AGENTS/CLAUDE conventions, architecture writeups, or agent-oriented implementation playbooks, please provide attribution to `OpenClaw DingTalk Channel Plugin`, `YM Shen and contributors`, and `https://github.com/soimy/openclaw-channel-dingtalk`.
-See `docs/contributor/citation-and-attribution.md` and `CITATION.cff` for the preferred citation and attribution format. This request describes the project's preferred community norm and does not replace or modify the LICENSE file.
+Current architecture is modularized by responsibility. `src/channel.ts` is an assembly layer, heavy logic is split into dedicated modules, and the contributor architecture guides are the source of truth for module boundaries and incremental migration rules.
 
-## Commands
+Start with `WORKFLOW.md` for the repository workflow summary, then use the contributor docs for detailed guidance.
+
+## Start Here
+
+- `WORKFLOW.md`
+- `docs/contributor/agent-workflow.md`
+- `docs/contributor/architecture.zh-CN.md`
+- `docs/contributor/architecture.en.md`
+- `docs/contributor/testing.md`
+- `docs/contributor/release-process.md`
+
+## Quick Commands
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Type-check (strict TypeScript)
 pnpm run type-check
-
-# Lint (oxlint with type-aware rules)
 pnpm run lint
-
-# Lint + auto-fix + format
 pnpm run lint:fix
-
-# Format only (oxfmt)
 pnpm run format
-
-# Run all tests
 pnpm test
-
-# Run a single test file
-pnpm vitest run tests/unit/config.test.ts
-
-# Run tests matching a pattern
-pnpm vitest run -t "pattern"
-
-# Coverage report
 pnpm test:coverage
-
-# Stream connection monitor (debugging)
-pnpm run monitor:stream -- --duration 300 --summary-every 30 --probe-every 20
+pnpm run docs:build
 ```
 
-## Architecture
+## Documentation Placement
 
-### Entry Point
+- Specs: `docs/spec/`
+- Plans: `docs/plans/`
+- User-facing docs: `docs/user/`
+- Contributor and process docs: `docs/contributor/`
+- Release notes: `docs/releases/`
 
-`index.ts` — registers the plugin with OpenClaw via `api.registerChannel()` and `api.registerGatewayMethod()` (for docs API). Sets the DingTalk runtime singleton.
+Keep `README.md` as a concise project entry page. Do not expand it with long-form feature, configuration, troubleshooting, or process details that belong under `docs/`.
 
-### Core Module Responsibilities
+## Collaboration Conventions
 
-- **`src/channel.ts`** — Assembly layer only. Defines `dingtalkPlugin` (config, gateway, outbound, status, security, messaging, directory). Delegates all heavy logic to service modules. Keep this file thin.
-- **`src/inbound-handler.ts`** — Inbound pipeline orchestrator: dedup → self-filter → content extraction → authorization → session routing → media download → message context persistence → reply dispatch.
-- **`src/send-service.ts`** — All outbound delivery: session webhook, proactive text/markdown, proactive media, unified `sendMessage` with card/markdown fallback.
-- **`src/card-service.ts`** — AI Card state machine (PROCESSING → INPUTING → FINISHED/FAILED), card instance cache, createdAt fallback cache, recovery of unfinished cards on restart.
-- **`src/message-context-store.ts`** — Unified short-TTL message persistence under namespace `messages.context`. The **only** production API for quote/media/card context recovery.
-- **`src/reply-strategy.ts`** + `reply-strategy-card.ts` + `reply-strategy-markdown.ts` + `reply-strategy-with-reaction.ts` — Strategy pattern for reply delivery.
-- **`src/connection-manager.ts`** — Robust stream reconnect lifecycle with exponential backoff, jitter, cycle limits, and warm reconnection (creates fresh DWClient to minimize message-loss window).
-- **`src/config.ts`** — Config resolution, multi-account merging, path resolution. `getConfig()` is the canonical way to read DingTalk config.
-- **`src/auth.ts`** — Access token cache with clientId-scoped caching and retry.
-- **`src/targeting/`** — Learned group/user displayName directory, target normalization, displayNameResolution gate.
+- Prefer the GitHub issue templates under `.github/ISSUE_TEMPLATE/`.
+- Keep issue communication primarily in Simplified Chinese.
+- Use `问题反馈` for bugs and `功能建议` for feature ideas.
+- Use an English Conventional-style pull request title.
+- Write the pull request description in Simplified Chinese.
+- Include clearly labeled `背景`, `目标`, `实现`, `实现 TODO`, and `验证 TODO` sections in pull requests.
 
-### Key Patterns
+## High-Priority Repository Rules
 
-- **Multi-account support**: `channels.dingtalk.accounts` allows multiple DingTalk bots. Named accounts inherit channel-level defaults with account-level overrides via `mergeAccountWithDefaults`.
-- **Card fallback**: If card streaming fails, card is marked FAILED and delivery falls back to markdown/text. Priority: no message loss over card rendering fidelity.
-- **Dedup + inflight protection**: `dedup.processed-message`, `session.lock`, and `channel.inflight` are process-local memory-only state. Never introduce cross-process persistence for these.
-- **Peer SDK**: Types and APIs come from `openclaw/plugin-sdk`. The `tsconfig.json` paths resolve this from either `../openclaw/src/plugin-sdk` or `../../src/plugin-sdk`.
+- Keep `src/channel.ts` thin; do not add new business logic there.
+- Use `src/message-context-store.ts` directly for production quote, media, and card context recovery.
+- Do not reintroduce legacy wrappers such as `quote-journal.ts` or `quoted-msg-cache.ts`.
+- Use `getAccessToken()` before DingTalk API calls.
+- Use `getLogger()` instead of `console.log`.
+- Never log raw access tokens.
+- Do not create multiple active AI Cards for the same `accountId:conversationId`.
+- Keep review comments in Simplified Chinese.
 
-### Planned Domain Directories
+## Architecture Pointers
 
-New code should align with these logical boundaries (physical moves are incremental):
-- `gateway/` — stream lifecycle, callbacks, inbound entry
-- `targeting/` — peer identity, session aliasing, target resolution
-- `messaging/` — content parsing, reply strategies, outbound delivery, message context
-- `card/` — AI card lifecycle, recovery, caches
-- `command/` — slash commands, feedback learning
-- `platform/` — config, auth, runtime, logger, types
-- `shared/` — persistence primitives, dedup, cross-domain helpers
+- `index.ts` registers the plugin and sets the DingTalk runtime singleton.
+- `src/inbound-handler.ts` owns inbound orchestration.
+- `src/send-service.ts` owns outbound delivery.
+- `src/card-service.ts` owns AI Card lifecycle and recovery.
+- `src/message-context-store.ts` is the only production message context persistence API.
+- `src/targeting/` owns learned target directory and target normalization.
 
-## Code Conventions
+## Optional Tooling
 
-- TypeScript strict mode, ES2023 target, ESNext modules
-- 2-space indentation (oxfmt), no tabs
-- Formatting: `oxfmt`; Linting: `oxlint` with unicorn/typescript/oxc plugins
-- Structured log prefixes: `[DingTalk]`, `[DingTalk][AICard]`, `[accountId]`
-- DingTalk API error payloads: `[DingTalk][ErrorPayload][<scope>]` with `code=... message=... payload=...`
-- Send APIs return `{ ok: boolean, error?: string }`
-- Use `getAccessToken()` before every DingTalk API call
-- Use `getLogger()` for logging, never `console.log`
-- Never suppress type errors with `@ts-ignore`
-- Never log raw access tokens
+GitNexus is an optional enhancement for repository understanding, impact analysis, and change-scope review.
 
-## Testing
+- If GitNexus is available locally, treat `docs/contributor/gitnexus-optional.md` as the preferred path for repository navigation and impact analysis.
+- If GitNexus is unavailable locally, use `docs/contributor/fallback-navigation.md` together with `WORKFLOW.md` and `docs/contributor/agent-workflow.md`.
+- Optional tooling must not be the only documented way to complete a required workflow step.
+- See `docs/contributor/gitnexus-optional.md` for the enhanced workflow.
 
-- Vitest with V8 coverage; tests in `tests/unit/` and `tests/integration/`
-- All network calls are mocked (`vi.mock`) — no real DingTalk API access in tests
-- Unit tests for parser, config, auth, dedup, and service logic
-- Integration tests when behavior crosses module boundaries (gateway start, inbound dispatch, send lifecycle, persistence migration)
-- `clearMocks`, `restoreMocks`, `mockReset` are all enabled globally in vitest config
-- When work involves DingTalk real-device validation, PR-scoped test checklist generation, `验证 TODO` drafting, or contributor guidance for that workflow, read and follow `skills/dingtalk-real-device-testing/SKILL.md` first.
+## Claude Code Notes
 
-## Important Anti-Patterns
+- Prefer dedicated Claude Code tools over shell equivalents when possible.
+- Follow the repository workflow documents before editing.
+- Keep changes scoped to the request.
 
-- Do not add business logic to `src/channel.ts`
-- Do not re-introduce legacy `quote-journal.ts` or `quoted-msg-cache.ts` wrappers — use `message-context-store.ts` directly
-- Do not create multiple active AI Cards for the same `accountId:conversationId`
-- Do not hardcode credentials — read from `channels.dingtalk` config
-- Write review comments in Simplified Chinese (per `.github/instructions/code-review.instructions.md`)
+## Attribution
+
+This repository is licensed under MIT. If you reuse code, retain the copyright and license notice required by MIT.
+
+If you substantially reuse this repository's documentation, prompts, AGENTS/CLAUDE conventions, architecture writeups, or agent-oriented implementation playbooks, please provide attribution to `OpenClaw DingTalk Channel Plugin`, `YM Shen and contributors`, and `https://github.com/soimy/openclaw-channel-dingtalk`.
+
+See `docs/contributor/citation-and-attribution.md` and `CITATION.cff` for the preferred citation and attribution format. This request describes the project's preferred community norm and does not replace or modify the LICENSE file.
