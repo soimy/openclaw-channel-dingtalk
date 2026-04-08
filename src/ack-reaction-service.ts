@@ -198,3 +198,35 @@ export async function recallNativeAckReactionWithRetry(
     }
   }
 }
+
+/**
+ * Run `fn` while a native ack reaction is attached to the inbound message,
+ * recalling the reaction in `finally` regardless of success/failure. Errors
+ * from attach/recall are swallowed (logged at debug) so they never affect the
+ * caller's main flow. Used by short-lived bypass branches (e.g. `/btw`) that
+ * want immediate "received" feedback without the dynamic reaction controller.
+ */
+export async function withAckReaction<T>(
+  config: DingTalkConfig,
+  target: AckReactionTarget,
+  log: AckReactionLogger | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let attached = false;
+  try {
+    attached = await attachNativeAckReaction(config, target, log);
+  } catch (err) {
+    log?.debug?.(`[DingTalk] Ack reaction attach threw: ${(err as Error)?.message ?? err}`);
+  }
+  try {
+    return await fn();
+  } finally {
+    if (attached) {
+      try {
+        await recallNativeAckReactionWithRetry(config, target, log);
+      } catch (err) {
+        log?.debug?.(`[DingTalk] Ack reaction recall threw: ${(err as Error)?.message ?? err}`);
+      }
+    }
+  }
+}
