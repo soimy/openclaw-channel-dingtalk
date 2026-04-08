@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/send-service", () => ({
-  sendBySession: vi.fn(async () => ({ ok: true })),
   sendMessage: vi.fn(async () => ({ ok: true })),
 }));
 
 import { deliverBtwReply } from "../../src/messaging/btw-deliver";
-import { sendBySession, sendMessage } from "../../src/send-service";
+import { sendMessage } from "../../src/send-service";
 import { buildBtwBlockquote } from "../../src/messaging/btw-deliver";
 
 describe("buildBtwBlockquote", () => {
@@ -62,11 +61,11 @@ describe("buildBtwBlockquote", () => {
 
 describe("deliverBtwReply", () => {
   beforeEach(() => {
-    vi.mocked(sendBySession).mockClear();
-    vi.mocked(sendMessage).mockClear();
+    vi.mocked(sendMessage).mockReset();
+    vi.mocked(sendMessage).mockResolvedValue({ ok: true });
   });
 
-  it("uses sendBySession when sessionWebhook is provided", async () => {
+  it("delegates to sendMessage with forceMarkdown and sessionWebhook when provided", async () => {
     const result = await deliverBtwReply({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       config: {} as any,
@@ -80,13 +79,18 @@ describe("deliverBtwReply", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(sendBySession).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
-    const call = vi.mocked(sendBySession).mock.calls[0];
-    expect(call[2]).toBe("> 王滨: /btw foo\n\nthe answer");
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [, conversationIdArg, textArg, optionsArg] = vi.mocked(sendMessage).mock.calls[0];
+    expect(conversationIdArg).toBe("userA");
+    expect(textArg).toBe("> 王滨: /btw foo\n\nthe answer");
+    expect(optionsArg).toMatchObject({
+      sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?token=abc",
+      forceMarkdown: true,
+      conversationId: "cidXXX",
+    });
   });
 
-  it("uses sendMessage when sessionWebhook is undefined", async () => {
+  it("delegates to sendMessage with forceMarkdown and no sessionWebhook when absent", async () => {
     const result = await deliverBtwReply({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       config: {} as any,
@@ -101,12 +105,30 @@ describe("deliverBtwReply", () => {
 
     expect(result.ok).toBe(true);
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendBySession).not.toHaveBeenCalled();
-    expect(vi.mocked(sendMessage).mock.calls[0][2]).toBe("> /btw bar\n\nanswer");
+    const [, , textArg, optionsArg] = vi.mocked(sendMessage).mock.calls[0];
+    expect(textArg).toBe("> /btw bar\n\nanswer");
+    expect(optionsArg).toMatchObject({ forceMarkdown: true, sessionWebhook: undefined });
   });
 
-  it("returns ok=false when send throws", async () => {
-    vi.mocked(sendBySession).mockRejectedValueOnce(new Error("network down"));
+  it("propagates sendMessage { ok: false } instead of silently succeeding", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce({ ok: false, error: "session webhook expired" });
+    const result = await deliverBtwReply({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      config: {} as any,
+      sessionWebhook: "https://example",
+      conversationId: "cidXXX",
+      to: "userA",
+      senderName: "王滨",
+      rawQuestion: "/btw foo",
+      replyText: "answer",
+      log: undefined,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("session webhook expired");
+  });
+
+  it("returns ok=false when sendMessage throws", async () => {
+    vi.mocked(sendMessage).mockRejectedValueOnce(new Error("network down"));
     const result = await deliverBtwReply({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       config: {} as any,
