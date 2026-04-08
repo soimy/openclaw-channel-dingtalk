@@ -4,13 +4,12 @@ This file is the repository-wide workflow summary for maintainers, contributors,
 
 ## Start Here
 
-Read in this order when you begin work:
+This file is the starting point. After reading it, continue in this order:
 
-1. `WORKFLOW.md`
-2. `docs/contributor/agent-workflow.md`
-3. `docs/contributor/architecture.zh-CN.md` or `docs/contributor/architecture.en.md`
-4. `docs/contributor/testing.md`
-5. `docs/contributor/release-process.md` when preparing a release-related change
+1. `docs/contributor/agent-workflow.md`
+2. `docs/contributor/architecture.zh-CN.md` or `docs/contributor/architecture.en.md`
+3. `docs/contributor/testing.md`
+4. `docs/contributor/release-process.md` when preparing a release-related change
 
 ## Base Workflow
 
