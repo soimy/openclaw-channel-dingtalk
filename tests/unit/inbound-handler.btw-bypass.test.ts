@@ -99,7 +99,7 @@ vi.mock("../../src/messaging/btw-deliver", () => ({
   stripLeadingMentions: (text: string) => text.replace(/^(?:@\S+\s+)*/u, ""),
   buildBtwBlockquote: vi.fn((senderName: string, rawQuestion: string) => {
     const prefix = senderName ? `${senderName}: ` : "";
-    return `> ${prefix}${rawQuestion}\n\n\n`;
+    return `> ${prefix}${rawQuestion}\n\n&nbsp;\n\n`;
   }),
 }));
 
