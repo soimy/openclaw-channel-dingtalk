@@ -112,6 +112,12 @@ import {
 import { resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
+
+// Per-test-file private tmpdir to avoid races against other suites that share /tmp
+// (coverage runs all suites in parallel and was hitting ENOTEMPTY on /tmp/dingtalk-state).
+const TEST_TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-btw-unit-"));
+const STORE_PATH = path.join(TEST_TMP_DIR, "store.json");
 
 function buildRuntime() {
   return {
@@ -129,7 +135,7 @@ function buildRuntime() {
         }),
       },
       session: {
-        resolveStorePath: vi.fn().mockReturnValue("/tmp/store.json"),
+        resolveStorePath: vi.fn().mockReturnValue(STORE_PATH),
         readSessionUpdatedAt: vi.fn().mockReturnValue(null),
         recordInboundSession: vi.fn().mockResolvedValue(undefined),
       },
@@ -175,7 +181,7 @@ async function invokeWithFakeInbound(text: string, overrides: Record<string, unk
 describe("inbound-handler /btw bypass", () => {
   beforeEach(() => {
     clearTargetDirectoryStateCache();
-    fs.rmSync(path.join(path.dirname("/tmp/store.json"), "dingtalk-state"), {
+    fs.rmSync(path.join(TEST_TMP_DIR, "dingtalk-state"), {
       recursive: true,
       force: true,
     });
