@@ -504,12 +504,13 @@
 
 ---
 
-## /btw bypass session lock — 验证 TODO (PR #TBD)
+## /btw bypass session lock — 验证 TODO (PR #508)
 
 - [ ] DM `/btw 这个函数为什么慢` while bot is idle → blockquote + answer rendered correctly
 - [ ] DM `/btw <question>` while a main run is in PROCESSING → BTW answer arrives without waiting for main run
 - [ ] Group `@Bot /btw <question>` while main run in PROCESSING → mention stripped from blockquote, sender nickname displayed
 - [ ] `/btw` (no question) → openclaw usage error rendered with `> [<sender>: ]/btw` blockquote prefix
 - [ ] Long question (> 80 chars) → blockquote shows truncated form with `…`
+- [ ] Card mode (`messageType: card`): `/btw` and `/stop` do NOT create orphan PROCESSING cards (createAICard hoist regression)
 - [ ] After upgrading to openclaw with `isBtwRequestText` exported, BTW activates without channel config change
 - [ ] On older openclaw (no `isBtwRequestText`), `/btw` is treated as normal chat (degraded but no crash)
