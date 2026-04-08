@@ -4,8 +4,6 @@
     "module": "ESNext",
     "lib": ["ES2023"],
     "moduleResolution": "bundler",
-    "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
     "noEmit": true,
     "noEmitOnError": true,

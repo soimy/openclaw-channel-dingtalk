@@ -74,4 +74,20 @@ describe("card-callback-service", () => {
     expect(analysis.userId).toBe("user_2");
     expect(analysis.spaceId).toBe("space_2");
   });
+
+  it("extracts cardPrivateData with params from sendCardRequest approval callback", () => {
+    const result = analyzeCardCallback({
+      content: JSON.stringify({
+        cardPrivateData: {
+          actionIds: ["approval0"],
+          params: { t: "approval", d: "allow-once", id: "exec:123" },
+        },
+      }),
+    });
+    expect(result.cardPrivateData).toEqual({
+      actionIds: ["approval0"],
+      params: { t: "approval", d: "allow-once", id: "exec:123" },
+    });
+    expect(result.actionId).toBe("approval0");
+  });
 });

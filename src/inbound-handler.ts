@@ -808,6 +808,46 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
+  // ---- Early /approve bypass: resolveApprovalOverGateway ----
+  // Plugin approval's waitDecision blocks inside dispatchReply, holding the
+  // session lock. Routing /approve through the normal inbound pipeline would
+  // deadlock on acquireSessionLock. Instead, intercept early and resolve the
+  // approval directly via the SDK's gateway API — no reply path, no session lock.
+  const textForApproveCheck = !isDirect
+    ? extractedContent.text.replace(/^(?:@\S+\s+)*/u, "").trim()
+    : extractedContent.text.trim();
+  const approveMatch = textForApproveCheck.match(
+    /^\/approve\s+(\S+)\s+(allow-once|allow-always|deny)\s*$/i,
+  );
+  if (/^\/approve\b/i.test(textForApproveCheck)) {
+    if (!approveMatch) {
+      log?.warn?.(
+        `[DingTalk] /approve command malformed, expected: /approve <id> <allow-once|allow-always|deny>`,
+      );
+      return;
+    }
+    const approvalId = approveMatch[1];
+    const decision = approveMatch[2].toLowerCase() as "allow-once" | "allow-always" | "deny";
+    log?.info?.(
+      `[DingTalk] /approve command detected, resolving via gateway approvalId=${approvalId} decision=${decision}`,
+    );
+    try {
+      const { resolveApprovalOverGateway } = await import("openclaw/plugin-sdk/approval-gateway-runtime");
+      await resolveApprovalOverGateway({
+        cfg,
+        approvalId,
+        decision,
+        senderId,
+        clientDisplayName: "DingTalk",
+      });
+    } catch (approveErr) {
+      log?.warn?.(
+        `[DingTalk] /approve resolve failed: ${getErrorMessage(approveErr)}`,
+      );
+    }
+    return;
+  }
+
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.

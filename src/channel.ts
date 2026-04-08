@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
+import { resolveApprovalOverGateway } from "openclaw/plugin-sdk/approval-gateway-runtime";
 import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
 import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
+import {
+  parseApprovalFromCardPrivateData,
+  parseApprovalActionValue,
+} from "./approval-card-service";
+import { dingtalkApprovalCapability } from "./approval/approval-capability";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
-import { handleCardAction } from "./card/card-action-handler";
 import {
   createAICard,
   streamAICard,
@@ -15,6 +20,7 @@ import {
   finalizeActiveCardsForAccount,
   recoverPendingCardsForAccount,
 } from "./card-service";
+import { handleCardAction } from "./card/card-action-handler";
 import {
   getConfig,
   isConfigured,
@@ -433,6 +439,28 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
   actions: dingtalkMessageActions,
   outbound: {
     deliveryMode: "direct" as const,
+    sendPayload: async ({
+      cfg,
+      to,
+      accountId,
+      payload,
+    }: {
+      cfg: OpenClawConfig;
+      to: string;
+      accountId?: string | null;
+      payload: { text?: string; channelData?: Record<string, unknown> };
+    }) => {
+      // Approval cards now go through approvalCapability.nativeRuntime, not sendPayload.
+      const config = getConfig(cfg, accountId ?? undefined);
+      const result = await sendMessage(config, to, String(payload.text || ""), {
+        accountId: accountId ?? undefined,
+      });
+      return {
+        channel: "dingtalk" as const,
+        messageId: randomUUID(),
+        meta: result.data as Record<string, unknown> | undefined,
+      };
+    },
     resolveTarget: ({ to }: any) => {
       const trimmed = to?.trim();
       if (!trimmed) {
@@ -477,7 +505,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));
+          effectiveLog?.error?.(
+            formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data),
+          );
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -531,7 +561,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       let preparedMedia;
       try {
         try {
-          preparedMedia = await prepareMediaInput(rawMediaPath, effectiveLog, config.mediaUrlAllowlist);
+          preparedMedia = await prepareMediaInput(
+            rawMediaPath,
+            effectiveLog,
+            config.mediaUrlAllowlist,
+          );
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
             effectiveLog?.error?.(
@@ -601,7 +635,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data));
+          effectiveLog?.error?.(
+            formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data),
+          );
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -821,6 +857,30 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               `[${account.accountId}] [DingTalk][CardCallback] action=${analysis.summary} raw=${JSON.stringify(payload)}`,
             );
 
+            // Approval card callback — try sendCardRequest (cardPrivateData) first, then legacy processQueryKey
+            const approvalAction =
+              parseApprovalFromCardPrivateData(analysis.cardPrivateData) ??
+              (analysis.actionId ? parseApprovalActionValue(analysis.actionId) : null);
+            if (approvalAction) {
+              ctx.log?.info?.(
+                `[${account.accountId}] [DingTalk][ApprovalCard] approval callback id=${approvalAction.id} decision=${approvalAction.d}`,
+              );
+              try {
+                await resolveApprovalOverGateway({
+                  cfg,
+                  approvalId: approvalAction.id,
+                  decision: approvalAction.d,
+                  senderId: analysis.userId ?? undefined,
+                  clientDisplayName: "DingTalk",
+                });
+              } catch (resolveErr) {
+                ctx.log?.warn?.(
+                  `[${account.accountId}] [DingTalk][ApprovalCard] resolve failed: ${(resolveErr as Error).message}`,
+                );
+              }
+              return;
+            }
+
             if (analysis.feedbackTarget && analysis.feedbackAckText) {
               recordExplicitFeedbackLearning({
                 enabled: isLearningEnabled(config),
@@ -859,7 +919,12 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               config,
               log: pluginLog,
             });
-            if (!actionResult.handled && analysis.actionId && analysis.actionId !== "feedback_up" && analysis.actionId !== "feedback_down") {
+            if (
+              !actionResult.handled &&
+              analysis.actionId &&
+              analysis.actionId !== "feedback_up" &&
+              analysis.actionId !== "feedback_down"
+            ) {
               pluginLog?.debug?.(
                 `[${account.accountId}] [DingTalk][CardCallback] Unhandled actionId=${analysis.actionId}`,
               );
@@ -968,7 +1033,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
-            pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
+            pluginLog?.info?.(
+              `[${account.accountId}] DingTalk Stream client connected successfully`,
+            );
             await nativeStopPromise;
           }
         } catch (err: any) {
@@ -1182,6 +1249,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       };
     },
   },
+  approvalCapability: dingtalkApprovalCapability,
 };
 
 export {

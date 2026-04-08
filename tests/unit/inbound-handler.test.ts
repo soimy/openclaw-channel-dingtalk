@@ -84,6 +84,11 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
 }));
 
+const resolveApprovalOverGatewayMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
+  resolveApprovalOverGateway: (...args: unknown[]) => resolveApprovalOverGatewayMock(...args),
+}));
+
 vi.mock("../../src/message-context-store", async () => {
   const actual = await vi.importActual<typeof import("../../src/message-context-store")>(
     "../../src/message-context-store",
@@ -8390,5 +8395,119 @@ describe("inbound-handler", () => {
 
     // ctx.MediaPath must still be set so OpenClaw can generate [media attached: relative/path]
     expect(finalized.MediaPath).toContain("/.openclaw/media/inbound/");
+  });
+
+  // ---- /approve text command bypass tests ----
+
+  it("/approve text command resolves via approval-gateway-runtime (bypasses normal pipeline)", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "/approve exec:abc123 allow-once",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-1",
+        msgtype: "text",
+        text: { content: "/approve exec:abc123 allow-once" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should call resolveApprovalOverGateway with parsed id + decision
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledTimes(1);
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalId: "exec:abc123",
+        decision: "allow-once",
+        senderId: "user_1",
+      }),
+    );
+    // Should NOT go through dispatchReply (session lock bypass) and NOT create AI card
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(shared.createAICardMock).not.toHaveBeenCalled();
+  });
+
+  it("/approve in group chat strips @bot prefix before matching", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "@bot /approve exec:xyz deny",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-2",
+        msgtype: "text",
+        text: { content: "@bot /approve exec:xyz deny" },
+        conversationType: "2",
+        conversationId: "cid-group",
+        conversationTitle: "Test Group",
+        senderId: "user_2",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(resolveApprovalOverGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalId: "exec:xyz",
+        decision: "deny",
+        senderId: "user_2",
+      }),
+    );
+  });
+
+  it("non-/approve message does not trigger approve bypass", async () => {
+    resolveApprovalOverGatewayMock.mockClear();
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "please approve my request",
+      messageType: "text",
+    });
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as any,
+      data: {
+        msgId: "m-approve-3",
+        msgtype: "text",
+        text: { content: "please approve my request" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    // Should NOT call resolveApprovalOverGateway for non-/approve messages
+    expect(resolveApprovalOverGatewayMock).not.toHaveBeenCalled();
   });
 });
