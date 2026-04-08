@@ -20,6 +20,7 @@
 ## 贡献入口
 
 - [贡献者与 Agent 工作流](agent-workflow.md)
+- [仓库 TODO](todo.md)
 - [本地开发](development.md)
 - [测试与验证](testing.md)
 - [架构说明（中文详版）](architecture.zh-CN.md)
