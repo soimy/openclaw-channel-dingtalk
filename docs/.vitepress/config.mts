@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { getReleaseSidebarItems } from './releases-sidebar'
 import { applyTaskListPlugin } from './task-list-plugin'
 
 // Vercel 部署时设置 env.DOCS_BASE=/ ，否则使用 GitHub Pages 的默认路径
@@ -177,14 +178,7 @@ export default defineConfig({
       '/releases/': [
         {
           text: '发布记录',
-          items: [
-            { text: '最新版本', link: '/releases/latest' },
-            { text: 'v3.4.2', link: '/releases/v3.4.2' },
-            { text: 'v3.4.1', link: '/releases/v3.4.1' },
-            { text: 'v3.4.0', link: '/releases/v3.4.0' },
-            { text: 'v3.3.0', link: '/releases/v3.3.0' },
-            { text: 'v3.2.0', link: '/releases/v3.2.0' },
-          ],
+          items: getReleaseSidebarItems(),
         },
       ],
       '/en/': [
