@@ -98,7 +98,7 @@ vi.mock("../../src/messaging/btw-deliver", () => ({
   deliverBtwReply: shared.deliverBtwReplyMock,
   stripLeadingMentions: (text: string) => text.replace(/^(?:@\S+\s+)*/u, ""),
   buildBtwBlockquote: vi.fn((senderName: string, rawQuestion: string) => {
-    if (senderName) return `> ${senderName}:\n> ${rawQuestion}\n\n`;
+    if (senderName) return `> ${senderName}:  \n> ${rawQuestion}\n\n`;
     return `> ${rawQuestion}\n\n`;
   }),
 }));

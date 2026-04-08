@@ -18,7 +18,7 @@ export function buildBtwBlockquote(senderName: string, rawQuestion: string): str
   const truncated =
     stripped.length > MAX_QUESTION_LENGTH ? `${stripped.slice(0, MAX_QUESTION_LENGTH)}…` : stripped;
   if (senderName) {
-    return `> ${senderName}:\n> ${truncated}\n\n`;
+    return `> ${senderName}:  \n> ${truncated}\n\n`;
   }
   return `> ${truncated}\n\n`;
 }
