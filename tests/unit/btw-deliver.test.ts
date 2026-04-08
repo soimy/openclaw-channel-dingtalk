@@ -40,6 +40,18 @@ describe("buildBtwBlockquote", () => {
     expect(inner.endsWith("…")).toBe(true);
   });
 
+  it("truncates by Unicode code points so emoji are not split", () => {
+    // Each 🤔 is one code point but 2 UTF-16 code units. 100 emoji = 100 code
+    // points (over the 80 limit) → must truncate to 80 emoji + …, not 40.
+    const longEmoji = "🤔".repeat(100);
+    const result = buildBtwBlockquote("", longEmoji);
+    const inner = result.slice("> ".length, -2);
+    expect([...inner].length).toBe(81); // 80 emoji + …
+    expect(inner.endsWith("…")).toBe(true);
+    // Ensure no half surrogates leaked in
+    expect(inner.slice(0, -1)).toBe("🤔".repeat(80));
+  });
+
   it("does not truncate question at exactly 80 characters", () => {
     const exact80 = "/btw " + "a".repeat(75);
     const result = buildBtwBlockquote("王滨", exact80);

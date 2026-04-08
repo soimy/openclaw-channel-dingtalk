@@ -15,8 +15,13 @@ export function stripLeadingMentions(text: string): string {
 
 export function buildBtwBlockquote(senderName: string, rawQuestion: string): string {
   const stripped = stripLeadingMentions(rawQuestion);
+  // Iterate by Unicode code points (not UTF-16 code units) so emoji /
+  // surrogate pairs aren't sliced in half at the truncation boundary.
+  const codePoints = [...stripped];
   const truncated =
-    stripped.length > MAX_QUESTION_LENGTH ? `${stripped.slice(0, MAX_QUESTION_LENGTH)}…` : stripped;
+    codePoints.length > MAX_QUESTION_LENGTH
+      ? `${codePoints.slice(0, MAX_QUESTION_LENGTH).join("")}…`
+      : stripped;
   const senderPrefix = senderName ? `${senderName}: ` : "";
   return `> ${senderPrefix}${truncated}\n\n`;
 }

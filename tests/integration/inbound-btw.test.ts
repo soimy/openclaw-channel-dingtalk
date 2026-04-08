@@ -110,6 +110,12 @@ import { clearTargetDirectoryStateCache } from "../../src/targeting/target-direc
 import { resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
+
+// Per-test-file private tmpdir to avoid stomping on other suites that share /tmp.
+const TEST_TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-btw-int-"));
+const STORE_PATH = path.join(TEST_TMP_DIR, "store-btw.json");
+const MEDIA_PATH = path.join(TEST_TMP_DIR, "media", "test.png");
 
 function buildRuntime() {
   return {
@@ -122,12 +128,12 @@ function buildRuntime() {
       },
       media: {
         saveMediaBuffer: vi.fn().mockResolvedValue({
-          path: "/tmp/.openclaw/media/inbound/test.png",
+          path: MEDIA_PATH,
           contentType: "image/png",
         }),
       },
       session: {
-        resolveStorePath: vi.fn().mockReturnValue("/tmp/store-btw.json"),
+        resolveStorePath: vi.fn().mockReturnValue(STORE_PATH),
         readSessionUpdatedAt: vi.fn().mockReturnValue(null),
         recordInboundSession: vi.fn().mockResolvedValue(undefined),
       },
@@ -149,7 +155,7 @@ function buildRuntime() {
 describe("inbound /btw integration", () => {
   beforeEach(() => {
     clearTargetDirectoryStateCache();
-    fs.rmSync(path.join(path.dirname("/tmp/store-btw.json"), "dingtalk-state"), {
+    fs.rmSync(path.join(TEST_TMP_DIR, "dingtalk-state"), {
       recursive: true,
       force: true,
     });

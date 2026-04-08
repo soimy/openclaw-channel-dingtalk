@@ -22,6 +22,7 @@ const shared = vi.hoisted(() => ({
   resolveOutboundMediaTypeMock: vi.fn(),
   isAbortRequestTextMock: vi.fn(),
   isBtwRequestTextMock: vi.fn(),
+  isBtwRequestTextExported: true,
   deliverBtwReplyMock: vi.fn(),
 }));
 
@@ -71,7 +72,13 @@ vi.mock("../../src/session-lock", () => ({
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
-  isBtwRequestText: shared.isBtwRequestTextMock,
+  // Getter so individual tests can simulate "old openclaw without the export"
+  // by toggling `shared.isBtwRequestTextExported = false`. This more faithfully
+  // mirrors the soft-import `typeof === "function"` guard than swapping the mock
+  // implementation to `undefined` (which would actually throw on call).
+  get isBtwRequestText() {
+    return shared.isBtwRequestTextExported ? shared.isBtwRequestTextMock : undefined;
+  },
 }));
 
 vi.mock("../../src/message-context-store", async () => {
@@ -204,7 +211,8 @@ describe("inbound-handler /btw bypass", () => {
     shared.isAbortRequestTextMock.mockReset();
     shared.isAbortRequestTextMock.mockReturnValue(false);
     shared.isBtwRequestTextMock.mockReset();
-    shared.isBtwRequestTextMock.mockReturnValue(false);
+    shared.isBtwRequestTextMock.mockReturnValue(true);
+    shared.isBtwRequestTextExported = true;
     shared.deliverBtwReplyMock.mockReset();
     shared.deliverBtwReplyMock.mockResolvedValue({ ok: true });
 
@@ -218,12 +226,6 @@ describe("inbound-handler /btw bypass", () => {
       state: "1",
       lastUpdated: Date.now(),
     });
-  });
-
-  beforeEach(() => {
-    // Set defaults for btw bypass tests
-    shared.isAbortRequestTextMock.mockReturnValue(false);
-    shared.isBtwRequestTextMock.mockReturnValue(true);
   });
 
   it("does NOT acquire session lock when /btw is matched", async () => {
@@ -252,9 +254,10 @@ describe("inbound-handler /btw bypass", () => {
   });
 
   it("falls through to normal path when isBtwRequestText is undefined (old openclaw)", async () => {
-    // Override the mock for this single test: treat isBtwRequestText as undefined
-    // by making mockImplementation throw (simulating missing export)
-    shared.isBtwRequestTextMock.mockImplementation(undefined as unknown as () => boolean);
+    // Simulate an older openclaw whose `reply-runtime` module does not export
+    // `isBtwRequestText` at all. The vi.mock getter returns `undefined` so the
+    // soft-import `typeof === "function"` guard fails cleanly.
+    shared.isBtwRequestTextExported = false;
 
     await invokeWithFakeInbound("/btw foo");
     expect(shared.acquireSessionLockMock).toHaveBeenCalledTimes(1);
