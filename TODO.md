@@ -513,4 +513,3 @@
 - [x] Long question (> 80 chars) → blockquote shows truncated form with `…`
 - [x] Card mode (`messageType: card`): `/btw` and `/stop` do NOT create orphan PROCESSING cards (createAICard hoist regression)
 - [x] After upgrading to openclaw with `isBtwRequestText` exported, BTW activates without channel config change
-- [ ] On older openclaw (no `isBtwRequestText`), `/btw` is treated as normal chat (degraded but no crash) — deferred, requires openclaw downgrade to verify

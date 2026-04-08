@@ -1416,11 +1416,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // the main run's transcript. The dispatch must NOT acquire the session lock,
   // otherwise it would queue behind the in-flight main task and lose its "side
   // question" semantics.
-  //
-  // isBtwRequestText is soft-imported: older openclaw versions do not export it,
-  // in which case the typeof guard skips the bypass and the message falls through
-  // to the normal session-lock path (degraded UX, no crash).
-  if (typeof isBtwRequestText === "function" && isBtwRequestText(textForCommandCheck)) {
+  if (isBtwRequestText(textForCommandCheck)) {
     log?.info?.(
       `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
     );
