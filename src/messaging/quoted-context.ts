@@ -5,6 +5,7 @@ import { resolveQuotedRecord } from "./quoted-ref";
 const DEFAULT_MAX_DEPTH = 3;
 const DEFAULT_PER_HOP_BODY_LIMIT = 1200;
 const DEFAULT_TOTAL_BODY_LIMIT = 3600;
+const QUOTED_CHAIN_ENTRY_SENDER_ID = Symbol("quotedChainEntrySenderId");
 
 export interface QuotedChainEntry {
   depth: number;
@@ -29,6 +30,10 @@ export interface QuotedRuntimePreview {
   messageType?: string;
   senderId?: string;
 }
+
+type QuotedChainEntryInternal = QuotedChainEntry & {
+  [QUOTED_CHAIN_ENTRY_SENDER_ID]?: string;
+};
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
@@ -136,7 +141,7 @@ function buildChainEntry(params: {
     return null;
   }
   const body = truncateBody(resolveRecordBody(params.record), limit);
-  return {
+  const entry: QuotedChainEntryInternal = {
     depth: params.depth,
     direction: params.record.direction,
     messageType: deriveMessageType(params.record),
@@ -144,6 +149,19 @@ function buildChainEntry(params: {
     body,
     createdAt: params.record.createdAt,
   };
+  if (typeof params.record.senderId === "string" && params.record.senderId.trim()) {
+    Object.defineProperty(entry, QUOTED_CHAIN_ENTRY_SENDER_ID, {
+      value: params.record.senderId.trim(),
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return entry;
+}
+
+export function getQuotedChainEntrySenderId(entry: QuotedChainEntry): string | undefined {
+  return (entry as QuotedChainEntryInternal)[QUOTED_CHAIN_ENTRY_SENDER_ID];
 }
 
 export function resolveQuotedRuntimeContext(params: {

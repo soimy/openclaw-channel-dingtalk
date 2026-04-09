@@ -2553,6 +2553,164 @@ describe("inbound-handler", () => {
     });
   });
 
+  it("drops blocked deeper quoted-chain context in group allowlist mode even when the first quoted hop is allowlisted", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_quote_visibility",
+      msgId: "chain_leaf_blocked_1",
+      createdAt: baseTs - 3000,
+      messageType: "text",
+      text: "第三跳外部上下文",
+      senderId: "blocked_user",
+      senderName: "外部成员",
+      topic: null,
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_quote_visibility",
+      msgId: "chain_head_allowed_1",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "第一跳允许上下文",
+      senderId: "allowed_user",
+      senderName: "白名单成员",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_leaf_blocked_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续这个群聊话题",
+      messageType: "text",
+      quoted: {
+        msgId: "chain_head_allowed_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_group_quote_visibility"],
+        groupAllowFrom: ["manager8031", "allowed_user"],
+        contextVisibility: "allowlist",
+        messageType: "markdown",
+      } as any,
+      data: {
+        msgId: "m_quote_chain_group_allowlist_1",
+        msgtype: "text",
+        text: { content: "继续这个群聊话题", isReplyMsg: true },
+        originalMsgId: "chain_head_allowed_1",
+        conversationType: "2",
+        conversationId: "cid_group_quote_visibility",
+        senderId: "raw_sender_manager8031",
+        senderStaffId: "manager8031",
+        senderNick: "管理员",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳允许上下文");
+    expect(finalized.ReplyToIsQuote).toBe(true);
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
+  it("keeps the first explicit quote but drops blocked deeper quoted-chain context in group allowlist_quote mode", async () => {
+    const baseTs = Date.now();
+    const runtime = buildRuntime();
+    runtime.channel.session.resolveStorePath = vi
+      .fn()
+      .mockReturnValueOnce("/tmp/store.json")
+      .mockReturnValueOnce("/tmp/agent-store.json");
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_quote_visibility_quote_mode",
+      msgId: "chain_leaf_blocked_quote_mode_1",
+      createdAt: baseTs - 3000,
+      messageType: "text",
+      text: "第三跳外部上下文",
+      senderId: "blocked_user_2",
+      senderName: "外部成员二号",
+      topic: null,
+    });
+    messageContextStore.upsertInboundMessageContext({
+      storePath: "/tmp/store.json",
+      accountId: "main",
+      conversationId: "cid_group_quote_visibility_quote_mode",
+      msgId: "chain_head_blocked_quote_mode_1",
+      createdAt: baseTs - 1000,
+      messageType: "text",
+      text: "第一跳外部上下文",
+      senderId: "blocked_user_1",
+      senderName: "外部成员一号",
+      quotedRef: {
+        targetDirection: "inbound",
+        key: "msgId",
+        value: "chain_leaf_blocked_quote_mode_1",
+      },
+      topic: null,
+    });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "继续这个群聊话题",
+      messageType: "text",
+      quoted: {
+        msgId: "chain_head_blocked_quote_mode_1",
+      },
+    });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        groupPolicy: "allowlist",
+        allowFrom: ["cid_group_quote_visibility_quote_mode"],
+        groupAllowFrom: ["manager8031"],
+        contextVisibility: "allowlist_quote",
+        messageType: "markdown",
+      } as any,
+      data: {
+        msgId: "m_quote_chain_group_allowlist_quote_1",
+        msgtype: "text",
+        text: { content: "继续这个群聊话题", isReplyMsg: true },
+        originalMsgId: "chain_head_blocked_quote_mode_1",
+        conversationType: "2",
+        conversationId: "cid_group_quote_visibility_quote_mode",
+        senderId: "raw_sender_manager8031",
+        senderStaffId: "manager8031",
+        senderNick: "管理员",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: baseTs,
+      },
+    } as any);
+
+    const finalized = runtime.channel.reply.finalizeInboundContext.mock.calls[0]?.[0];
+    expect(finalized.ReplyToBody).toBe("第一跳外部上下文");
+    expect(finalized.ReplyToIsQuote).toBe(true);
+    expect(finalized.UntrustedContext).toBeUndefined();
+  });
+
   it("does not inject ReplyTo fields or chain context when quotedRef cannot be resolved", async () => {
     const runtime = buildRuntime();
     runtime.channel.session.resolveStorePath = vi

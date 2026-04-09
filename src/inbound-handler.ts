@@ -32,7 +32,7 @@ import {
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
 import { deliverBtwReply, stripLeadingMentions } from "./messaging/btw-deliver";
-import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
+import { getQuotedChainEntrySenderId, resolveQuotedRuntimeContext } from "./messaging/quoted-context";
 import {
   buildInboundQuotedRef,
   createReplyQuotedRef,
@@ -151,16 +151,55 @@ function filterQuotedRuntimeContext(params: {
       ? isSenderAllowed({ allow, senderId })
       : false;
 
-  if (senderAllowed) {
+  if (!senderAllowed && mode !== "allowlist_quote") {
+    return null;
+  }
+
+  if (context.chain.length <= 1) {
+    return senderAllowed
+      ? context
+      : {
+          ...context,
+          untrustedContext: undefined,
+        };
+  }
+
+  const filteredChain = [context.chain[0]];
+  for (const entry of context.chain.slice(1)) {
+    if (entry.direction === "outbound") {
+      filteredChain.push(entry);
+      continue;
+    }
+
+    const chainSenderId = resolveQuotedVisibilitySenderId({
+      quotedSenderId: getQuotedChainEntrySenderId(entry),
+      currentSenderId,
+      currentSenderOriginalId,
+    });
+    const entryAllowed =
+      allow.hasEntries && !!chainSenderId
+        ? isSenderAllowed({ allow, senderId: chainSenderId })
+        : false;
+    if (!entryAllowed) {
+      break;
+    }
+    filteredChain.push(entry);
+  }
+
+  if (senderAllowed && filteredChain.length === context.chain.length) {
     return context;
   }
-  if (mode === "allowlist_quote") {
-    return {
-      ...context,
-      untrustedContext: undefined,
-    };
-  }
-  return null;
+
+  return {
+    ...context,
+    chain: filteredChain,
+    untrustedContext:
+      filteredChain.length > 1
+        ? JSON.stringify({
+            quotedChain: filteredChain.slice(1),
+          })
+        : undefined,
+  };
 }
 
 function readSessionReasoningLevel(params: {
