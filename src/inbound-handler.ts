@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import * as path from "node:path";
+import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
@@ -30,6 +31,7 @@ import {
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
+import { deliverBtwReply, stripLeadingMentions } from "./messaging/btw-deliver";
 import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
 import {
   buildInboundQuotedRef,
@@ -59,7 +61,6 @@ import {
 } from "./targeting/target-directory-store";
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
 import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData, parseBooleanLike } from "./utils";
-import { isAbortRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
@@ -808,13 +809,37 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
+
+  const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
+  const quotedRef = buildInboundQuotedRef(data, extractedContent);
+  const replyQuotedRef = createReplyQuotedRef(data.msgId);
+  const content = extractedContent;
+  // Decide BTW bypass once, here. Two consequences depend on this single decision:
+  //   1. Skip createAICard below — /btw must never create a card it can't finalize
+  //      (CLAUDE.md anti-pattern: no multiple active cards per accountId:conversationId).
+  //   2. Drive the actual /btw bypass dispatch later in this function (see the
+  //      `if (isBtwBypass)` branch below, after the abort branch).
+  // Both consequences read this constant; nothing recomputes the check, so the two
+  // sites can never disagree. The check uses `content.text` (pre-OCR user body),
+  // not `inboundText` (which is content.text + attachment OCR), because /btw is a
+  // command typed by the user — we must not dispatch BTW because some attached
+  // image's OCR happens to start with "/btw". This data dependency is also why the
+  // sibling abort flag is NOT lifted here: abort uses `inboundText` (its historical
+  // input), and `inboundText` is not yet computed at this point in the pipeline.
+  const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
+
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
+  // /btw is gated out here (`!isBtwBypass`) because it must never create a card —
+  // it has its own bypass dispatch later that returns before reaching the main
+  // run. Abort (/stop) is intentionally NOT gated: in card mode the existing
+  // abort branch finalizes the card with the abort confirmation text instead of
+  // sending a separate plain-text message.
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
 
-  if (useCardMode) {
+  if (useCardMode && !isBtwBypass) {
     try {
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
@@ -849,10 +874,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  const journalTTLDays = dingtalkConfig.journalTTLDays ?? DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
-  const quotedRef = buildInboundQuotedRef(data, extractedContent);
-  const replyQuotedRef = createReplyQuotedRef(data.msgId);
-  const content = extractedContent;
   const hasLegacyQuoteContent =
     typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
 
@@ -1436,7 +1457,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // "@Agent /stop" are correctly recognised as abort requests in both DM and group
   // chats. In groups DingTalk usually strips @BotName at the protocol level, but
   // in DMs with multi-agent routing the @mention prefix survives all the way here.
-  const textForAbortCheck = inboundText.replace(/^(?:@\S+\s+)*/u, "").trim();
+  const textForAbortCheck = stripLeadingMentions(inboundText).trim();
   if (isAbortRequestText(textForAbortCheck)) {
     log?.info?.(
       `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
@@ -1495,6 +1516,61 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
       }
+    }
+    return;
+  }
+
+  // ---- Pre-lock BTW: bypass session lock for /btw side questions ----
+  // /btw runs an isolated, tool-less side query in openclaw without polluting
+  // the main run's transcript. The dispatch must NOT acquire the session lock,
+  // otherwise it would queue behind the in-flight main task and lose its "side
+  // question" semantics.
+  //
+  // The `isBtwBypass` flag is computed once early (just after `content` is
+  // resolved, just before `createAICard`). The same constant gates `createAICard` above and
+  // drives this branch — single decision, two consequences. See the comment
+  // at the flag's definition for why /btw uses pre-OCR `content.text` while
+  // abort uses `inboundText`.
+  if (isBtwBypass) {
+    log?.info?.(
+      `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
+    );
+    // Empty fallback (NOT "Unknown" like the file's main `senderName` variable):
+    // when the nickname is missing we want the blockquote to render as
+    // `> /btw <question>` rather than `> Unknown: /btw <question>`. Read locally
+    // here so the existing `senderName` semantics elsewhere in the file are not
+    // affected.
+    const btwSenderName = data.senderNick || "";
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx,
+        cfg,
+        dispatcherOptions: {
+          responsePrefix: "",
+          deliver: async (payload) => {
+            if (!payload.text) {
+              log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
+              return;
+            }
+            await deliverBtwReply({
+              config: dingtalkConfig,
+              sessionWebhook,
+              conversationId: groupId,
+              to,
+              senderName: btwSenderName,
+              // Use pre-OCR content.text (consistent with isBtwBypass detection)
+              // so the blockquote shows the user's typed body, not body + OCR.
+              rawQuestion: content.text,
+              replyText: payload.text,
+              log,
+              accountId,
+              storePath: accountStorePath,
+            });
+          },
+        },
+      });
+    } catch (btwErr) {
+      log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
     }
     return;
   }

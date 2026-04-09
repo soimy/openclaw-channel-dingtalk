@@ -82,6 +82,7 @@ vi.mock("../../src/session-lock", () => ({
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
+  isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../../src/message-context-store", async () => {
@@ -8230,11 +8231,22 @@ describe("inbound-handler", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("finalizes the card with abort text when card mode is active", async () => {
-      const card = { cardInstanceId: "card_abort_1", state: "1", lastUpdated: Date.now() };
-      shared.createAICardMock.mockResolvedValue(card);
+    it("in card mode, /stop finalizes the card with abort confirmation text (does NOT send a separate plain-text bubble)", async () => {
+      // Regression guard against future hoists. /stop in card mode follows the
+      // long-standing flow:
+      //   1. createAICard runs early (before media download — UX requirement)
+      //   2. abort branch detects /stop, captures dispatch text into the card,
+      //      then finalizes the card via finishAICard("已停止" / dispatch text)
+      // The card MUST be finalized so it doesn't sit in PROCESSING forever, and
+      // the abort confirmation must NOT be sent as a separate text bubble (that
+      // would leave both an orphan card AND a plain-text message).
       shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
       shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.createAICardMock.mockResolvedValue({
+        cardInstanceId: "card_abort_1",
+        outTrackId: "out_abort_1",
+        state: "0",
+      });
 
       const rt = buildRuntime();
       vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
@@ -8256,13 +8268,18 @@ describe("inbound-handler", () => {
 
       // session lock should NOT be acquired
       expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
-      // abort text should be written to card, not sent as plain text
-      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      // Card mode: createAICard MUST run for /stop (visual feedback + finalize target)
+      expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+      // The card MUST be finalized with the abort confirmation text
+      expect(shared.finishAICardMock).toHaveBeenCalledTimes(1);
       expect(shared.finishAICardMock).toHaveBeenCalledWith(
-        card,
+        expect.objectContaining({ cardInstanceId: "card_abort_1" }),
         "⚙️ Agent was aborted.",
         undefined,
       );
+      // No separate plain-text bubble should be sent in card mode
+      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      expect(shared.sendMessageMock).not.toHaveBeenCalled();
     });
 
     it("strips leading @mention from group message before abort check", async () => {
