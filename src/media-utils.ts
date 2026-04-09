@@ -13,6 +13,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import axios from "./http-client";
 import FormData from "form-data";
+import { runFfmpeg, runFfprobe } from "openclaw/plugin-sdk/media-runtime";
 import type { DingTalkConfig, Logger } from "./types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import { getDingTalkRuntime } from "./runtime";
@@ -207,6 +208,122 @@ export async function getMp3DurationSeconds(filePathOrBuffer: string | Buffer, l
 }
 
 const DEFAULT_VOICE_DURATION_MS = 1000;
+const DINGTALK_VOICE_UPLOAD_EXTENSIONS = new Set([".ogg", ".amr"]);
+const DINGTALK_VOICE_INPUT_EXTENSIONS = new Set([".ogg", ".amr", ".mp3", ".wav"]);
+
+async function getDurationMsWithFfprobe(filePath: string, log?: Logger): Promise<number> {
+  try {
+    const stdout = await runFfprobe([
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "csv=p=0",
+      filePath,
+    ]);
+    const duration = Number.parseFloat(stdout.trim());
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return 0;
+    }
+    return Math.max(1, Math.round(duration * 1000));
+  } catch (err: unknown) {
+    log?.warn?.(`[DingTalk] Failed to probe voice duration: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  }
+}
+
+async function prepareVoiceUploadPath(
+  mediaPath: string,
+  log?: Logger,
+): Promise<{ path: string; cleanup?: () => Promise<void> }> {
+  const ext = path.extname(mediaPath).toLowerCase();
+  if (DINGTALK_VOICE_UPLOAD_EXTENSIONS.has(ext)) {
+    return { path: mediaPath };
+  }
+
+  const outputPath = path.join(os.tmpdir(), `dingtalk_voice_${randomUUID()}.ogg`);
+  await runFfmpeg([
+    "-y",
+    "-i",
+    mediaPath,
+    "-vn",
+    "-sn",
+    "-dn",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-c:a",
+    "libopus",
+    "-b:a",
+    "24k",
+    outputPath,
+  ]);
+
+  log?.debug?.(`[DingTalk] Transcoded voice upload to OGG: ${mediaPath} -> ${outputPath}`);
+
+  return {
+    path: outputPath,
+    cleanup: async () => {
+      await fsPromises.rm(outputPath, { force: true });
+    },
+  };
+}
+
+function getWavDurationMsFromBuffer(buffer: Buffer, log?: Logger): number {
+  try {
+    if (buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
+      return 0;
+    }
+
+    let offset = 12;
+    let byteRate = 0;
+    let sampleRate = 0;
+    let channels = 0;
+    let bitsPerSample = 0;
+    let dataSize = 0;
+
+    while (offset + 8 <= buffer.length) {
+      const chunkId = buffer.toString("ascii", offset, offset + 4);
+      const chunkSize = buffer.readUInt32LE(offset + 4);
+      const chunkDataStart = offset + 8;
+      const paddedChunkSize = chunkSize + (chunkSize % 2);
+
+      if (chunkDataStart + chunkSize > buffer.length) {
+        break;
+      }
+
+      if (chunkId === "fmt " && chunkSize >= 16) {
+        channels = buffer.readUInt16LE(chunkDataStart + 2);
+        sampleRate = buffer.readUInt32LE(chunkDataStart + 4);
+        byteRate = buffer.readUInt32LE(chunkDataStart + 8);
+        bitsPerSample = buffer.readUInt16LE(chunkDataStart + 14);
+      } else if (chunkId === "data") {
+        dataSize = chunkSize;
+      }
+
+      if (dataSize > 0 && (byteRate > 0 || (sampleRate > 0 && channels > 0 && bitsPerSample > 0))) {
+        break;
+      }
+
+      offset = chunkDataStart + paddedChunkSize;
+    }
+
+    const effectiveByteRate = byteRate || (sampleRate > 0 && channels > 0 && bitsPerSample > 0
+      ? sampleRate * channels * (bitsPerSample / 8)
+      : 0);
+
+    if (effectiveByteRate <= 0 || dataSize <= 0) {
+      return 0;
+    }
+
+    return Math.max(1, Math.round((dataSize / effectiveByteRate) * 1000));
+  } catch (err: unknown) {
+    log?.warn?.(`[DingTalk] Failed to parse WAV duration: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  }
+}
 
 export async function getVoiceDurationMs(
   filePath: string,
@@ -238,6 +355,26 @@ export async function getVoiceDurationMs(
       `[DingTalk] MP3 duration parse returned ${durationSec} for ${filePath}; using fallback ${DEFAULT_VOICE_DURATION_MS}ms`,
     );
     return DEFAULT_VOICE_DURATION_MS;
+  }
+
+  if (ext === ".wav") {
+    try {
+      const buffer = options?.preReadBuffer
+        ?? (await readMediaBuffer(filePath, options, log)).buffer;
+      const durationMs = getWavDurationMsFromBuffer(buffer, log);
+      if (durationMs > 0) {
+        return durationMs;
+      }
+    } catch {
+      // Fall through to the safe default below.
+    }
+  }
+
+  if (ext === ".ogg" || ext === ".amr") {
+    const durationMs = await getDurationMsWithFfprobe(filePath, log);
+    if (durationMs > 0) {
+      return durationMs;
+    }
   }
 
   return DEFAULT_VOICE_DURATION_MS;
@@ -339,7 +476,7 @@ function isAllowedByMediaUrlAllowlist(url: URL, mediaUrlAllowlist: string[]): bo
  * Detect media type from file extension
  * Matches DingTalk's supported media types:
  * - image: jpg, gif, png, bmp (max 20MB)
- * - voice: amr, mp3, wav (max 2MB)
+ * - voice: ogg, amr, mp3, wav (max 2MB)
  * - video: mp4 (max 20MB)
  * - file: doc, docx, xls, xlsx, ppt, pptx, zip, pdf, rar (max 20MB)
  *
@@ -351,7 +488,7 @@ export function detectMediaTypeFromExtension(filePath: string): DingTalkMediaTyp
 
   if ([".jpg", ".jpeg", ".png", ".gif", ".bmp"].includes(ext)) {
     return "image";
-  } else if ([".mp3", ".amr", ".wav"].includes(ext)) {
+  } else if ([".ogg", ".mp3", ".amr", ".wav"].includes(ext)) {
     return "voice";
   } else if ([".mp4", ".avi", ".mov"].includes(ext)) {
     return "video";
@@ -386,8 +523,8 @@ export function resolveOutboundMediaType(params: {
       throw new Error('asVoice requires mediaType="voice" when mediaType is provided.');
     }
 
-    if (detectedType !== "voice") {
-      throw new Error("asVoice requires an audio file (mp3, amr, wav).");
+    if (detectedType !== "voice" || !DINGTALK_VOICE_INPUT_EXTENSIONS.has(path.extname(params.mediaPath).toLowerCase())) {
+      throw new Error("asVoice requires an audio file (ogg, amr, mp3, wav).");
     }
 
     return "voice";
@@ -687,6 +824,12 @@ export interface UploadMediaResult {
   mediaId: string;
   /** The file buffer read during upload, reusable for voice duration parsing etc. */
   buffer: Buffer;
+  /**
+   * Voice duration captured before any temporary transcoded file is cleaned up.
+   * This is the stable field callers should use instead of depending on any
+   * upload-time temp path lifecycle.
+   */
+  durationMs?: number;
 }
 
 export async function uploadMedia(
@@ -697,11 +840,22 @@ export async function uploadMedia(
   log?: Logger,
   options?: { mediaLocalRoots?: string[] },
 ): Promise<UploadMediaResult | null> {
+  let voicePreparedCleanup: (() => Promise<void>) | undefined;
   try {
     const token = await getAccessToken(config, log);
+    let resolvedMediaPath = mediaPath;
+
+    if (mediaType === "voice") {
+      const prepared = await prepareVoiceUploadPath(mediaPath, log);
+      resolvedMediaPath = prepared.path;
+      voicePreparedCleanup = prepared.cleanup;
+    }
 
     // Read file via sandbox-aware bridge (falls back to direct fs for host paths)
-    const { buffer, size } = await readMediaBuffer(mediaPath, options, log);
+    const { buffer, size } = await readMediaBuffer(resolvedMediaPath, options, log);
+    const durationMs = mediaType === "voice"
+      ? await getVoiceDurationMs(resolvedMediaPath, mediaType, log, { ...options, preReadBuffer: buffer })
+      : undefined;
 
     // Check file size
     const sizeLimit = FILE_SIZE_LIMITS[mediaType];
@@ -714,7 +868,7 @@ export async function uploadMedia(
       return null;
     }
 
-    const filename = path.basename(mediaPath);
+    const filename = path.basename(resolvedMediaPath);
 
     // Upload to DingTalk's media server using form-data
     const form = new FormData();
@@ -735,7 +889,7 @@ export async function uploadMedia(
       log?.debug?.(
         `[DingTalk] Media uploaded successfully: ${response.data.media_id} (${size} bytes)`,
       );
-      return { mediaId: response.data.media_id, buffer };
+      return { mediaId: response.data.media_id, buffer, durationMs };
     } else {
       log?.error?.(`[DingTalk] Media upload failed: ${JSON.stringify(response.data)}`);
       return null;
@@ -758,5 +912,7 @@ export async function uploadMedia(
       }
     }
     return null;
+  } finally {
+    await voicePreparedCleanup?.();
   }
 }

@@ -254,7 +254,7 @@ describe("inbound-handler media handling", () => {
         sessionWebhook: "https://session.webhook",
         createAt: Date.now(),
       },
-    } as unknown as { data: unknown });
+    } as any);
 
     expect(shared.prepareMediaInputMock).toHaveBeenCalledWith(
       "https://cdn.example.com/report.pdf",
@@ -276,6 +276,108 @@ describe("inbound-handler media handling", () => {
         },
       }),
     );
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("deliver callback preserves audioAsVoice for runtime media payloads", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          { mediaUrl: "https://cdn.example.com/clip.mp3", audioAsVoice: true },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/clip.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_media_voice",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/clip.mp3",
+      asVoice: true,
+    });
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      "",
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        mediaPath: "/tmp/prepared/clip.mp3",
+        mediaType: "voice",
+      }),
+    );
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("deliver callback still honors legacy asVoice when audioAsVoice is unset", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions }) => {
+        await dispatcherOptions.deliver(
+          { mediaUrl: "https://cdn.example.com/legacy-clip.mp3", asVoice: "true" },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/prepared/legacy-clip.mp3",
+      cleanup,
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("voice");
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown", ackReaction: "" } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_media_voice_legacy",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/prepared/legacy-clip.mp3",
+      asVoice: true,
+    });
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
@@ -316,7 +418,7 @@ describe("inbound-handler media handling", () => {
         sessionWebhook: "https://session.webhook",
         createAt: Date.now(),
       },
-    } as unknown as { data: unknown });
+    } as any);
 
     expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
       1,
@@ -384,7 +486,7 @@ describe("inbound-handler media handling", () => {
         sessionWebhook: "https://session.webhook",
         createAt: Date.now(),
       },
-    } as unknown as { data: unknown });
+    } as any);
 
     expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
       1,
@@ -457,7 +559,7 @@ describe("inbound-handler media handling", () => {
         sessionWebhook: "https://session.webhook",
         createAt: Date.now(),
       },
-    } as unknown as { data: unknown });
+    } as any);
 
     // Media should be uploaded and embedded as image block in card, not sent via sendMessage
     expect(shared.prepareMediaInputMock).toHaveBeenCalledWith(
@@ -510,7 +612,7 @@ describe("inbound-handler media handling", () => {
         chatbotUserId: "bot_1",
         createAt: Date.now(),
       },
-    } as unknown as { data: unknown });
+    } as any);
 
     expect(shared.sendBySessionMock).not.toHaveBeenCalled();
     expect(shared.sendProactiveMediaMock).toHaveBeenCalledWith(
@@ -570,7 +672,7 @@ describe("inbound-handler media handling", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as { data: unknown }),
+      } as any),
     ).rejects.toThrow("send failed");
 
     expect(cleanup).toHaveBeenCalledTimes(1);

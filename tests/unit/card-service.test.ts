@@ -28,6 +28,7 @@ import {
     formatContentForCard,
     getAICardDegradeState,
     isAICardDegraded,
+    recallAICardMessage,
     recoverPendingCardsForAccount,
     sendProactiveCardText,
     streamAICard,
@@ -384,6 +385,95 @@ describe('card-service', () => {
             kind: 'processQueryKey',
             value: 'carrier_dm_scope',
         })).toBeNull();
+    });
+
+    it('recallAICardMessage uses otoMessages batchRecall for direct chats', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { successResult: ['carrier_dm_scope'], failedResult: {} },
+        });
+
+        const ok = await recallAICardMessage({
+            cardInstanceId: 'card_dm_scope',
+            processQueryKey: 'carrier_dm_scope',
+            accessToken: 'token_old',
+            conversationId: 'manager8031',
+            accountId: 'main',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.INPUTING,
+            config: { clientId: 'dingbot123', clientSecret: 'sec' },
+        } as any);
+
+        expect(ok).toBe(true);
+        expect(mockedGetAccessToken).toHaveBeenCalledTimes(1);
+        expect(mockedAxios.post).toHaveBeenCalledWith(
+            'https://api.dingtalk.com/v1.0/robot/otoMessages/batchRecall',
+            {
+                robotCode: 'dingbot123',
+                processQueryKeys: ['carrier_dm_scope'],
+            },
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    'x-acs-dingtalk-access-token': 'token_abc',
+                }),
+            }),
+        );
+    });
+
+    it('recallAICardMessage uses groupMessages recall for group chats', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { successResult: ['carrier_group_scope'], failedResult: {} },
+        });
+
+        const ok = await recallAICardMessage({
+            cardInstanceId: 'card_group_scope',
+            processQueryKey: 'carrier_group_scope',
+            accessToken: 'token_old',
+            conversationId: 'cid//group-1',
+            accountId: 'main',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.INPUTING,
+            config: { clientId: 'dingbot123', clientSecret: 'sec' },
+        } as any);
+
+        expect(ok).toBe(true);
+        expect(mockedAxios.post).toHaveBeenCalledWith(
+            'https://api.dingtalk.com/v1.0/robot/groupMessages/recall',
+            {
+                openConversationId: 'cid//group-1',
+                robotCode: 'dingbot123',
+                processQueryKeys: ['carrier_group_scope'],
+            },
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    'x-acs-dingtalk-access-token': 'token_abc',
+                }),
+            }),
+        );
+    });
+
+    it('recallAICardMessage returns false when DingTalk reports failedResult entries', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { successResult: [], failedResult: { carrier_dm_scope: 'expired' } },
+        });
+
+        const ok = await recallAICardMessage({
+            cardInstanceId: 'card_dm_scope',
+            processQueryKey: 'carrier_dm_scope',
+            accessToken: 'token_old',
+            conversationId: 'manager8031',
+            accountId: 'main',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.INPUTING,
+            config: { clientId: 'dingbot123', clientSecret: 'sec' },
+        } as any);
+
+        expect(ok).toBe(false);
     });
 
     it('streamAICard marks FAILED and sends mismatch notification on 500 unknownError', async () => {

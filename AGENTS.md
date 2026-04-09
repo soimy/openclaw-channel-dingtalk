@@ -178,7 +178,7 @@ Planned domain summary:
 **Error Handling:**
 
 - Use `try/catch` for async API calls
-- Log with structured prefixes (e.g. `[DingTalk]`, `[DingTalk][AICard]`)
+- Log with structured prefixes (e.g. `[DingTalk]`, `[DingTalk][AICard]`, `[DingTalk][Dispatch]`)
 - For DingTalk API error payloads, use unified prefix format:
   - Standard: `[DingTalk][ErrorPayload][<scope>]`
   - AI Card: `[DingTalk][AICard][ErrorPayload][<scope>]`

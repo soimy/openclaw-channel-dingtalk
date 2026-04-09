@@ -584,4 +584,91 @@ describe('message-utils', () => {
         expect(content.docSpaceId).toBeUndefined();
         expect(content.docFileId).toBeUndefined();
     });
+
+    it('chatRecord reply — extracts summary and title', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '当前消息',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'chatRecord',
+                    msgId: 'quoted_chat_1',
+                    content: {
+                        summary: '寻径:客户使用3.3创建的timestamp字段查询异常',
+                        title: '群聊的聊天记录',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.msgId).toBe('quoted_chat_1');
+        expect(content.quoted?.previewText).toBe('[群聊的聊天记录] 寻径:客户使用3.3创建的timestamp字段查询异常');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
+
+    it('chatRecord reply — only summary, no title', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '当前消息',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'chatRecord',
+                    msgId: 'quoted_chat_2',
+                    content: {
+                        summary: '摘要内容',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.previewText).toBe('[聊天记录] 摘要内容');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
+
+    it('chatRecord reply — empty summary falls back to placeholder', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '当前消息',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'chatRecord',
+                    msgId: 'quoted_chat_3',
+                    content: {},
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.previewText).toBe('[Quoted chatRecord]');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
 });

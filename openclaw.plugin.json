@@ -14,70 +14,122 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "enabled": { "type": "boolean", "default": true },
-          "agentId": { "type": "integer" },
-          "corpId": { "type": "string" },
-          "clientId": { "type": "string" },
-          "clientSecret": { "type": "string" },
+          "name": {
+            "type": "string",
+            "description": "Optional display name shown for this DingTalk channel or default account."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable or disable this DingTalk channel configuration without deleting saved credentials."
+          },
+          "agentId": {
+            "type": "integer",
+            "description": "Legacy compatibility field from older setup flows. The current Stream-mode runtime no longer reads this value, so new configs should omit it."
+          },
+          "corpId": {
+            "type": "string",
+            "description": "Legacy compatibility field from older enterprise app setup flows. The current Stream-mode runtime no longer needs or reads this value."
+          },
+          "clientId": {
+            "type": "string",
+            "description": "DingTalk App Key (Client ID) used to authenticate API and Stream connections."
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens."
+          },
           "dmPolicy": {
             "type": "string",
             "enum": ["open", "pairing", "allowlist"],
-            "default": "open"
+            "default": "open",
+            "description": "Direct-message access policy. open allows any DM, pairing requires host pairing, and allowlist only permits IDs listed in allowFrom."
           },
           "groupPolicy": {
             "type": "string",
             "enum": ["open", "allowlist", "disabled"],
-            "default": "open"
+            "default": "open",
+            "description": "Group-message access policy. open allows all groups, allowlist restricts by groupAllowFrom, and disabled blocks group handling."
           },
           "allowFrom": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": { "type": "string" },
+            "description": "User IDs allowed when dmPolicy is allowlist. Accepts DingTalk IDs or host-normalized IDs."
           },
           "groupAllowFrom": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": { "type": "string" },
+            "description": "Sender IDs allowed when groupPolicy is allowlist. Leave empty unless you want per-sender restrictions in groups."
           },
           "displayNameResolution": {
             "type": "string",
             "enum": ["disabled", "all"],
-            "default": "disabled"
+            "default": "disabled",
+            "description": "Whether learned display names can be used to resolve DingTalk users or groups. Keep disabled unless you explicitly accept stale or ambiguous-name routing risk."
+          },
+          "contextVisibility": {
+            "type": "string",
+            "enum": ["all", "allowlist", "allowlist_quote"],
+            "description": "Host-level context filtering before prompts are sent to the runtime. allowlist_quote is the safest advanced mode when only explicit quote or reply context should remain visible."
           },
           "mediaUrlAllowlist": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": { "type": "string" },
+            "description": "Allowed download hosts, IPs, or CIDRs for remote media fetches. Use this for internal file servers or custom CDN domains."
           },
           "ackReaction": {
             "anyOf": [
               { "type": "string", "const": "" },
               { "type": "string", "enum": ["off", "emoji", "kaomoji"] },
               { "type": "string", "minLength": 1 }
-            ]
+            ],
+            "description": "Acknowledgement reaction mode. Supports off, emoji, kaomoji, or a custom compatibility string."
           },
           "journalTTLDays": {
             "type": "integer",
             "minimum": 1,
-            "default": 7
+            "default": 7,
+            "description": "Retention window in days for short-lived message context used by quoting, media recovery, and related reply context features."
           },
-          "debug": { "type": "boolean", "default": false },
+          "debug": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable verbose DingTalk channel debug logging."
+          },
           "messageType": {
             "type": "string",
             "enum": ["markdown", "card"],
-            "default": "markdown"
+            "default": "markdown",
+            "description": "Default reply delivery mode. markdown uses standard messages; card uses DingTalk AI cards when available."
           },
-          "cardTemplateId": { "type": "string" },
-          "cardTemplateKey": { "type": "string", "default": "content" },
+          "cardTemplateId": {
+            "type": "string",
+            "description": "Deprecated and ignored. AI card replies now always use the built-in DingTalk template contract; keep only for compatibility with old configs."
+          },
+          "cardTemplateKey": {
+            "type": "string",
+            "default": "content",
+            "description": "Deprecated and ignored. The built-in AI card contract owns the streaming field mapping; keep only for compatibility with old configs."
+          },
           "groups": {
             "type": "object",
+            "description": "Per-group overrides keyed by conversationId. Supports \"*\" as a wildcard fallback.",
             "additionalProperties": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "systemPrompt": { "type": "string" },
-                "requireMention": { "type": "boolean" },
+                "systemPrompt": {
+                  "type": "string",
+                  "description": "Additional system prompt appended for this group."
+                },
+                "requireMention": {
+                  "type": "boolean",
+                  "description": "Require an explicit @mention before the bot answers in this group."
+                },
                 "groupAllowFrom": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "description": "Per-group sender allowlist used when you want tighter access control than the channel default."
                 }
               }
             }
@@ -85,138 +137,245 @@
           "maxConnectionAttempts": {
             "type": "integer",
             "minimum": 1,
-            "default": 10
+            "default": 10,
+            "description": "Maximum connection attempts in a single reconnect cycle before backing off or giving up."
           },
           "initialReconnectDelay": {
             "type": "integer",
             "minimum": 100,
-            "default": 1000
+            "default": 1000,
+            "description": "Initial reconnect backoff delay in milliseconds."
           },
           "maxReconnectDelay": {
             "type": "integer",
             "minimum": 1000,
-            "default": 60000
+            "default": 60000,
+            "description": "Upper bound for reconnect backoff delay in milliseconds."
           },
           "reconnectJitter": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "default": 0.3
+            "default": 0.3,
+            "description": "Randomization factor added to reconnect backoff to avoid synchronized reconnect storms."
           },
           "maxReconnectCycles": {
             "type": "integer",
             "minimum": 1,
-            "default": 10
+            "default": 10,
+            "description": "Maximum reconnect cycles before the channel stops retrying and waits for the next lifecycle restart."
           },
           "reconnectDeadlineMs": {
             "type": "integer",
             "minimum": 5000,
-            "default": 50000
+            "default": 50000,
+            "description": "Time limit in milliseconds for one reconnect cycle before starting a fresh cycle."
           },
-          "useConnectionManager": { "type": "boolean", "default": true },
+          "useConnectionManager": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the plugin connection manager. Disable only when you intentionally rely on the DingTalk client keepAlive and autoReconnect behavior."
+          },
           "mediaMaxMb": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Maximum inbound media size in MB accepted by the plugin. When omitted, the runtime default is used."
           },
-          "keepAlive": { "type": "boolean" },
-          "bypassProxyForSend": { "type": "boolean", "default": false },
+          "keepAlive": {
+            "type": "boolean",
+            "description": "Enable the underlying Stream client heartbeat. When omitted, runtime derives a default from useConnectionManager."
+          },
+          "bypassProxyForSend": {
+            "type": "boolean",
+            "default": false,
+            "description": "Bypass global or system HTTP(S) proxy settings for DingTalk send, upload, and card APIs."
+          },
           "proactivePermissionHint": {
             "type": "object",
+            "description": "Controls the proactive-send permission reminder shown when a conversation has not granted send rights yet.",
             "additionalProperties": false,
             "properties": {
-              "enabled": { "type": "boolean", "default": true },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show the proactive-send permission hint when the runtime detects missing DingTalk proactive permission."
+              },
               "cooldownHours": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 720,
-                "default": 24
+                "default": 24,
+                "description": "Minimum cooldown in hours before the same proactive permission hint can be shown again."
               }
             }
           },
-          "cardRealTimeStream": { "type": "boolean", "default": false },
+          "cardRealTimeStream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Deprecated compatibility flag. If true and cardStreamingMode is unset, runtime falls back to cardStreamingMode=\"all\". Do not use in new configs."
+          },
+          "cardStreamingMode": {
+            "type": "string",
+            "enum": ["off", "answer", "all"],
+            "description": "AI card incremental streaming mode. off disables streaming, answer streams answer text only, and all streams answer plus reasoning or thinking text."
+          },
+          "cardStreamInterval": {
+            "type": "integer",
+            "minimum": 200,
+            "default": 1000,
+            "description": "Throttle interval in milliseconds between AI card streaming updates."
+          },
           "aicardDegradeMs": {
             "type": "integer",
             "minimum": 60000,
-            "default": 1800000
+            "default": 1800000,
+            "description": "Cooldown window in milliseconds after AI card trigger errors. During this window replies fall back to non-card delivery."
           },
-          "learningEnabled": { "type": "boolean" },
-          "learningAutoApply": { "type": "boolean" },
+          "learningEnabled": {
+            "type": "boolean",
+            "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
+          },
+          "learningAutoApply": {
+            "type": "boolean",
+            "description": "Automatically apply generated learning output into session notes or global rules when available."
+          },
           "learningNoteTtlMs": {
             "type": "integer",
-            "minimum": 60000
+            "minimum": 60000,
+            "description": "Retention window in milliseconds for temporary learning notes."
           },
-          "convertMarkdownTables": { "type": "boolean", "default": true },
-          "cardAtSender": { "type": "string" },
-          "showThinkingStream": { "type": "boolean" },
-          "asyncMode": { "type": "boolean" },
+          "convertMarkdownTables": {
+            "type": "boolean",
+            "default": true,
+            "description": "Convert markdown tables to plain text before sending when you want more consistent DingTalk rendering."
+          },
+          "cardAtSender": {
+            "type": "string",
+            "description": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
+          },
+          "showThinkingStream": {
+            "type": "boolean",
+            "description": "Legacy compatibility field from older card streaming behavior. It is not used by the current runtime and new configs should omit it."
+          },
+          "asyncMode": {
+            "type": "boolean",
+            "description": "Legacy compatibility field from older host or runtime integrations. It is not used by the current runtime and new configs should omit it."
+          },
           "accounts": {
             "type": "object",
+            "description": "Named multi-account DingTalk configurations. Each account can override most top-level settings and inherits unspecified values from the top level.",
             "additionalProperties": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "name": { "type": "string" },
-                "enabled": { "type": "boolean", "default": true },
-                "clientId": { "type": "string" },
-                "clientSecret": { "type": "string" },
+                "name": {
+                  "type": "string",
+                  "description": "Optional display name shown for this named DingTalk account."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Enable or disable this DingTalk account without deleting saved credentials."
+                },
+                "clientId": {
+                  "type": "string",
+                  "description": "DingTalk App Key (Client ID) used to authenticate API and Stream connections."
+                },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens."
+                },
                 "dmPolicy": {
                   "type": "string",
                   "enum": ["open", "pairing", "allowlist"],
-                  "default": "open"
+                  "default": "open",
+                  "description": "Direct-message access policy. open allows any DM, pairing requires host pairing, and allowlist only permits IDs listed in allowFrom."
                 },
                 "groupPolicy": {
                   "type": "string",
                   "enum": ["open", "allowlist", "disabled"],
-                  "default": "open"
+                  "default": "open",
+                  "description": "Group-message access policy. open allows all groups, allowlist restricts by groupAllowFrom, and disabled blocks group handling."
                 },
                 "allowFrom": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "description": "User IDs allowed when dmPolicy is allowlist. Accepts DingTalk IDs or host-normalized IDs."
                 },
                 "groupAllowFrom": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "description": "Sender IDs allowed when groupPolicy is allowlist. Leave empty unless you want per-sender restrictions in groups."
                 },
                 "displayNameResolution": {
                   "type": "string",
                   "enum": ["disabled", "all"],
-                  "default": "disabled"
+                  "default": "disabled",
+                  "description": "Whether learned display names can be used to resolve DingTalk users or groups. Keep disabled unless you explicitly accept stale or ambiguous-name routing risk."
+                },
+                "contextVisibility": {
+                  "type": "string",
+                  "enum": ["all", "allowlist", "allowlist_quote"],
+                  "description": "Host-level context filtering before prompts are sent to the runtime. allowlist_quote is the safest advanced mode when only explicit quote or reply context should remain visible."
                 },
                 "mediaUrlAllowlist": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "description": "Allowed download hosts, IPs, or CIDRs for remote media fetches. Use this for internal file servers or custom CDN domains."
                 },
                 "ackReaction": {
                   "anyOf": [
                     { "type": "string", "const": "" },
                     { "type": "string", "enum": ["off", "emoji", "kaomoji"] },
                     { "type": "string", "minLength": 1 }
-                  ]
+                  ],
+                  "description": "Acknowledgement reaction mode. Supports off, emoji, kaomoji, or a custom compatibility string."
                 },
                 "journalTTLDays": {
                   "type": "integer",
                   "minimum": 1,
-                  "default": 7
+                  "default": 7,
+                  "description": "Retention window in days for short-lived message context used by quoting, media recovery, and related reply context features."
                 },
-                "debug": { "type": "boolean", "default": false },
+                "debug": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable verbose DingTalk channel debug logging."
+                },
                 "messageType": {
                   "type": "string",
                   "enum": ["markdown", "card"],
-                  "default": "markdown"
+                  "default": "markdown",
+                  "description": "Default reply delivery mode. markdown uses standard messages; card uses DingTalk AI cards when available."
                 },
-                "cardTemplateId": { "type": "string" },
-                "cardTemplateKey": { "type": "string", "default": "content" },
+                "cardTemplateId": {
+                  "type": "string",
+                  "description": "Deprecated and ignored. AI card replies now always use the built-in DingTalk template contract; keep only for compatibility with old configs."
+                },
+                "cardTemplateKey": {
+                  "type": "string",
+                  "default": "content",
+                  "description": "Deprecated and ignored. The built-in AI card contract owns the streaming field mapping; keep only for compatibility with old configs."
+                },
                 "groups": {
                   "type": "object",
+                  "description": "Per-group overrides keyed by conversationId. Supports \"*\" as a wildcard fallback.",
                   "additionalProperties": {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "systemPrompt": { "type": "string" },
-                      "requireMention": { "type": "boolean" },
+                      "systemPrompt": {
+                        "type": "string",
+                        "description": "Additional system prompt appended for this group."
+                      },
+                      "requireMention": {
+                        "type": "boolean",
+                        "description": "Require an explicit @mention before the bot answers in this group."
+                      },
                       "groupAllowFrom": {
                         "type": "array",
-                        "items": { "type": "string" }
+                        "items": { "type": "string" },
+                        "description": "Per-group sender allowlist used when you want tighter access control than the channel default."
                       }
                     }
                   }
@@ -224,68 +383,122 @@
                 "maxConnectionAttempts": {
                   "type": "integer",
                   "minimum": 1,
-                  "default": 10
+                  "default": 10,
+                  "description": "Maximum connection attempts in a single reconnect cycle before backing off or giving up."
                 },
                 "initialReconnectDelay": {
                   "type": "integer",
                   "minimum": 100,
-                  "default": 1000
+                  "default": 1000,
+                  "description": "Initial reconnect backoff delay in milliseconds."
                 },
                 "maxReconnectDelay": {
                   "type": "integer",
                   "minimum": 1000,
-                  "default": 60000
+                  "default": 60000,
+                  "description": "Upper bound for reconnect backoff delay in milliseconds."
                 },
                 "reconnectJitter": {
                   "type": "number",
                   "minimum": 0,
                   "maximum": 1,
-                  "default": 0.3
+                  "default": 0.3,
+                  "description": "Randomization factor added to reconnect backoff to avoid synchronized reconnect storms."
                 },
                 "maxReconnectCycles": {
                   "type": "integer",
                   "minimum": 1,
-                  "default": 10
+                  "default": 10,
+                  "description": "Maximum reconnect cycles before the channel stops retrying and waits for the next lifecycle restart."
                 },
                 "reconnectDeadlineMs": {
                   "type": "integer",
                   "minimum": 5000,
-                  "default": 50000
+                  "default": 50000,
+                  "description": "Time limit in milliseconds for one reconnect cycle before starting a fresh cycle."
                 },
-                "useConnectionManager": { "type": "boolean", "default": true },
+                "useConnectionManager": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Enable the plugin connection manager. Disable only when you intentionally rely on the DingTalk client keepAlive and autoReconnect behavior."
+                },
                 "mediaMaxMb": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "description": "Maximum inbound media size in MB accepted by the plugin. When omitted, the runtime default is used."
                 },
-                "keepAlive": { "type": "boolean" },
-                "bypassProxyForSend": { "type": "boolean", "default": false },
+                "keepAlive": {
+                  "type": "boolean",
+                  "description": "Enable the underlying Stream client heartbeat. When omitted, runtime derives a default from useConnectionManager."
+                },
+                "bypassProxyForSend": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Bypass global or system HTTP(S) proxy settings for DingTalk send, upload, and card APIs."
+                },
                 "proactivePermissionHint": {
                   "type": "object",
+                  "description": "Controls the proactive-send permission reminder shown when a conversation has not granted send rights yet.",
                   "additionalProperties": false,
                   "properties": {
-                    "enabled": { "type": "boolean", "default": true },
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Show the proactive-send permission hint when the runtime detects missing DingTalk proactive permission."
+                    },
                     "cooldownHours": {
                       "type": "integer",
                       "minimum": 1,
                       "maximum": 720,
-                      "default": 24
+                      "default": 24,
+                      "description": "Minimum cooldown in hours before the same proactive permission hint can be shown again."
                     }
                   }
                 },
-                "cardRealTimeStream": { "type": "boolean", "default": false },
+                "cardRealTimeStream": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Deprecated compatibility flag. If true and cardStreamingMode is unset, runtime falls back to cardStreamingMode=\"all\". Do not use in new configs."
+                },
+                "cardStreamingMode": {
+                  "type": "string",
+                  "enum": ["off", "answer", "all"],
+                  "description": "AI card incremental streaming mode. off disables streaming, answer streams answer text only, and all streams answer plus reasoning or thinking text."
+                },
+                "cardStreamInterval": {
+                  "type": "integer",
+                  "minimum": 200,
+                  "default": 1000,
+                  "description": "Throttle interval in milliseconds between AI card streaming updates."
+                },
                 "aicardDegradeMs": {
                   "type": "integer",
                   "minimum": 60000,
-                  "default": 1800000
+                  "default": 1800000,
+                  "description": "Cooldown window in milliseconds after AI card trigger errors. During this window replies fall back to non-card delivery."
                 },
-                "learningEnabled": { "type": "boolean" },
-                "learningAutoApply": { "type": "boolean" },
+                "learningEnabled": {
+                  "type": "boolean",
+                  "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
+                },
+                "learningAutoApply": {
+                  "type": "boolean",
+                  "description": "Automatically apply generated learning output into session notes or global rules when available."
+                },
                 "learningNoteTtlMs": {
                   "type": "integer",
-                  "minimum": 60000
+                  "minimum": 60000,
+                  "description": "Retention window in milliseconds for temporary learning notes."
                 },
-                "convertMarkdownTables": { "type": "boolean", "default": true },
-                "cardAtSender": { "type": "string" }
+                "convertMarkdownTables": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Convert markdown tables to plain text before sending when you want more consistent DingTalk rendering."
+                },
+                "cardAtSender": {
+                  "type": "string",
+                  "description": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
+                }
               }
             }
           }
@@ -296,6 +509,22 @@
           "label": "DingTalk",
           "help": "DingTalk Stream-mode channel configuration including auth, delivery, targeting, and AI Card behavior."
         },
+        "name": {
+          "label": "Display Name",
+          "help": "Optional display name for the default DingTalk account shown in host configuration surfaces."
+        },
+        "enabled": {
+          "label": "Enabled",
+          "help": "Turn the DingTalk channel on or off without deleting the saved configuration."
+        },
+        "agentId": {
+          "label": "Legacy Agent ID",
+          "help": "Deprecated compatibility field from older setup flows. The current runtime ignores it, so leave it empty in new configs."
+        },
+        "corpId": {
+          "label": "Legacy Corp ID",
+          "help": "Deprecated compatibility field from older enterprise app setup flows. Stream mode no longer needs or reads it."
+        },
         "clientId": {
           "label": "DingTalk Client ID",
           "help": "App Key used to authenticate DingTalk API requests."
@@ -304,6 +533,22 @@
           "label": "DingTalk Client Secret",
           "help": "App Secret used to obtain DingTalk access tokens.",
           "sensitive": true
+        },
+        "dmPolicy": {
+          "label": "Direct Message Policy",
+          "help": "Choose who can talk to the bot in direct messages: open, host pairing only, or explicit allowlist."
+        },
+        "groupPolicy": {
+          "label": "Group Message Policy",
+          "help": "Choose whether group messages are open to all groups, restricted by allowlist, or completely disabled."
+        },
+        "allowFrom": {
+          "label": "DM Allowlist",
+          "help": "User IDs allowed when direct message policy is set to allowlist."
+        },
+        "groupAllowFrom": {
+          "label": "Group Sender Allowlist",
+          "help": "Sender IDs allowed when group policy is allowlist or when you want tighter group sender restrictions."
         },
         "messageType": {
           "label": "Reply Message Type",
@@ -317,15 +562,141 @@
           "label": "Display Name Resolution",
           "help": "Keep disabled unless you explicitly want learned display-name targeting for all callers."
         },
+        "contextVisibility": {
+          "label": "Context Visibility",
+          "help": "Host-level context filtering. allowlist_quote is the safest advanced mode when you only want explicit quote/reply context."
+        },
+        "mediaUrlAllowlist": {
+          "label": "Media URL Allowlist",
+          "help": "Allow remote media downloads only from the specified hosts, IPs, or CIDR ranges."
+        },
+        "journalTTLDays": {
+          "label": "Message Context TTL (days)",
+          "help": "Retention period for short-lived quoted message and media recovery context."
+        },
+        "debug": {
+          "label": "Debug Logging",
+          "help": "Enable verbose DingTalk channel debug logs for diagnostics."
+        },
         "cardTemplateId": {
           "label": "AI Card Template ID",
-          "help": "Optional DingTalk Developer Console template ID for AI Card replies."
+          "help": "Deprecated and ignored. AI card replies now always use the built-in DingTalk template contract."
+        },
+        "cardTemplateKey": {
+          "label": "AI Card Template Field Key",
+          "help": "Deprecated and ignored. The built-in AI card contract owns the streaming field mapping."
+        },
+        "groups": {
+          "label": "Per-Group Overrides",
+          "help": "Configure conversationId-specific overrides, or use * as a wildcard fallback."
+        },
+        "groups.systemPrompt": {
+          "label": "Group System Prompt",
+          "help": "Extra system prompt appended only for the selected group."
+        },
+        "groups.requireMention": {
+          "label": "Require Mention",
+          "help": "Require an explicit @mention before the bot answers in that group."
+        },
+        "groups.groupAllowFrom": {
+          "label": "Per-Group Sender Allowlist",
+          "help": "Optional sender allowlist that overrides or tightens the channel-level group access rule."
+        },
+        "maxConnectionAttempts": {
+          "label": "Max Connection Attempts",
+          "help": "How many connection attempts are allowed within a reconnect cycle before the cycle backs off or ends."
+        },
+        "initialReconnectDelay": {
+          "label": "Initial Reconnect Delay",
+          "help": "Initial reconnect backoff delay in milliseconds."
+        },
+        "maxReconnectDelay": {
+          "label": "Max Reconnect Delay",
+          "help": "Upper bound for reconnect backoff delay in milliseconds."
+        },
+        "reconnectJitter": {
+          "label": "Reconnect Jitter",
+          "help": "Randomization factor added to reconnect backoff to reduce synchronized reconnect storms."
+        },
+        "maxReconnectCycles": {
+          "label": "Max Reconnect Cycles",
+          "help": "Maximum reconnect cycles before the channel stops retrying and waits for a later restart."
+        },
+        "reconnectDeadlineMs": {
+          "label": "Reconnect Cycle Deadline",
+          "help": "Time limit in milliseconds for one reconnect cycle before starting a fresh cycle."
+        },
+        "useConnectionManager": {
+          "label": "Use Connection Manager",
+          "help": "Recommended default. Disable only when you intentionally rely on the DingTalk client keepAlive and autoReconnect behavior."
+        },
+        "mediaMaxMb": {
+          "label": "Max Media Size (MB)",
+          "help": "Maximum inbound media size accepted by the plugin. Leave empty to use the runtime default."
+        },
+        "keepAlive": {
+          "label": "Stream KeepAlive",
+          "help": "Optional explicit heartbeat toggle for the underlying Stream client."
+        },
+        "bypassProxyForSend": {
+          "label": "Bypass Proxy For Send",
+          "help": "Skip global or system HTTP(S) proxy settings for DingTalk send, upload, and card APIs."
+        },
+        "cardRealTimeStream": {
+          "label": "Legacy Real-Time Card Stream",
+          "help": "Deprecated compatibility flag. When true and cardStreamingMode is unset, runtime falls back to all-streaming. Do not use in new configs."
+        },
+        "cardStreamingMode": {
+          "label": "Card Streaming Mode",
+          "help": "Choose off, answer, or all. answer streams only answer text, while all streams answer plus reasoning or thinking text."
+        },
+        "cardStreamInterval": {
+          "label": "Card Stream Interval (ms)",
+          "help": "Throttle interval in milliseconds between AI card incremental updates."
+        },
+        "aicardDegradeMs": {
+          "label": "AI Card Degrade Window (ms)",
+          "help": "Cooldown window after AI card trigger errors. Replies fall back to non-card delivery during this period."
+        },
+        "learningEnabled": {
+          "label": "Learning Enabled",
+          "help": "Enable the local feedback-learning loop for notes, reflections, and learning commands."
+        },
+        "learningAutoApply": {
+          "label": "Learning Auto Apply",
+          "help": "Automatically apply generated learning output into session notes or global rules when available."
+        },
+        "learningNoteTtlMs": {
+          "label": "Learning Note TTL (ms)",
+          "help": "Retention period for temporary learning notes."
+        },
+        "convertMarkdownTables": {
+          "label": "Convert Markdown Tables",
+          "help": "Flatten markdown tables into plain text before sending when you want more consistent DingTalk rendering."
+        },
+        "cardAtSender": {
+          "label": "Card Mention Follow-Up",
+          "help": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
+        },
+        "showThinkingStream": {
+          "label": "Legacy Show Thinking Stream",
+          "help": "Deprecated compatibility field from older card streaming behavior. The current runtime ignores it."
+        },
+        "asyncMode": {
+          "label": "Legacy Async Mode",
+          "help": "Deprecated compatibility field from older host or runtime integrations. The current runtime ignores it."
+        },
+        "accounts": {
+          "label": "Named Accounts",
+          "help": "Create named DingTalk accounts when one plugin instance must serve multiple apps or tenants."
         },
         "proactivePermissionHint.enabled": {
-          "label": "Proactive Permission Hint Enabled"
+          "label": "Proactive Permission Hint Enabled",
+          "help": "Show a reminder when DingTalk proactive-send permission has not been granted."
         },
         "proactivePermissionHint.cooldownHours": {
-          "label": "Proactive Hint Cooldown (hours)"
+          "label": "Proactive Hint Cooldown (hours)",
+          "help": "Minimum cooldown before the same proactive permission hint can be shown again."
         }
       }
     }

@@ -48,6 +48,13 @@ describe("plugin-sdk import structure", () => {
         }
     });
 
+    it("does not depend on the removed telegram-core sdk subpath in production code", () => {
+        for (const relativePath of directSdkFiles) {
+            const content = readFileSync(resolve(repoRoot, relativePath), "utf8");
+            expect(content).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/telegram-core["']/);
+        }
+    });
+
     it("keeps tests on scoped plugin-sdk subpaths instead of the root barrel", () => {
         for (const relativePath of scopedSdkTestFiles) {
             const content = readFileSync(resolve(repoRoot, relativePath), "utf8");

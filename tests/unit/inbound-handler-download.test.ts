@@ -216,6 +216,61 @@ describe("inbound-handler downloadMedia", () => {
       "application/pdf",
       "inbound",
       50 * 1024 * 1024,
+      undefined,
+    );
+  });
+
+  it("uses runtime default when mediaMaxMb is not set", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    mockedAxiosPost.mockResolvedValueOnce({
+      data: { downloadUrl: "https://download.url/file" },
+    } as any);
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from("abc"),
+      headers: { "content-type": "image/png" },
+    } as any);
+
+    await downloadMedia(
+      { clientId: "id", clientSecret: "sec" } as any,
+      "download_code_1",
+    );
+
+    const call = runtime.channel.media.saveMediaBuffer.mock.calls[0];
+    expect(call).toHaveLength(5);
+    expect(call[2]).toBe("inbound");
+    expect(call[3]).toBeUndefined();
+    expect(call[4]).toBeUndefined();
+  });
+
+  it("forwards originalFilename to saveMediaBuffer", async () => {
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(runtime);
+
+    mockedAxiosPost.mockResolvedValueOnce({
+      data: { downloadUrl: "https://download.url/file" },
+    } as any);
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from("abc"),
+      headers: {
+        "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      },
+    } as any);
+
+    await downloadMedia(
+      { clientId: "id", clientSecret: "sec" } as any,
+      "download_code_1",
+      undefined,
+      "report.docx",
+    );
+
+    expect(runtime.channel.media.saveMediaBuffer).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.any(String),
+      "inbound",
+      undefined,
+      "report.docx",
     );
   });
 

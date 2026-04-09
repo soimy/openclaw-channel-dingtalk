@@ -37,6 +37,21 @@ English version: [`architecture.en.md`](architecture.en.md)
 5. 保持已有低层模块边界稳定。
    已经职责明确的模块，应维持聚焦，而不是继续吸收相邻语义。
 
+## 宿主版本感知行为
+
+维护 DingTalk 插件时，还需要区分“插件主动实现的行为”和“宿主升级后自动生效的行为”。
+
+- `before_agent_reply`：
+  这是宿主 reply runtime 的 hook。DingTalk 只要继续走宿主 reply 分发链，升级到支持该 hook 的 OpenClaw 后就会自动进入这条链路，不需要插件单独接线。
+- `audioAsVoice`：
+  这是共享 outbound / reply payload 语义，不应再依赖 DingTalk 私有字段名或仅靠扩展名碰巧推断成功。相关兼容逻辑应放在 `messaging/` 领域。
+- `contextVisibility`：
+  这是宿主 channel-level 配置语义。插件需要在自己的 schema、manifest、setup / 文档中把它显式暴露出来，否则宿主虽然支持，DingTalk 通路仍然无法稳定消费。
+- `taskFlow`：
+  当前仓库不直接消费 `runtime.taskFlow`。除非要专门解决 AI Card run / stop 生命周期的跨阶段状态问题，否则不要把普通 reply 主路径硬迁到 TaskFlow。
+- sub-agent session key：
+  在当前宿主版本基线下，应直接依赖宿主提供的 `buildAgentSessionKey` helper，而不是继续在插件里拼接 fallback key，避免路由语义漂移。
+
 ## 逻辑领域
 
 无论仓库当前是否已经物理重排，代码都应优先按以下逻辑领域理解和演进。

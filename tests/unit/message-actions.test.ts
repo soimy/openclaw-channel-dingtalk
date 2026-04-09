@@ -4,31 +4,8 @@ vi.mock('openclaw/plugin-sdk/core', () => ({
     buildChannelConfigSchema: vi.fn((schema: unknown) => schema),
 }));
 
-vi.mock('openclaw/plugin-sdk/telegram-core', () => ({
+vi.mock('openclaw/plugin-sdk/channel-actions', () => ({
     jsonResult: vi.fn((payload: unknown) => payload),
-    readStringParam: vi.fn((params: Record<string, unknown>, key: string, opts?: { required?: boolean; allowEmpty?: boolean; trim?: boolean }) => {
-        const raw = params[key];
-        if (raw == null) {
-            if (opts?.required) {
-                throw new Error(`${key} is required`);
-            }
-            return undefined;
-        }
-        if (typeof raw !== 'string') {
-            if (opts?.required) {
-                throw new Error(`${key} must be a string`);
-            }
-            return undefined;
-        }
-        const normalized = opts?.trim === false ? raw : raw.trim();
-        if (!opts?.allowEmpty && normalized.length === 0) {
-            if (opts?.required) {
-                throw new Error(`${key} is required`);
-            }
-            return undefined;
-        }
-        return normalized;
-    }),
 }));
 
 vi.mock('openclaw/plugin-sdk/tool-send', () => ({
@@ -118,6 +95,32 @@ describe('dingtalkPlugin.actions.send', () => {
                 storePath: expect.anything(),
                 conversationId: expect.anything(),
             })
+        );
+        expect(sendMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('forces voice mediaType when audioAsVoice=true with media input', async () => {
+        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'voice_2', data: { messageId: 'voice_2' } });
+
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                media: '/tmp/audio.mp3',
+                audioAsVoice: true,
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            '/tmp/audio.mp3',
+            'voice',
+            expect.objectContaining({ accountId: 'default' })
         );
         expect(sendMessageMock).not.toHaveBeenCalled();
     });

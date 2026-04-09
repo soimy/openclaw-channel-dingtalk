@@ -234,6 +234,17 @@ function buildRepliedMessagePreview(params: {
     };
   }
 
+  if (repliedMsgType === "chatRecord") {
+    const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
+    const title = typeof content?.title === "string" ? content.title.trim() : "";
+    const chatRecordLabel = title ? `[${title}] ` : "[聊天记录] ";
+    return {
+      previewText: summary ? `${chatRecordLabel}${summary}` : buildQuotedMessageTypePlaceholder("chatRecord"),
+      previewMessageType: "chatRecord",
+      previewSenderId: trimString(repliedMsg.senderId),
+    };
+  }
+
   const textPreview =
     trimString(content?.text) ||
     trimString(richTextQuote?.summary) ||

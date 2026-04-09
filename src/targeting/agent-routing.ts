@@ -14,11 +14,20 @@ import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";
 import { sendBySession } from "../send-service";
+import { getErrorMessage } from "../utils";
 import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, Logger, MessageContent } from "../types";
+
+export class HostRoutingHelperUnavailableError extends Error {
+  constructor(message = "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.") {
+    super(message);
+    this.name = "HostRoutingHelperUnavailableError";
+  }
+}
 
 /**
  * Build a session key for a specific agent using the runtime API.
- * Falls back to framework's resolveAgentRoute if buildAgentSessionKey is unavailable.
+ * On supported host versions, sub-agent routing must use the shared helper
+ * instead of synthesizing plugin-local fallback keys.
  */
 export function buildAgentSessionKey(params: {
   rt: ReturnType<typeof getDingTalkRuntime>;
@@ -30,31 +39,19 @@ export function buildAgentSessionKey(params: {
 }): string {
   const { rt, cfg, accountId, agentId, peerKind, peerId } = params;
   const routing = rt.channel.routing as Record<string, unknown>;
-  if (typeof routing.buildAgentSessionKey === "function") {
-    return (
-      (routing.buildAgentSessionKey as (p: unknown) => string)({
-        agentId,
-        channel: "dingtalk",
-        accountId,
-        peer: { kind: peerKind, id: peerId },
-        dmScope: cfg.session?.dmScope,
-        identityLinks: cfg.session?.identityLinks,
-      })
-    ).toLowerCase();
+  if (typeof routing.buildAgentSessionKey !== "function") {
+    throw new HostRoutingHelperUnavailableError();
   }
-  // Fallback: derive a session key with agentId suffix to ensure isolation.
-  // resolveAgentRoute routes to the default agent, so we append the target
-  // agentId to prevent session key collisions between sub-agents.
-  // @migration-note: When SDK exposes buildAgentSessionKey in type definitions,
-  // sessions created via this fallback path will become orphaned. Remove this
-  // fallback and the typeof check once the SDK is updated.
-  const fallbackRoute = rt.channel.routing.resolveAgentRoute({
-    cfg,
-    channel: "dingtalk",
-    accountId,
-    peer: { kind: peerKind, id: peerId },
-  });
-  return `${fallbackRoute.sessionKey}:subagent:${agentId}`;
+  return (
+    (routing.buildAgentSessionKey as (p: unknown) => string)({
+      agentId,
+      channel: "dingtalk",
+      accountId,
+      peer: { kind: peerKind, id: peerId },
+      dmScope: cfg.session?.dmScope,
+      identityLinks: cfg.session?.identityLinks,
+    })
+  ).toLowerCase();
 }
 
 /**
@@ -131,8 +128,8 @@ export async function resolveSubAgentRoute(params: {
       await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
         ...sendOptions,
       });
-    } catch (err: any) {
-      log?.debug?.(`[DingTalk] Failed to send fallback notice: ${err.message}`);
+    } catch (err: unknown) {
+      log?.debug?.(`[DingTalk] Failed to send fallback notice: ${getErrorMessage(err)}`);
     }
   }
 
@@ -168,6 +165,7 @@ export async function dispatchSubAgents(params: {
       preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };
     }
   }
+  let helperMissingWarningSent = false;
 
   for (const agentMatch of matchedAgents) {
     try {
@@ -186,9 +184,27 @@ export async function dispatchSubAgents(params: {
         preDownloadedMedia,
       });
     } catch (error) {
+      const message = getErrorMessage(error);
       log?.error?.(
-        `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${error instanceof Error ? error.message : String(error)}`,
+        `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`,
       );
+      if (error instanceof HostRoutingHelperUnavailableError && !helperMissingWarningSent) {
+        helperMissingWarningSent = true;
+        try {
+          const isGroup = data.conversationType !== "1";
+          const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };
+          await sendBySession(
+            dingtalkConfig,
+            sessionWebhook,
+            "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
+            sendOptions,
+          );
+        } catch (notifyError: unknown) {
+          log?.debug?.(
+            `[DingTalk] Failed to send sub-agent helper-missing notice: ${getErrorMessage(notifyError)}`,
+          );
+        }
+      }
     }
   }
 }

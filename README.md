@@ -25,6 +25,9 @@
 - 支持实时中止当前 AI generation。常用停止指令包括 `停止`、`stop`、`/stop`、`esc` 等
 - 接入 OpenClaw 消息处理与 outbound 能力
 
+> [!IMPORTANT]
+> 根据钉钉开放平台公告《[关于限时开放钉钉PaaS资源不限量额度以助力企业AI智能体集成的公告](https://open.dingtalk.com/document/development/open-ai-paas-report)》（更新于 `2026-03-11`），OpenClaw 调用钉钉 `API/Webhook/Stream` 的免费“不限量”额度默认有效至 `2026-03-31`；如已通过官方申请通道获批，豁免权益最晚有效至 `2026-04-30`。部署前请前往“钉钉开发者后台 -> 资源管理”核对当前额度状态。
+
 ## 文档入口
 
 - 线上文档站点：<https://dingtalk-channel.nanoo.app/>

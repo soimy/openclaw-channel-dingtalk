@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
+import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
 import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { jsonResult } from "openclaw/plugin-sdk/telegram-core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
@@ -68,6 +68,7 @@ import {
   formatDingTalkConnectionErrorLog,
   formatDingTalkErrorPayloadLog,
   getCurrentTimestamp,
+  parseBooleanLike,
   resolvePluginDebugLog,
 } from "./utils";
 
@@ -188,29 +189,15 @@ function logInboundCounters(log: any, accountId: string, reason: string): void {
 }
 
 function readBooleanLikeParam(params: Record<string, unknown>, key: string): boolean | undefined {
-  const value = params[key];
-  if (typeof value === "boolean") {
-    return value;
+  return parseBooleanLike(params[key]);
+}
+
+function readSharedAudioAsVoiceParam(params: Record<string, unknown>): boolean {
+  const sharedValue = readBooleanLikeParam(params, "audioAsVoice");
+  if (sharedValue !== undefined) {
+    return sharedValue;
   }
-  if (typeof value === "number") {
-    if (value === 1) {
-      return true;
-    }
-    if (value === 0) {
-      return false;
-    }
-    return undefined;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
-      return true;
-    }
-    if (["0", "false", "no", "n", "off"].includes(normalized)) {
-      return false;
-    }
-  }
-  return undefined;
+  return readBooleanLikeParam(params, "asVoice") === true;
 }
 
 function describeDingTalkMessageTool(cfg: OpenClawConfig): {
@@ -261,7 +248,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
       message = caption;
     }
 
-    const asVoice = readBooleanLikeParam(params, "asVoice") === true;
+    const asVoice = readSharedAudioAsVoiceParam(params);
     const requestedMediaType = readStringParam(params, "mediaType");
 
     const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
@@ -507,6 +494,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       filePath,
       mediaUrl,
       mediaType: providedMediaType,
+      audioAsVoice,
       asVoice,
       accountId,
       mediaLocalRoots,
@@ -571,7 +559,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         const mediaType = resolveOutboundMediaType({
           mediaType: typeof providedMediaType === "string" ? providedMediaType : undefined,
           mediaPath: actualMediaPath,
-          asVoice: asVoice === true,
+          asVoice: readSharedAudioAsVoiceParam({ audioAsVoice, asVoice }),
         });
         let result;
         try {

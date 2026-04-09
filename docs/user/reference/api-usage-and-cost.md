@@ -2,6 +2,9 @@
 
 不同回复模式的 API 调用成本差异较大。本页帮助你做体验与成本之间的取舍。
 
+> [!IMPORTANT]
+> 根据钉钉开放平台公告《[关于限时开放钉钉PaaS资源不限量额度以助力企业AI智能体集成的公告](https://open.dingtalk.com/document/development/open-ai-paas-report)》（更新于 `2026-03-11`），OpenClaw 调用钉钉 `API/Webhook/Stream` 的免费“不限量”额度默认有效至 `2026-03-31`；如已通过官方申请通道获批，豁免权益最晚有效至 `2026-04-30`。建议在评估 `cardStreamingMode` 和消息发送策略前，先到“钉钉开发者后台 -> 资源管理”确认企业当前额度与豁免状态。
+
 ## Markdown 模式
 
 典型情况下，一次回复主要包括：

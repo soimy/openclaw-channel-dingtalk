@@ -1287,6 +1287,7 @@ describe("inbound-handler quote handling", () => {
         "dentry_group_2",
         "union_1",
         undefined,
+        undefined,
       );
     });
   });

@@ -212,6 +212,14 @@ function extractErrorCodeFromResponseData(data: unknown): string | null {
   }
 
   const payload = data as Record<string, unknown>;
+  const errcode = payload.errcode;
+  if (typeof errcode === "number" && Number.isFinite(errcode)) {
+    return String(errcode);
+  }
+  if (typeof errcode === "string" && errcode.trim()) {
+    return errcode.trim();
+  }
+
   const code = payload.code;
   if (typeof code === "string" && code.trim()) {
     return code.trim();
@@ -223,6 +231,62 @@ function extractErrorCodeFromResponseData(data: unknown): string | null {
   }
 
   return null;
+}
+
+function summarizeSessionWebhookResponse(data: unknown): string {
+  if (!data || typeof data !== "object") {
+    return `type=${typeof data}`;
+  }
+  const payload = data as Record<string, unknown>;
+  const code = extractErrorCodeFromResponseData(payload) || "(none)";
+  const message = firstTrimmedString(
+    payload.message,
+    payload.errmsg,
+    payload.msg,
+    payload.errorMessage,
+  ) || "(none)";
+  const success =
+    typeof payload.success === "boolean"
+      ? String(payload.success)
+      : typeof payload.result === "boolean"
+        ? String(payload.result)
+        : "(none)";
+  const delivery = extractOutboundDeliveryMetadata(payload);
+  return (
+    `success=${success} code=${code} message=${message} ` +
+    `messageId=${delivery.messageId || "(none)"} ` +
+    `processQueryKey=${delivery.processQueryKey || "(none)"} ` +
+    `outTrackId=${delivery.outTrackId || "(none)"}`
+  );
+}
+
+function ensureSessionWebhookBusinessSuccess(
+  data: unknown,
+  context: { msgtype: string },
+): void {
+  if (!data || typeof data !== "object") {
+    return;
+  }
+  const payload = data as Record<string, unknown>;
+  const code = extractErrorCodeFromResponseData(payload);
+  const message = firstTrimmedString(
+    payload.message,
+    payload.errmsg,
+    payload.msg,
+    payload.errorMessage,
+  ) || "unknown error";
+
+  const hasFailureSuccessFlag = payload.success === false || payload.result === false;
+  const hasFailureCode = typeof code === "string" && code !== "" && code !== "0";
+  if (!hasFailureSuccessFlag && !hasFailureCode) {
+    return;
+  }
+
+  const reason = [
+    code && code !== "0" ? `code=${code}` : "",
+    message !== "unknown error" ? `message=${message}` : "",
+  ].filter(Boolean).join(" ");
+  throw new Error(`Session webhook ${context.msgtype} send failed${reason ? `: ${reason}` : ""}`);
 }
 
 function isProactivePermissionOrScopeError(code: string | null): boolean {
@@ -400,7 +464,7 @@ export async function sendProactiveMedia(
     if (!uploadResult) {
       return { ok: false, error: "Failed to upload media" };
     }
-    const { mediaId, buffer } = uploadResult;
+    const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
 
     const token = await getAccessToken(config, log);
     const { targetId, isExplicitUser } = stripTargetPrefix(target);
@@ -421,7 +485,8 @@ export async function sendProactiveMedia(
       msgParam = JSON.stringify({ photoURL: mediaId });
     } else if (mediaType === "voice") {
       msgKey = "sampleAudio";
-      const durationMs = await getVoiceDurationMs(mediaPath, mediaType, log, { preReadBuffer: buffer });
+      const durationMs = uploadedDurationMs
+        ?? await getVoiceDurationMs(mediaPath, mediaType, log, { preReadBuffer: buffer });
       msgParam = JSON.stringify({ mediaId, duration: String(durationMs) });
     } else {
       // sampleVideo requires picMediaId; fallback to sampleFile for broader compatibility.
@@ -555,14 +620,18 @@ export async function sendBySession(
       mediaLocalRoots: options.mediaLocalRoots,
     });
     if (uploadResult) {
-      const { mediaId, buffer } = uploadResult;
+      const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
       let body: any;
 
       if (options.mediaType === "image") {
         body = { msgtype: "image", image: { media_id: mediaId } };
       } else if (options.mediaType === "voice") {
-        const durationMs = await getVoiceDurationMs(options.mediaPath, options.mediaType, log, { preReadBuffer: buffer });
+        const durationMs = uploadedDurationMs
+          ?? await getVoiceDurationMs(options.mediaPath, options.mediaType, log, { preReadBuffer: buffer });
         body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
+        log?.debug?.(
+          `[DingTalk] Sending session voice message mediaId=${mediaId} durationMs=${durationMs}`,
+        );
       } else if (options.mediaType === "video") {
         body = { msgtype: "video", video: { media_id: mediaId } };
       } else if (options.mediaType === "file") {
@@ -577,6 +646,17 @@ export async function sendBySession(
           headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
           ...getProxyBypassOption(config),
         });
+        log?.debug?.(
+          `[DingTalk] Session webhook response msgtype=${body.msgtype} ${summarizeSessionWebhookResponse(result.data)}`,
+        );
+        ensureSessionWebhookBusinessSuccess(result.data, { msgtype: body.msgtype });
+        const delivery = extractOutboundDeliveryMetadata(result.data);
+        if (!delivery.messageId && !delivery.processQueryKey && !delivery.outTrackId) {
+          log?.warn?.(
+            `[DingTalk] Session webhook ${body.msgtype} response missing delivery metadata; ` +
+            summarizeSessionWebhookResponse(result.data),
+          );
+        }
         return result.data;
       }
     } else {
@@ -624,6 +704,10 @@ export async function sendBySession(
       headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
       ...getProxyBypassOption(config),
     });
+    log?.debug?.(
+      `[DingTalk] Session webhook response msgtype=${body.msgtype} ${summarizeSessionWebhookResponse(result.data)}`,
+    );
+    ensureSessionWebhookBusinessSuccess(result.data, { msgtype: body.msgtype });
     lastResult = result.data;
   }
   return lastResult;
@@ -660,6 +744,28 @@ export async function sendMessage(
           },
         };
       }
+    }
+
+    if (options.sessionWebhook && options.mediaPath && options.mediaType === "voice") {
+      log?.debug?.(
+        "[DingTalk] Session webhook does not support voice replies reliably; " +
+        "using proactive media API for this voice response",
+      );
+      const proactiveVoiceResult = await sendProactiveMedia(
+        config,
+        conversationId,
+        options.mediaPath,
+        options.mediaType,
+        options,
+      );
+      if (!proactiveVoiceResult.ok) {
+        return { ok: false, error: proactiveVoiceResult.error || "Voice reply send failed" };
+      }
+      return {
+        ok: true,
+        data: proactiveVoiceResult.data,
+        messageId: proactiveVoiceResult.messageId,
+      };
     }
 
     if (options.sessionWebhook) {

@@ -10,11 +10,32 @@ import {
     formatDingTalkErrorPayload,
     formatDingTalkErrorPayloadLog,
     maskSensitiveData,
+    parseBooleanLike,
     resolvePluginDebugLog,
     retryWithBackoff,
 } from '../../src/utils';
 
 describe('utils', () => {
+    describe('parseBooleanLike', () => {
+        it.each([
+            [true, true],
+            [false, false],
+            [1, true],
+            [0, false],
+            ['true', true],
+            [' yes ', true],
+            ['ON', true],
+            ['false', false],
+            [' no ', false],
+            ['Off', false],
+            [2, undefined],
+            ['maybe', undefined],
+            [null, undefined],
+        ])('parses %p as %p', (value, expected) => {
+            expect(parseBooleanLike(value)).toBe(expected);
+        });
+    });
+
     describe('maskSensitiveData', () => {
         it('masks token fields recursively', () => {
             const input = {

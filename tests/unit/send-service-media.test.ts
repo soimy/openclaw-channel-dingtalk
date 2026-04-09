@@ -31,7 +31,7 @@ vi.mock('axios', () => {
     };
 });
 
-import { sendBySession, sendProactiveMedia } from '../../src/send-service';
+import { sendBySession, sendMessage, sendProactiveMedia } from '../../src/send-service';
 import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from '../../src/media-utils';
 
 const mockedAxios = vi.mocked(axios);
@@ -121,6 +121,82 @@ describe('send-service media branches', () => {
         expect(req.proxy).toBe(false);
     });
 
+    it('sendBySession throws when media session webhook returns business failure payload', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_fail', buffer: Buffer.from('data') });
+        mockedAxios.mockResolvedValueOnce({
+            data: { success: false, code: 'invalidParameter.media', message: 'media rejected' },
+        } as any);
+
+        await expect(
+            sendBySession(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                'https://session.webhook',
+                'ignored text',
+                { mediaPath: '/tmp/a.amr', mediaType: 'voice' }
+            )
+        ).rejects.toThrow('invalidParameter.media');
+    });
+
+    it('sendBySession warns when media session webhook response has no delivery metadata', async () => {
+        const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_warn', buffer: Buffer.from('data') });
+        mockedAxios.mockResolvedValueOnce({
+            data: { success: true, result: true },
+        } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'https://session.webhook',
+            'ignored text',
+            { mediaPath: '/tmp/a.amr', mediaType: 'voice', log: log as any }
+        );
+
+        expect(log.warn).toHaveBeenCalledWith(
+            expect.stringContaining('response missing delivery metadata')
+        );
+    });
+
+    it('sendMessage routes session voice replies through proactive media API instead of sendBySession webhook', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_proactive',
+            buffer: Buffer.from('data'),
+            durationMs: 1000,
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_session_reply' } } as any);
+
+        const result = await sendMessage(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'cidA1B2C3',
+            '',
+            {
+                sessionWebhook: 'https://session.webhook',
+                mediaPath: '/tmp/a.amr',
+                mediaType: 'voice',
+                accountId: 'main',
+                storePath: '/tmp/sessions.json',
+            } as any,
+        );
+
+        expect(result).toEqual({
+            ok: true,
+            data: { processQueryKey: 'q_voice_session_reply' },
+            messageId: 'q_voice_session_reply',
+        });
+        expect(mockedAxios).toHaveBeenCalledTimes(1);
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.url).toContain('/v1.0/robot/groupMessages/send');
+        expect(req.url).not.toBe('https://session.webhook');
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                messageType: 'outbound-proactive-media',
+                delivery: expect.objectContaining({
+                    processQueryKey: 'q_voice_session_reply',
+                    kind: 'proactive-media',
+                }),
+            }),
+        );
+    });
+
     it('sendProactiveMedia returns upload failure when media upload fails', async () => {
         mockedUploadMedia.mockResolvedValueOnce(null);
 
@@ -175,8 +251,11 @@ describe('send-service media branches', () => {
     });
 
     it('sendProactiveMedia maps voice payload to sampleAudio template', async () => {
-        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_1', buffer: Buffer.from('data') });
-        mockedGetVoiceDurationMs.mockResolvedValueOnce(1000);
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_1',
+            buffer: Buffer.from('data'),
+            durationMs: 1000,
+        });
         mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice' } } as any);
 
         const result = await sendProactiveMedia(
@@ -189,7 +268,53 @@ describe('send-service media branches', () => {
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data.msgKey).toBe('sampleAudio');
         expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_1', duration: '1000' });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
         expect(result.ok).toBe(true);
+    });
+
+    it('sendProactiveMedia uses upload-time duration without requiring an uploaded temp path', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_transcoded',
+            buffer: Buffer.from('ogg-data'),
+            durationMs: 7700,
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: 'q_voice_transcoded' } } as any);
+
+        await sendProactiveMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'user_123',
+            '/tmp/original.wav',
+            'voice'
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(JSON.parse(req.data.msgParam)).toEqual({ mediaId: 'media_voice_transcoded', duration: '7700' });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
+    });
+
+    it('sendBySession voice media uses upload-time duration without requiring an uploaded temp path', async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: 'media_voice_session_duration',
+            buffer: Buffer.from('ogg-data'),
+            durationMs: 6400,
+        });
+        mockedAxios.mockResolvedValueOnce({
+            data: { success: true, result: true, messageId: 'session_voice_1' },
+        } as any);
+
+        await sendBySession(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'https://session.webhook',
+            'ignored text',
+            { mediaPath: '/tmp/original.wav', mediaType: 'voice' }
+        );
+
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.data).toEqual({
+            msgtype: 'voice',
+            voice: { media_id: 'media_voice_session_duration', duration: '6400' },
+        });
+        expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
     it('delegates proactive media journaling when storePath is provided', async () => {
