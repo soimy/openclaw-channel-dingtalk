@@ -691,11 +691,26 @@ describe("reply-strategy-card", () => {
             expect(phase3Index).toBeGreaterThan(tool2Index);
         });
 
-        it("skips finalize when card is already FINISHED", async () => {
+        it("skips finalize when card is already FINISHED and no new content", async () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.finalize();
             expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).not.toHaveBeenCalled();
+        });
+
+        it("sends markdown fallback when card is already FINISHED but session-recovery produced new content", async () => {
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            await strategy.deliver({ text: "recovery answer", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const fallbackText = sendMessageMock.mock.calls[0][2];
+            expect(fallbackText).toContain("recovery answer");
+            expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
+                forceMarkdown: true,
+            });
         });
 
         it("sends markdown fallback with the rendered timeline when card FAILED", async () => {

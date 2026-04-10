@@ -370,7 +370,35 @@ export function createCardReplyStrategy(
       }
 
       if (card.state === AICardStatus.FINISHED) {
-        log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED");
+        // Card was already finalized (e.g. first embedded run timed out).
+        // If session-recovery triggered a second run that produced new content,
+        // deliver it as a markdown fallback so the user sees the final result.
+        const recoveryText = finalTextForFallback
+          || controller.getLastAnswerContent()
+          || controller.getLastContent();
+        if (recoveryText) {
+          log?.info?.(
+            `[DingTalk][Finalize] Card already FINISHED — sending markdown fallback for session-recovery content ` +
+            `len=${recoveryText.length} preview="${recoveryText.slice(0, 80)}"`,
+          );
+          const sendResult = await sendMessage(ctx.config, ctx.to, recoveryText, {
+            sessionWebhook: ctx.sessionWebhook,
+            atUserId: !ctx.isDirect ? ctx.senderId : null,
+            log,
+            accountId: ctx.accountId,
+            storePath: ctx.storePath,
+            conversationId: ctx.groupId,
+            quotedRef: ctx.replyQuotedRef,
+            forceMarkdown: true,
+          });
+          if (!sendResult.ok) {
+            log?.warn?.(
+              `[DingTalk][Finalize] Markdown fallback after FINISHED card failed: ${sendResult.error}`,
+            );
+          }
+        } else {
+          log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED and no new content");
+        }
         lifecycleState = "sealed";
         return;
       }
