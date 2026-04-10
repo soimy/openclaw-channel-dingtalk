@@ -6,6 +6,7 @@
  * their own state and lifecycle independently.
  */
 
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import type { AICardInstance, DingTalkConfig, Logger, QuotedRef } from "./types";
 import { createCardReplyStrategy } from "./reply-strategy-card";
 import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
@@ -45,6 +46,7 @@ export interface ReplyOptions {
   onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
   onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;
+  onModelSelected?: GetReplyOptions["onModelSelected"];
 }
 
 export interface ReplyStrategy {

@@ -672,6 +672,13 @@ export interface AICardInstance {
   config?: DingTalkConfig; // Store config reference for token refresh
   lastStreamedContent?: string;
   outTrackId?: string;
+  taskInfo?: {
+    model?: string;
+    effort?: string;
+    agent?: string;
+    dapi_usage?: number;
+    taskTime?: number;
+  };
 }
 
 /**
@@ -890,4 +897,4 @@ export type CardBlock =
   | { type: 0; markdown: string }
   | { type: 1; markdown: string }
   | { type: 2; markdown: string }
-  | { type: 3; mediaId: string };
+  | { type: 3; mediaId: string; text?: string };

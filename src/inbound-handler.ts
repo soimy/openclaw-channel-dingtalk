@@ -54,6 +54,7 @@ import {
   setSessionPeerOverride,
 } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
+import { getSessionState, initSessionState } from "./session-state";
 import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
@@ -813,6 +814,24 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (commandHandled) {
     return;
   }
+
+  const taskInfoConversationId = groupId || to;
+  const sessionTaskState = initSessionState(accountId, taskInfoConversationId);
+  const initialTaskMeta = {
+    model: sessionTaskState.model,
+    effort: sessionTaskState.effort,
+    agent: getAgentDisplayName({
+      subAgentOptions,
+      agentId: route.agentId,
+      agentsList: cfg.agents?.list,
+    }),
+  };
+  const initialTaskInfo = Object.fromEntries(
+    Object.entries(initialTaskMeta).filter(([, value]) => typeof value === "string" && value.trim()),
+  );
+  const initialTaskInfoJson =
+    Object.keys(initialTaskInfo).length > 0 ? JSON.stringify(initialTaskInfo) : undefined;
+
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
   // feedback while large files are still being downloaded.
@@ -837,6 +856,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         storePath: accountStorePath,
         contextConversationId: groupId,
         quoteContent: inboundQuoteText,
+        taskInfoJson: initialTaskInfoJson,
       });
       if (aiCard) {
         currentAICard = aiCard;
@@ -1807,6 +1827,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       legacyCardStreamReasoning === undefined
         ? dingtalkConfig
         : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
+    const sessionTaskState = getSessionState(accountId, taskInfoConversationId);
+    const taskMeta = {
+      model: sessionTaskState?.model,
+      effort: sessionTaskState?.effort,
+      elapsedMs: typeof sessionTaskState?.taskStartTime === "number"
+        ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
+        : undefined,
+      agent: getAgentDisplayName({
+        subAgentOptions,
+        agentId: route.agentId,
+        agentsList: cfg.agents?.list,
+      }),
+    };
+
     const strategy = createReplyStrategy({
       config: strategyConfig,
       card: currentAICard,
@@ -1831,13 +1865,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
       inboundText: extractedContent.text,
-      taskMeta: {
-        agent: getAgentDisplayName({
-          subAgentOptions,
-          agentId: route.agentId,
-          agentsList: cfg.agents?.list,
-        }),
-      },
+      taskMeta,
     });
 
     try {

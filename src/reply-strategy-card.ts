@@ -9,6 +9,7 @@
 import {
   commitAICardBlocks,
   isCardInTerminalState,
+  updateAICardTaskInfo,
 } from "./card-service";
 import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
@@ -16,10 +17,16 @@ import {
   resolveCardStreamingMode,
   shouldWarnDeprecatedCardRealTimeStreamOnce,
 } from "./card/card-streaming-mode";
+import {
+  buildImagePlaceholderText,
+  extractMarkdownImageCandidates,
+} from "./card/card-markdown-image-reroute";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
 import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import { resolveRelativePath } from "./config";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
+import { getTaskTimeSeconds, updateSessionState } from "./session-state";
 import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
@@ -39,6 +46,39 @@ export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
+
+  const buildTaskInfoJson = (): string | undefined => {
+    if (!ctx.taskMeta) {
+      return undefined;
+    }
+    const info: Record<string, unknown> = {};
+    if (!ctx.taskMeta.model && card.taskInfo?.model) {
+      ctx.taskMeta.model = card.taskInfo.model;
+    }
+    if (!ctx.taskMeta.effort && card.taskInfo?.effort) {
+      ctx.taskMeta.effort = card.taskInfo.effort;
+    }
+    if (typeof ctx.taskMeta.usage !== "number") {
+      ctx.taskMeta.usage = card.taskInfo?.dapi_usage;
+    }
+
+    const sessionTaskTimeSeconds = card.accountId && card.conversationId
+      ? getTaskTimeSeconds(card.accountId, card.contextConversationId || card.conversationId)
+      : undefined;
+    if (typeof sessionTaskTimeSeconds === "number") {
+      ctx.taskMeta.elapsedMs = sessionTaskTimeSeconds * 1000;
+    } else if (typeof ctx.taskMeta.elapsedMs !== "number" || ctx.taskMeta.elapsedMs <= 0) {
+      const elapsedSeconds = Math.max(0, Math.round((Date.now() - card.createdAt) / 1000));
+      ctx.taskMeta.elapsedMs = elapsedSeconds * 1000;
+    }
+
+    if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
+    if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
+    if (typeof ctx.taskMeta.usage === "number") { info.dapi_usage = ctx.taskMeta.usage; }
+    if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
+    if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
+    return Object.keys(info).length > 0 ? JSON.stringify(info) : undefined;
+  };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
   const streamAnswerLive = mode === "answer" || mode === "all";
   const streamThinkingLive = mode === "all";
@@ -224,6 +264,68 @@ export function createCardReplyStrategy(
     return normalized;
   };
 
+  const rerouteMarkdownImagesFromAnswer = async (text: string): Promise<string> => {
+    const candidates = extractMarkdownImageCandidates(text);
+    if (candidates.length === 0) {
+      return text;
+    }
+
+    type SuccessfulReroute = {
+      start: number;
+      end: number;
+      placeholder: string;
+      mediaId: string;
+      blockText: string;
+    };
+
+    let nextText = text;
+    const successfulReroutes: SuccessfulReroute[] = [];
+
+    for (const candidate of candidates.toReversed()) {
+      if (candidate.classification !== "local") {
+        continue;
+      }
+
+      let prepared: Awaited<ReturnType<typeof prepareMediaInput>> | undefined;
+      try {
+        prepared = await prepareMediaInput(candidate.url, log, config.mediaUrlAllowlist);
+        const mediaPath = prepared.cleanup
+          ? prepared.path
+          : resolveRelativePath(prepared.path);
+        const mediaType = resolveOutboundMediaType({ mediaPath, asVoice: false });
+        if (mediaType !== "image") {
+          continue;
+        }
+
+        const result = await uploadMedia(config, mediaPath, "image", log);
+        if (!result?.mediaId) {
+          continue;
+        }
+
+        const placeholder = buildImagePlaceholderText({ alt: candidate.alt, url: candidate.url });
+        const blockText = candidate.alt.trim() || placeholder.replace(/^见下图/, "").trim() || "图片";
+        successfulReroutes.push({
+          start: candidate.start,
+          end: candidate.end,
+          placeholder,
+          mediaId: result.mediaId,
+          blockText,
+        });
+        nextText = `${nextText.slice(0, candidate.start)}${placeholder}${nextText.slice(candidate.end)}`;
+      } catch {
+        // Failure fallback: keep the original markdown unchanged.
+      } finally {
+        await prepared?.cleanup?.();
+      }
+    }
+
+    for (const reroute of successfulReroutes.toSorted((left, right) => left.start - right.start)) {
+      await controller.appendImageBlock(reroute.mediaId, reroute.blockText);
+    }
+
+    return nextText;
+  };
+
   return {
     getReplyOptions(): ReplyOptions {
       return {
@@ -247,6 +349,29 @@ export function createCardReplyStrategy(
             return;
           }
           await applyModeAwareReasoningSnapshot(payload.text);
+        },
+
+        onModelSelected: (selected) => {
+          if (!card.accountId || !card.conversationId) {
+            return;
+          }
+          updateSessionState(card.accountId, card.contextConversationId || card.conversationId, {
+            model: selected.model,
+            effort: selected.thinkLevel,
+          });
+          card.taskInfo = {
+            ...card.taskInfo,
+            model: selected.model,
+            effort: selected.thinkLevel,
+          };
+          if (ctx.taskMeta) {
+            ctx.taskMeta.model = selected.model;
+            ctx.taskMeta.effort = selected.thinkLevel;
+          }
+          const taskInfoJson = buildTaskInfoJson();
+          if (taskInfoJson) {
+            void updateAICardTaskInfo(card, taskInfoJson, log);
+          }
         },
       };
     },
@@ -311,11 +436,12 @@ export function createCardReplyStrategy(
             await applyModeAwareReasoningSnapshot(rawFinalText);
             await flushPendingReasoning();
           } else {
-            const normalizedFinal = await applySplitTextToTimeline(rawFinalText, {
+            const rewrittenFinalText = await rerouteMarkdownImagesFromAnswer(rawFinalText);
+            const normalizedFinal = await applySplitTextToTimeline(rewrittenFinalText, {
               answerHandling: "capture",
             });
             if (isFirstFinalDelivery && !normalizedFinal.answerText && !normalizedFinal.reasoningText) {
-              finalTextForFallback = rawFinalText;
+              finalTextForFallback = rewrittenFinalText;
             }
             await flushPendingReasoning();
           }
@@ -470,18 +596,7 @@ export function createCardReplyStrategy(
         const inboundQuoteText = (ctx.inboundText || "").trim().slice(0, 200);
 
         // Build taskInfo JSON for card template
-        let taskInfoJson: string | undefined;
-        if (ctx.taskMeta) {
-          const info: Record<string, unknown> = {};
-          if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
-          if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
-          if (typeof ctx.taskMeta.usage === "number") { info.dapi_usage = ctx.taskMeta.usage; }
-          if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
-          if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
-          if (Object.keys(info).length > 0) {
-            taskInfoJson = JSON.stringify(info);
-          }
-        }
+        const taskInfoJson = buildTaskInfoJson();
 
         await commitAICardBlocks(card, {
           blockListJson,

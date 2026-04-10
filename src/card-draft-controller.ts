@@ -34,7 +34,7 @@ export interface CardDraftController {
     updateTool: (text: string) => Promise<void>;
     appendTool: (text: string) => Promise<void>;
     /** Append an image block (type=3) with an uploaded mediaId. */
-    appendImageBlock: (mediaId: string) => Promise<void>;
+    appendImageBlock: (mediaId: string, text?: string) => Promise<void>;
     appendToolBeforeCurrentAnswer: (text: string) => Promise<void>;
     /** Drop the current answer draft while keeping sealed earlier turns intact. */
     discardCurrentAnswer: () => void;
@@ -81,6 +81,10 @@ function normalizeProcessText(text: string | undefined): string {
 
 function normalizeAnswerText(text: string | undefined): string {
     return typeof text === "string" ? text.trimStart() : "";
+}
+
+function wrapProcessBlockMarkdown(text: string): string {
+    return `> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>${text}</font>`;
 }
 
 export function createCardDraftController(params: {
@@ -183,6 +187,15 @@ export function createCardDraftController(params: {
     } = {}): CardBlock[] => {
         const entries = timelineEntries.map((entry) => ({ ...entry }));
 
+        const insertAnswerEntry = (text: string) => {
+            const firstImageIndex = entries.findIndex((entry) => entry.kind === "image");
+            if (firstImageIndex >= 0) {
+                entries.splice(firstImageIndex, 0, { kind: "answer", text });
+                return;
+            }
+            entries.push({ kind: "answer", text });
+        };
+
         const overrideAnswer = normalizeAnswerText(options.overrideAnswer);
         if (overrideAnswer) {
             const lastAnswerIndex = [...entries]
@@ -192,12 +205,12 @@ export function createCardDraftController(params: {
             if (lastAnswerIndex !== undefined) {
                 entries[lastAnswerIndex] = { kind: "answer", text: overrideAnswer };
             } else {
-                entries.push({ kind: "answer", text: overrideAnswer });
+                insertAnswerEntry(overrideAnswer);
             }
         } else if (!entries.some((entry) => entry.kind === "answer" && entry.text)) {
             const fallbackAnswer = normalizeAnswerText(options.fallbackAnswer);
             if (fallbackAnswer) {
-                entries.push({ kind: "answer", text: fallbackAnswer });
+                insertAnswerEntry(fallbackAnswer);
             }
         }
 
@@ -212,17 +225,21 @@ export function createCardDraftController(params: {
                     break;
                 case "thinking":
                     if (entry.text?.trim()) {
-                        blocks.push({ type: 1, markdown: entry.text });
+                        blocks.push({ type: 1, markdown: wrapProcessBlockMarkdown(entry.text) });
                     }
                     break;
                 case "tool":
                     if (entry.text?.trim()) {
-                        blocks.push({ type: 2, markdown: entry.text });
+                        blocks.push({ type: 2, markdown: wrapProcessBlockMarkdown(entry.text) });
                     }
                     break;
                 case "image":
                     if (entry.mediaId?.trim()) {
-                        blocks.push({ type: 3, mediaId: entry.mediaId });
+                        blocks.push({
+                            type: 3,
+                            mediaId: entry.mediaId,
+                            ...(entry.text?.trim() ? { text: entry.text } : {}),
+                        });
                     }
                     break;
             }
@@ -480,7 +497,7 @@ export function createCardDraftController(params: {
         }
     };
 
-    const appendImageBlock = async (mediaId: string) => {
+    const appendImageBlock = async (mediaId: string, text = "") => {
         await waitForPendingBoundary();
         if (stopped || failed) {
             return;
@@ -493,7 +510,7 @@ export function createCardDraftController(params: {
         }
         sealLiveThinking();
         sealCurrentAnswer();
-        timelineEntries.push({ kind: "image", text: "", mediaId });
+        timelineEntries.push({ kind: "image", text, mediaId });
         queueRender();
     };
 

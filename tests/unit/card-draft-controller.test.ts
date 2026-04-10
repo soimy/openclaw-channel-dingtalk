@@ -42,6 +42,10 @@ function getBlockText(blocks: CardBlock[], index: number): string {
     return "markdown" in block ? block.markdown : "";
 }
 
+function getProcessBlockText(text: string): string {
+    return `> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>${text}</font>`;
+}
+
 describe("card-draft-controller", () => {
     const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 
@@ -76,6 +80,36 @@ describe("card-draft-controller", () => {
 
         const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
         expect(sentContent).toContain("Analyzing...");
+    });
+
+    it("wraps thinking blocks with quote and font styling", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        ctrl.updateReasoning("Analyzing...");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(blocks[0]).toEqual({
+            type: 1,
+            markdown: "> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>Analyzing...</font>",
+        });
+    });
+
+    it("wraps tool blocks with quote and font styling", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.updateTool("Exec: pwd");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(blocks[0]).toEqual({
+            type: 2,
+            markdown: "> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>Exec: pwd</font>",
+        });
     });
 
     it("answer rendering keeps the latest thinking block in the same timeline", async () => {
@@ -187,7 +221,7 @@ describe("card-draft-controller", () => {
         const blocks = parseBlocks(lastSent);
         expect(blocks).toHaveLength(2);
         expect(blocks[0].type).toBe(1); // thinking
-        expect(getBlockText(blocks, 0)).toBe("still thinking...");
+        expect(getBlockText(blocks, 0)).toBe(getProcessBlockText("still thinking..."));
         expect(blocks[1].type).toBe(0); // answer
         expect(getBlockText(blocks, 1)).toBe("Hello");
     });
@@ -281,7 +315,7 @@ describe("card-draft-controller", () => {
         expect(blocks1).toHaveLength(1);
         expect(blocks1[0].type).toBe(0); // answer
         expect(blocks1[0]).toHaveProperty("markdown");
-        expect(blocks1[0].markdown).toBe("content-1");
+        expect(getBlockText(blocks1, 0)).toBe("content-1");
 
         ctrl.updateAnswer("content-2");
         await vi.advanceTimersByTimeAsync(0);
@@ -289,7 +323,7 @@ describe("card-draft-controller", () => {
         expect(blocks2).toHaveLength(1);
         expect(blocks2[0].type).toBe(0); // answer
         expect(blocks2[0]).toHaveProperty("markdown");
-        expect(blocks2[0].markdown).toBe("content-2");
+        expect(getBlockText(blocks2, 0)).toBe("content-2");
     });
 
     it("getLastContent does not update on failed send", async () => {
@@ -437,9 +471,25 @@ describe("card-draft-controller", () => {
         expect(blocks[0].type).toBe(1); // thinking
         expect(blocks[1].type).toBe(2); // tool
         expect(blocks[2].type).toBe(0); // answer
-        expect(getBlockText(blocks, 0)).toBe("先检查改动");
-        expect(getBlockText(blocks, 1)).toBe("git diff --stat");
+        expect(getBlockText(blocks, 0)).toBe(getProcessBlockText("先检查改动"));
+        expect(getBlockText(blocks, 1)).toBe(getProcessBlockText("git diff --stat"));
         expect(getBlockText(blocks, 2)).toBe("这里是最终回复");
+    });
+
+    it("renders image blocks with mediaId and text", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        await ctrl.appendImageBlock("@media_123", "系统架构图");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(blocks[0]).toEqual({
+            type: 3,
+            mediaId: "@media_123",
+            text: "系统架构图",
+        });
     });
 
     it("replaces the live thinking block instead of appending multiple reasoning snapshots", async () => {
@@ -531,12 +581,12 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const streamed = updateAICardBlockListMock.mock.calls[updateAICardBlockListMock.mock.calls.length - 1]?.[1] as string;
         const blocks = parseBlocks(streamed);
         expect(blocks).toHaveLength(2);
         expect(blocks[0].type).toBe(2); // tool
         expect(blocks[1].type).toBe(0); // answer
-        expect(getBlockText(blocks, 0)).toBe("Exec: pwd");
+        expect(getBlockText(blocks, 0)).toBe(getProcessBlockText("Exec: pwd"));
         expect(getBlockText(blocks, 1)).toBe("当前工作目录是 /Users/sym/clawd");
     });
 
@@ -551,7 +601,7 @@ describe("card-draft-controller", () => {
         await ctrl.updateAnswer("当前工作目录是 /Users/sym/clawd");
         await vi.advanceTimersByTimeAsync(0);
 
-        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const streamed = updateAICardBlockListMock.mock.calls[updateAICardBlockListMock.mock.calls.length - 1]?.[1] as string;
         const blocks = parseBlocks(streamed);
         expect(blocks).toHaveLength(3);
         expect(blocks[0].type).toBe(1); // thinking
@@ -568,13 +618,13 @@ describe("card-draft-controller", () => {
         await ctrl.updateTool("Exec: printf ok");
         await vi.advanceTimersByTimeAsync(0);
 
-        const streamed = updateAICardBlockListMock.mock.calls.at(-1)?.[1] as string;
+        const streamed = updateAICardBlockListMock.mock.calls[updateAICardBlockListMock.mock.calls.length - 1]?.[1] as string;
         const blocks = parseBlocks(streamed);
         expect(blocks).toHaveLength(2);
         expect(blocks[0].type).toBe(2);
         expect(blocks[1].type).toBe(2);
-        expect(getBlockText(blocks, 0)).toBe("Exec: pwd");
-        expect(getBlockText(blocks, 1)).toBe("Exec: printf ok");
+        expect(getBlockText(blocks, 0)).toBe(getProcessBlockText("Exec: pwd"));
+        expect(getBlockText(blocks, 1)).toBe(getProcessBlockText("Exec: printf ok"));
     });
 
     it("getRenderedBlocks returns JSON blocks array", async () => {
@@ -707,15 +757,15 @@ describe("card-draft-controller", () => {
         const answerPromise = ctrl.updateAnswer("阶段2答案：pwd 已返回结果");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(sent.at(-1)).toContain("🛠️ Exec: pwd");
-        expect(sent.at(-1)).not.toContain("阶段2答案：pwd 已返回结果");
+        expect(sent[sent.length - 1]).toContain("🛠️ Exec: pwd");
+        expect(sent[sent.length - 1]).not.toContain("阶段2答案：pwd 已返回结果");
 
         resolveToolFrame();
         await toolPromise;
         await answerPromise;
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(sent.at(-1)).toContain("阶段2答案：pwd 已返回结果");
+        expect(sent[sent.length - 1]).toContain("阶段2答案：pwd 已返回结果");
     });
 
     it("does not send the same rendered timeline twice", async () => {
@@ -812,6 +862,6 @@ describe("card-draft-controller", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(sent).toHaveLength(3);
-        expect(sent.at(-1)).toContain("A");
+        expect(sent[sent.length - 1]).toContain("A");
     });
 });

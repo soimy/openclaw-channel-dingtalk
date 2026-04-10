@@ -209,6 +209,16 @@ export function clearAICardDegrade(accountId: string, log?: Logger): void {
   log?.info?.(`[DingTalk][AICard][Degrade] Cleared for account=${accountId}, lastReason=${reason}`);
 }
 
+export function incrementCardDapiCount(card: AICardInstance): number {
+  const next = (card.taskInfo?.dapi_usage || 0) + 1;
+  card.taskInfo = {
+    ...card.taskInfo,
+    dapi_usage: next,
+    taskTime: Math.max(0, Math.round((Date.now() - card.createdAt) / 1000)),
+  };
+  return next;
+}
+
 function extractCardProcessQueryKey(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") {
     return undefined;
@@ -275,6 +285,7 @@ async function putAICardStreamingField(
       `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`,
     );
     card.lastUpdated = Date.now();
+    incrementCardDapiCount(card);
   } catch (err: any) {
     if (err.response?.status === 401 && card.config && !tokenAlreadyRefreshed) {
       log?.warn?.("[DingTalk][AICard] Received 401 error, attempting token refresh and retry...");
@@ -331,6 +342,8 @@ interface CreateAICardOptions {
   contextConversationId?: string;
   /** Quote content to display in card header (shown when non-empty) */
   quoteContent?: string;
+  /** Initial taskInfo JSON to show on the first createAndDeliver render. */
+  taskInfoJson?: string;
 }
 
 interface PendingCardRecord {
@@ -734,9 +747,10 @@ export async function createAICard(
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
       [template.streamingKey]: "",
       quoteContent: options.quoteContent || "",
-      // V2 template uses hasAction (boolean), V1 uses stop_action (string)
-      // Set both for compatibility during migration
-      hasAction: STOP_ACTION_VISIBLE,
+      ...(options.taskInfoJson?.trim() ? { taskInfo: options.taskInfoJson } : {}),
+      // V2 template uses hasAction (string), V1 uses stop_action (string)
+      // DingTalk cardParamMap requires all values to be strings
+      hasAction: String(STOP_ACTION_VISIBLE),
       stop_action: String(STOP_ACTION_VISIBLE),
     };
     const createAndDeliverBody = {
@@ -824,6 +838,10 @@ export async function createAICard(
       config,
       processQueryKey: processQueryKey || extractCardProcessQueryKey(resp.data),
       outTrackId,
+      taskInfo: {
+        dapi_usage: 1,
+        taskTime: 0,
+      },
     };
     if (shouldPersistPending) {
       upsertPendingCard(aiCardInstance, options.storePath, log);
@@ -871,6 +889,32 @@ export async function createAICard(
  * Update blockList via PUT /v1.0/card/instances API.
  * Required because streaming API returns 500 for complex loopArray types.
  */
+export async function updateAICardTaskInfo(
+  card: AICardInstance,
+  taskInfoJson: string,
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state) || !taskInfoJson.trim()) {
+    return;
+  }
+
+  await ensureFreshToken(card, log);
+
+  try {
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      { taskInfo: taskInfoJson },
+      card.accessToken,
+      card.config,
+    );
+    incrementCardDapiCount(card);
+    card.lastUpdated = Date.now();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.warn?.(`[DingTalk][AICard] TaskInfo update failed: ${message}`);
+  }
+}
+
 export async function updateAICardBlockList(
   card: AICardInstance,
   blockListJson: string,
@@ -898,6 +942,7 @@ export async function updateAICardBlockList(
       card.accessToken,
       card.config,
     );
+    incrementCardDapiCount(card);
     card.lastStreamedContent = blockListJson;
     card.lastUpdated = Date.now();
     if (card.state === AICardStatus.PROCESSING) {
@@ -1010,6 +1055,7 @@ export async function commitAICardBlocks(
       card.accessToken,
       card.config,
     );
+    incrementCardDapiCount(card);
     card.lastStreamedContent = options.blockListJson;
     card.lastUpdated = Date.now();
   } catch (err: unknown) {

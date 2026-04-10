@@ -13,6 +13,7 @@ vi.mock("../../src/card-service", async (importOriginal) => {
         ...actual,
         finishAICard: vi.fn(),
         commitAICardBlocks: vi.fn(),
+        updateAICardTaskInfo: vi.fn(),
         streamAICard: vi.fn(),
         updateAICardBlockList: vi.fn(),
         streamAICardContent: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("../../src/media-utils", async (importOriginal) => {
 
 const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
+const updateAICardTaskInfoMock = vi.mocked(cardService.updateAICardTaskInfo);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 const sendProactiveMediaMock = vi.mocked(sendService.sendProactiveMedia);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
@@ -91,6 +93,7 @@ describe("reply-strategy-card", () => {
         vi.useFakeTimers();
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
+        updateAICardTaskInfoMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
         sendProactiveMediaMock.mockClear().mockResolvedValue({ ok: true, mediaId: "test-media-id" });
         uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id", buffer: Buffer.from("") });
@@ -320,6 +323,157 @@ describe("reply-strategy-card", () => {
                 "image",
                 expect.anything(),
             );
+        });
+
+        it("keeps public markdown images inline in final answer text", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![公网图](https://example.com/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            expect(uploadMediaMock).not.toHaveBeenCalled();
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.blockListJson).toContain("![公网图](https://example.com/demo.png)");
+            expect(commitPayload?.content).toContain("![公网图](https://example.com/demo.png)");
+        });
+
+        it("extracts local markdown images into card image blocks and leaves placeholder text", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    mediaUrlAllowlist: ["http://127.0.0.1:3000/**"],
+                } as any,
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](http://127.0.0.1:3000/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            expect(prepareMediaInputMock).toHaveBeenCalledWith(
+                "http://127.0.0.1:3000/demo.png",
+                expect.anything(),
+                ["http://127.0.0.1:3000/**"],
+            );
+            expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("见下图本地图");
+            expect(commitPayload?.content).not.toContain("![本地图](http://127.0.0.1:3000/demo.png)");
+            expect(commitPayload?.blockListJson).toContain('"type":3');
+            expect(commitPayload?.blockListJson).toContain('"mediaId":"test-media-id"');
+            expect(commitPayload?.blockListJson).toContain('"text":"本地图"');
+        });
+
+        it("normalizes relative markdown image paths before upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringMatching(/artifacts[\\/]demo\.png$/),
+                "image",
+                expect.anything(),
+            );
+            expect(uploadMediaMock.mock.calls[0]?.[1]).not.toBe("./artifacts/demo.png");
+        });
+
+        it("normalizes plain relative markdown image paths before upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringMatching(/artifacts[\\/]demo\.png$/),
+                "image",
+                expect.anything(),
+            );
+            expect(uploadMediaMock.mock.calls[0]?.[1]).not.toBe("artifacts/demo.png");
+        });
+
+        it("preserves markdown image order when extracting multiple local images", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "前文\n\n![图一](./artifacts/one.png)\n\n中间\n\n![图二](./artifacts/two.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            const blockListJson = commitPayload?.blockListJson ?? "";
+            expect(blockListJson.indexOf('"text":"图一"')).toBeLessThan(blockListJson.indexOf('"text":"图二"'));
+        });
+
+        it("keeps final answer block before extracted image blocks in final-only delivery", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            const blocks = JSON.parse(commitPayload?.blockListJson ?? "[]") as Array<{ type: number; markdown?: string; text?: string }>;
+            expect(blocks[0]).toMatchObject({
+                type: 0,
+                markdown: "说明如下\n\n见下图本地图",
+            });
+            expect(blocks[1]).toMatchObject({
+                type: 3,
+                text: "本地图",
+            });
+        });
+
+        it("preserves original markdown image text when local image upload fails", async () => {
+            uploadMediaMock.mockRejectedValueOnce(new Error("upload failed"));
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("![本地图](./artifacts/demo.png)");
+            expect(commitPayload?.blockListJson).not.toContain('"type":3');
         });
 
         it("deliver(tool) appends to the controller instead of sendMessage append mode", async () => {
@@ -762,6 +916,28 @@ describe("reply-strategy-card", () => {
             expect(taskInfo.taskTime).toBe(3); // rounded to seconds
         });
 
+        it("recomputes task duration at finalize time", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    effort: "medium",
+                    usage: 12,
+                    elapsedMs: 0,
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await vi.advanceTimersByTimeAsync(3200);
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            const taskInfo = JSON.parse(options.taskInfoJson!);
+            expect(taskInfo.taskTime).toBeGreaterThanOrEqual(3);
+        });
+
         it("omits taskInfoJson when taskMeta is not provided", async () => {
             const card = makeCard();
             const ctx = buildCtx(card);
@@ -773,6 +949,33 @@ describe("reply-strategy-card", () => {
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
             expect(options.taskInfoJson).toBeUndefined();
+        });
+
+        it("updates taskInfo early when onModelSelected fires", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+                taskInfo: { dapi_usage: 1, taskTime: 0 },
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
+
+            expect(updateAICardTaskInfoMock).toHaveBeenCalledTimes(1);
+            const taskInfoJson = updateAICardTaskInfoMock.mock.calls[0]?.[1];
+            expect(taskInfoJson).toBeDefined();
+            const taskInfo = JSON.parse(taskInfoJson!);
+            expect(taskInfo.model).toBe("gpt-5.4");
+            expect(taskInfo.effort).toBe("medium");
+            expect(taskInfo.agent).toBe("代码专家");
         });
 
         it("includes agent in taskInfoJson when taskMeta.agent is set", async () => {

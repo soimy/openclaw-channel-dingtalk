@@ -98,7 +98,7 @@ describe('card-service', () => {
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
-            hasAction: true,
+            hasAction: 'true',
             stop_action: 'true',
             quoteContent: '',
         });
@@ -107,6 +107,24 @@ describe('card-service', () => {
             robotCode: 'id',
             extension: { dynamicSummary: 'true' },
         });
+    });
+
+    it('createAICard includes initial taskInfo in createAndDeliver payload when provided', async () => {
+        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'cidA1B2C3',
+            undefined,
+            {
+                taskInfoJson: JSON.stringify({ model: 'gpt-5.4', effort: 'medium', agent: '代码专家' }),
+            }
+        );
+
+        const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.cardData?.cardParamMap.taskInfo).toBe(
+            '{"model":"gpt-5.4","effort":"medium","agent":"代码专家"}'
+        );
     });
 
     it('createAICard uses robot deliver payload for direct chat cards', async () => {
