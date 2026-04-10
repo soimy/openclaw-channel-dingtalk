@@ -125,7 +125,7 @@ describe('media-utils', () => {
         expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.pdf', asVoice: false })).toBe('file');
     });
 
-    it('resolveOutboundMediaType respects explicit mediaType="voice" without asVoice', () => {
+    it('resolveOutboundMediaType respects explicit mediaType="voice" even when asVoice is false', () => {
         expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.mp3', mediaType: 'voice', asVoice: false })).toBe('voice');
     });
 
