@@ -534,6 +534,12 @@ export function resolveOutboundMediaType(params: {
     return explicitType;
   }
 
+  // Audio files default to "file" (attachment) unless asVoice is explicitly set.
+  // This prevents mp3/wav/ogg/amr from being sent as voice messages unexpectedly.
+  if (detectedType === "voice") {
+    return "file";
+  }
+
   return detectedType;
 }
 

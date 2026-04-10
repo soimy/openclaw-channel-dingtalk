@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, uploadMedia } from '../../src/media-utils';
+import { detectMediaTypeFromExtension, getVoiceDurationMs, prepareMediaInput, resolveOutboundMediaType, uploadMedia } from '../../src/media-utils';
 
 const mockLoadWebMedia = vi.fn();
 const { mockRunFfmpeg, mockRunFfprobe } = vi.hoisted(() => ({
@@ -103,6 +103,30 @@ describe('media-utils', () => {
         expect(detectMediaTypeFromExtension('/tmp/a.ogg')).toBe('voice');
         expect(detectMediaTypeFromExtension('/tmp/a.mp4')).toBe('video');
         expect(detectMediaTypeFromExtension('/tmp/a.pdf')).toBe('file');
+    });
+
+    it('resolveOutboundMediaType returns "file" for audio extensions when asVoice is false', () => {
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.mp3', asVoice: false })).toBe('file');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.wav', asVoice: false })).toBe('file');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.ogg', asVoice: false })).toBe('file');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.amr', asVoice: false })).toBe('file');
+    });
+
+    it('resolveOutboundMediaType returns "voice" for audio extensions when asVoice is true', () => {
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.mp3', asVoice: true })).toBe('voice');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.wav', asVoice: true })).toBe('voice');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.ogg', asVoice: true })).toBe('voice');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.amr', asVoice: true })).toBe('voice');
+    });
+
+    it('resolveOutboundMediaType respects explicit mediaType for non-audio files', () => {
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.png', mediaType: 'image', asVoice: false })).toBe('image');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.mp4', asVoice: false })).toBe('video');
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.pdf', asVoice: false })).toBe('file');
+    });
+
+    it('resolveOutboundMediaType respects explicit mediaType="voice" without asVoice', () => {
+        expect(resolveOutboundMediaType({ mediaPath: '/tmp/a.mp3', mediaType: 'voice', asVoice: false })).toBe('voice');
     });
 
     it('returns safe fallback duration for unparseable mp3', async () => {
