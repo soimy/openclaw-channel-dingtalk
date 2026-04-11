@@ -713,6 +713,31 @@ describe("reply-strategy-card", () => {
             });
         });
 
+        it("sends rendered timeline as FINISHED recovery fallback when reasoning content exists", async () => {
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            strategy.getReplyOptions().onReasoningStream?.({ text: "思考中" });
+            await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const fallbackText = sendMessageMock.mock.calls[0][2];
+            expect(fallbackText).toContain("> 思考中");
+            expect(fallbackText).toContain("final answer");
+        });
+
+        it("logs warning but does not throw when FINISHED recovery fallback send fails", async () => {
+            sendMessageMock.mockResolvedValueOnce({ ok: false, error: "network error" });
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const logSpy = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+            const strategy = createCardReplyStrategy(buildCtx(card, { log: logSpy }));
+            await strategy.deliver({ text: "recovery content", mediaUrls: [], kind: "final" });
+            await expect(strategy.finalize()).resolves.not.toThrow();
+            expect(logSpy.warn).toHaveBeenCalledWith(
+                expect.stringContaining("Markdown fallback after FINISHED card failed"),
+            );
+        });
+
         it("sends markdown fallback with the rendered timeline when card FAILED", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));

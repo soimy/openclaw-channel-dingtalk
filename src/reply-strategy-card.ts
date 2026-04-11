@@ -373,7 +373,10 @@ export function createCardReplyStrategy(
         // Card was already finalized (e.g. first embedded run timed out).
         // If session-recovery triggered a second run that produced new content,
         // deliver it as a markdown fallback so the user sees the final result.
-        const recoveryText = finalTextForFallback
+        // The user may see partial overlap with the frozen card's content, but
+        // delivering the full answer is preferred over silence.
+        const recoveryText = getRenderedTimeline({ preferFinalAnswer: true })
+          || finalTextForFallback
           || controller.getLastAnswerContent()
           || controller.getLastContent();
         if (recoveryText) {
