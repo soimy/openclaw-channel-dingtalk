@@ -8,7 +8,7 @@ import type {
 import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw/plugin-sdk/setup";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
-import { listDingTalkAccountIds, resolveDingTalkAccount } from "./types.js";
+import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
 
 const channel = "dingtalk" as const;
 

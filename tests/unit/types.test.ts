@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listDingTalkAccountIds, resolveDingTalkAccount } from '../../src/types';
+import { listDingTalkAccountIds, resolveDingTalkAccount } from '../../src/config';
 
 describe('types helpers', () => {
     it('lists default and named account ids', () => {
