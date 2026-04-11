@@ -14,7 +14,6 @@ import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 // continue to work without changes beyond the ones we explicitly migrate.
 export type {
   DeliverPayload,
-  InternalReplyStrategyConfig,
   ReplyOptions,
   ReplyStrategy,
   ReplyStrategyContext,

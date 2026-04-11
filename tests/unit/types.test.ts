@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { listDingTalkAccountIds, resolveDingTalkAccount } from '../../src/config';
 
-describe('types helpers', () => {
+describe('config onboarding helpers', () => {
     it('lists default and named account ids', () => {
         const cfg = {
             channels: {
