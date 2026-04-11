@@ -277,32 +277,6 @@ export function stripTargetPrefix(target: string): { targetId: string; isExplici
 
 const DEFAULT_ACCOUNT_ID = "default";
 
-function stripRemovedLegacyFieldsFromPublicAccount(
-  config: DingTalkConfig,
-): DingTalkConfig {
-  const {
-    cardStreamReasoning: _cardStreamReasoning,
-    verboseRealtimeStream: _verboseRealtimeStream,
-    accounts,
-    ...rest
-  } = config as DingTalkConfig & {
-    cardStreamReasoning?: unknown;
-    verboseRealtimeStream?: unknown;
-    accounts?: Record<string, DingTalkConfig | undefined>;
-  };
-  const sanitizedAccounts = accounts
-    ? Object.fromEntries(
-        Object.entries(accounts).map(([accountId, accountConfig]) => [
-          accountId,
-          accountConfig ? stripRemovedLegacyFieldsFromPublicAccount(accountConfig) : accountConfig,
-        ]),
-      )
-    : undefined;
-  if (sanitizedAccounts) {
-    return { ...rest, accounts: sanitizedAccounts } as DingTalkConfig;
-  }
-  return rest as DingTalkConfig;
-}
 
 /**
  * List all DingTalk account IDs from config
@@ -385,7 +359,7 @@ export function resolveDingTalkAccount(
       convertMarkdownTables: dingtalk?.convertMarkdownTables,
       cardAtSender: dingtalk?.cardAtSender,
     };
-    const config = stripRemovedLegacyFieldsFromPublicAccount(rawConfig);
+    const config = stripRemovedLegacyFields(rawConfig);
     return {
       ...config,
       accountId: id,
@@ -399,7 +373,7 @@ export function resolveDingTalkAccount(
       dingtalk as DingTalkConfig,
       accountConfig,
     );
-    const publicMerged = stripRemovedLegacyFieldsFromPublicAccount(merged);
+    const publicMerged = stripRemovedLegacyFields(merged);
     return {
       ...publicMerged,
       accountId: id,
