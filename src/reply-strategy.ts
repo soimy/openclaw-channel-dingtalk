@@ -1,82 +1,24 @@
 /**
- * Reply strategy interface for DingTalk message delivery.
+ * Reply strategy factory for DingTalk message delivery.
  *
- * Abstracts the "how to deliver a reply" concern away from
- * handleDingTalkMessage, so card and markdown modes each manage
- * their own state and lifecycle independently.
+ * Delegates the "how to deliver a reply" concern to card or markdown
+ * strategy implementations. Type definitions live in reply-strategy-types.ts.
  */
 
-import type { AICardInstance, DingTalkConfig, Logger, QuotedRef } from "./types";
+import type { AICardInstance } from "./types";
+import type { ReplyStrategy, ReplyStrategyContext } from "./reply-strategy-types";
 import { createCardReplyStrategy } from "./reply-strategy-card";
 import { createMarkdownReplyStrategy } from "./reply-strategy-markdown";
 
-// ---- Public types ------------------------------------------------
-
-type InternalReplyStrategyConfig = DingTalkConfig & {
-  /** @deprecated Internal compatibility only. Removed from public config surface. */
-  cardStreamReasoning?: boolean;
-};
-
-export interface DeliverPayload {
-  text?: string;
-  mediaUrls: string[];
-  /**
-   * Shared reply-runtime voice hint. Strategies forward this unchanged into the
-   * channel media delivery helper; inbound-handler is responsible for bridging
-   * legacy aliases (for example `asVoice`) into this single field.
-   */
-  audioAsVoice?: boolean;
-  kind: "block" | "final" | "tool";
-  isReasoning?: boolean;
-}
-
-export interface ReplyOptions {
-  disableBlockStreaming: boolean;
-  onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
-  onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
-  onAssistantMessageStart?: () => void | Promise<void>;
-}
-
-export interface ReplyStrategy {
-  /** Options forwarded to the runtime dispatcher. */
-  getReplyOptions(): ReplyOptions;
-
-  /** Called by the deliver callback for each payload chunk. */
-  deliver(payload: DeliverPayload): Promise<void>;
-
-  /** Called after dispatch completes successfully. */
-  finalize(): Promise<void>;
-
-  /** Called when dispatch throws an error. */
-  abort(error: Error): Promise<void>;
-
-  /** Last known final text (for external consumers such as logging). */
-  getFinalText(): string | undefined;
-}
-
-/** Shared context passed to every strategy implementation. */
-export interface ReplyStrategyContext {
-  config: InternalReplyStrategyConfig;
-  to: string;
-  sessionWebhook: string;
-  senderId: string;
-  isDirect: boolean;
-  accountId: string;
-  storePath: string;
-  disableBlockStreaming?: boolean;
-  sessionKey?: string;
-  sessionAgentId?: string;
-  groupId?: string;
-  log?: Logger;
-  replyQuotedRef?: QuotedRef;
-  /**
-   * Channel-level media delivery hook. The `audioAsVoice` option is the same
-   * shared voice semantic carried on DeliverPayload, not a second independent
-   * config knob.
-   */
-  deliverMedia: (urls: string[], options?: { audioAsVoice?: boolean }) => Promise<void>;
-  isStopRequested?: () => boolean;
-}
+// Re-export all types so existing consumers that import from "./reply-strategy"
+// continue to work without changes beyond the ones we explicitly migrate.
+export type {
+  DeliverPayload,
+  InternalReplyStrategyConfig,
+  ReplyOptions,
+  ReplyStrategy,
+  ReplyStrategyContext,
+} from "./reply-strategy-types";
 
 // ---- Factory -----------------------------------------------------
 

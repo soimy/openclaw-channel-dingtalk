@@ -19,7 +19,7 @@ import {
 } from "./card/card-streaming-mode";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy-types";
 import { sendBySession, sendMessage } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";

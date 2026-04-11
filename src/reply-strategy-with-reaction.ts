@@ -24,7 +24,7 @@
  * concurrently. The `sessionFilter` parameter is required for this reason.
  */
 
-import type { DeliverPayload, ReplyOptions, ReplyStrategy } from "./reply-strategy";
+import type { DeliverPayload, ReplyOptions, ReplyStrategy } from "./reply-strategy-types";
 import type { DingTalkConfig, Logger } from "./types";
 
 const TOOL_REACTION_SILENCE_MS = 55_000;

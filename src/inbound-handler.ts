@@ -45,7 +45,7 @@ import {
 } from "./proactive-risk-registry";
 import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./messaging/quoted-file-service";
 import { createReplyStrategy } from "./reply-strategy";
-import type { DeliverPayload } from "./reply-strategy";
+import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage, sendProactiveMedia } from "./send-service";
 import { acquireSessionLock } from "./session-lock";
