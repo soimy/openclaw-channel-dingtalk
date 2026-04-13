@@ -9,11 +9,12 @@ import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
+import { hasConfiguredSecretInput, normalizeSecretInputString } from "./secret-input.js";
 
 const channel = "dingtalk" as const;
 
 function isConfigured(account: DingTalkConfig): boolean {
-  return Boolean(account.clientId && account.clientSecret);
+  return Boolean(account.clientId && hasConfiguredSecretInput(account.clientSecret));
 }
 
 function parseList(value: string): string[] {
@@ -225,7 +226,7 @@ async function configureDingTalkAccount(params: {
   const clientSecret = await prompter.text({
     message: "Client Secret (AppSecret)",
     placeholder: "xxx-xxx-xxx-xxx",
-    initialValue: resolved.clientSecret ?? undefined,
+    initialValue: normalizeSecretInputString(resolved.clientSecret),
     validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
   });
 

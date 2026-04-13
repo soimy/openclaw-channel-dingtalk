@@ -1,6 +1,11 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import {
+  hasConfiguredSecretInput,
+  normalizeSecretInputString,
+  resolveDingTalkSecretConfig,
+} from "./secret-input";
 import type { DingTalkChannelConfig, DingTalkConfig } from "./types";
 
 const WINDOWS_ROOT_DIRECTORIES = new Set([
@@ -12,6 +17,7 @@ const WINDOWS_ROOT_DIRECTORIES = new Set([
   "Documents and Settings",
 ]);
 const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
+export type RuntimeDingTalkConfig = Omit<DingTalkConfig, "clientSecret"> & { clientSecret: string };
 
 function normalizeLearningConfig(
   config: DingTalkConfig,
@@ -114,7 +120,11 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
 
 export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   const config = getConfig(cfg, accountId);
-  return Boolean(config.clientId && config.clientSecret);
+  return Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
+}
+
+export function resolveRuntimeConfig(config: DingTalkConfig): RuntimeDingTalkConfig {
+  return resolveDingTalkSecretConfig(config) as RuntimeDingTalkConfig;
 }
 
 /**
@@ -363,7 +373,8 @@ export function resolveDingTalkAccount(
     return {
       ...config,
       accountId: id,
-      configured: Boolean(config.clientId && config.clientSecret),
+      configured: Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret)),
+      clientSecret: normalizeSecretInputString(config.clientSecret) || "",
     };
   }
 
@@ -377,7 +388,8 @@ export function resolveDingTalkAccount(
     return {
       ...publicMerged,
       accountId: id,
-      configured: Boolean(merged.clientId && merged.clientSecret),
+      configured: Boolean(merged.clientId && hasConfiguredSecretInput(merged.clientSecret)),
+      clientSecret: normalizeSecretInputString(merged.clientSecret) || "",
     };
   }
 
