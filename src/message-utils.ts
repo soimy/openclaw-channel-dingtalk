@@ -11,6 +11,8 @@ interface DingTalkDocMeta {
   fileId: string;
 }
 
+const UNKNOWN_PERSON_LABEL = "某人";
+
 function parseBizCustomActionUrl(url: string | undefined): DingTalkDocMeta | null {
   if (!url || typeof url !== "string") {
     return null;
@@ -81,7 +83,7 @@ function extractRichTextQuoteParts(
           ? part.atName
           : typeof textValue === "string"
             ? textValue
-            : "某人";
+            : UNKNOWN_PERSON_LABEL;
       textParts.push(`@${atName}`);
       continue;
     }
@@ -121,6 +123,8 @@ function trimString(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+const MAX_CHAT_RECORD_ENTRIES = 30;
+
 function stringifyChatRecordContentValue(value: unknown): string | undefined {
   if (typeof value === "string") {
     return trimString(value);
@@ -129,11 +133,18 @@ function stringifyChatRecordContentValue(value: unknown): string | undefined {
     return undefined;
   }
   const record = value as Record<string, unknown>;
+  const content = record.content;
+  const contentText =
+    typeof content === "string"
+      ? trimString(content)
+      : content && typeof content === "object"
+        ? trimString((content as Record<string, unknown>).text as string | undefined)
+        : undefined;
+
   return (
     trimString(record.text as string | undefined) ||
-    trimString(record.content as string | undefined) ||
-    trimString(record.message as string | undefined) ||
-    trimString((record.content as Record<string, unknown> | undefined)?.text as string | undefined)
+    contentText ||
+    trimString(record.message as string | undefined)
   );
 }
 
@@ -168,19 +179,19 @@ function formatChatRecordEntries(rawRecord: unknown): string[] {
         trimString(record.senderNick as string | undefined) ||
         trimString(record.sender as string | undefined) ||
         trimString(record.senderId as string | undefined) ||
-        "某人";
+        UNKNOWN_PERSON_LABEL;
       const body = stringifyChatRecordContentValue(
         record.content ?? record.text ?? record.message ?? record.body,
       );
       return body ? `${sender}: ${body}` : undefined;
     })
     .filter((line): line is string => Boolean(line))
-    .slice(0, 30);
+    .slice(0, MAX_CHAT_RECORD_ENTRIES);
 }
 
 function formatChatRecordPreview(
   content: Record<string, unknown> | undefined,
-  options: { titlePrefix?: boolean } = {},
+  options: { useTitleAsLabel?: boolean } = {},
 ): string | undefined {
   const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
   const title = typeof content?.title === "string" ? content.title.trim() : "";
@@ -188,7 +199,11 @@ function formatChatRecordPreview(
   const recordLines = formatChatRecordEntries(rawRecord);
   const parts: string[] = [];
   if (summary && summary !== "[]") {
-    const label = options.titlePrefix ? (title ? `[${title}] ` : "[聊天记录] ") : "[聊天记录摘要] ";
+    const label = options.useTitleAsLabel
+      ? title
+        ? `[${title}] `
+        : "[聊天记录] "
+      : "[聊天记录摘要] ";
     parts.push(`${label}${summary}`);
   }
   if (recordLines.length > 0) {
@@ -325,7 +340,7 @@ function buildRepliedMessagePreview(params: {
     return {
       previewText:
         formatChatRecordPreview(content as Record<string, unknown> | undefined, {
-          titlePrefix: true,
+          useTitleAsLabel: true,
         }) || buildQuotedMessageTypePlaceholder("chatRecord"),
       previewMessageType: "chatRecord",
       previewSenderId: trimString(repliedMsg.senderId),
