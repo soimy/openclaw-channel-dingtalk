@@ -123,8 +123,18 @@ export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
 }
 
-export function resolveRuntimeConfig(config: DingTalkConfig): RuntimeDingTalkConfig {
-  return resolveDingTalkSecretConfig(config) as RuntimeDingTalkConfig;
+export async function resolveRuntimeConfig(
+  config: DingTalkConfig,
+  log?: { warn?: (message: string, data?: unknown) => void },
+): Promise<RuntimeDingTalkConfig> {
+  const resolved = await resolveDingTalkSecretConfig(config, log);
+  if (!resolved.clientId || !resolved.clientSecret) {
+    throw new Error("DingTalk clientId and resolved clientSecret are required");
+  }
+  return {
+    ...resolved,
+    clientSecret: resolved.clientSecret,
+  };
 }
 
 /**

@@ -24,7 +24,7 @@ export async function getAccessToken(config: DingTalkConfig, log?: Logger): Prom
     return cached.accessToken;
   }
 
-  const runtimeConfig = resolveRuntimeConfig(config);
+  const runtimeConfig = await resolveRuntimeConfig(config, log);
 
   const token = await retryWithBackoff(
     async () => {

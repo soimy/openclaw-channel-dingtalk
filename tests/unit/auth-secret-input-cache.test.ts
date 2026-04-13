@@ -43,4 +43,16 @@ describe("auth.getAccessToken SecretInput cache path", () => {
     expect(resolveRuntimeConfig).toHaveBeenCalledTimes(1);
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
   });
+
+  it("fails locally when SecretInput resolution produces no clientSecret", async () => {
+    const { getAccessToken } = await loadAuthModule();
+
+    await expect(
+      getAccessToken({
+        clientId: "ding_secret_ref_missing",
+        clientSecret: { source: "file", provider: "local", id: "/missing" },
+      } as any),
+    ).rejects.toThrow("DingTalk clientId and resolved clientSecret are required");
+    expect(mockedAxiosPost).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import { z } from "zod";
 
 export type SecretInputRef = {
@@ -13,6 +14,12 @@ export type SecretInputRef = {
 export type SecretInput = string | SecretInputRef;
 
 export const SECRET_INPUT_EXEC_TIMEOUT_MS = 5000;
+
+type SecretInputLog = {
+  warn?: (message: string, data?: unknown) => void;
+};
+
+const execFileAsync = promisify(execFile);
 
 export function buildSecretInputSchema() {
   return z.union([
@@ -63,7 +70,10 @@ export function normalizeSecretInputString(value: unknown): string | undefined {
   return `<${value.source}:${value.provider}:${value.id}>`;
 }
 
-export function resolveSecretInputString(value: unknown): string | undefined {
+export async function resolveSecretInputString(
+  value: unknown,
+  log?: SecretInputLog,
+): Promise<string | undefined> {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || undefined;
@@ -79,29 +89,40 @@ export function resolveSecretInputString(value: unknown): string | undefined {
       const filePath = value.id.startsWith("~/")
         ? path.resolve(os.homedir(), value.id.slice(2))
         : path.resolve(value.id);
-      return readFileSync(filePath, "utf8").trim() || undefined;
-    } catch {
+      return (await readFile(filePath, "utf8")).trim() || undefined;
+    } catch (error) {
+      log?.warn?.("[DingTalk][SecretInput] Failed to read file secret", {
+        provider: value.provider,
+        id: value.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return undefined;
     }
   }
   try {
-    return (
-      execFileSync(value.provider, [value.id], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
-      }).trim() || undefined
-    );
-  } catch {
+    const result = await execFileAsync(value.provider, [value.id], {
+      encoding: "utf8",
+      timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    const stdout = typeof result === "string" ? result : result.stdout;
+    return String(stdout).trim() || undefined;
+  } catch (error) {
+    log?.warn?.("[DingTalk][SecretInput] Failed to resolve exec secret", {
+      provider: value.provider,
+      id: value.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return undefined;
   }
 }
 
-export function resolveDingTalkSecretConfig<T extends { clientSecret?: unknown }>(
+export async function resolveDingTalkSecretConfig<T extends { clientSecret?: unknown }>(
   config: T,
-): T & { clientSecret?: string } {
+  log?: SecretInputLog,
+): Promise<T & { clientSecret?: string }> {
   return {
     ...config,
-    clientSecret: resolveSecretInputString(config.clientSecret),
+    clientSecret: await resolveSecretInputString(config.clientSecret, log),
   };
 }

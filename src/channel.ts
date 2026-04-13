@@ -621,10 +621,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
   gateway: {
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
       const { account, cfg, abortSignal } = ctx;
-      const config = resolveRuntimeConfig(account.config);
-      if (!config.clientId || !config.clientSecret) {
-        throw new Error("DingTalk clientId and clientSecret are required");
-      }
       let accountStorePath: string | undefined;
       try {
         const rt = getDingTalkRuntime();
@@ -638,9 +634,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const pluginLog = resolvePluginDebugLog({
         accountId: account.accountId,
         storePath: accountStorePath,
-        debug: config.debug,
+        debug: account.config.debug,
         baseLog: ctx.log,
       });
+      const config = await resolveRuntimeConfig(account.config, pluginLog);
       setCurrentLogger(pluginLog, account.accountId);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
