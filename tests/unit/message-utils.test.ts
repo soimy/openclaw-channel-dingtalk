@@ -672,6 +672,43 @@ describe('message-utils', () => {
         expect(content.quoted?.previewMessageType).toBe('chatRecord');
     });
 
+    it('chatRecord reply — logged DingTalk summary-only payload has no detailed records to expand', () => {
+        const message = {
+            msgId: 'msgv+gE8CSZUZWAKbxk3KrUYA==',
+            createAt: 1776067733725,
+            conversationType: '2',
+            conversationId: 'cid4AkDhNKBaSK+cq6zt4dDEA==',
+            senderId: 'sender',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            originalMsgId: 'msgrAGRxGTFIE0Jr5rrzqj1sQ==',
+            msgtype: 'text',
+            text: {
+                isReplyMsg: true,
+                content: ' 重新学习一下',
+                repliedMsg: {
+                    createdAt: 1776065111071,
+                    senderId: 'sender',
+                    msgType: 'chatRecord',
+                    msgId: 'msgrAGRxGTFIE0Jr5rrzqj1sQ==',
+                    content: {
+                        summary: '祝欣莹:[消息]\n溯煜:[分享]\n溯煜:[图片]\n溯煜:这个就是',
+                        title: '溯煜与祝欣莹的聊天记录',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.text).toBe('重新学习一下');
+        expect(content.quoted?.previewText).toBe(
+            '[溯煜与祝欣莹的聊天记录] 祝欣莹:[消息]\n溯煜:[分享]\n溯煜:[图片]\n溯煜:这个就是',
+        );
+        expect(content.quoted?.previewText).not.toContain('[聊天记录内容]');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
+
     it('chatRecord reply — expands detailed forwarded records when DingTalk includes them', () => {
         const message = {
             msgId: 'test',
