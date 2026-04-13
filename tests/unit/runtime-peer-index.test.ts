@@ -254,6 +254,7 @@ describe("runtime + peer registry + index plugin", () => {
     it("registered connector compatibility gateway methods send to explicit user and group targets", async () => {
         const plugin = (await import("../../index")).default;
         const registerGatewayMethod = vi.fn();
+        const context = { cronStorePath: "/tmp/openclaw-cron-store.json" };
 
         await plugin.register({
             runtime: {},
@@ -269,6 +270,7 @@ describe("runtime + peer registry + index plugin", () => {
 
         const respondUser = vi.fn();
         await sendToUserHandler?.({
+            context,
             respond: respondUser,
             params: { userId: "staff_1", content: "hello" },
         });
@@ -276,12 +278,17 @@ describe("runtime + peer registry + index plugin", () => {
             expect.objectContaining({ clientId: "id", clientSecret: "sec" }),
             "user:staff_1",
             "hello",
-            expect.objectContaining({ conversationId: "user:staff_1" }),
+            expect.objectContaining({
+                accountId: "default",
+                conversationId: "user:staff_1",
+                storePath: "/tmp/openclaw-cron-store.json",
+            }),
         );
         expect(respondUser).toHaveBeenCalledWith(true, expect.objectContaining({ messageId: "msg_1" }));
 
         const respondGroup = vi.fn();
         await sendToGroupHandler?.({
+            context,
             respond: respondGroup,
             params: { openConversationId: "cid_1", message: "hi group", useAICard: false },
         });
@@ -292,6 +299,73 @@ describe("runtime + peer registry + index plugin", () => {
             expect.objectContaining({ forceMarkdown: true }),
         );
         expect(respondGroup).toHaveBeenCalledWith(true, expect.objectContaining({ target: "group:cid_1" }));
+    });
+
+    it("registered connector send/status/probe methods handle fallback content and account status", async () => {
+        const plugin = (await import("../../index")).default;
+        const registerGatewayMethod = vi.fn();
+
+        await plugin.register({
+            runtime: {},
+            registrationMode: "full",
+            registerChannel: vi.fn(),
+            registerGatewayMethod,
+            config: {
+                channels: {
+                    dingtalk: {
+                        clientId: "default-id",
+                        clientSecret: "default-sec",
+                        accounts: {
+                            team: { clientId: "team-id", clientSecret: "team-sec", name: "Team" },
+                        },
+                    },
+                },
+            },
+            logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        } as any);
+
+        const sendHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === "dingtalk-connector.send")?.[1];
+        const statusHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === "dingtalk-connector.status")?.[1];
+        const probeHandler = registerGatewayMethod.mock.calls.find((call: any[]) => call[0] === "dingtalk-connector.probe")?.[1];
+
+        const respondSend = vi.fn();
+        await sendHandler?.({
+            context: { cronStorePath: "/tmp/rpc-store.json" },
+            respond: respondSend,
+            params: { accountId: "team", target: "user:staff_2", content: "", message: "fallback message" },
+        });
+        expect(shared.sendMessageMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ clientId: "team-id", clientSecret: "team-sec" }),
+            "user:staff_2",
+            "fallback message",
+            expect.objectContaining({
+                accountId: "team",
+                conversationId: "user:staff_2",
+                storePath: "/tmp/rpc-store.json",
+            }),
+        );
+        expect(respondSend).toHaveBeenCalledWith(true, expect.objectContaining({ target: "user:staff_2" }));
+
+        const respondStatus = vi.fn();
+        await statusHandler?.({ respond: respondStatus, params: {} });
+        expect(respondStatus).toHaveBeenCalledWith(
+            true,
+            expect.objectContaining({
+                channel: "dingtalk",
+                accounts: expect.arrayContaining([
+                    expect.objectContaining({ accountId: "default", configured: true, clientId: "default-id" }),
+                    expect.objectContaining({ accountId: "team", configured: true, clientId: "team-id" }),
+                ]),
+            }),
+        );
+
+        const respondProbe = vi.fn();
+        await probeHandler?.({ respond: respondProbe, params: { accountId: "team" } });
+        expect(shared.getAccessTokenMock).toHaveBeenCalledWith(
+            expect.objectContaining({ clientId: "team-id", clientSecret: "team-sec" }),
+            expect.any(Object),
+        );
+        expect(respondProbe).toHaveBeenCalledWith(true, { ok: true, clientId: "team-id" });
     });
 
     it("returns partial-success metadata when initial doc append fails after creation", async () => {

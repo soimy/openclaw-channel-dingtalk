@@ -4,7 +4,6 @@ import { getAccessToken } from "./src/auth";
 import { dingtalkPlugin } from "./src/channel";
 import {
   getConfig,
-  isConfigured,
   listDingTalkAccountIds,
   resolveDingTalkAccount,
 } from "./src/config";
@@ -20,7 +19,7 @@ import { sendMessage } from "./src/send-service";
 
 type GatewayMethodContext = Pick<
   Parameters<Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1]>[0],
-  "params" | "respond"
+  "context" | "params" | "respond"
 >;
 
 function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
@@ -94,8 +93,8 @@ function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
 
 function getContentParam(params: Record<string, unknown>): string | undefined {
   return (
-    readStringParam(params, "content", { allowEmpty: true }) ??
-    readStringParam(params, "message", { allowEmpty: true })
+    readStringParam(params, "content") ??
+    readStringParam(params, "message")
   );
 }
 
@@ -109,16 +108,19 @@ async function sendGatewayMessage(params: {
   accountId?: string;
   target: string;
   content: string;
+  storePath?: string;
   useAICard?: unknown;
 }) {
   const config = getConfig(params.api.config, params.accountId);
-  if (!isConfigured(params.api.config, params.accountId)) {
+  const accountId = params.accountId ?? "default";
+  if (!config.clientId || !config.clientSecret) {
     return params.respond(false, { error: "DingTalk not configured" });
   }
   const result = await sendMessage(config, params.target, params.content, {
     log: params.api.logger,
-    accountId: params.accountId,
+    accountId,
     conversationId: params.target,
+    storePath: params.storePath,
     forceMarkdown: params.useAICard === false,
   });
   return params.respond(
@@ -141,7 +143,7 @@ async function sendGatewayMessage(params: {
 function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "dingtalk-connector.sendToUser",
-    async ({ respond, params }: GatewayMethodContext) => {
+    async ({ context, respond, params }: GatewayMethodContext) => {
       const accountId = readStringParam(params, "accountId");
       const userId = readStringParam(params, "userId", { required: true });
       const content = getContentParam(params);
@@ -154,6 +156,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
         accountId: accountId ?? undefined,
         target: `user:${userId}`,
         content,
+        storePath: context?.cronStorePath,
         useAICard: params.useAICard,
       });
     },
@@ -161,7 +164,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
 
   api.registerGatewayMethod(
     "dingtalk-connector.sendToGroup",
-    async ({ respond, params }: GatewayMethodContext) => {
+    async ({ context, respond, params }: GatewayMethodContext) => {
       const accountId = readStringParam(params, "accountId");
       const openConversationId = readStringParam(params, "openConversationId", { required: true });
       const content = getContentParam(params);
@@ -174,6 +177,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
         accountId: accountId ?? undefined,
         target: `group:${openConversationId}`,
         content,
+        storePath: context?.cronStorePath,
         useAICard: params.useAICard,
       });
     },
@@ -181,7 +185,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
 
   api.registerGatewayMethod(
     "dingtalk-connector.send",
-    async ({ respond, params }: GatewayMethodContext) => {
+    async ({ context, respond, params }: GatewayMethodContext) => {
       const accountId = readStringParam(params, "accountId");
       const target = readStringParam(params, "target", { required: true });
       const content = getContentParam(params);
@@ -194,6 +198,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
         accountId: accountId ?? undefined,
         target,
         content,
+        storePath: context?.cronStorePath,
         useAICard: params.useAICard,
       });
     },
@@ -225,7 +230,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
     async ({ respond, params }: GatewayMethodContext) => {
       const accountId = readStringParam(params, "accountId");
       const config = getConfig(api.config, accountId ?? undefined);
-      if (!isConfigured(api.config, accountId ?? undefined)) {
+      if (!config.clientId || !config.clientSecret) {
         return respond(false, { error: "DingTalk not configured" });
       }
       try {
