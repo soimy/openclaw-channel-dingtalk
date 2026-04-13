@@ -12,6 +12,8 @@ export type SecretInputRef = {
 
 export type SecretInput = string | SecretInputRef;
 
+export const SECRET_INPUT_EXEC_TIMEOUT_MS = 5000;
+
 export function buildSecretInputSchema() {
   return z.union([
     z.string(),
@@ -87,6 +89,7 @@ export function resolveSecretInputString(value: unknown): string | undefined {
       execFileSync(value.provider, [value.id], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
       }).trim() || undefined
     );
   } catch {

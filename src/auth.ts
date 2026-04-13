@@ -16,14 +16,15 @@ const accessTokenCache = new Map<string, TokenCache>();
  * Refreshes token one minute before expiry to avoid near-expiry failures.
  */
 export async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
-  const runtimeConfig = resolveRuntimeConfig(config);
-  const cacheKey = runtimeConfig.clientId;
+  const cacheKey = config.clientId;
   const now = Date.now();
   const cached = accessTokenCache.get(cacheKey);
 
   if (cached && cached.expiry > now + 60000) {
     return cached.accessToken;
   }
+
+  const runtimeConfig = resolveRuntimeConfig(config);
 
   const token = await retryWithBackoff(
     async () => {
