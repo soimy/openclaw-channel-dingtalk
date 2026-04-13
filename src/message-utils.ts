@@ -137,6 +137,10 @@ function stringifyChatRecordContentValue(value: unknown): string | undefined {
   );
 }
 
+function getChatRecordEntriesSource(content: Record<string, unknown> | undefined): unknown {
+  return content?.chatRecord ?? content?.records ?? content?.messages;
+}
+
 function formatChatRecordEntries(rawRecord: unknown): string[] {
   let entries = rawRecord;
   if (typeof rawRecord === "string") {
@@ -156,7 +160,7 @@ function formatChatRecordEntries(rawRecord: unknown): string[] {
   return entries
     .map((entry) => {
       if (!entry || typeof entry !== "object") {
-        return trimString(String(entry ?? ""));
+        return undefined;
       }
       const record = entry as Record<string, unknown>;
       const sender =
@@ -180,7 +184,7 @@ function formatChatRecordPreview(
 ): string | undefined {
   const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
   const title = typeof content?.title === "string" ? content.title.trim() : "";
-  const rawRecord = content?.chatRecord ?? content?.records ?? content?.messages;
+  const rawRecord = getChatRecordEntriesSource(content);
   const recordLines = formatChatRecordEntries(rawRecord);
   const parts: string[] = [];
   if (summary && summary !== "[]") {
@@ -691,7 +695,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
   if (msgtype === "chatRecord") {
     const content = data.content as Record<string, unknown> | undefined;
     const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
-    const rawRecord = content?.chatRecord ?? content?.records ?? content?.messages;
+    const rawRecord = getChatRecordEntriesSource(content);
     const chatRecordText = formatChatRecordPreview(content);
     if (
       summary === "[]" ||

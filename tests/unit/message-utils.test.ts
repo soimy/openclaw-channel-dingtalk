@@ -736,4 +736,30 @@ describe('message-utils', () => {
         expect(content.text).toContain('祝欣莹: 第一条');
         expect(content.text).toContain('溯煜: 第二条');
     });
+
+    it('top-level chatRecord — expands messages aliases', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'chatRecord',
+            content: {
+                summary: '溯煜:[图片]',
+                messages: [
+                    { senderName: '溯煜', content: '图片里的原始描述' },
+                ],
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.messageType).toBe('chatRecord');
+        expect(content.text).toContain('[聊天记录摘要] 溯煜:[图片]');
+        expect(content.text).toContain('[聊天记录内容]');
+        expect(content.text).toContain('溯煜: 图片里的原始描述');
+    });
 });
