@@ -10,15 +10,13 @@
  */
 
 import type {
-  ChannelPlugin as SDKChannelPlugin,
-  OpenClawConfig,
-} from "openclaw/plugin-sdk/core";
-import type {
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelLogSink as SDKChannelLogSink,
 } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelPlugin as SDKChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
+import type { SecretInput } from "./secret-input";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
@@ -32,7 +30,7 @@ export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
  */
 export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
-  clientSecret: string;
+  clientSecret: SecretInput;
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
@@ -50,7 +48,10 @@ export interface DingTalkConfig extends OpenClawConfig {
   cardTemplateId?: string;
   /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
+  groups?: Record<
+    string,
+    { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }
+  >;
   accounts?: Record<string, DingTalkConfig>;
   // Connection robustness configuration
   maxConnectionAttempts?: number;
@@ -102,7 +103,7 @@ export interface DingTalkConfig extends OpenClawConfig {
 export interface DingTalkChannelConfig {
   enabled?: boolean;
   clientId: string;
-  clientSecret: string;
+  clientSecret: SecretInput;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist" | "disabled";
@@ -119,7 +120,10 @@ export interface DingTalkChannelConfig {
   cardTemplateId?: string;
   /** @deprecated 已固定使用内置模板契约 */
   cardTemplateKey?: string;
-  groups?: Record<string, { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }>;
+  groups?: Record<
+    string,
+    { systemPrompt?: string; requireMention?: boolean; groupAllowFrom?: string[] }
+  >;
   accounts?: Record<string, DingTalkConfig>;
   maxConnectionAttempts?: number;
   initialReconnectDelay?: number;
@@ -297,7 +301,12 @@ export interface DingTalkInboundMessage {
   sessionWebhook: string;
 }
 
-export type QuotedRefKey = "msgId" | "processQueryKey" | "messageId" | "outTrackId" | "cardInstanceId";
+export type QuotedRefKey =
+  | "msgId"
+  | "processQueryKey"
+  | "messageId"
+  | "outTrackId"
+  | "cardInstanceId";
 
 export type AttachmentTextSource = "text" | "html" | "pdf" | "docx";
 
@@ -635,7 +644,9 @@ export interface DingTalkOutboundHandler {
   deliveryMode: "direct" | "queued" | "batch";
   resolveTarget: (params: ResolveTargetParams) => TargetResolutionResult;
   sendText: (params: SendTextParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
-  sendMedia?: (params: SendMediaParams) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
+  sendMedia?: (
+    params: SendMediaParams,
+  ) => Promise<{ ok: boolean; data?: unknown; error?: unknown }>;
 }
 
 /**
@@ -730,4 +741,3 @@ export interface ConnectionAttemptResult {
   error?: Error;
   nextDelay?: number;
 }
-

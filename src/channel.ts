@@ -7,7 +7,6 @@ import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getAccessToken } from "./auth";
 import { analyzeCardCallback } from "./card-callback-service";
-import { handleCardAction } from "./card/card-action-handler";
 import {
   createAICard,
   streamAICard,
@@ -15,10 +14,12 @@ import {
   finalizeActiveCardsForAccount,
   recoverPendingCardsForAccount,
 } from "./card-service";
+import { handleCardAction } from "./card/card-action-handler";
 import {
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveRuntimeConfig,
   resolveGroupConfig,
   resolveRelativePath,
   resolveRobotCode,
@@ -38,6 +39,7 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
+import { hasConfiguredSecretInput } from "./secret-input";
 import {
   sendMessage,
   sendProactiveMedia,
@@ -206,7 +208,7 @@ function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   schema: null;
 } {
   const config = getConfig(cfg);
-  const configured = Boolean(config.clientId && config.clientSecret);
+  const configured = Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
     return { actions: [], capabilities: [], schema: null };
   }
@@ -367,7 +369,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const id = accountId || "default";
       const account = config.accounts?.[id];
       const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
-      const configured = Boolean(resolvedConfig.clientId && resolvedConfig.clientSecret);
+      const configured = Boolean(
+        resolvedConfig.clientId && hasConfiguredSecretInput(resolvedConfig.clientSecret),
+      );
       return {
         accountId: id,
         config: resolvedConfig,
@@ -378,7 +382,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     defaultAccountId: (): string => "default",
     isConfigured: (account: ResolvedAccount): boolean =>
-      Boolean(account.config?.clientId && account.config?.clientSecret),
+      Boolean(account.config?.clientId && hasConfiguredSecretInput(account.config?.clientSecret)),
     describeAccount: (account: ResolvedAccount) => ({
       accountId: account.accountId,
       name: account.config?.name || "DingTalk",
@@ -477,7 +481,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data));
+          effectiveLog?.error?.(
+            formatDingTalkErrorPayloadLog("outbound.sendText", err.response.data),
+          );
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -531,7 +537,11 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       let preparedMedia;
       try {
         try {
-          preparedMedia = await prepareMediaInput(rawMediaPath, effectiveLog, config.mediaUrlAllowlist);
+          preparedMedia = await prepareMediaInput(
+            rawMediaPath,
+            effectiveLog,
+            config.mediaUrlAllowlist,
+          );
         } catch (err: any) {
           if (err?.response?.data !== undefined) {
             effectiveLog?.error?.(
@@ -601,7 +611,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
-          effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data));
+          effectiveLog?.error?.(
+            formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data),
+          );
         }
         throw new Error(
           typeof err?.response?.data === "string"
@@ -617,7 +629,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
   gateway: {
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
       const { account, cfg, abortSignal } = ctx;
-      const config = account.config;
+      const config = resolveRuntimeConfig(account.config);
       if (!config.clientId || !config.clientSecret) {
         throw new Error("DingTalk clientId and clientSecret are required");
       }
@@ -859,7 +871,12 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               config,
               log: pluginLog,
             });
-            if (!actionResult.handled && analysis.actionId && analysis.actionId !== "feedback_up" && analysis.actionId !== "feedback_down") {
+            if (
+              !actionResult.handled &&
+              analysis.actionId &&
+              analysis.actionId !== "feedback_up" &&
+              analysis.actionId !== "feedback_down"
+            ) {
               pluginLog?.debug?.(
                 `[${account.accountId}] [DingTalk][CardCallback] Unhandled actionId=${analysis.actionId}`,
               );
@@ -968,7 +985,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
-            pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
+            pluginLog?.info?.(
+              `[${account.accountId}] DingTalk Stream client connected successfully`,
+            );
             await nativeStopPromise;
           }
         } catch (err: any) {

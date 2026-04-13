@@ -1,3 +1,4 @@
+import { resolveRuntimeConfig } from "./config";
 import axios from "./http-client";
 import type { DingTalkConfig, Logger, TokenInfo } from "./types";
 import { retryWithBackoff } from "./utils";
@@ -15,7 +16,8 @@ const accessTokenCache = new Map<string, TokenCache>();
  * Refreshes token one minute before expiry to avoid near-expiry failures.
  */
 export async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
-  const cacheKey = config.clientId;
+  const runtimeConfig = resolveRuntimeConfig(config);
+  const cacheKey = runtimeConfig.clientId;
   const now = Date.now();
   const cached = accessTokenCache.get(cacheKey);
 
@@ -28,8 +30,8 @@ export async function getAccessToken(config: DingTalkConfig, log?: Logger): Prom
       const response = await axios.post<TokenInfo>(
         "https://api.dingtalk.com/v1.0/oauth2/accessToken",
         {
-          appKey: config.clientId,
-          appSecret: config.clientSecret,
+          appKey: runtimeConfig.clientId,
+          appSecret: runtimeConfig.clientSecret,
         },
       );
 

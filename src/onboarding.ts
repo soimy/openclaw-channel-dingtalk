@@ -6,14 +6,15 @@ import type {
   WizardPrompter,
 } from "openclaw/plugin-sdk/setup";
 import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw/plugin-sdk/setup";
-import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
-import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
+import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
+import { hasConfiguredSecretInput, normalizeSecretInputString } from "./secret-input.js";
+import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 
 const channel = "dingtalk" as const;
 
 function isConfigured(account: DingTalkConfig): boolean {
-  return Boolean(account.clientId && account.clientSecret);
+  return Boolean(account.clientId && hasConfiguredSecretInput(account.clientSecret));
 }
 
 function parseList(value: string): string[] {
@@ -225,7 +226,7 @@ async function configureDingTalkAccount(params: {
   const clientSecret = await prompter.text({
     message: "Client Secret (AppSecret)",
     placeholder: "xxx-xxx-xxx-xxx",
-    initialValue: resolved.clientSecret ?? undefined,
+    initialValue: normalizeSecretInputString(resolved.clientSecret),
     validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
   });
 
@@ -283,7 +284,8 @@ async function configureDingTalkAccount(params: {
     initialValue: (resolved.mediaUrlAllowlist || []).join(", ") || undefined,
   });
   const mediaUrlAllowlistParsed = parseList(String(mediaUrlAllowlistEntry ?? ""));
-  const mediaUrlAllowlist = mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
+  const mediaUrlAllowlist =
+    mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
 
   const groupPolicyValue = await prompter.select({
     message: "Group message policy",
@@ -473,8 +475,7 @@ export const dingtalkSetupWizard: ChannelSetupWizard = {
     resolveStatusLines: ({ configured }) => [
       `DingTalk: ${configured ? "configured" : "needs setup"}`,
     ],
-    resolveSelectionHint: ({ configured }) =>
-      configured ? "configured" : "钉钉企业机器人",
+    resolveSelectionHint: ({ configured }) => (configured ? "configured" : "钉钉企业机器人"),
     resolveQuickstartScore: ({ configured }) => (configured ? 1 : 4),
   },
   resolveAccountIdForConfigure: async ({

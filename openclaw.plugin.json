@@ -36,8 +36,20 @@
             "description": "DingTalk App Key (Client ID) used to authenticate API and Stream connections."
           },
           "clientSecret": {
-            "type": "string",
-            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens."
+            "anyOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source", "provider", "id"],
+                "properties": {
+                  "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                  "provider": { "type": "string", "minLength": 1 },
+                  "id": { "type": "string", "minLength": 1 }
+                }
+              }
+            ],
+            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file/exec."
           },
           "dmPolicy": {
             "type": "string",
@@ -282,8 +294,20 @@
                   "description": "DingTalk App Key (Client ID) used to authenticate API and Stream connections."
                 },
                 "clientSecret": {
-                  "type": "string",
-                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens."
+                  "anyOf": [
+                    { "type": "string" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["source", "provider", "id"],
+                      "properties": {
+                        "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                        "provider": { "type": "string", "minLength": 1 },
+                        "id": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  ],
+                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file/exec."
                 },
                 "dmPolicy": {
                   "type": "string",
