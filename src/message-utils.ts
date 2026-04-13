@@ -1,5 +1,10 @@
-import type { AtMention, DingTalkInboundMessage, MessageContent, QuotedInfo, SendMessageOptions } from "./types";
-
+import type {
+  AtMention,
+  DingTalkInboundMessage,
+  MessageContent,
+  QuotedInfo,
+  SendMessageOptions,
+} from "./types";
 
 interface DingTalkDocMeta {
   spaceId: string;
@@ -94,7 +99,8 @@ function extractRichTextQuoteParts(
   return {
     summary,
     pictureDownloadCode,
-    pictureDownloadCodes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
+    pictureDownloadCodes:
+      uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
   };
 }
 
@@ -115,7 +121,82 @@ function trimString(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function buildQuotedMessageTypePlaceholder(messageType: string | undefined, fileName?: string): string | undefined {
+function stringifyChatRecordContentValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return trimString(value);
+  }
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    trimString(record.text as string | undefined) ||
+    trimString(record.content as string | undefined) ||
+    trimString(record.message as string | undefined) ||
+    trimString((record.content as Record<string, unknown> | undefined)?.text as string | undefined)
+  );
+}
+
+function formatChatRecordEntries(rawRecord: unknown): string[] {
+  let entries = rawRecord;
+  if (typeof rawRecord === "string") {
+    const trimmed = rawRecord.trim();
+    if (!trimmed || trimmed === "[]") {
+      return [];
+    }
+    try {
+      entries = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return trimString(String(entry ?? ""));
+      }
+      const record = entry as Record<string, unknown>;
+      const sender =
+        trimString(record.senderName as string | undefined) ||
+        trimString(record.senderNick as string | undefined) ||
+        trimString(record.sender as string | undefined) ||
+        trimString(record.senderId as string | undefined) ||
+        "某人";
+      const body = stringifyChatRecordContentValue(
+        record.content ?? record.text ?? record.message ?? record.body,
+      );
+      return body ? `${sender}: ${body}` : undefined;
+    })
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 30);
+}
+
+function formatChatRecordPreview(
+  content: Record<string, unknown> | undefined,
+  options: { titlePrefix?: boolean } = {},
+): string | undefined {
+  const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
+  const title = typeof content?.title === "string" ? content.title.trim() : "";
+  const rawRecord = content?.chatRecord ?? content?.records ?? content?.messages;
+  const recordLines = formatChatRecordEntries(rawRecord);
+  const parts: string[] = [];
+  if (summary && summary !== "[]") {
+    const label = options.titlePrefix ? (title ? `[${title}] ` : "[聊天记录] ") : "[聊天记录摘要] ";
+    parts.push(`${label}${summary}`);
+  }
+  if (recordLines.length > 0) {
+    parts.push(`[聊天记录内容]\n${recordLines.join("\n")}`);
+  }
+  return parts.join("\n\n") || undefined;
+}
+
+function buildQuotedMessageTypePlaceholder(
+  messageType: string | undefined,
+  fileName?: string,
+): string | undefined {
   switch (messageType) {
     case "text":
       return undefined;
@@ -147,8 +228,7 @@ function buildLegacyQuoteMessagePreview(message: DingTalkInboundMessage["quoteMe
   const previewMessageType = trimString(message?.msgtype);
   return {
     previewText:
-      trimString(message?.text?.content) ||
-      buildQuotedMessageTypePlaceholder(previewMessageType),
+      trimString(message?.text?.content) || buildQuotedMessageTypePlaceholder(previewMessageType),
     previewMessageType,
     previewSenderId: trimString(message?.senderId),
   };
@@ -202,7 +282,10 @@ function buildRepliedMessagePreview(params: {
     return {
       isQuotedFile: true,
       fileCreatedAt: repliedMsg.createdAt,
-      previewText: buildQuotedMessageTypePlaceholder(repliedMsgType, hasFileName ? fileName : undefined),
+      previewText: buildQuotedMessageTypePlaceholder(
+        repliedMsgType,
+        hasFileName ? fileName : undefined,
+      ),
       previewMessageType: repliedMsgType,
       ...(hasFileName ? { previewFileName: fileName } : {}),
       previewSenderId: trimString(repliedMsg.senderId),
@@ -235,11 +318,11 @@ function buildRepliedMessagePreview(params: {
   }
 
   if (repliedMsgType === "chatRecord") {
-    const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
-    const title = typeof content?.title === "string" ? content.title.trim() : "";
-    const chatRecordLabel = title ? `[${title}] ` : "[聊天记录] ";
     return {
-      previewText: summary ? `${chatRecordLabel}${summary}` : buildQuotedMessageTypePlaceholder("chatRecord"),
+      previewText:
+        formatChatRecordPreview(content as Record<string, unknown> | undefined, {
+          titlePrefix: true,
+        }) || buildQuotedMessageTypePlaceholder("chatRecord"),
       previewMessageType: "chatRecord",
       previewSenderId: trimString(repliedMsg.senderId),
     };
@@ -517,7 +600,10 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       mediaPath: pictureDownloadCode,
       mediaPaths: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes : undefined,
       mediaType: pictureDownloadCode ? "image" : undefined,
-      mediaTypes: uniquePictureDownloadCodes.length > 0 ? uniquePictureDownloadCodes.map(() => "image") : undefined,
+      mediaTypes:
+        uniquePictureDownloadCodes.length > 0
+          ? uniquePictureDownloadCodes.map(() => "image")
+          : undefined,
       messageType: "richText",
       quoted: quoted ?? undefined,
       atMentions,
@@ -605,7 +691,8 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
   if (msgtype === "chatRecord") {
     const content = data.content as Record<string, unknown> | undefined;
     const summary = typeof content?.summary === "string" ? content.summary.trim() : "";
-    const rawRecord = content?.chatRecord;
+    const rawRecord = content?.chatRecord ?? content?.records ?? content?.messages;
+    const chatRecordText = formatChatRecordPreview(content);
     if (
       summary === "[]" ||
       (typeof rawRecord === "string" && rawRecord.trim() === "[]") ||
@@ -619,9 +706,9 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
         atUserDingtalkIds,
       };
     }
-    if (summary) {
+    if (chatRecordText) {
       return {
-        text: `[聊天记录摘要] ${summary}`,
+        text: chatRecordText,
         messageType: "chatRecord",
         quoted: quoted ?? undefined,
         atMentions,
