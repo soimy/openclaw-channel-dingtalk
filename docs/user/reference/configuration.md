@@ -28,6 +28,7 @@
 | `cardTemplateKey` | string | `content` | 卡片内容字段名 |
 | `cardStreamingMode` | string | `off`（生效值） | 卡片流式模式：`off` / `answer` / `all` |
 | `cardStreamInterval` | number | `1000` | 卡片实时更新节奏（毫秒，最小 `200`） |
+| `cardAtSender` | string | - | 群聊中卡片完成后追加 @发送者 的消息文本；非空时生效 |
 | `cardRealTimeStream` | boolean | `false` | 已弃用；仅兼容旧配置，`true` 会回退到 `cardStreamingMode: all` |
 | `aicardDegradeMs` | number | `1800000` | 卡片连续失败后的降级时间 |
 | `debug` | boolean | `false` | 是否输出调试日志 |
