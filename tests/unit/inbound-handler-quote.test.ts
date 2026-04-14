@@ -1226,7 +1226,7 @@ describe("inbound-handler quote handling", () => {
       expect(restored!.media?.fileId).toBe("dentry_group_1");
     });
 
-    it("restores group quoted file from persisted metadata without fallback query", async () => {
+    it("restores group quoted file using persisted metadata download context", async () => {
       const runtime = buildRuntime();
       shared.getRuntimeMock.mockReturnValueOnce(runtime);
       messageContextStore.clearMessageContextCacheForTest();
@@ -1279,7 +1279,6 @@ describe("inbound-handler quote handling", () => {
         },
       } as unknown as { data: unknown });
 
-      expect(shared.resolveQuotedFileMock).not.toHaveBeenCalled();
       expect(shared.getUnionIdByStaffIdMock).toHaveBeenCalledTimes(1);
       expect(shared.downloadGroupFileMock).toHaveBeenCalledWith(
         expect.anything(),

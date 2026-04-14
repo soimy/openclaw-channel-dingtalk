@@ -1,12 +1,13 @@
-import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolveOutboundMediaTypeMock, prepareMediaInputMock, sendProactiveMediaMock, getRuntimeMock } = vi.hoisted(() => ({
-    resolveOutboundMediaTypeMock: vi.fn(),
-    prepareMediaInputMock: vi.fn(),
-    sendProactiveMediaMock: vi.fn(),
+const {
+    sendMediaMock,
+    getRuntimeMock,
+} = vi.hoisted(() => ({
+    sendMediaMock: vi.fn(),
     getRuntimeMock: vi.fn(),
 }));
+
 const { getLoggerMock } = vi.hoisted(() => ({
     getLoggerMock: vi.fn(),
 }));
@@ -23,19 +24,16 @@ vi.mock('dingtalk-stream', () => ({
 
 vi.mock('../../src/send-service', async () => ({
     sendMessage: vi.fn(),
-    sendProactiveMedia: sendProactiveMediaMock,
+    sendProactiveMedia: vi.fn(),
     sendBySession: vi.fn(),
+    sendMedia: sendMediaMock,
     uploadMedia: vi.fn(),
-}));
-
-vi.mock('../../src/media-utils', async () => ({
-    prepareMediaInput: prepareMediaInputMock,
-    resolveOutboundMediaType: resolveOutboundMediaTypeMock,
 }));
 
 vi.mock('../../src/runtime', () => ({
     getDingTalkRuntime: getRuntimeMock,
 }));
+
 vi.mock('../../src/logger-context', () => ({
     getLogger: getLoggerMock,
     setCurrentLogger: vi.fn(),
@@ -53,259 +51,83 @@ function requireSendMedia() {
 
 describe('dingtalkPlugin.outbound.sendMedia flow', () => {
     beforeEach(() => {
-        resolveOutboundMediaTypeMock.mockReset();
-        prepareMediaInputMock.mockReset();
-        sendProactiveMediaMock.mockReset();
-        getRuntimeMock.mockReset();
-        getLoggerMock.mockReset();
-        getLoggerMock.mockReturnValue(undefined);
-        getRuntimeMock.mockReturnValue({
+        sendMediaMock.mockReset().mockResolvedValue({
+            ok: true,
+            data: { messageId: 'media_1' },
+            messageId: 'media_1',
+        });
+        getRuntimeMock.mockReset().mockReturnValue({
             channel: {
                 session: {
                     resolveStorePath: vi.fn().mockReturnValue('/tmp/default-store.json'),
                 },
             },
         });
-        prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
+        getLoggerMock.mockReset().mockReturnValue(undefined);
     });
 
-    it('auto-detects mediaType and sends with resolved absolute path', async () => {
+    it('delegates outbound media send to unified sendMedia service and normalizes response', async () => {
         const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { processQueryKey: 'media_1' },
-            messageId: 'media_1',
-        });
 
-        const request = {
+        const result = await sendMedia({
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
             to: 'cidA1B2C3',
             text: '',
             mediaPath: './fixtures/photo.png',
             accountId: 'default',
-        };
-        const result = await sendMedia(request);
+        } as any);
 
-        expect(resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
-            mediaType: undefined,
-            mediaPath: path.resolve('./fixtures/photo.png'),
-            asVoice: false,
-        });
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.objectContaining({ clientId: 'id' }),
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.objectContaining({ clientId: 'id', clientSecret: 'sec' }),
             'cidA1B2C3',
-            path.resolve('./fixtures/photo.png'),
-            'image',
-            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
+            './fixtures/photo.png',
+            expect.objectContaining({
+                accountId: 'default',
+                storePath: '/tmp/default-store.json',
+                conversationId: 'cidA1B2C3',
+                mediaType: undefined,
+                audioAsVoice: false,
+            }),
         );
         expect(result).toEqual(
             expect.objectContaining({
                 channel: 'dingtalk',
                 messageId: 'media_1',
-            })
+                meta: { data: { messageId: 'media_1' } },
+            }),
         );
     });
 
-    it('uses explicit mediaType without auto-detection', async () => {
+    it('passes explicit mediaType and voice flags through to unified sendMedia service', async () => {
         const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('voice');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { messageId: 'manual_1' },
-            messageId: 'manual_1',
-        });
 
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
-            text: '',
-            mediaPath: '/tmp/voice.wav',
-            mediaType: 'voice',
-            accountId: 'default',
-        };
-        await sendMedia(request);
-
-        expect(resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
-            mediaType: 'voice',
-            mediaPath: '/tmp/voice.wav',
-            asVoice: false,
-        });
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.any(Object),
-            'user_123',
-            '/tmp/voice.wav',
-            'voice',
-            expect.any(Object)
-        );
-    });
-
-    it('downloads remote mediaUrl before upload when input is an HTTP URL', async () => {
-        const sendMedia = requireSendMedia();
-        prepareMediaInputMock.mockResolvedValueOnce({
-            path: '/tmp/dingtalk_123.png',
-            cleanup: vi.fn(),
-        });
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { processQueryKey: 'remote_1' },
-            messageId: 'remote_1',
-        });
-
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
-            text: '',
-            mediaUrl: 'https://example.com/photo.png',
-            accountId: 'default',
-        };
-        await sendMedia(request);
-
-        expect(prepareMediaInputMock).toHaveBeenCalledWith(
-            'https://example.com/photo.png',
-            undefined,
-            undefined
-        );
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.any(Object),
-            'cidA1B2C3',
-            '/tmp/dingtalk_123.png',
-            'image',
-            expect.objectContaining({ accountId: 'default', storePath: expect.any(String) })
-        );
-    });
-
-    it('forces voice template when asVoice=true', async () => {
-        const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('voice');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { messageId: 'voice_1' },
-            messageId: 'voice_1',
-        });
-
-        const request = {
+        await sendMedia({
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
             to: 'user_123',
             text: '',
             mediaPath: '/tmp/audio.mp3',
+            mediaType: 'voice',
             asVoice: true,
             accountId: 'default',
-        };
-        await sendMedia(request);
+        } as any);
 
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
             'user_123',
             '/tmp/audio.mp3',
-            'voice',
-            expect.any(Object)
+            expect.objectContaining({
+                accountId: 'default',
+                mediaType: 'voice',
+                audioAsVoice: true,
+                conversationId: 'user_123',
+            }),
         );
     });
 
-    it('forces voice template when audioAsVoice=true', async () => {
+    it('passes remote mediaUrl through without local preprocessing in the wrapper layer', async () => {
         const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('voice');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { messageId: 'voice_2' },
-            messageId: 'voice_2',
-        });
 
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
-            text: '',
-            mediaPath: '/tmp/audio.mp3',
-            audioAsVoice: true,
-            accountId: 'default',
-        };
-        await sendMedia(request as any);
-
-        expect(resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
-            mediaType: undefined,
-            mediaPath: '/tmp/audio.mp3',
-            asVoice: true,
-        });
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.any(Object),
-            'user_123',
-            '/tmp/audio.mp3',
-            'voice',
-            expect.any(Object)
-        );
-    });
-
-    it('fails before proactive send when asVoice media is not audio', async () => {
-        const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockImplementationOnce(() => {
-            throw new Error('asVoice requires an audio file (mp3, amr, wav).');
-        });
-
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'user_123',
-            text: '',
-            mediaPath: '/tmp/not-audio.pdf',
-            asVoice: true,
-            accountId: 'default',
-        };
-
-        await expect(
-            sendMedia(request)
-        ).rejects.toThrow(/requires an audio file/i);
-
-        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
-    });
-
-    it('throws when DingTalk send returns known error code', async () => {
-        const sendMedia = requireSendMedia();
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('file');
-        sendProactiveMediaMock.mockResolvedValueOnce({ ok: false, error: 'DingTalk API error 300001' });
-
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
-            text: '',
-            mediaPath: '/tmp/doc.pdf',
-            accountId: 'default',
-        };
-
-        await expect(
-            sendMedia(request)
-        ).rejects.toThrow(/300001/);
-    });
-
-    it('throws download-stage error and does not call proactive send', async () => {
-        const sendMedia = requireSendMedia();
-        const err = Object.assign(new Error('remote media URL points to private or local network host'), {
-            code: 'ERR_MEDIA_PRIVATE_HOST',
-        });
-        prepareMediaInputMock.mockRejectedValueOnce(err);
-
-        const request = {
-            cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
-            to: 'cidA1B2C3',
-            text: '',
-            mediaUrl: 'http://127.0.0.1/photo.png',
-            accountId: 'default',
-        };
-
-        await expect(
-            sendMedia(request)
-        ).rejects.toThrow(/remote media preparation failed: \[ERR_MEDIA_PRIVATE_HOST\]/);
-
-        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
-    });
-
-    it('passes mediaUrlAllowlist from account config to media preparation', async () => {
-        const sendMedia = requireSendMedia();
-        prepareMediaInputMock.mockResolvedValueOnce({ path: '/tmp/dingtalk_123.png', cleanup: vi.fn() });
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
-        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'm_1' });
-
-        const request = {
+        await sendMedia({
             cfg: {
                 channels: {
                     dingtalk: {
@@ -319,14 +141,51 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             text: '',
             mediaUrl: 'http://192.168.1.23/photo.png',
             accountId: 'default',
-        };
-        await sendMedia(request);
+        } as any);
 
-        expect(prepareMediaInputMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                mediaUrlAllowlist: ['192.168.1.23', 'cdn.example.com'],
+            }),
+            'cidA1B2C3',
             'http://192.168.1.23/photo.png',
-            undefined,
-            ['192.168.1.23', 'cdn.example.com']
+            expect.objectContaining({
+                accountId: 'default',
+                conversationId: 'cidA1B2C3',
+            }),
         );
+    });
+
+    it('throws when unified sendMedia reports a DingTalk send error', async () => {
+        const sendMedia = requireSendMedia();
+        sendMediaMock.mockResolvedValueOnce({ ok: false, error: 'DingTalk API error 300001' });
+
+        await expect(
+            sendMedia({
+                cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+                to: 'cidA1B2C3',
+                text: '',
+                mediaPath: '/tmp/doc.pdf',
+                accountId: 'default',
+            } as any),
+        ).rejects.toThrow(/300001/);
+    });
+
+    it('rethrows sendMedia preparation failures from the unified service', async () => {
+        const sendMedia = requireSendMedia();
+        sendMediaMock.mockRejectedValueOnce(
+            new Error('remote media preparation failed: [ERR_MEDIA_PRIVATE_HOST] private host'),
+        );
+
+        await expect(
+            sendMedia({
+                cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
+                to: 'cidA1B2C3',
+                text: '',
+                mediaUrl: 'http://127.0.0.1/photo.png',
+                accountId: 'default',
+            } as any),
+        ).rejects.toThrow(/remote media preparation failed: \[ERR_MEDIA_PRIVATE_HOST\]/);
     });
 
     it('prefers the current account plugin log over an explicit outbound log', async () => {
@@ -340,12 +199,6 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             }
             return otherAccountLog;
         });
-        resolveOutboundMediaTypeMock.mockReturnValueOnce('image');
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            data: { processQueryKey: 'media_explicit' },
-            messageId: 'media_explicit',
-        });
 
         await sendMedia({
             cfg: { channels: { dingtalk: { clientId: 'id', clientSecret: 'sec' } } },
@@ -354,18 +207,12 @@ describe('dingtalkPlugin.outbound.sendMedia flow', () => {
             mediaPath: './fixtures/photo.png',
             accountId: 'default',
             log: explicitLog,
-        });
+        } as any);
 
-        expect(prepareMediaInputMock).toHaveBeenCalledWith(
-            './fixtures/photo.png',
-            accountLog,
-            undefined,
-        );
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
             'cidA1B2C3',
-            path.resolve('./fixtures/photo.png'),
-            'image',
+            './fixtures/photo.png',
             expect.objectContaining({ log: accountLog }),
         );
         expect(getLoggerMock).toHaveBeenCalledWith('default');

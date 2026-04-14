@@ -565,6 +565,7 @@ describe("inbound-handler media handling", () => {
     expect(shared.prepareMediaInputMock).toHaveBeenCalledWith(
       "https://cdn.example.com/photo.png",
       undefined,
+      undefined,
     );
     expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
       mediaPath: "/tmp/prepared/photo.png",
