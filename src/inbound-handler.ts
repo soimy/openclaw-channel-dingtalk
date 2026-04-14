@@ -389,6 +389,8 @@ function buildGroupTurnContextPrompt(params: {
 type ReplyStreamPayload = {
   text?: string;
   isReasoning?: boolean;
+  mediaUrl?: string;
+  mediaUrls?: string[];
 };
 
 type ReplyChunkInfo = {
@@ -1922,19 +1924,26 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         `queuedFinalType=${typeof bufferedFinal}`,
       );
 
-      if (deliveredFinalCount === 0 && typeof bufferedFinal === "string" && bufferedFinal.trim()) {
-        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinal);
-        const richBufferedPayload = {
-          text: bufferedFinal,
-          mediaUrls: [],
-        } as ReplyStreamPayload;
-        await strategy.deliver({
-          text: inlineReplyPayload.text,
-          mediaUrls: extractMediaUrls(richBufferedPayload, inlineReplyPayload),
-          audioAsVoice: extractSharedAudioAsVoice(richBufferedPayload, inlineReplyPayload),
-          kind: "final",
-          isReasoning: false,
-        });
+      const bufferedFinalPayload =
+        typeof bufferedFinal === "string"
+          ? ({ text: bufferedFinal } satisfies ReplyStreamPayload)
+          : bufferedFinal && typeof bufferedFinal === "object"
+            ? (bufferedFinal as ReplyStreamPayload)
+            : undefined;
+
+      if (deliveredFinalCount === 0 && bufferedFinalPayload) {
+        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinalPayload.text);
+        const mediaUrls = extractMediaUrls(bufferedFinalPayload, inlineReplyPayload);
+        const hasBufferedText = typeof bufferedFinalPayload.text === "string" && bufferedFinalPayload.text.trim().length > 0;
+        if (hasBufferedText || mediaUrls.length > 0) {
+          await strategy.deliver({
+            text: inlineReplyPayload.text,
+            mediaUrls,
+            audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
+            kind: "final",
+            isReasoning: bufferedFinalPayload.isReasoning === true,
+          });
+        }
       }
     } catch (dispatchErr: unknown) {
       const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));

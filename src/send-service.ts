@@ -1,13 +1,20 @@
 import * as path from "node:path";
 import axios from "./http-client";
 import { getAccessToken } from "./auth";
+import { resolveCardRunByConversation, resolveCardRunByOwner } from "./card/card-run-registry";
+
 import {
   isCardInTerminalState,
   sendProactiveCardText,
 } from "./card-service";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { getLogger } from "./logger-context";
-import { getVoiceDurationMs, uploadMedia as uploadMediaUtil } from "./media-utils";
+import {
+  getVoiceDurationMs,
+  prepareMediaInput,
+  resolveOutboundMediaType,
+  uploadMedia as uploadMediaUtil,
+} from "./media-utils";
 import { convertMarkdownTablesToPlainText, detectMarkdownAndExtractTitle } from "./message-utils";
 import {
   DEFAULT_MESSAGE_CONTEXT_TTL_DAYS,
@@ -176,6 +183,29 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
 }
 
 const DINGTALK_TEXT_CHUNK_LIMIT = 3800;
+const CARD_MEDIA_CONTROLLER_ATTACH_WAIT_MS = 150;
+const CARD_MEDIA_CONTROLLER_ATTACH_POLL_MS = 25;
+
+async function waitForCardControllerAttachment(
+  activeRun: ReturnType<typeof resolveCardRunByConversation>,
+): Promise<NonNullable<ReturnType<typeof resolveCardRunByConversation>>["controller"] | null> {
+  if (!activeRun) {
+    return null;
+  }
+  if (activeRun.controller?.appendImageBlock) {
+    return activeRun.controller;
+  }
+
+  const deadline = Date.now() + CARD_MEDIA_CONTROLLER_ATTACH_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, CARD_MEDIA_CONTROLLER_ATTACH_POLL_MS));
+    if (activeRun.controller?.appendImageBlock) {
+      return activeRun.controller;
+    }
+  }
+
+  return activeRun.controller?.appendImageBlock ? activeRun.controller : null;
+}
 
 function splitMarkdownChunks(text: string, limit = DINGTALK_TEXT_CHUNK_LIMIT): string[] {
   if (!text || text.length <= limit) {
@@ -602,6 +632,88 @@ export async function sendProactiveMedia(
       },
     });
     return { ok: true, data: fallback, messageId: fallbackMessageId };
+  }
+}
+
+export async function sendMedia(
+  config: DingTalkConfig,
+  target: string,
+  mediaInput: string,
+  options: SendMessageOptions & {
+    mediaType?: "image" | "voice" | "video" | "file";
+    audioAsVoice?: boolean;
+    expectedCardOwnerId?: string;
+  } = {},
+): Promise<{ ok: boolean; error?: string; data?: any; messageId?: string; mediaId?: string }> {
+  const log = options.log || getLogger();
+  let preparedMedia: Awaited<ReturnType<typeof prepareMediaInput>> | undefined;
+
+  try {
+    preparedMedia = await prepareMediaInput(mediaInput, log, config.mediaUrlAllowlist);
+    const mediaPath = preparedMedia.cleanup
+      ? preparedMedia.path
+      : path.resolve(process.cwd(), preparedMedia.path);
+    const mediaType = resolveOutboundMediaType({
+      mediaType: options.mediaType,
+      mediaPath,
+      asVoice: options.audioAsVoice === true,
+    });
+
+    if (config.messageType === "card" && mediaType === "image") {
+      const accountId = options.accountId ?? "default";
+
+      // Three-tier lookup strategy to handle sessionKey=- from runtime:
+      // 1. If conversationId is available: try owner-filtered then conversation-only
+      // 2. If conversationId is undefined but owner is provided: try owner-only lookup
+      // 3. Otherwise: no active card found
+      let activeRun = null;
+
+      if (options.conversationId) {
+        // conversationId explicitly provided (parsed from sessionKey)
+        activeRun = options.expectedCardOwnerId
+          ? resolveCardRunByConversation(accountId, options.conversationId, {
+              ownerUserId: options.expectedCardOwnerId,
+            }) ?? resolveCardRunByConversation(accountId, options.conversationId, undefined)
+          : resolveCardRunByConversation(accountId, options.conversationId, undefined);
+      } else if (options.expectedCardOwnerId) {
+        // Fallback: when sessionKey=- causes conversationId to be undefined,
+        // try owner-only matching as last resort
+        activeRun = resolveCardRunByOwner(accountId, options.expectedCardOwnerId);
+        if (activeRun) {
+          log?.debug?.(
+            `[DingTalk] Matched active card by owner-only lookup (conversationId unavailable) ` +
+            `accountId=${accountId} ownerUserId=${options.expectedCardOwnerId} outTrackId=${activeRun.outTrackId}`,
+          );
+        }
+      }
+
+      const uploadResult = await uploadMedia(config, mediaPath, "image", log, {
+        mediaLocalRoots: options.mediaLocalRoots,
+      });
+      if (!uploadResult?.mediaId) {
+        return { ok: false, error: "Failed to upload media" };
+      }
+
+      const activeController = await waitForCardControllerAttachment(activeRun);
+      if (activeController?.appendImageBlock) {
+        await activeController.appendImageBlock(uploadResult.mediaId);
+        return { ok: true, mediaId: uploadResult.mediaId };
+      }
+
+      if (activeRun) {
+        log?.debug?.(
+          `[DingTalk] Active card matched but controller was not attached in time; fallback to proactive media send`,
+        );
+      } else {
+        log?.debug?.(
+          `[DingTalk] No active card found for media embedding; fallback to proactive media send`,
+        );
+      }
+    }
+
+    return await sendProactiveMedia(config, target, mediaPath, mediaType, options);
+  } finally {
+    await preparedMedia?.cleanup?.();
   }
 }
 

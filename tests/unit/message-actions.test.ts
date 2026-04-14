@@ -18,9 +18,11 @@ vi.mock('openclaw/plugin-sdk/tool-send', () => ({
     }),
 }));
 
-const { sendMessageMock, sendProactiveMediaMock } = vi.hoisted(() => ({
+const { sendMessageMock, sendMediaMock, sendProactiveMediaMock, getRuntimeMock } = vi.hoisted(() => ({
     sendMessageMock: vi.fn(),
+    sendMediaMock: vi.fn(),
     sendProactiveMediaMock: vi.fn(),
+    getRuntimeMock: vi.fn(),
 }));
 
 const { prepareMediaInputMock } = vi.hoisted(() => ({
@@ -33,8 +35,13 @@ vi.mock('dingtalk-stream', () => ({
     TOPIC_ROBOT: 'TOPIC_ROBOT',
 }));
 
+vi.mock('../../src/runtime', () => ({
+    getDingTalkRuntime: getRuntimeMock,
+}));
+
 vi.mock('../../src/send-service', async () => ({
     sendMessage: sendMessageMock,
+    sendMedia: sendMediaMock,
     sendProactiveMedia: sendProactiveMediaMock,
     sendBySession: vi.fn(),
     uploadMedia: vi.fn(),
@@ -58,14 +65,24 @@ describe('dingtalkPlugin.actions.send', () => {
 
     beforeEach(() => {
         sendMessageMock.mockReset();
+        sendMediaMock.mockReset().mockResolvedValue({
+            ok: true,
+            messageId: 'media_service_1',
+            data: { messageId: 'media_service_1' },
+        });
         sendProactiveMediaMock.mockReset();
+        getRuntimeMock.mockReset().mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/store.json'),
+                },
+            },
+        });
         prepareMediaInputMock.mockReset();
         prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
     });
 
-    it('forces voice mediaType when asVoice=true with media input', async () => {
-        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'voice_1', data: { messageId: 'voice_1' } });
-
+    it('delegates audio media with asVoice=true to sendMedia as voice', async () => {
         await dingtalkPlugin.actions?.handleAction?.({
             channel: 'dingtalk',
             action: 'send',
@@ -79,29 +96,20 @@ describe('dingtalkPlugin.actions.send', () => {
             dryRun: false,
         } as any);
 
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
             'cidA1B2C3',
             '/tmp/audio.mp3',
-            'voice',
-            expect.objectContaining({ accountId: 'default' })
-        );
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
-            expect.any(Object),
-            'cidA1B2C3',
-            '/tmp/audio.mp3',
-            'voice',
-            expect.not.objectContaining({
-                storePath: expect.anything(),
-                conversationId: expect.anything(),
+            expect.objectContaining({
+                accountId: 'default',
+                audioAsVoice: true,
             })
         );
         expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
-    it('forces voice mediaType when audioAsVoice=true with media input', async () => {
-        sendProactiveMediaMock.mockResolvedValueOnce({ ok: true, messageId: 'voice_2', data: { messageId: 'voice_2' } });
-
+    it('delegates audio media with audioAsVoice=true to sendMedia as voice', async () => {
         await dingtalkPlugin.actions?.handleAction?.({
             channel: 'dingtalk',
             action: 'send',
@@ -115,14 +123,17 @@ describe('dingtalkPlugin.actions.send', () => {
             dryRun: false,
         } as any);
 
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
             'cidA1B2C3',
             '/tmp/audio.mp3',
-            'voice',
-            expect.objectContaining({ accountId: 'default' })
+            expect.objectContaining({
+                accountId: 'default',
+                audioAsVoice: true,
+            })
         );
         expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
     it('describes message tool with send action and card capability when card mode is enabled', () => {
@@ -137,7 +148,12 @@ describe('dingtalkPlugin.actions.send', () => {
         });
     });
 
-    it('rejects asVoice when media input is not an audio file', async () => {
+    it('bubbles sendMedia validation errors for invalid voice inputs', async () => {
+        sendMediaMock.mockResolvedValueOnce({
+            ok: false,
+            error: 'DingTalk send with asVoice requires an audio file.',
+        });
+
         await expect(
             dingtalkPlugin.actions?.handleAction?.({
                 channel: 'dingtalk',
@@ -153,7 +169,7 @@ describe('dingtalkPlugin.actions.send', () => {
             } as any),
         ).rejects.toThrow(/requires an audio file/i);
 
-        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        expect(sendMediaMock).toHaveBeenCalled();
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 
@@ -187,6 +203,7 @@ describe('dingtalkPlugin.actions.send', () => {
                 conversationId: expect.anything(),
             })
         );
+        expect(sendMediaMock).not.toHaveBeenCalled();
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
@@ -207,20 +224,114 @@ describe('dingtalkPlugin.actions.send', () => {
         ).rejects.toThrow(/requires media\/path\/filePath\/mediaUrl/);
 
         expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(sendMediaMock).not.toHaveBeenCalled();
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
-    it('uses downloaded temp path for mediaUrl instead of resolving as local relative path', async () => {
-        prepareMediaInputMock.mockResolvedValueOnce({
-            path: '/tmp/dingtalk_remote.png',
-            cleanup: vi.fn(),
-        });
-        sendProactiveMediaMock.mockResolvedValueOnce({
-            ok: true,
-            messageId: 'media_1',
-            data: { messageId: 'media_1' },
-        });
+    it('routes card mode media sends through unified sendMedia service', async () => {
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cardCfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                media: './artifacts/demo.png',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
 
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                clientId: 'id',
+                clientSecret: 'sec',
+                messageType: 'card',
+            }),
+            'cidA1B2C3',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                accountId: 'default',
+            })
+        );
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('falls back to direct target for conversationId and expectedCardOwnerId when sessionKey is missing', async () => {
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cardCfg as any,
+            params: {
+                to: 'manager8031',
+                media: './artifacts/demo.png',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'manager8031',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                accountId: 'default',
+                conversationId: 'manager8031',
+                expectedCardOwnerId: 'manager8031',
+            })
+        );
+    });
+
+    it('falls back to direct target for conversationId when sessionKey is unusable', async () => {
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cardCfg as any,
+            params: {
+                to: 'manager8031',
+                media: './artifacts/demo.png',
+            },
+            accountId: 'default',
+            sessionKey: '-',
+            dryRun: false,
+        } as any);
+
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'manager8031',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                conversationId: 'manager8031',
+                expectedCardOwnerId: 'manager8031',
+            })
+        );
+    });
+
+    it('forwards expectedCardOwnerId into unified sendMedia service in card mode', async () => {
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cardCfg as any,
+            params: {
+                to: 'cidA1B2C3',
+                media: './artifacts/demo.png',
+                expectedCardOwnerId: 'manager0831',
+            },
+            accountId: 'default',
+            dryRun: false,
+        } as any);
+
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'cidA1B2C3',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                expectedCardOwnerId: 'manager0831',
+            })
+        );
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+
+    it('passes mediaUrl through to sendMedia without local path resolution in action layer', async () => {
         await dingtalkPlugin.actions?.handleAction?.({
             channel: 'dingtalk',
             action: 'send',
@@ -233,17 +344,97 @@ describe('dingtalkPlugin.actions.send', () => {
             dryRun: false,
         } as any);
 
-        expect(prepareMediaInputMock).toHaveBeenCalledWith(
-            'https://example.com/photo.png',
-            undefined,
-            undefined
-        );
-        expect(sendProactiveMediaMock).toHaveBeenCalledWith(
+        expect(sendMediaMock).toHaveBeenCalledWith(
             expect.any(Object),
             'cidA1B2C3',
-            '/tmp/dingtalk_remote.png',
-            'image',
+            'https://example.com/photo.png',
             expect.objectContaining({ accountId: 'default' })
         );
+        expect(prepareMediaInputMock).not.toHaveBeenCalled();
+        expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+    });
+    it('forwards current direct conversationId to sendMedia when sessionKey is direct', async () => {
+        await dingtalkPlugin.actions?.handleAction?.({
+            channel: 'dingtalk',
+            action: 'send',
+            cfg: cardCfg as any,
+            params: {
+                to: 'manager8031',
+                media: './artifacts/demo.png',
+                expectedCardOwnerId: 'manager8031',
+            },
+            accountId: 'default',
+            sessionKey: 'agent:main:dingtalk:direct:manager8031',
+            dryRun: false,
+        } as any);
+
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.any(Object),
+            'manager8031',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                conversationId: 'manager8031',
+                expectedCardOwnerId: 'manager8031',
+            })
+        );
+    });
+});
+
+describe('dingtalkPlugin.outbound.sendMedia', () => {
+    const cfg = {
+        channels: { dingtalk: { clientId: 'id', clientSecret: 'sec', messageType: 'card' } },
+        session: { store: { provider: 'memory' } },
+    };
+
+    beforeEach(() => {
+        sendMediaMock.mockReset().mockResolvedValue({
+            ok: true,
+            messageId: 'media_service_outbound_1',
+            data: { messageId: 'media_service_outbound_1' },
+        });
+        getRuntimeMock.mockReset().mockReturnValue({
+            channel: {
+                session: {
+                    resolveStorePath: vi.fn().mockReturnValue('/tmp/store.json'),
+                },
+            },
+        });
+    });
+
+    it('delegates outbound media sends to unified sendMedia service with persisted context', async () => {
+        const log = { debug: vi.fn(), error: vi.fn() };
+
+        const result = await dingtalkPlugin.outbound!.sendMedia?.({
+            cfg: cfg as any,
+            to: 'cidA1B2C3',
+            mediaPath: './artifacts/demo.png',
+            accountId: 'default',
+            mediaLocalRoots: ['/sandbox/media'],
+            expectedCardOwnerId: 'manager0831',
+            log,
+        } as any);
+
+        expect(sendMediaMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                clientId: 'id',
+                clientSecret: 'sec',
+                messageType: 'card',
+            }),
+            'cidA1B2C3',
+            './artifacts/demo.png',
+            expect.objectContaining({
+                accountId: 'default',
+                storePath: '/tmp/store.json',
+                conversationId: 'cidA1B2C3',
+                mediaLocalRoots: ['/sandbox/media'],
+                expectedCardOwnerId: 'manager0831',
+                log,
+            })
+        );
+        expect(result).toEqual({
+            channel: 'dingtalk',
+            messageId: 'media_service_outbound_1',
+            meta: { data: { messageId: 'media_service_outbound_1' } },
+        });
     });
 });

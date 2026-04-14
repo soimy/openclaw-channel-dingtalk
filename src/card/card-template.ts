@@ -4,7 +4,7 @@ export const STOP_ACTION_VISIBLE = true;
 export const STOP_ACTION_HIDDEN = false;
 
 export const BUILTIN_DINGTALK_CARD_TEMPLATE_ID =
-  process.env.DINGTALK_CARD_TEMPLATE_ID || "51cd8c7e-0e7e-4464-a795-5b81499ada7a.schema";
+  process.env.DINGTALK_CARD_TEMPLATE_ID || "5db37f25-ac9e-4250-9c1d-c4ddba6e16e9.schema";
 export const BUILTIN_DINGTALK_CARD_CONTENT_KEY = "content";
 export const BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY = "blockList";
 

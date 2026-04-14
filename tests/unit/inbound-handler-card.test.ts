@@ -90,6 +90,8 @@ vi.mock("../../src/message-context-store", async () => {
 
 import { handleDingTalkMessage, resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
 import * as messageContextStore from "../../src/message-context-store";
+import * as sendService from "../../src/send-service";
+import * as mediaUtils from "../../src/media-utils";
 import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 import {
   clearTargetDirectoryStateCache,
@@ -98,6 +100,9 @@ import {
 const mockedUpsertInboundMessageContext = vi.mocked(
   messageContextStore.upsertInboundMessageContext,
 );
+const uploadMediaMock = vi.mocked(sendService.uploadMedia);
+const prepareMediaInputMock = vi.mocked(mediaUtils.prepareMediaInput);
+const resolveOutboundMediaTypeMock = vi.mocked(mediaUtils.resolveOutboundMediaType);
 
 function buildRuntime() {
   return {
@@ -160,6 +165,17 @@ describe("inbound-handler card lifecycle", () => {
     shared.isCardInTerminalStateMock.mockReset();
     shared.updateAICardBlockListMock.mockReset().mockResolvedValue(undefined);
     shared.streamAICardMock.mockReset();
+    uploadMediaMock.mockReset().mockResolvedValue({
+      mediaId: "test-media-id",
+      buffer: Buffer.from(""),
+    } as never);
+    prepareMediaInputMock.mockReset().mockImplementation(async (input: string) => ({ path: input }));
+    resolveOutboundMediaTypeMock.mockReset().mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+      if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
+        return "image";
+      }
+      return "file";
+    });
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
     resetProactivePermissionHintStateForTest();
     clearCardRunRegistryForTest();
@@ -580,6 +596,53 @@ describe("inbound-handler card lifecycle", () => {
     } as unknown as { data: unknown; dingtalkConfig: unknown });
 
     expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("handleDingTalkMessage preserves mediaUrls from structured queuedFinal payload in card mode", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockResolvedValue({
+        queuedFinal: {
+          text: "说明如下",
+          mediaUrls: ["./artifacts/demo.png"],
+        },
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = { cardInstanceId: "card_structured_queued_final", state: "1", lastUpdated: Date.now() } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
+    shared.createAICardMock.mockResolvedValueOnce(card);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_structured_queued_final_media",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as unknown as { data: unknown; dingtalkConfig: unknown });
+
+    expect(prepareMediaInputMock.mock.calls[0]?.[0]).toBe("./artifacts/demo.png");
+    expect(uploadMediaMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "./artifacts/demo.png",
+      "image",
+      undefined,
+    );
+    const commitPayload = shared.commitAICardBlocksMock.mock.calls[shared.commitAICardBlocksMock.mock.calls.length - 1]?.[1];
+    expect(commitPayload?.blockListJson).toContain('"type":3');
+    expect(commitPayload?.blockListJson).toContain('"mediaId":"test-media-id"');
+    expect(commitPayload?.content).toContain("说明如下");
   });
 
   it("handleDingTalkMessage finalizes card with default content when no textual output is produced", async () => {

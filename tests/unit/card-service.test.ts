@@ -731,6 +731,33 @@ describe('card-service', () => {
         expect(afterFinalize.pendingCards).toHaveLength(0);
     });
 
+    it('sendProactiveCardText fails when createAndDeliver contains unsuccessful deliverResults', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                success: true,
+                result: {
+                    outTrackId: 'track_card_fail_1',
+                    processQueryKey: 'card_process_fail_1',
+                    cardInstanceId: 'card_instance_fail_1',
+                    deliverResults: [{ success: false, errorMsg: 'spaceId is illegal' }],
+                },
+            },
+        });
+
+        const result = await sendProactiveCardText(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'manager0831',
+            'proactive done'
+        );
+
+        expect(result).toMatchObject({
+            ok: false,
+            error: expect.any(String),
+        });
+        expect(mockedAxios.put).not.toHaveBeenCalled();
+    });
+
     it('sendProactiveCardText does not persist pending card state', async () => {
         mockedAxios.post.mockResolvedValueOnce({
             status: 200,

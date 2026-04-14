@@ -20,7 +20,6 @@ import {
   isConfigured,
   mergeAccountWithDefaults,
   resolveGroupConfig,
-  resolveRelativePath,
   resolveRobotCode,
   stripTargetPrefix,
 } from "./config";
@@ -34,11 +33,11 @@ import {
 } from "./feedback-learning-service";
 import { handleDingTalkMessage } from "./inbound-handler";
 import { getLogger, setCurrentLogger } from "./logger-context";
-import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
 import {
+  sendMedia,
   sendMessage,
   sendProactiveMedia,
   sendProactiveTextOrMarkdown,
@@ -200,11 +199,35 @@ function readSharedAudioAsVoiceParam(params: Record<string, unknown>): boolean {
   return readBooleanLikeParam(params, "asVoice") === true;
 }
 
-function describeDingTalkMessageTool(cfg: OpenClawConfig): {
-  actions: readonly ["send"] | readonly [];
-  capabilities: readonly ["cards"] | readonly [];
-  schema: null;
-} {
+
+function resolveConversationIdFromSessionKey(sessionKey?: string | null): string | undefined {
+  const trimmed = sessionKey?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const markers = [":group:", ":channel:", ":direct:"] as const;
+  const marker = markers.find((candidate) => trimmed.includes(candidate));
+  if (!marker) {
+    return undefined;
+  }
+
+  const suffix = trimmed.slice(trimmed.indexOf(marker) + marker.length);
+  const threadMarker = ":topic:";
+  const threadIndex = suffix.indexOf(threadMarker);
+  const conversationId = (threadIndex >= 0 ? suffix.slice(0, threadIndex) : suffix).trim();
+  return conversationId || undefined;
+}
+
+function inferCardOwnerIdFromTarget(target: string): string | undefined {
+  const trimmed = target.trim();
+  if (!trimmed || trimmed.startsWith("cid")) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function describeDingTalkMessageTool(cfg: OpenClawConfig) {
   const config = getConfig(cfg);
   const configured = Boolean(config.clientId && config.clientSecret);
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
@@ -224,7 +247,7 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
   describeMessageTool: ({ cfg }) => describeDingTalkMessageTool(cfg),
   supportsAction: ({ action }) => action === "send",
   extractToolSend: ({ args }) => extractToolSend(args, "sendMessage"),
-  handleAction: async ({ action, params, cfg, accountId, dryRun, mediaLocalRoots }) => {
+  handleAction: async ({ action, params, cfg, accountId, dryRun, mediaLocalRoots, sessionKey }) => {
     if (action !== "send") {
       throw new Error(`Action ${action} is not supported for provider dingtalk.`);
     }
@@ -249,7 +272,13 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     }
 
     const asVoice = readSharedAudioAsVoiceParam(params);
-    const requestedMediaType = readStringParam(params, "mediaType");
+    const requestedMediaType = readStringParam(params, "mediaType") as
+      | "image"
+      | "voice"
+      | "video"
+      | "file"
+      | undefined;
+
 
     const target = resolveOriginalPeerId(stripTargetPrefix(to).targetId);
 
@@ -267,37 +296,29 @@ const dingtalkMessageActions: ChannelMessageActionAdapter = {
     const config = getConfig(cfg, accountId ?? undefined);
 
     if (hasMedia && mediaInput) {
-      let preparedMedia;
-      try {
-        preparedMedia = await prepareMediaInput(mediaInput, log, config.mediaUrlAllowlist);
-        const mediaPath = preparedMedia.cleanup
-          ? preparedMedia.path
-          : resolveRelativePath(preparedMedia.path);
-        const mediaType = resolveOutboundMediaType({
-          mediaType: requestedMediaType ?? undefined,
-          mediaPath,
-          asVoice,
-        });
-        const result = await sendProactiveMedia(config, target, mediaPath, mediaType, {
-          log,
-          accountId: accountId ?? undefined,
-          mediaLocalRoots: mediaLocalRoots ? [...mediaLocalRoots] : undefined,
-        });
+      const conversationId = resolveConversationIdFromSessionKey(sessionKey) ?? target;
+      const expectedCardOwnerId =
+        readStringParam(params, "expectedCardOwnerId") ?? inferCardOwnerIdFromTarget(target);
+      const result = await sendMedia(config, target, mediaInput, {
+        log,
+        accountId: accountId ?? undefined,
+        conversationId,
+        mediaType: requestedMediaType ?? undefined,
+        audioAsVoice: asVoice,
+        mediaLocalRoots: mediaLocalRoots ? [...mediaLocalRoots] : undefined,
+        expectedCardOwnerId: expectedCardOwnerId ?? undefined,
+      });
 
-        if (!result.ok) {
-          throw new Error(result.error || "send media failed");
-        }
-
-        return jsonResult({
-          ok: true,
-          to: target,
-          mediaType,
-          messageId: result.messageId ?? null,
-          result: result.data ?? null,
-        });
-      } finally {
-        await preparedMedia?.cleanup?.();
+      if (!result.ok) {
+        throw new Error(result.error || "send media failed");
       }
+
+      return jsonResult({
+        ok: true,
+        to: target,
+        messageId: result.messageId ?? null,
+        result: result.data ?? null,
+      });
     }
 
     if (asVoice) {
@@ -511,13 +532,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         throw new Error("DingTalk not configured");
       }
 
-      // Support mediaPath/filePath/mediaUrl aliases for better CLI compatibility.
       const rawMediaPath = mediaPath || filePath || mediaUrl;
-
-      effectiveLog?.debug?.(
-        `[DingTalk] sendMedia called: to=${to}, mediaPath=${mediaPath}, filePath=${filePath}, mediaUrl=${mediaUrl}, rawMediaPath=${rawMediaPath}`,
-      );
-
       if (!rawMediaPath) {
         throw new Error(
           `mediaPath, filePath, or mediaUrl is required. Received: ${JSON.stringify({
@@ -529,110 +544,34 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         );
       }
 
-      let preparedMedia;
+      const requestedMediaType = typeof providedMediaType === "string"
+        ? (providedMediaType as "image" | "voice" | "video" | "file")
+        : undefined;
+
       try {
-        try {
-          preparedMedia = await prepareMediaInput(rawMediaPath, effectiveLog, config.mediaUrlAllowlist);
-        } catch (err: any) {
-          if (err?.response?.data !== undefined) {
-            effectiveLog?.error?.(
-              formatDingTalkErrorPayloadLog("outbound.sendMedia.prepare", err.response.data),
-            );
-          }
-          const errorCode = typeof err?.code === "string" ? `[${err.code}] ` : "";
-          throw new Error(
-            `remote media preparation failed: ${errorCode}${err?.message || "unknown error"}`,
-            {
-              cause: err,
-            },
-          );
-        }
-
-        const actualMediaPath = preparedMedia.cleanup
-          ? preparedMedia.path
-          : resolveRelativePath(preparedMedia.path);
-
-        effectiveLog?.debug?.(
-          `[DingTalk] sendMedia resolved path: rawMediaPath=${rawMediaPath}, actualMediaPath=${actualMediaPath}`,
-        );
-
-        const mediaType = resolveOutboundMediaType({
-          mediaType: typeof providedMediaType === "string" ? providedMediaType : undefined,
-          mediaPath: actualMediaPath,
-          asVoice: readSharedAudioAsVoiceParam({ audioAsVoice, asVoice }),
+        const result = await sendMedia(config, to, rawMediaPath, {
+          log: effectiveLog,
+          accountId,
+          storePath,
+          conversationId: to,
+          mediaType: requestedMediaType,
+          audioAsVoice: readSharedAudioAsVoiceParam({ audioAsVoice, asVoice }),
+          mediaLocalRoots,
+          expectedCardOwnerId,
         });
-        let result;
-        try {
-          result = await sendProactiveMedia(config, to, actualMediaPath, mediaType, {
-            log: effectiveLog,
-            accountId,
-            storePath,
-            conversationId: to,
-            mediaLocalRoots,
-          });
-        } catch (err: any) {
-          if (err?.response?.data !== undefined) {
-            effectiveLog?.error?.(
-              formatDingTalkErrorPayloadLog("outbound.sendMedia.send", err.response.data),
-            );
-          }
-          throw new Error(`proactive media send failed: ${err?.message || "unknown error"}`, {
-            cause: err,
-          });
+        effectiveLog?.debug?.(`[DingTalk] sendMedia result: ${JSON.stringify(result)}`);
+        if (!result.ok) {
+          throw new Error(result.error || "sendMedia failed");
         }
-        effectiveLog?.debug?.(
-          `[DingTalk] sendMedia: ${mediaType} file=${actualMediaPath} result: ${JSON.stringify(result)}`,
-        );
-
-        if (result.ok) {
-          // Bridge: embed uploaded image in any active card for this conversation.
-          // Only embed if we can verify the card owner matches the expected sender.
-          if (mediaType === "image" && result.mediaId) {
-            try {
-              const { resolveCardRunByConversation } = await import("./card/card-run-registry");
-              // Only resolve with owner filter if expectedCardOwnerId is provided.
-              // Without owner verification, skip embedding to avoid cross-user data leaks.
-              const activeRun = expectedCardOwnerId
-                ? resolveCardRunByConversation(
-                    accountId ?? "default",
-                    to,
-                    { ownerUserId: expectedCardOwnerId },
-                  )
-                : null;
-              if (activeRun?.controller?.appendImageBlock) {
-                await activeRun.controller.appendImageBlock(result.mediaId);
-                effectiveLog?.debug?.(
-                  `[DingTalk] Embedded uploaded media in active card: mediaId=${result.mediaId} ` +
-                  `card=${activeRun.outTrackId} owner=${activeRun.ownerUserId}`,
-                );
-              } else if (expectedCardOwnerId) {
-                effectiveLog?.debug?.(
-                  `[DingTalk] No active card found for owner=${expectedCardOwnerId}, skipping image embedding`,
-                );
-              }
-            } catch (bridgeErr: any) {
-              // Best-effort: failure to embed in card should not block the send.
-              effectiveLog?.debug?.(
-                `[DingTalk] Failed to embed media in active card: ${bridgeErr.message}`,
-              );
-            }
-          }
-
-          const data = result.data;
-          const messageId = String(
-            result.messageId || data?.processQueryKey || data?.messageId || randomUUID(),
-          );
-          return {
-            channel: "dingtalk",
-            messageId,
-            meta: result.data
-              ? { data: result.data as unknown as Record<string, unknown> }
-              : undefined,
-          };
-        }
-        throw new Error(
-          typeof result.error === "string" ? result.error : JSON.stringify(result.error),
-        );
+        const data = result.data;
+        const messageId = String(result.messageId || data?.processQueryKey || data?.messageId || randomUUID());
+        return {
+          channel: "dingtalk",
+          messageId,
+          meta: result.data
+            ? { data: result.data as unknown as Record<string, unknown> }
+            : undefined,
+        };
       } catch (err: any) {
         if (err?.response?.data !== undefined) {
           effectiveLog?.error?.(formatDingTalkErrorPayloadLog("outbound.sendMedia", err.response.data));
@@ -643,8 +582,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
             : err?.message || "sendMedia failed",
           { cause: err },
         );
-      } finally {
-        await preparedMedia?.cleanup?.();
       }
     },
   },

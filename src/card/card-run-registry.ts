@@ -121,6 +121,28 @@ export function resolveCardRunByConversation(
   return latest;
 }
 
+/**
+ * Find the most recently registered card run for a given account + owner.
+ * This is a fallback query when conversationId is unavailable (e.g., sessionKey=-).
+ *
+ * @param accountId - The DingTalk account ID
+ * @param ownerUserId - The DingTalk userId of the card owner
+ */
+export function resolveCardRunByOwner(
+  accountId: string,
+  ownerUserId: string,
+): CardRunRecord | null {
+  let latest: CardRunRecord | null = null;
+  for (const record of records.values()) {
+    if (record.accountId !== accountId) { continue; }
+    if (record.ownerUserId !== ownerUserId) { continue; }
+    if (!latest || record.registeredAt > latest.registeredAt) {
+      latest = record;
+    }
+  }
+  return latest;
+}
+
 export function markCardRunStopRequested(outTrackId: string): void {
   const record = records.get(outTrackId.trim());
   if (record && !record.stopRequestedAt) {

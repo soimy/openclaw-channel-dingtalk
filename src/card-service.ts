@@ -804,6 +804,13 @@ export async function createAICard(
           cardInstanceId?: unknown;
         }
       | undefined;
+    const deliverResults = (responseData?.result as { deliverResults?: Array<{ success?: boolean; errorMsg?: string }> } | undefined)?.deliverResults;
+    if (Array.isArray(deliverResults)) {
+      const failedDelivery = deliverResults.find((item) => item?.success === false);
+      if (failedDelivery) {
+        throw new Error(failedDelivery.errorMsg?.trim() || "DingTalk card delivery failed");
+      }
+    }
     const responseTracking = responseData?.result;
     const processQueryKey =
       typeof responseTracking?.processQueryKey === "string" &&
