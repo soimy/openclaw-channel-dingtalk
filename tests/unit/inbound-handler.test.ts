@@ -1343,6 +1343,10 @@ describe("inbound-handler", () => {
         }),
         undefined,
       );
+      const abortPayload = shared.commitAICardBlocksMock.mock.calls[0]?.[1];
+      expect(JSON.parse(abortPayload?.blockListJson ?? "[]")).toEqual([
+        { type: 0, markdown: "⚙️ Agent was aborted." },
+      ]);
       expect(shared.finishAICardMock).not.toHaveBeenCalled();
       // No separate plain-text bubble should be sent in card mode
       expect(shared.sendBySessionMock).not.toHaveBeenCalled();

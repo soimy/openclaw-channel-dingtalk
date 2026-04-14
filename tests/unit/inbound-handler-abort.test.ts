@@ -308,6 +308,10 @@ describe("inbound-handler abort pre-lock bypass", () => {
       }),
       undefined,
     );
+    const abortPayload = shared.commitAICardBlocksMock.mock.calls[0]?.[1];
+    expect(JSON.parse(abortPayload?.blockListJson ?? "[]")).toEqual([
+      { type: 0, markdown: "⚙️ Agent was aborted." },
+    ]);
     // finishAICard should NOT be called (deprecated API)
     expect(shared.finishAICardMock).not.toHaveBeenCalled();
   });

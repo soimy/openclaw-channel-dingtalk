@@ -1531,7 +1531,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
       try {
         const abortText = abortConfirmationText ?? "已停止";
-        const abortBlockList = [{ type: 2, markdown: abortText }];
+        const abortBlockList = [{ type: 0, markdown: abortText }];
         const blockListJson = JSON.stringify(abortBlockList);
 
         await commitAICardBlocks(currentAICard, {
