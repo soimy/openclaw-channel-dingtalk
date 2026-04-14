@@ -51,6 +51,8 @@ vi.mock("../../src/media-utils", async (importOriginal) => {
 const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 const updateAICardTaskInfoMock = vi.mocked(cardService.updateAICardTaskInfo);
+const streamAICardContentMock = vi.mocked(cardService.streamAICardContent);
+const clearAICardStreamingContentMock = vi.mocked(cardService.clearAICardStreamingContent);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 const sendProactiveMediaMock = vi.mocked(sendService.sendProactiveMedia);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
@@ -94,6 +96,8 @@ describe("reply-strategy-card", () => {
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         updateAICardTaskInfoMock.mockClear().mockResolvedValue(undefined);
+        streamAICardContentMock.mockClear().mockResolvedValue(undefined);
+        clearAICardStreamingContentMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
         sendProactiveMediaMock.mockClear().mockResolvedValue({ ok: true, mediaId: "test-media-id" });
         uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id", buffer: Buffer.from("") });
@@ -259,12 +263,59 @@ describe("reply-strategy-card", () => {
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
-            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 暂存思考" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+        });
+
+        it("answer mode finalize does not clear streaming content before the final card commit", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(clearAICardStreamingContentMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+        });
+
+        it("answer mode rewrites local markdown image snapshots to placeholder text before final upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "说明如下\n\n![系统图](./artifacts/demo.png)" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("见下图系统图");
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).not.toContain("![系统图](./artifacts/demo.png)");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![系统图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("见下图系统图");
+            expect(commitPayload?.blockListJson).toContain('"type":3');
+            expect(commitPayload?.blockListJson).toContain('"text":"系统图"');
         });
 
         it("all mode streams answer partials and reasoning snapshots live", async () => {
@@ -976,6 +1027,37 @@ describe("reply-strategy-card", () => {
             expect(taskInfo.model).toBe("gpt-5.4");
             expect(taskInfo.effort).toBe("medium");
             expect(taskInfo.agent).toBe("代码专家");
+        });
+
+        it("uses the latest card dapi_usage at finalize after early taskInfo refresh", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+                taskInfo: { dapi_usage: 2, taskTime: 0 },
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
+            card.taskInfo = {
+                ...card.taskInfo,
+                dapi_usage: 5,
+            };
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            const taskInfo = JSON.parse(options.taskInfoJson!);
+            expect(taskInfo.dapi_usage).toBe(5);
         });
 
         it("includes agent in taskInfoJson when taskMeta.agent is set", async () => {

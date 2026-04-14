@@ -58,9 +58,10 @@ export function createCardReplyStrategy(
     if (!ctx.taskMeta.effort && card.taskInfo?.effort) {
       ctx.taskMeta.effort = card.taskInfo.effort;
     }
-    if (typeof ctx.taskMeta.usage !== "number") {
-      ctx.taskMeta.usage = card.taskInfo?.dapi_usage;
-    }
+    const resolvedUsage =
+      typeof ctx.taskMeta.usage === "number"
+        ? ctx.taskMeta.usage
+        : card.taskInfo?.dapi_usage;
 
     const sessionTaskTimeSeconds = card.accountId && card.conversationId
       ? getTaskTimeSeconds(card.accountId, card.contextConversationId || card.conversationId)
@@ -74,13 +75,14 @@ export function createCardReplyStrategy(
 
     if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
     if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
-    if (typeof ctx.taskMeta.usage === "number") { info.dapi_usage = ctx.taskMeta.usage; }
+    if (typeof resolvedUsage === "number") { info.dapi_usage = resolvedUsage; }
     if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
     if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
     return Object.keys(info).length > 0 ? JSON.stringify(info) : undefined;
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
   const streamAnswerLive = mode === "answer" || mode === "all";
+  const renderAnswerBlocksLive = mode === "all";
   const streamThinkingLive = mode === "all";
   let lifecycleState: CardReplyLifecycleState = "open";
   const shouldAcceptAnswerSnapshot = () => lifecycleState === "open";
@@ -242,6 +244,23 @@ export function createCardReplyStrategy(
     }
   };
 
+  const rewriteLocalMarkdownImagesToPlaceholders = (text: string): string => {
+    const candidates = extractMarkdownImageCandidates(text);
+    if (candidates.length === 0) {
+      return text;
+    }
+
+    let nextText = text;
+    for (const candidate of candidates.toReversed()) {
+      if (candidate.classification !== "local") {
+        continue;
+      }
+      const placeholder = buildImagePlaceholderText({ alt: candidate.alt, url: candidate.url });
+      nextText = `${nextText.slice(0, candidate.start)}${placeholder}${nextText.slice(candidate.end)}`;
+    }
+    return nextText;
+  };
+
   const handleAnswerSnapshot = async (text: string | undefined): Promise<void> => {
     if (!shouldAcceptAnswerSnapshot() || isStopRequested?.()) {
       return;
@@ -249,7 +268,10 @@ export function createCardReplyStrategy(
     if (!text) {
       return;
     }
-    await controller.updateAnswer(text, { stream: streamAnswerLive });
+    await controller.updateAnswer(rewriteLocalMarkdownImagesToPlaceholders(text), {
+      stream: streamAnswerLive,
+      renderBlocks: renderAnswerBlocksLive,
+    });
   };
 
   const applySplitTextToTimeline = async (
@@ -476,7 +498,7 @@ export function createCardReplyStrategy(
             answerHandling: "ignore",
           });
         } else {
-          await applySplitTextToTimeline(textToSend, {
+          await applySplitTextToTimeline(rewriteLocalMarkdownImagesToPlaceholders(textToSend), {
             answerHandling: lifecycleState === "open" ? "update" : "capture",
           });
         }
@@ -565,11 +587,6 @@ export function createCardReplyStrategy(
       // Normal finalize (V2 template path: single instances API call).
       try {
         await flushPendingReasoning();
-
-        // Clear any remaining streaming content before final commit
-        if (controller.isRealTimeStreamEnabled() && controller.clearStreamingContent) {
-          await controller.clearStreamingContent();
-        }
 
         await controller.flush();
         await controller.waitForInFlight();

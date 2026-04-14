@@ -48,11 +48,17 @@ function getProcessBlockText(text: string): string {
 
 describe("card-draft-controller", () => {
     const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
+    const streamAICardContentMock = vi.mocked(cardService.streamAICardContent);
+    const clearAICardStreamingContentMock = vi.mocked(cardService.clearAICardStreamingContent);
 
     beforeEach(() => {
         vi.useFakeTimers();
         updateAICardBlockListMock.mockReset();
         updateAICardBlockListMock.mockResolvedValue(undefined);
+        streamAICardContentMock.mockReset();
+        streamAICardContentMock.mockResolvedValue(undefined);
+        clearAICardStreamingContentMock.mockReset();
+        clearAICardStreamingContentMock.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -301,6 +307,36 @@ describe("card-draft-controller", () => {
         expect(getBlockText(blocks0, 0)).toBe("first");
         expect(blocks1).toHaveLength(1);
         expect(getBlockText(blocks1, 0)).toBe("second");
+    });
+
+    it("throttles real-time answer content updates and keeps blockList unchanged for answer snapshots", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({
+            card,
+            throttleMs: 1000,
+            realTimeStreamEnabled: true,
+        }) as any;
+
+        await ctrl.updateAnswer("阶段1答案", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+        expect(streamAICardContentMock.mock.calls[0]?.[1]).toBe("阶段1答案");
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+        await ctrl.updateAnswer("阶段2答案-初版", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(300);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+        await ctrl.updateAnswer("阶段2答案-完整版", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(699);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(2);
+        expect(streamAICardContentMock.mock.calls[1]?.[1]).toBe("阶段2答案-完整版");
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
     });
 
     it("getLastContent returns last successfully sent content", async () => {

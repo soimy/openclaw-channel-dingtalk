@@ -27,7 +27,7 @@ type TimelineEntry = {
 };
 
 export interface CardDraftController {
-    updateAnswer: (text: string, options?: { stream?: boolean }) => Promise<void>;
+    updateAnswer: (text: string, options?: { stream?: boolean; renderBlocks?: boolean }) => Promise<void>;
     updateReasoning: (text: string) => Promise<void>;
     updateThinking: (text: string) => Promise<void>;
     appendThinkingBlock: (text: string) => Promise<void>;
@@ -102,6 +102,9 @@ export function createCardDraftController(params: {
     let lastQueuedContent = "";
     let inFlightContent = "";
     let lastAnswerContent = "";
+    let lastSentStreamingContent = "";
+    let lastQueuedStreamingContent = "";
+    let inFlightStreamingContent = "";
 
     let timelineEntries: TimelineEntry[] = [];
     let activeThinkingIndex: number | null = null;
@@ -112,26 +115,44 @@ export function createCardDraftController(params: {
     const realTimeStreamEnabled = params.realTimeStreamEnabled ?? false;
     let hasStreamingContent = false;
 
+    const clearPendingStreamingContent = () => {
+        contentLoop.resetPending();
+        lastQueuedStreamingContent = "";
+    };
+
     const streamContentToCard = async (text: string) => {
         if (!realTimeStreamEnabled) {
             return;
         }
-        try {
-            await streamAICardContent(params.card, text, params.log);
-            hasStreamingContent = true;
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            params.log?.debug?.(`[DingTalk][AICard] Failed to stream content: ${message}`);
+        const normalized = normalizeAnswerText(text);
+        if (!normalized.trim()) {
+            clearPendingStreamingContent();
+            return;
         }
+        if (normalized === lastSentStreamingContent) {
+            const hasNewerInFlight = !!inFlightStreamingContent && inFlightStreamingContent !== normalized;
+            if (!hasNewerInFlight) {
+                clearPendingStreamingContent();
+                return;
+            }
+        }
+        if (normalized === lastQueuedStreamingContent) {
+            return;
+        }
+        lastQueuedStreamingContent = normalized;
+        contentLoop.update(normalized);
     };
 
     const clearStreamingContentFromCard = async () => {
+        clearPendingStreamingContent();
+        await contentLoop.waitForInFlight();
         if (!realTimeStreamEnabled || !hasStreamingContent) {
             return;
         }
         try {
             await clearAICardStreamingContent(params.card, params.log);
             hasStreamingContent = false;
+            lastSentStreamingContent = "";
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             params.log?.debug?.(`[DingTalk][AICard] Failed to clear streaming content: ${message}`);
@@ -272,12 +293,6 @@ export function createCardDraftController(params: {
         const blocks = renderTimelineAsBlocks();
         const rendered = JSON.stringify(blocks);
 
-        // Stream to content key for real-time display (if enabled and has active answer)
-        if (realTimeStreamEnabled && activeAnswerIndex !== null) {
-            const currentAnswer = timelineEntries[activeAnswerIndex]?.text || "";
-            void streamContentToCard(currentAnswer);
-        }
-
         // Always update blockList via instances API (throttled)
         if (blocks.length === 0) {
             clearPendingRender();
@@ -301,12 +316,15 @@ export function createCardDraftController(params: {
         if (stopped || failed) {
             return;
         }
+        await contentLoop.flush();
+        await contentLoop.waitForInFlight();
         // Clear streaming content before committing blockList at boundary
         if (hasStreamingContent) {
             await clearStreamingContentFromCard();
         }
         await loop.flush();
         await loop.waitForInFlight();
+        contentLoop.resetThrottleWindow();
         loop.resetThrottleWindow();
     };
 
@@ -352,6 +370,28 @@ export function createCardDraftController(params: {
         },
     });
 
+    const contentLoop = createDraftStreamLoop({
+        throttleMs: effectiveThrottleMs,
+        isStopped: () => stopped || failed,
+        sendOrEditStreamMessage: async (content: string) => {
+            inFlightStreamingContent = content;
+            try {
+                await streamAICardContent(params.card, content, params.log);
+                hasStreamingContent = true;
+                lastSentStreamingContent = content;
+                lastQueuedStreamingContent = "";
+                lastAnswerContent = content;
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                params.log?.debug?.(`[DingTalk][AICard] Failed to stream content: ${message}`);
+            } finally {
+                if (inFlightStreamingContent === content) {
+                    inFlightStreamingContent = "";
+                }
+            }
+        },
+    });
+
     const updateReasoning = async (text: string) => {
         await waitForPendingBoundary();
         if (stopped || failed || activeAnswerIndex !== null) {
@@ -375,7 +415,7 @@ export function createCardDraftController(params: {
         queueRender();
     };
 
-    const updateAnswer = async (text: string, options: { stream?: boolean } = {}) => {
+    const updateAnswer = async (text: string, options: { stream?: boolean; renderBlocks?: boolean } = {}) => {
         await waitForPendingBoundary();
         if (stopped || failed) {
             return;
@@ -396,7 +436,13 @@ export function createCardDraftController(params: {
         } else {
             activeAnswerIndex = appendTimelineEntry("answer", normalized);
         }
-        if (options.stream === false) {
+        if (options.stream !== false) {
+            await streamContentToCard(normalized);
+        } else {
+            clearPendingStreamingContent();
+        }
+        const shouldRenderBlocks = options.renderBlocks ?? (options.stream !== false);
+        if (!shouldRenderBlocks) {
             clearPendingRender();
             return;
         }
@@ -535,11 +581,18 @@ export function createCardDraftController(params: {
                 await beginBoundaryFlush();
             }
         },
-        flush: () => loop.flush(),
-        waitForInFlight: () => loop.waitForInFlight(),
+        flush: async () => {
+            await contentLoop.flush();
+            await loop.flush();
+        },
+        waitForInFlight: async () => {
+            await contentLoop.waitForInFlight();
+            await loop.waitForInFlight();
+        },
 
         stop: () => {
             stopped = true;
+            contentLoop.stop();
             loop.stop();
         },
 
