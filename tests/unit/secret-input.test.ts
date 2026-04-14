@@ -1,10 +1,21 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isConfigured } from "../../src/config";
 import { DingTalkConfigSchema } from "../../src/config-schema";
+import { resolveSecretInputString } from "../../src/secret-input";
 
 describe("SecretInput support", () => {
-  afterEach(() => {
+  let tempDir: string | undefined;
+
+  afterEach(async () => {
     delete process.env.DINGTALK_TEST_SECRET;
+    if (tempDir) {
+      const dir = tempDir;
+      tempDir = undefined;
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("accepts SecretInput references in the DingTalk config schema", () => {
@@ -58,5 +69,19 @@ describe("SecretInput support", () => {
         },
       } as any),
     ).toBe(false);
+  });
+
+  it("resolves file SecretInput values from a local file", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "dingtalk-secret-input-"));
+    const secretPath = join(tempDir, "client-secret.txt");
+    await writeFile(secretPath, "secret-from-file\n", "utf8");
+
+    await expect(
+      resolveSecretInputString({
+        source: "file",
+        provider: "local",
+        id: secretPath,
+      }),
+    ).resolves.toBe("secret-from-file");
   });
 });

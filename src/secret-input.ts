@@ -26,8 +26,8 @@ export function buildSecretInputSchema() {
     z.string(),
     z.object({
       source: z.enum(["env", "file", "exec"]),
-      provider: z.string().min(1),
-      id: z.string().min(1),
+      provider: z.string().min(1).max(1024),
+      id: z.string().min(1).max(1024),
     }),
   ]);
 }
@@ -56,6 +56,9 @@ export function hasConfiguredSecretInput(value: unknown): boolean {
   if (value.source === "env") {
     return Boolean(process.env[value.id]?.trim());
   }
+  // file/exec references are considered configured when the reference shape is
+  // present. The actual filesystem/process lookup happens at runtime so status
+  // checks can stay side-effect free.
   return true;
 }
 
@@ -86,6 +89,8 @@ export async function resolveSecretInputString(
   }
   if (value.source === "file") {
     try {
+      // Trust boundary: file SecretInput reads the configured local path. Use it
+      // only with trusted plugin configuration.
       const filePath = value.id.startsWith("~/")
         ? path.resolve(os.homedir(), value.id.slice(2))
         : path.resolve(value.id);
@@ -100,6 +105,10 @@ export async function resolveSecretInputString(
     }
   }
   try {
+    // Trust boundary: exec SecretInput runs the configured provider binary with
+    // the secret id as its only argument. Use it only with trusted plugin
+    // configuration; execFile avoids shell interpolation but still executes the
+    // selected program.
     const result = await execFileAsync(value.provider, [value.id], {
       encoding: "utf8",
       timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
