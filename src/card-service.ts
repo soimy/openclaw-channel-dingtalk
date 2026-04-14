@@ -302,6 +302,7 @@ async function putAICardStreamingField(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
         );
         card.lastUpdated = Date.now();
+        incrementCardDapiCount(card);
         return;
       } catch (retryErr: any) {
         log?.error?.(`[DingTalk][AICard] Retry after token refresh failed: ${retryErr.message}`);

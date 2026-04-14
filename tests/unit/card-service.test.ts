@@ -284,6 +284,7 @@ describe('card-service', () => {
 
         expect(mockedAxios.put).toHaveBeenCalledTimes(2);
         expect(card.state).toBe(AICardStatus.INPUTING);
+        expect(card.taskInfo?.dapi_usage).toBe(1);
     });
 
     it('streamAICard skips updates when card is already STOPPED', async () => {

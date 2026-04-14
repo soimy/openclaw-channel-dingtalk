@@ -66,12 +66,18 @@ export function createCardReplyStrategy(
     const sessionTaskTimeSeconds = card.accountId && card.conversationId
       ? getTaskTimeSeconds(card.accountId, card.contextConversationId || card.conversationId)
       : undefined;
-    if (typeof sessionTaskTimeSeconds === "number") {
-      ctx.taskMeta.elapsedMs = sessionTaskTimeSeconds * 1000;
-    } else if (typeof ctx.taskMeta.elapsedMs !== "number" || ctx.taskMeta.elapsedMs <= 0) {
-      const elapsedSeconds = Math.max(0, Math.round((Date.now() - card.createdAt) / 1000));
-      ctx.taskMeta.elapsedMs = elapsedSeconds * 1000;
-    }
+    const cardElapsedMs = Math.max(0, Date.now() - card.createdAt);
+    const sessionElapsedMs = typeof sessionTaskTimeSeconds === "number"
+      ? sessionTaskTimeSeconds * 1000
+      : undefined;
+    const metaElapsedMs = typeof ctx.taskMeta.elapsedMs === "number" && ctx.taskMeta.elapsedMs > 0
+      ? ctx.taskMeta.elapsedMs
+      : undefined;
+    ctx.taskMeta.elapsedMs = Math.max(
+      cardElapsedMs,
+      sessionElapsedMs ?? 0,
+      metaElapsedMs ?? 0,
+    );
 
     if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
     if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
@@ -430,7 +436,7 @@ export function createCardReplyStrategy(
         if (payload.mediaUrls.length > 0) {
           for (const url of payload.mediaUrls) {
             try {
-              const prepared = await prepareMediaInput(url, log);
+              const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
               const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
               if (mediaType !== "image") {
                 log?.debug?.(`[DingTalk][Card] Deferring non-image media (${mediaType}) for out-of-card delivery: ${url}`);
@@ -508,7 +514,7 @@ export function createCardReplyStrategy(
       if (payload.mediaUrls.length > 0) {
         for (const url of payload.mediaUrls) {
           try {
-            const prepared = await prepareMediaInput(url, log);
+            const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
             const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
             if (mediaType !== "image") {
               log?.debug?.(`[DingTalk][Card] Deferring non-image media (${mediaType}) for out-of-card delivery: ${url}`);
@@ -629,7 +635,7 @@ export function createCardReplyStrategy(
           log?.debug?.(`[DingTalk][Card] Sending ${pendingNonImageMedia.length} deferred non-image attachments`);
           for (const { url, type } of pendingNonImageMedia) {
             try {
-              const prepared = await prepareMediaInput(url, log);
+              const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
               const actualMediaPath = prepared.path;
 
               // Prefer sessionWebhook for reply-session permission semantics

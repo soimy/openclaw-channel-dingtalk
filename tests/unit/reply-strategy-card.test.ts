@@ -3,6 +3,7 @@ import { createCardReplyStrategy } from "../../src/reply-strategy-card";
 import * as cardService from "../../src/card-service";
 import * as sendService from "../../src/send-service";
 import * as mediaUtils from "../../src/media-utils";
+import { clearAllSessionStatesForTest, initSessionState } from "../../src/session-state";
 import { AICardStatus } from "../../src/types";
 import type { AICardInstance } from "../../src/types";
 import type { ReplyStrategyContext } from "../../src/reply-strategy";
@@ -93,6 +94,7 @@ function buildCtx(
 describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
+        clearAllSessionStatesForTest();
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         updateAICardTaskInfoMock.mockClear().mockResolvedValue(undefined);
@@ -427,6 +429,51 @@ describe("reply-strategy-card", () => {
             expect(commitPayload?.blockListJson).toContain('"type":3');
             expect(commitPayload?.blockListJson).toContain('"mediaId":"test-media-id"');
             expect(commitPayload?.blockListJson).toContain('"text":"本地图"');
+        });
+
+        it("passes mediaUrlAllowlist when preparing payload mediaUrls and deferred attachments", async () => {
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+                if (mediaPath.endsWith(".png")) {
+                    return "image";
+                }
+                return "file";
+            });
+
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    mediaUrlAllowlist: ["https://example.com/**"],
+                } as any,
+            }));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "回复内容",
+                mediaUrls: ["https://example.com/demo.png", "https://example.com/demo.pdf"],
+            } as any);
+            await strategy.finalize();
+
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                1,
+                "https://example.com/demo.png",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                2,
+                "https://example.com/demo.pdf",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                3,
+                "https://example.com/demo.pdf",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
         });
 
         it("normalizes relative markdown image paths before upload", async () => {
@@ -987,6 +1034,32 @@ describe("reply-strategy-card", () => {
             const options = commitAICardBlocksMock.mock.calls[0][1];
             const taskInfo = JSON.parse(options.taskInfoJson!);
             expect(taskInfo.taskTime).toBeGreaterThanOrEqual(3);
+        });
+
+        it("keeps taskTime isolated to the card even if the session timer resets later", async () => {
+            initSessionState("main", "cid_1");
+            await vi.advanceTimersByTimeAsync(4000);
+
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 4000,
+            });
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                },
+            }));
+
+            initSessionState("main", "cid_1");
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            const taskInfo = JSON.parse(options.taskInfoJson!);
+            expect(taskInfo.taskTime).toBeGreaterThanOrEqual(4);
         });
 
         it("omits taskInfoJson when taskMeta is not provided", async () => {
