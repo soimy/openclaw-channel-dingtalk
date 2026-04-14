@@ -1,6 +1,6 @@
 # AGENTS / CLAUDE 文档分层与 GitNexus 可选增强实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task with review between steps. If your environment supports subagent-based execution you may use it; otherwise execute the checklist inline.
 
 **Goal:** 精简并同步 `AGENTS.md` 与 `CLAUDE.md`，引入共享工作流与 GitNexus 可选增强文档，使公开仓库在无 GitNexus 环境下也能完整协作。
 

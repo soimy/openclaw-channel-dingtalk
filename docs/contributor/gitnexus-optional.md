@@ -71,6 +71,18 @@ GitNexus is especially helpful for:
 - Prefer graph-aware rename workflows over blind repository-wide text replacement when you are renaming symbols.
 - Treat GitNexus as the first stop for codebase navigation when available, not merely as an optional afterthought.
 
+## Indexing This Repository
+
+When running `gitnexus analyze` on this repository, **always use the `--skip-agents-md` flag**:
+
+```bash
+gitnexus analyze --skip-agents-md
+```
+
+This repository maintains detailed GitNexus guidance in this document rather than in the root `AGENTS.md` / `CLAUDE.md` entry files. The `--skip-agents-md` flag prevents GitNexus from injecting its standard usage block into those thin entry documents, preserving the repository's documentation layering strategy.
+
+If you accidentally run `gitnexus analyze` without this flag and the entry files are modified, remove the injected `<!-- gitnexus:start --> ... <!-- gitnexus:end -->` block before committing.
+
 ## Relationship to Manual Navigation Guides
 
 This repository may still provide manual navigation and fallback guidance for contributors who do not have GitNexus locally. Those guides are secondary disclosure and should mainly be used when GitNexus is unavailable.

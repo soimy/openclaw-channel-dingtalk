@@ -29,20 +29,7 @@ This file is the starting point. After reading it, continue in this order:
 - GitNexus-first navigation and impact workflow: `docs/contributor/gitnexus-optional.md`
 - Manual fallback navigation without GitNexus: `docs/contributor/fallback-navigation.md`
 
-## Documentation Placement
-
-- Specs: `docs/spec/`
-- Plans: `docs/plans/`
-- User-facing docs: `docs/user/`
-- Contributor and process docs: `docs/contributor/`
-- Release notes: `docs/releases/`
-
-Keep `README.md` concise. Long-form user, contributor, troubleshooting, and process documentation belongs under `docs/`.
-
 ## Optional Tooling
 
-GitNexus is an optional enhancement for repository understanding, impact analysis, and change-scope review.
-
-- If GitNexus is available locally, treat `docs/contributor/gitnexus-optional.md` as the preferred path for repository navigation and impact analysis.
-- If GitNexus is not available locally, use `docs/contributor/fallback-navigation.md` together with the base workflow in this file and `docs/contributor/agent-workflow.md`.
-- Optional tooling must never be the only documented way to complete a required engineering step.
+If GitNexus is available locally, use `docs/contributor/gitnexus-optional.md`.
+If not, continue with the base workflow and `docs/contributor/fallback-navigation.md`.

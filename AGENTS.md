@@ -71,6 +71,15 @@ Keep `README.md` as a concise project entry page. Do not expand it with long-for
 - `src/message-context-store.ts` is the only production message context persistence API.
 - `src/targeting/` owns learned target directory and target normalization.
 
+## Quick Lookup
+
+- Assembly and plugin entry: `index.ts`, `src/channel.ts`
+- Inbound handling: `src/inbound-handler.ts`
+- Outbound delivery: `src/send-service.ts`
+- Card lifecycle: `src/card-service.ts`
+- Message context persistence: `src/message-context-store.ts`
+- Targeting: `src/targeting/`
+
 ## Optional Tooling
 
 GitNexus is an optional enhancement for repository understanding, impact analysis, and change-scope review.

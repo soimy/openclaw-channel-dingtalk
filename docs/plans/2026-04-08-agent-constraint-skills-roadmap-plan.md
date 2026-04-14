@@ -1,6 +1,6 @@
 # 智能体约束文档向 Skills 固化实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task with review between steps. If your environment supports subagent-based execution you may use it; otherwise execute the checklist inline.
 
 **Goal:** 将当前文档中适合稳定流程化的内容逐步固化为 skills，减少主入口文档膨胀，并让 PR、release、impact analysis、文档落盘等流程具备更强的自动触发与一致性。
 
