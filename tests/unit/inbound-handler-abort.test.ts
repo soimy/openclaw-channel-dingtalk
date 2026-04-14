@@ -28,7 +28,7 @@ vi.mock("../../src/message-utils", () => ({
 vi.mock("../../src/send-service", () => ({
   sendBySession: shared.sendBySessionMock,
   sendMessage: shared.sendMessageMock,
-  sendProactiveMediaMock: vi.fn(),
+  sendProactiveMedia: shared.sendProactiveMediaMock,
   uploadMedia: vi.fn(),
 }));
 

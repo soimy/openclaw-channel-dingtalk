@@ -1925,7 +1925,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
-      inboundText: extractedContent.text,
+      inboundText: rawInboundText,
       taskMeta,
     });
 

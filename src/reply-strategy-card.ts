@@ -59,9 +59,11 @@ export function createCardReplyStrategy(
       ctx.taskMeta.effort = card.taskInfo.effort;
     }
     const resolvedUsage =
-      typeof ctx.taskMeta.usage === "number"
-        ? ctx.taskMeta.usage
-        : card.taskInfo?.dapi_usage;
+      typeof card.taskInfo?.dapi_usage === "number"
+        ? card.taskInfo.dapi_usage
+        : typeof ctx.taskMeta.usage === "number"
+          ? ctx.taskMeta.usage
+          : undefined;
 
     const sessionTaskTimeSeconds = card.accountId && card.conversationId
       ? getTaskTimeSeconds(card.accountId, card.contextConversationId || card.conversationId)
@@ -647,15 +649,12 @@ export function createCardReplyStrategy(
           `preview="${content.slice(0, 120)}"`,
         );
 
-        const inboundQuoteText = (ctx.inboundText || "").trim().slice(0, 200);
-
         // Build taskInfo JSON for card template
         const taskInfoJson = buildTaskInfoJson();
 
         await commitAICardBlocks(card, {
           blockListJson,
           content,
-          quoteContent: inboundQuoteText || undefined,
           taskInfoJson,
           quotedRef: ctx.replyQuotedRef,
         }, log);

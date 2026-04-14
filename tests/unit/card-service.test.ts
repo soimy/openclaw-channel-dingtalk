@@ -674,6 +674,8 @@ describe('card-service', () => {
                     createdAt: Date.now() - 1000,
                     lastUpdated: Date.now() - 1000,
                     state: '1',
+                    lastContent: '部分回答',
+                    lastBlockListJson: JSON.stringify([{ type: 0, markdown: '部分回答' }]),
                 },
             ],
         };
@@ -691,7 +693,10 @@ describe('card-service', () => {
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
         expect(putBody.outTrackId).toBe('card_recover_1');
-        expect(putBody.isFinalize).toBe(true);
+        expect(putBody.cardData?.cardParamMap.flowStatus).toBe('3');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('部分回答');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('已自动结束');
+        expect(putBody.cardData?.cardParamMap.content).toContain('部分回答');
         const afterRecover = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterRecover.pendingCards).toHaveLength(0);
     });
@@ -708,6 +713,8 @@ describe('card-service', () => {
                     createdAt: Date.now() - 1000,
                     lastUpdated: Date.now() - 1000,
                     state: '2',
+                    lastContent: '处理中内容',
+                    lastBlockListJson: JSON.stringify([{ type: 0, markdown: '处理中内容' }]),
                 },
             ],
         };
@@ -725,8 +732,10 @@ describe('card-service', () => {
         expect(finalized).toBe(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
-        expect(putBody.content).toBe('stop-reason');
-        expect(putBody.isFinalize).toBe(true);
+        expect(putBody.cardData?.cardParamMap.flowStatus).toBe('3');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('处理中内容');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('stop-reason');
+        expect(putBody.cardData?.cardParamMap.content).toContain('处理中内容');
         const afterFinalize = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinalize.pendingCards).toHaveLength(0);
     });
@@ -855,10 +864,10 @@ describe('card-service', () => {
         );
 
         expect(recovered).toBe(1);
-        // 2 PUTs: content isFinalize=true + hide stop button
-        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
         expect(putBody.outTrackId).toBe('track_distinct_1');
+        expect(putBody.cardData?.cardParamMap?.flowStatus).toBe('3');
     });
 });
 

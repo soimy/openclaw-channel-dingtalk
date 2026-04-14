@@ -669,7 +669,8 @@ export interface AICardInstance {
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, STOPPED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
-  lastStreamedContent?: string;
+  lastStreamedContent?: string; // Latest copy/content text shown to user
+  lastBlockListJson?: string; // Latest rendered CardBlock[] JSON for V2 instances API
   outTrackId?: string;
   taskInfo?: {
     model?: string;

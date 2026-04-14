@@ -980,7 +980,7 @@ describe("reply-strategy-card", () => {
     });
 
     describe("quoteContent from inboundText", () => {
-        it("passes inboundText as quoteContent to commitAICardBlocks on finalize", async () => {
+        it("does not overwrite quoteContent during finalize because card creation owns that field", async () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
                 inboundText: "用户发送的原始消息",
@@ -992,7 +992,7 @@ describe("reply-strategy-card", () => {
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            expect(options.quoteContent).toBe("用户发送的原始消息");
+            expect(options.quoteContent).toBeUndefined();
         });
 
         it("omits quoteContent when inboundText is empty", async () => {
@@ -1010,22 +1010,6 @@ describe("reply-strategy-card", () => {
             expect(options.quoteContent).toBeUndefined();
         });
 
-        it("truncates long inboundText to 200 characters", async () => {
-            const card = makeCard();
-            const longText = "a".repeat(300);
-            const ctx = buildCtx(card, {
-                inboundText: longText,
-            });
-            const strategy = createCardReplyStrategy(ctx);
-
-            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
-            await strategy.finalize();
-
-            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
-            const options = commitAICardBlocksMock.mock.calls[0][1];
-            expect(options.quoteContent).toBe("a".repeat(200));
-            expect((options.quoteContent as string).length).toBe(200);
-        });
     });
 
     describe("taskInfo from taskMeta", () => {
@@ -1125,6 +1109,7 @@ describe("reply-strategy-card", () => {
             });
             const ctx = buildCtx(card, {
                 taskMeta: {
+                    usage: 2,
                     agent: "代码专家",
                 },
             });

@@ -75,7 +75,7 @@ export function applyInboundHandlerMocks(mocks: ReturnType<typeof createInboundH
   vi.mock("../../../src/send-service", () => ({
     sendBySession: mocks.sendBySessionMock,
     sendMessage: mocks.sendMessageMock,
-    sendProactiveMediaMock: mocks.sendProactiveMediaMock,
+    sendProactiveMedia: mocks.sendProactiveMediaMock,
     uploadMedia: mocks.uploadMediaMock,
   }));
 
