@@ -141,6 +141,8 @@ function stringifyChatRecordContentValue(value: unknown): string | undefined {
         ? trimString((content as Record<string, unknown>).text as string | undefined)
         : undefined;
 
+  // Preserve DingTalk's observed chatRecord text priority: explicit text first,
+  // then nested content text, then the legacy message fallback.
   return (
     trimString(record.text as string | undefined) ||
     contentText ||
