@@ -49,6 +49,7 @@ vi.mock("../../src/session-lock", () => ({
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
+  isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../../src/message-context-store", async () => {

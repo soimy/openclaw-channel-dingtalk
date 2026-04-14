@@ -75,6 +75,7 @@ vi.mock("../../src/media-utils", async () => {
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
+  isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../../src/message-context-store", async () => {

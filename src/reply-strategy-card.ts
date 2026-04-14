@@ -23,7 +23,7 @@ import {
 } from "./card/card-markdown-image-reroute";
 import { createCardDraftController } from "./card-draft-controller";
 import { attachCardRunController } from "./card/card-run-registry";
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy-types";
 import { resolveRelativePath } from "./config";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { getTaskTimeSeconds, updateSessionState } from "./session-state";
@@ -552,7 +552,38 @@ export function createCardReplyStrategy(
       }
 
       if (card.state === AICardStatus.FINISHED) {
-        log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED");
+        // Card was already finalized (e.g. first embedded run timed out).
+        // If session-recovery triggered a second run that produced new content,
+        // deliver it as a markdown fallback so the user sees the final result.
+        // The user may see partial overlap with the frozen card's content, but
+        // delivering the full answer is preferred over silence.
+        const recoveryText = getRenderedTimeline({ preferFinalAnswer: true })
+          || finalTextForFallback
+          || controller.getLastAnswerContent()
+          || controller.getLastContent();
+        if (recoveryText) {
+          log?.info?.(
+            `[DingTalk][Finalize] Card already FINISHED — sending markdown fallback for session-recovery content ` +
+            `len=${recoveryText.length} preview="${recoveryText.slice(0, 80)}"`,
+          );
+          const sendResult = await sendMessage(ctx.config, ctx.to, recoveryText, {
+            sessionWebhook: ctx.sessionWebhook,
+            atUserId: !ctx.isDirect ? ctx.senderId : null,
+            log,
+            accountId: ctx.accountId,
+            storePath: ctx.storePath,
+            conversationId: ctx.groupId,
+            quotedRef: ctx.replyQuotedRef,
+            forceMarkdown: true,
+          });
+          if (!sendResult.ok) {
+            log?.warn?.(
+              `[DingTalk][Finalize] Markdown fallback after FINISHED card failed: ${sendResult.error}`,
+            );
+          }
+        } else {
+          log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED and no new content");
+        }
         lifecycleState = "sealed";
         return;
       }

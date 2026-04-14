@@ -757,11 +757,51 @@ describe("reply-strategy-card", () => {
             expect(rendered).not.toContain("🛠️ Exec: printf ok");
         });
 
-        it("skips finalize when card is already FINISHED", async () => {
+        it("skips finalize when card is already FINISHED and no new content", async () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.finalize();
             expect(commitAICardBlocksMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).not.toHaveBeenCalled();
+        });
+
+        it("sends markdown fallback when card is already FINISHED but session-recovery produced new content", async () => {
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            await strategy.deliver({ text: "recovery answer", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const fallbackText = sendMessageMock.mock.calls[0][2];
+            expect(fallbackText).toContain("recovery answer");
+            expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
+                forceMarkdown: true,
+            });
+        });
+
+        it("keeps FINISHED recovery fallback answer-only even when reasoning content exists", async () => {
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            strategy.getReplyOptions().onReasoningStream?.({ text: "思考中" });
+            await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const fallbackText = sendMessageMock.mock.calls[0][2];
+            expect(fallbackText).toContain("final answer");
+            expect(fallbackText).not.toContain("> 思考中");
+        });
+
+        it("logs warning but does not throw when FINISHED recovery fallback send fails", async () => {
+            sendMessageMock.mockResolvedValueOnce({ ok: false, error: "network error" });
+            const card = makeCard({ state: AICardStatus.FINISHED });
+            const logSpy = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+            const strategy = createCardReplyStrategy(buildCtx(card, { log: logSpy }));
+            await strategy.deliver({ text: "recovery content", mediaUrls: [], kind: "final" });
+            await expect(strategy.finalize()).resolves.not.toThrow();
+            expect(logSpy.warn).toHaveBeenCalledWith(
+                expect.stringContaining("Markdown fallback after FINISHED card failed"),
+            );
         });
 
         it("sends markdown fallback with answer-only content when card FAILED", async () => {

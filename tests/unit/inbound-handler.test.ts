@@ -90,6 +90,7 @@ vi.mock("../../src/session-lock", () => ({
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
+  isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../../src/message-context-store", async () => {
@@ -1168,6 +1169,261 @@ describe("inbound-handler", () => {
         RawBody: expect.stringContaining("[附件内容摘录]"),
       }),
     );
+  });
+  describe("abort pre-lock bypass", () => {
+    const baseData = {
+      msgId: "abort_m1",
+      msgtype: "text",
+      text: { content: "停止" },
+      conversationType: "1",
+      conversationId: "cid_abort",
+      senderId: "user_1",
+      chatbotUserId: "bot_1",
+      sessionWebhook: "https://session.webhook/abort",
+      createAt: Date.now(),
+    };
+
+    it("bypasses session lock and dispatches when isAbortRequestText returns true", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: baseData,
+      } as any);
+
+      // session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      // abort dispatch should be called
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+      // abort deliver should call sendBySession
+      expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://session.webhook/abort",
+        "已停止响应",
+        expect.anything(),
+      );
+    });
+
+    it("falls back to sendMessage when sessionWebhook is absent", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendMessageMock.mockResolvedValue({ ok: true });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "",          // 无 webhook
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: { ...baseData, sessionWebhook: "" },
+      } as any);
+
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(shared.sendMessageMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "user_1",
+        "已停止响应",
+        expect.anything(),
+      );
+    });
+
+    it("acquires session lock normally when isAbortRequestText returns false", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(false);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: baseData,
+      } as any);
+
+      expect(shared.acquireSessionLockMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("swallows deliver errors in abort path without propagating", async () => {
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.sendBySessionMock.mockRejectedValue(new Error("network error"));
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: false, counts: { final: 0 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      // should not throw
+      await expect(
+        handleDingTalkMessage({
+          cfg: {},
+          accountId: "main",
+          sessionWebhook: "https://session.webhook/abort",
+          log: undefined,
+          dingtalkConfig: { dmPolicy: "open" } as any,
+          data: baseData,
+        } as any),
+      ).resolves.toBeUndefined();
+    });
+
+    it("in card mode, /stop finalizes the card with abort confirmation text (does NOT send a separate plain-text bubble)", async () => {
+      // Regression guard against future hoists. /stop in card mode follows the
+      // long-standing flow:
+      //   1. createAICard runs early (before media download — UX requirement)
+      //   2. abort branch detects /stop, captures dispatch text into the card,
+      //      then finalizes the card via finishAICard("已停止" / dispatch text)
+      // The card MUST be finalized so it doesn't sit in PROCESSING forever, and
+      // the abort confirmation must NOT be sent as a separate text bubble (that
+      // would leave both an orphan card AND a plain-text message).
+      shared.extractMessageContentMock.mockReturnValue({ text: "停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockReturnValue(true);
+      shared.createAICardMock.mockResolvedValue({
+        cardInstanceId: "card_abort_1",
+        outTrackId: "out_abort_1",
+        state: "0",
+      });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "⚙️ Agent was aborted." });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+        data: baseData,
+      } as any);
+
+      // session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      // Card mode: createAICard MUST run for /stop (visual feedback + finalize target)
+      expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+      // The card MUST be finalized with the abort confirmation text via V2 finalize path
+      expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+      expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(
+        expect.objectContaining({ cardInstanceId: "card_abort_1" }),
+        expect.objectContaining({
+          content: "⚙️ Agent was aborted.",
+          blockListJson: expect.stringContaining("⚙️ Agent was aborted."),
+        }),
+        undefined,
+      );
+      expect(shared.finishAICardMock).not.toHaveBeenCalled();
+      // No separate plain-text bubble should be sent in card mode
+      expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+      expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("strips leading @mention from group message before abort check", async () => {
+      // Simulate DingTalk not stripping @BotName from text.content in group chat.
+      // isAbortRequestText should only match the bare command ("停止"), not "@Bot 停止".
+      shared.extractMessageContentMock.mockReturnValue({ text: "@Bot 停止", messageType: "text" });
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "停止");
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: {
+          ...baseData,
+          msgId: "abort_group_mention",
+          text: { content: "@Bot 停止" },
+          conversationType: "2",
+          conversationId: "cid_group_abort",
+        },
+      } as any);
+
+      // @mention stripped → "停止" matches → session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("strips leading @mention from DM message before abort check", async () => {
+      // In multi-agent DM, text like "@Agent /stop" must still bypass the session
+      // lock after resolveSubAgentRoute returns null for slash commands.
+      shared.extractMessageContentMock.mockReturnValue({
+        text: "@Agent /stop",
+        messageType: "text",
+        atMentions: [{ name: "Agent" }],
+      });
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "/stop");
+      shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+      const rt = buildRuntime();
+      vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+        async ({ dispatcherOptions }: any) => {
+          await dispatcherOptions.deliver({ text: "已停止响应" });
+          return { queuedFinal: true, counts: { final: 1 } };
+        },
+      );
+      shared.getRuntimeMock.mockReturnValue(rt);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/abort",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as any,
+        data: {
+          ...baseData,
+          msgId: "abort_dm_mention",
+          text: { content: "@Agent /stop" },
+          conversationType: "1",
+          conversationId: "cid_dm_abort",
+        },
+      } as any);
+
+      // @mention stripped in DM → "/stop" matches → session lock should NOT be acquired
+      expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+      expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    });
   });
   it("handleDingTalkMessage does not inject [media_path:] into body — sets MediaPath on ctx instead", async () => {
     // Regression test for sandbox compatibility: the absolute host path must NOT appear

@@ -6,7 +6,7 @@
  * Reasoning display is intentionally unsupported on DingTalk markdown.
  */
 
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy";
+import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy-types";
 import { sendMessage } from "./send-service";
 
 const EMPTY_FINAL_FALLBACK_TEXT = "✅ Done";

@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import type { DingTalkConfig } from "./types";
+import type { DingTalkChannelConfig, DingTalkConfig } from "./types";
 
 const WINDOWS_ROOT_DIRECTORIES = new Set([
   "Users",
@@ -271,4 +271,120 @@ export function stripTargetPrefix(target: string): { targetId: string; isExplici
     return { targetId: target.slice(5), isExplicitUser: true };
   }
   return { targetId: target, isExplicitUser: false };
+}
+
+// ============ Onboarding Helper Functions ============
+
+const DEFAULT_ACCOUNT_ID = "default";
+
+
+/**
+ * List all DingTalk account IDs from config
+ */
+export function listDingTalkAccountIds(cfg: OpenClawConfig): string[] {
+  const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
+  if (!dingtalk) {
+    return [];
+  }
+
+  const accountIds: string[] = [];
+
+  if (dingtalk.clientId || dingtalk.clientSecret) {
+    accountIds.push(DEFAULT_ACCOUNT_ID);
+  }
+
+  if (dingtalk.accounts) {
+    accountIds.push(...Object.keys(dingtalk.accounts));
+  }
+
+  return accountIds;
+}
+
+/**
+ * Resolved DingTalk account with configuration status
+ */
+export interface ResolvedDingTalkAccount extends DingTalkConfig {
+  accountId: string;
+  configured: boolean;
+}
+
+/**
+ * Resolve a specific DingTalk account configuration
+ */
+export function resolveDingTalkAccount(
+  cfg: OpenClawConfig,
+  accountId?: string | null,
+): ResolvedDingTalkAccount {
+  const id = accountId || DEFAULT_ACCOUNT_ID;
+  const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
+
+  if (id === DEFAULT_ACCOUNT_ID) {
+    const rawConfig: DingTalkConfig = {
+      clientId: dingtalk?.clientId ?? "",
+      clientSecret: dingtalk?.clientSecret ?? "",
+      name: dingtalk?.name,
+      enabled: dingtalk?.enabled,
+      dmPolicy: dingtalk?.dmPolicy,
+      groupPolicy: dingtalk?.groupPolicy,
+      allowFrom: dingtalk?.allowFrom,
+      groupAllowFrom: dingtalk?.groupAllowFrom,
+      displayNameResolution: dingtalk?.displayNameResolution,
+      contextVisibility: dingtalk?.contextVisibility,
+      journalTTLDays: dingtalk?.journalTTLDays,
+      ackReaction: dingtalk?.ackReaction,
+      debug: dingtalk?.debug,
+      messageType: dingtalk?.messageType,
+      cardTemplateId: dingtalk?.cardTemplateId,
+      cardTemplateKey: dingtalk?.cardTemplateKey,
+      groups: dingtalk?.groups,
+      accounts: dingtalk?.accounts,
+      maxConnectionAttempts: dingtalk?.maxConnectionAttempts,
+      initialReconnectDelay: dingtalk?.initialReconnectDelay,
+      maxReconnectDelay: dingtalk?.maxReconnectDelay,
+      reconnectJitter: dingtalk?.reconnectJitter,
+      maxReconnectCycles: dingtalk?.maxReconnectCycles,
+      reconnectDeadlineMs: dingtalk?.reconnectDeadlineMs,
+      useConnectionManager: dingtalk?.useConnectionManager,
+      mediaMaxMb: dingtalk?.mediaMaxMb,
+      keepAlive: dingtalk?.keepAlive,
+      bypassProxyForSend: dingtalk?.bypassProxyForSend,
+      proactivePermissionHint: dingtalk?.proactivePermissionHint,
+      cardStreamingMode: dingtalk?.cardStreamingMode,
+      cardRealTimeStream: dingtalk?.cardRealTimeStream,
+      cardStreamInterval: dingtalk?.cardStreamInterval,
+      aicardDegradeMs: dingtalk?.aicardDegradeMs,
+      learningEnabled: dingtalk?.learningEnabled,
+      learningAutoApply: dingtalk?.learningAutoApply,
+      learningNoteTtlMs: dingtalk?.learningNoteTtlMs,
+      convertMarkdownTables: dingtalk?.convertMarkdownTables,
+      cardAtSender: dingtalk?.cardAtSender,
+    };
+    const config = stripRemovedLegacyFields(rawConfig);
+    return {
+      ...config,
+      accountId: id,
+      configured: Boolean(config.clientId && config.clientSecret),
+    };
+  }
+
+  const accountConfig = dingtalk?.accounts?.[id];
+  if (accountConfig) {
+    const merged = mergeAccountWithDefaults(
+      dingtalk as DingTalkConfig,
+      accountConfig,
+    );
+    const publicMerged = stripRemovedLegacyFields(merged);
+    return {
+      ...publicMerged,
+      accountId: id,
+      configured: Boolean(merged.clientId && merged.clientSecret),
+    };
+  }
+
+  return {
+    clientId: "",
+    clientSecret: "",
+    accountId: id,
+    configured: false,
+  };
 }

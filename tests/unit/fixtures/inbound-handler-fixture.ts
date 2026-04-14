@@ -106,6 +106,7 @@ export function applyInboundHandlerMocks(mocks: ReturnType<typeof createInboundH
 
   vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
     isAbortRequestText: mocks.isAbortRequestTextMock,
+    isBtwRequestText: vi.fn().mockReturnValue(false),
   }));
 
   vi.mock("../../../src/message-context-store", async () => {

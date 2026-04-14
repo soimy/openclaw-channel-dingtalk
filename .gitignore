@@ -5,6 +5,7 @@ package-lock.json
 # worktree
 .worktrees
 .worktree
+.claude/worktrees/
 
 # Build files
 dist/
@@ -44,5 +45,6 @@ credentials.json
 
 # playwright-generated files
 .playwright*/
+output/
 .vercel
 .env*.local

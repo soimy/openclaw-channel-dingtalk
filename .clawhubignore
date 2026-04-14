@@ -3,6 +3,7 @@
 
 # Developer tooling stays out of plugin bundles.
 scripts/
+output/
 
 !LICENSE
 !README.md
