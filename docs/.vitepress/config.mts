@@ -75,7 +75,7 @@ export default defineConfig({
 
       const defaultImageRenderer =
         md.renderer.rules.image ??
-        ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+        ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
 
       md.renderer.rules.image = (tokens, idx, options, env, self) => {
         const token = tokens[idx]
@@ -167,8 +167,12 @@ export default defineConfig({
           items: [
             { text: '概览', link: '/contributor/' },
             { text: '仓库 TODO', link: '/contributor/todo' },
+            { text: '贡献者与 Agent 工作流', link: '/contributor/agent-workflow' },
             { text: '本地开发', link: '/contributor/development' },
             { text: '测试与验证', link: '/contributor/testing' },
+            { text: '发布流程', link: '/contributor/release-process' },
+            { text: 'GitNexus 首选工作流', link: '/contributor/gitnexus-optional' },
+            { text: '无 GitNexus 的手工导航', link: '/contributor/fallback-navigation' },
             { text: 'NPM 发布', link: '/contributor/npm-publish' },
             { text: '架构说明（中文详版）', link: '/contributor/architecture.zh-CN' },
             { text: 'Persistence API 使用指南', link: '/contributor/reference/persistence-api-usage.zh-CN' },
