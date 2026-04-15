@@ -1,17 +1,29 @@
 import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
+import { getAccessToken } from "./src/auth";
 import { dingtalkPlugin } from "./src/channel";
-import { getConfig } from "./src/config";
-import { appendToDoc, createDoc, DocCreateAppendError, listDocs, searchDocs } from "./src/docs-service";
+import {
+  getConfig,
+  listDingTalkAccountIds,
+  resolveDingTalkAccount,
+} from "./src/config";
+import {
+  appendToDoc,
+  createDoc,
+  DocCreateAppendError,
+  listDocs,
+  searchDocs,
+} from "./src/docs-service";
 import { setDingTalkRuntime } from "./src/runtime";
+import { sendMessage } from "./src/send-service";
 
 type GatewayMethodContext = Pick<
   Parameters<Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1]>[0],
-  "params" | "respond"
+  "context" | "params" | "respond"
 >;
 
 function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
-  api.registerGatewayMethod("dingtalk.docs.create", async ({ respond, params }: GatewayMethodContext) => {
+  const createHandler = async ({ respond, params }: GatewayMethodContext) => {
     const accountId = readStringParam(params, "accountId");
     const spaceId = readStringParam(params, "spaceId", { required: true });
     const title = readStringParam(params, "title", { required: true });
@@ -40,34 +52,195 @@ function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
       }
       throw error;
     }
-  });
+  };
 
-  api.registerGatewayMethod("dingtalk.docs.append", async ({ respond, params }: GatewayMethodContext) => {
+  const appendHandler = async ({ respond, params }: GatewayMethodContext) => {
     const accountId = readStringParam(params, "accountId");
     const docId = readStringParam(params, "docId", { required: true });
     const content = readStringParam(params, "content", { required: true, allowEmpty: false });
     const config = getConfig(api.config, accountId ?? undefined);
     const result = await appendToDoc(config, docId, content, api.logger);
     return respond(true, result);
-  });
+  };
 
-  api.registerGatewayMethod("dingtalk.docs.search", async ({ respond, params }: GatewayMethodContext) => {
+  const searchHandler = async ({ respond, params }: GatewayMethodContext) => {
     const accountId = readStringParam(params, "accountId");
     const keyword = readStringParam(params, "keyword", { required: true });
     const spaceId = readStringParam(params, "spaceId");
     const config = getConfig(api.config, accountId ?? undefined);
     const docs = await searchDocs(config, keyword, spaceId, api.logger);
     return respond(true, { docs });
-  });
+  };
 
-  api.registerGatewayMethod("dingtalk.docs.list", async ({ respond, params }: GatewayMethodContext) => {
+  const listHandler = async ({ respond, params }: GatewayMethodContext) => {
     const accountId = readStringParam(params, "accountId");
     const spaceId = readStringParam(params, "spaceId", { required: true });
     const parentId = readStringParam(params, "parentId");
     const config = getConfig(api.config, accountId ?? undefined);
     const docs = await listDocs(config, spaceId, parentId, api.logger);
     return respond(true, { docs });
+  };
+
+  api.registerGatewayMethod("dingtalk.docs.create", createHandler);
+  api.registerGatewayMethod("dingtalk.docs.append", appendHandler);
+  api.registerGatewayMethod("dingtalk.docs.search", searchHandler);
+  api.registerGatewayMethod("dingtalk.docs.list", listHandler);
+  api.registerGatewayMethod("dingtalk-connector.docs.create", createHandler);
+  api.registerGatewayMethod("dingtalk-connector.docs.append", appendHandler);
+  api.registerGatewayMethod("dingtalk-connector.docs.search", searchHandler);
+  api.registerGatewayMethod("dingtalk-connector.docs.list", listHandler);
+}
+
+function getContentParam(params: Record<string, unknown>): string | undefined {
+  return (
+    readStringParam(params, "content") ??
+    readStringParam(params, "message")
+  );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+async function sendGatewayMessage(params: {
+  api: OpenClawPluginApi;
+  respond: GatewayMethodContext["respond"];
+  accountId?: string;
+  target: string;
+  content: string;
+  storePath?: string;
+  useAICard?: unknown;
+}) {
+  const config = getConfig(params.api.config, params.accountId);
+  const accountId = params.accountId ?? "default";
+  if (!config.clientId || !config.clientSecret) {
+    return params.respond(false, { error: "DingTalk not configured" });
+  }
+  const result = await sendMessage(config, params.target, params.content, {
+    log: params.api.logger,
+    accountId,
+    conversationId: params.target,
+    storePath: params.storePath,
+    forceMarkdown: params.useAICard === false,
   });
+  return params.respond(
+    result.ok,
+    result.ok
+      ? {
+          ok: true,
+          target: params.target,
+          messageId:
+            result.messageId ??
+            result.tracking?.processQueryKey ??
+            result.tracking?.cardInstanceId ??
+            null,
+          tracking: result.tracking ?? null,
+        }
+      : { error: result.error || "send failed" },
+  );
+}
+
+function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPluginApi): void {
+  api.registerGatewayMethod(
+    "dingtalk-connector.sendToUser",
+    async ({ context, respond, params }: GatewayMethodContext) => {
+      const accountId = readStringParam(params, "accountId");
+      const userId = readStringParam(params, "userId", { required: true });
+      const content = getContentParam(params);
+      if (!content) {
+        return respond(false, { error: "content or message is required" });
+      }
+      return sendGatewayMessage({
+        api,
+        respond,
+        accountId: accountId ?? undefined,
+        target: `user:${userId}`,
+        content,
+        storePath: context?.cronStorePath,
+        useAICard: params.useAICard,
+      });
+    },
+  );
+
+  api.registerGatewayMethod(
+    "dingtalk-connector.sendToGroup",
+    async ({ context, respond, params }: GatewayMethodContext) => {
+      const accountId = readStringParam(params, "accountId");
+      const openConversationId = readStringParam(params, "openConversationId", { required: true });
+      const content = getContentParam(params);
+      if (!content) {
+        return respond(false, { error: "content or message is required" });
+      }
+      return sendGatewayMessage({
+        api,
+        respond,
+        accountId: accountId ?? undefined,
+        target: `group:${openConversationId}`,
+        content,
+        storePath: context?.cronStorePath,
+        useAICard: params.useAICard,
+      });
+    },
+  );
+
+  api.registerGatewayMethod(
+    "dingtalk-connector.send",
+    async ({ context, respond, params }: GatewayMethodContext) => {
+      const accountId = readStringParam(params, "accountId");
+      const target = readStringParam(params, "target", { required: true });
+      const content = getContentParam(params);
+      if (!content) {
+        return respond(false, { error: "content or message is required" });
+      }
+      return sendGatewayMessage({
+        api,
+        respond,
+        accountId: accountId ?? undefined,
+        target,
+        content,
+        storePath: context?.cronStorePath,
+        useAICard: params.useAICard,
+      });
+    },
+  );
+
+  api.registerGatewayMethod(
+    "dingtalk-connector.status",
+    async ({ respond }: GatewayMethodContext) => {
+      const accountIds = listDingTalkAccountIds(api.config);
+      const accounts = accountIds.length > 0 ? accountIds : ["default"];
+      return respond(true, {
+        channel: "dingtalk",
+        accounts: accounts.map((accountId) => {
+          const account = resolveDingTalkAccount(api.config, accountId);
+          return {
+            accountId,
+            configured: account.configured,
+            enabled: account.enabled !== false,
+            name: account.name ?? null,
+            clientId: account.clientId || null,
+          };
+        }),
+      });
+    },
+  );
+
+  api.registerGatewayMethod(
+    "dingtalk-connector.probe",
+    async ({ respond, params }: GatewayMethodContext) => {
+      const accountId = readStringParam(params, "accountId");
+      const config = getConfig(api.config, accountId ?? undefined);
+      if (!config.clientId || !config.clientSecret) {
+        return respond(false, { error: "DingTalk not configured" });
+      }
+      try {
+        await getAccessToken(config, api.logger);
+        return respond(true, { ok: true, clientId: config.clientId });
+      } catch (error: unknown) {
+        return respond(false, { error: getErrorMessage(error, "probe failed") });
+      }
+    },
+  );
 }
 
 export { dingtalkPlugin } from "./src/channel";
@@ -81,5 +254,6 @@ export default defineChannelPluginEntry({
   setRuntime: setDingTalkRuntime,
   registerFull(api) {
     registerDingTalkDocsGatewayMethods(api);
+    registerDingTalkConnectorCompatibilityGatewayMethods(api);
   },
 });
