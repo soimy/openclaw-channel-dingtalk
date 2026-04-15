@@ -13,6 +13,13 @@ export type SecretInputRef = {
 
 export type SecretInput = string | SecretInputRef;
 
+export type SecretInputResolutionFailure = {
+  source: SecretInputRef["source"];
+  provider: string;
+  id: string;
+  reason: string;
+};
+
 export const SECRET_INPUT_EXEC_TIMEOUT_MS = 5000;
 
 type SecretInputLog = {
@@ -20,6 +27,22 @@ type SecretInputLog = {
 };
 
 const execFileAsync = promisify(execFile);
+
+function buildSecretInputFailure(
+  value: SecretInputRef,
+  reason: string,
+): SecretInputResolutionFailure {
+  return {
+    source: value.source,
+    provider: value.provider,
+    id: value.id,
+    reason,
+  };
+}
+
+export function formatSecretInputResolutionFailure(failure: SecretInputResolutionFailure): string {
+  return `${failure.source}:${failure.provider}:${failure.id} - ${failure.reason}`;
+}
 
 export function buildSecretInputSchema() {
   return z.union([
@@ -77,15 +100,32 @@ export async function resolveSecretInputString(
   value: unknown,
   log?: SecretInputLog,
 ): Promise<string | undefined> {
+  return (await resolveSecretInputStringWithFailure(value, log)).value;
+}
+
+export async function resolveSecretInputStringWithFailure(
+  value: unknown,
+  log?: SecretInputLog,
+): Promise<{ value?: string; failure?: SecretInputResolutionFailure }> {
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed || undefined;
+    return { value: trimmed || undefined };
   }
   if (!isSecretInputRef(value)) {
-    return undefined;
+    return {};
   }
   if (value.source === "env") {
-    return process.env[value.id]?.trim() || undefined;
+    const envValue = process.env[value.id]?.trim();
+    if (envValue) {
+      return { value: envValue };
+    }
+    const failure = buildSecretInputFailure(value, "environment variable is not set or is empty");
+    log?.warn?.("[DingTalk][SecretInput] Failed to resolve env secret", {
+      provider: value.provider,
+      id: value.id,
+      error: failure.reason,
+    });
+    return { failure };
   }
   if (value.source === "file") {
     try {
@@ -94,14 +134,22 @@ export async function resolveSecretInputString(
       const filePath = value.id.startsWith("~/")
         ? path.resolve(os.homedir(), value.id.slice(2))
         : path.resolve(value.id);
-      return (await readFile(filePath, "utf8")).trim() || undefined;
+      const secret = (await readFile(filePath, "utf8")).trim();
+      if (secret) {
+        return { value: secret };
+      }
+      return { failure: buildSecretInputFailure(value, "file secret is empty") };
     } catch (error) {
+      const failure = buildSecretInputFailure(
+        value,
+        error instanceof Error ? error.message : String(error),
+      );
       log?.warn?.("[DingTalk][SecretInput] Failed to read file secret", {
         provider: value.provider,
         id: value.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: failure.reason,
       });
-      return undefined;
+      return { failure };
     }
   }
   try {
@@ -115,23 +163,35 @@ export async function resolveSecretInputString(
       windowsHide: true,
     });
     const stdout = typeof result === "string" ? result : result.stdout;
-    return String(stdout).trim() || undefined;
+    const secret = String(stdout).trim();
+    if (secret) {
+      return { value: secret };
+    }
+    return { failure: buildSecretInputFailure(value, "exec secret output is empty") };
   } catch (error) {
+    const failure = buildSecretInputFailure(
+      value,
+      error instanceof Error ? error.message : String(error),
+    );
     log?.warn?.("[DingTalk][SecretInput] Failed to resolve exec secret", {
       provider: value.provider,
       id: value.id,
-      error: error instanceof Error ? error.message : String(error),
+      error: failure.reason,
     });
-    return undefined;
+    return { failure };
   }
 }
 
 export async function resolveDingTalkSecretConfig<T extends { clientSecret?: unknown }>(
   config: T,
   log?: SecretInputLog,
-): Promise<T & { clientSecret?: string }> {
+): Promise<
+  T & { clientSecret?: string; clientSecretResolutionFailure?: SecretInputResolutionFailure }
+> {
+  const resolvedSecret = await resolveSecretInputStringWithFailure(config.clientSecret, log);
   return {
     ...config,
-    clientSecret: await resolveSecretInputString(config.clientSecret, log),
+    clientSecret: resolvedSecret.value,
+    clientSecretResolutionFailure: resolvedSecret.failure,
   };
 }

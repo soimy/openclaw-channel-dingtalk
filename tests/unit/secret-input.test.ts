@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isConfigured } from "../../src/config";
 import { DingTalkConfigSchema } from "../../src/config-schema";
-import { resolveSecretInputString } from "../../src/secret-input";
+import {
+  formatSecretInputResolutionFailure,
+  resolveSecretInputString,
+  resolveSecretInputStringWithFailure,
+} from "../../src/secret-input";
 
 describe("SecretInput support", () => {
   let tempDir: string | undefined;
@@ -83,5 +87,40 @@ describe("SecretInput support", () => {
         id: secretPath,
       }),
     ).resolves.toBe("secret-from-file");
+  });
+
+  it("reports env SecretInput resolution failures with source context", async () => {
+    const result = await resolveSecretInputStringWithFailure({
+      source: "env",
+      provider: "env",
+      id: "DINGTALK_MISSING_SECRET",
+    });
+
+    expect(result.value).toBeUndefined();
+    expect(result.failure).toEqual({
+      source: "env",
+      provider: "env",
+      id: "DINGTALK_MISSING_SECRET",
+      reason: "environment variable is not set or is empty",
+    });
+    expect(formatSecretInputResolutionFailure(result.failure!)).toBe(
+      "env:env:DINGTALK_MISSING_SECRET - environment variable is not set or is empty",
+    );
+  });
+
+  it("reports file SecretInput resolution failures with source context", async () => {
+    const result = await resolveSecretInputStringWithFailure({
+      source: "file",
+      provider: "local",
+      id: "/missing-dingtalk-secret",
+    });
+
+    expect(result.value).toBeUndefined();
+    expect(result.failure).toMatchObject({
+      source: "file",
+      provider: "local",
+      id: "/missing-dingtalk-secret",
+    });
+    expect(result.failure?.reason).toContain("ENOENT");
   });
 });

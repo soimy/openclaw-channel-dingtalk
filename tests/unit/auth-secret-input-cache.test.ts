@@ -52,7 +52,9 @@ describe("auth.getAccessToken SecretInput cache path", () => {
         clientId: "ding_secret_ref_missing",
         clientSecret: { source: "file", provider: "local", id: "/missing" },
       } as any),
-    ).rejects.toThrow("DingTalk clientId and resolved clientSecret are required");
+    ).rejects.toThrow(
+      "DingTalk clientId and resolved clientSecret are required: clientSecret resolution failed for file:local:/missing",
+    );
     expect(mockedAxiosPost).not.toHaveBeenCalled();
   });
 });
