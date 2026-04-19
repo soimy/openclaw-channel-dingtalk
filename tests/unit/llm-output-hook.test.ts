@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { clearAllForTest, getUsage, recordRunStart } from "../../src/run-usage-store";
 
 describe("llm_output hook registration", () => {
   let registeredHooks: Map<string, Function>;
-  let mockApi: Record<string, unknown>;
+  let mockApi: OpenClawPluginApi;
 
   beforeEach(() => {
     clearAllForTest();
@@ -19,7 +20,7 @@ describe("llm_output hook registration", () => {
       on: vi.fn((hookName: string, handler: Function) => {
         registeredHooks.set(hookName, handler);
       }),
-    };
+    } as unknown as OpenClawPluginApi;
   });
 
   it("registers an llm_output hook via api.on", async () => {
