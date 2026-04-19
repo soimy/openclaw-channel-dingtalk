@@ -36,6 +36,7 @@ export interface ReplyOptions {
   onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
   onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;
+  onAgentRunStart?: GetReplyOptions["onAgentRunStart"];
   onModelSelected?: GetReplyOptions["onModelSelected"];
 }
 

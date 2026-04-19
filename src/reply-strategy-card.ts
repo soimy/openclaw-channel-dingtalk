@@ -27,6 +27,7 @@ import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext 
 import { resolveRelativePath } from "./config";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { getTaskTimeSeconds, updateSessionState } from "./session-state";
+import { recordRunStart, getUsage, clearSessionUsage } from "./run-usage-store";
 import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
@@ -86,6 +87,16 @@ export function createCardReplyStrategy(
     if (typeof resolvedUsage === "number") { info.dapi_usage = resolvedUsage; }
     if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
     if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
+    if (card.accountId && card.conversationId) {
+      const tokenUsage = getUsage(card.accountId, card.contextConversationId || card.conversationId);
+      if (tokenUsage) {
+        if (typeof tokenUsage.input === "number") { info.inputTokens = tokenUsage.input; }
+        if (typeof tokenUsage.output === "number") { info.outputTokens = tokenUsage.output; }
+        if (typeof tokenUsage.cacheRead === "number") { info.cacheRead = tokenUsage.cacheRead; }
+        if (typeof tokenUsage.cacheWrite === "number") { info.cacheWrite = tokenUsage.cacheWrite; }
+        if (typeof tokenUsage.total === "number") { info.totalTokens = tokenUsage.total; }
+      }
+    }
     return Object.keys(info).length > 0 ? JSON.stringify(info) : undefined;
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
@@ -383,6 +394,15 @@ export function createCardReplyStrategy(
           await handleAssistantBoundary();
         },
 
+        onAgentRunStart: (runId: string) => {
+          if (isLifecycleSealed()) {
+            return;
+          }
+          if (card.accountId && card.conversationId) {
+            recordRunStart(runId, card.accountId, card.contextConversationId || card.conversationId);
+          }
+        },
+
         onPartialReply: async (payload) => {
           await handleAnswerSnapshot(payload.text);
         },
@@ -563,6 +583,9 @@ export function createCardReplyStrategy(
       if (isStopRequested?.()) {
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
         lifecycleState = "sealed";
+        if (card.accountId && card.conversationId) {
+          clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+        }
         return;
       }
 
@@ -600,12 +623,18 @@ export function createCardReplyStrategy(
           log?.info?.("[DingTalk][Finalize] Skipping — card already FINISHED and no new content");
         }
         lifecycleState = "sealed";
+        if (card.accountId && card.conversationId) {
+          clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+        }
         return;
       }
 
       if (card.state === AICardStatus.STOPPED) {
         log?.info?.("[DingTalk][Finalize] Skipping — card already STOPPED");
         lifecycleState = "sealed";
+        if (card.accountId && card.conversationId) {
+          clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+        }
         return;
       }
 
@@ -633,6 +662,9 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk] Card failed but no content to fallback with");
         }
         lifecycleState = "sealed";
+        if (card.accountId && card.conversationId) {
+          clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+        }
         return;
       }
 
@@ -742,11 +774,17 @@ export function createCardReplyStrategy(
         }
       } finally {
         lifecycleState = "sealed";
+        if (card.accountId && card.conversationId) {
+          clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+        }
       }
     },
 
     async abort(_error: Error): Promise<void> {
       lifecycleState = "sealed";
+      if (card.accountId && card.conversationId) {
+        clearSessionUsage(card.accountId, card.contextConversationId || card.conversationId);
+      }
       if (!isCardInTerminalState(card.state)) {
         controller.stop();
         await controller.waitForInFlight();

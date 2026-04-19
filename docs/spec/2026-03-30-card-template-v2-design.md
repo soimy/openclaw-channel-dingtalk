@@ -93,6 +93,11 @@ export interface CardTaskInfo {
   effort?: string;      // 思维链深度（通过 onModelSelected 获取）
   dap_usage?: number;   // 钉钉 API 调用次数（插件本地计数，字段名与模板一致）
   taskTime?: number;    // 任务耗时，秒（插件本地计时）
+  inputTokens?: number; // 输入 token 数（含 cache，通过 llm_output hook 累加）
+  outputTokens?: number;// 输出 token 数
+  cacheRead?: number;   // 缓存命中读取的 token 数
+  cacheWrite?: number;  // 写入缓存的 token 数
+  totalTokens?: number; // 总 token 数
 }
 
 export interface CardBtn {
