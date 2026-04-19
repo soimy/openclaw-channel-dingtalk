@@ -39,6 +39,10 @@ interface PollResult {
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 async function apiPost(
   path: string,
   payload: Record<string, unknown>,
@@ -48,8 +52,8 @@ async function apiPost(
   const data = resp.data as Record<string, unknown>;
   const errcode = data.errcode;
   if (errcode !== undefined && errcode !== 0) {
-    const errmsg = data.errmsg ?? "unknown error";
-    throw new RegistrationError(`API error [${path}]: ${errmsg} (errcode=${errcode})`);
+    const errmsg = asString(data.errmsg) || "unknown error";
+    throw new RegistrationError(`API error [${path}]: ${errmsg} (errcode=${typeof errcode === "number" ? errcode : asString(errcode)})`);
   }
   return data;
 }
@@ -58,7 +62,7 @@ async function apiPost(
 
 async function initRegistration(): Promise<string> {
   const data = await apiPost("/app/registration/init", { source: REGISTRATION_SOURCE });
-  const nonce = String(data.nonce ?? "").trim();
+  const nonce = asString(data.nonce).trim();
   if (!nonce) {
     throw new RegistrationError("init response missing nonce");
   }
@@ -69,8 +73,8 @@ async function initRegistration(): Promise<string> {
 
 async function beginRegistration(nonce: string): Promise<BeginResult> {
   const data = await apiPost("/app/registration/begin", { nonce });
-  const deviceCode = String(data.device_code ?? "").trim();
-  const verificationUrl = String(data.verification_uri_complete ?? "").trim();
+  const deviceCode = asString(data.device_code).trim();
+  const verificationUrl = asString(data.verification_uri_complete).trim();
   if (!deviceCode) {
     throw new RegistrationError("begin response missing device_code");
   }
@@ -89,17 +93,15 @@ async function beginRegistration(nonce: string): Promise<BeginResult> {
 
 async function pollRegistration(deviceCode: string): Promise<PollResult> {
   const data = await apiPost("/app/registration/poll", { device_code: deviceCode });
-  const raw = String(data.status ?? "")
-    .trim()
-    .toUpperCase();
+  const raw = asString(data.status).trim().toUpperCase();
   const status: PollStatus = ["WAITING", "SUCCESS", "FAIL", "EXPIRED"].includes(raw)
     ? (raw as PollStatus)
     : "FAIL";
   return {
     status,
-    clientId: String(data.client_id ?? "").trim() || undefined,
-    clientSecret: String(data.client_secret ?? "").trim() || undefined,
-    failReason: String(data.fail_reason ?? "").trim() || undefined,
+    clientId: asString(data.client_id).trim() || undefined,
+    clientSecret: asString(data.client_secret).trim() || undefined,
+    failReason: asString(data.fail_reason).trim() || undefined,
   };
 }
 
@@ -135,8 +137,12 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
       try {
         result = await pollRegistration(deviceCode);
       } catch {
-        if (!retryStart) retryStart = Date.now();
-        if (Date.now() - retryStart < RETRY_WINDOW_MS) continue;
+        if (!retryStart) {
+          retryStart = Date.now();
+        }
+        if (Date.now() - retryStart < RETRY_WINDOW_MS) {
+          continue;
+        }
         throw new RegistrationError("registration polling failed after retry window");
       }
 
@@ -158,8 +164,12 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
       }
 
       // FAIL / EXPIRED — retry within window
-      if (!retryStart) retryStart = Date.now();
-      if (Date.now() - retryStart < RETRY_WINDOW_MS) continue;
+      if (!retryStart) {
+        retryStart = Date.now();
+      }
+      if (Date.now() - retryStart < RETRY_WINDOW_MS) {
+        continue;
+      }
       throw new RegistrationError(`authorization failed: ${result.failReason ?? status}`);
     }
 
