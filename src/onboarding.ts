@@ -9,6 +9,11 @@ import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
+import {
+  beginDeviceRegistration,
+  openUrlInBrowser,
+  RegistrationError,
+} from "./device-registration.js";
 
 const channel = "dingtalk" as const;
 
@@ -213,22 +218,100 @@ async function configureDingTalkAccount(params: {
   const { cfg, accountId, prompter } = params;
   const resolved = resolveDingTalkAccount(cfg, accountId);
 
-  await noteDingTalkHelp(prompter);
-
-  const clientId = await prompter.text({
-    message: "Client ID (AppKey)",
-    placeholder: "dingxxxxxxxx",
-    initialValue: resolved.clientId ?? undefined,
-    validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
+  // ── Credential acquisition: auto-register or manual ────────────────────
+  const hasExistingCredentials = Boolean(resolved.clientId && resolved.clientSecret);
+  const credentialMethod = await prompter.select({
+    message: "如何获取钉钉机器人凭证?",
+    options: [
+      { label: "自动注册 OpenClaw 钉钉机器人", value: "auto" },
+      { label: "输入已有钉钉机器人的 Client ID / Client Secret", value: "manual" },
+    ],
+    initialValue: hasExistingCredentials ? "manual" : "auto",
   });
 
-  const clientSecret = await prompter.text({
-    message: "Client Secret (AppSecret)",
-    placeholder: "xxx-xxx-xxx-xxx",
-    initialValue: resolved.clientSecret ?? undefined,
-    validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
-  });
+  let clientId: string;
+  let clientSecret: string;
 
+  if (credentialMethod === "auto") {
+    try {
+      const session = await beginDeviceRegistration();
+
+      openUrlInBrowser(session.verificationUrl);
+
+      await prompter.note(
+        [
+          "已在浏览器中打开授权页面。",
+          "请在钉钉中扫描授权码完成注册。",
+          "",
+          "如果浏览器未自动打开，请手动访问以下链接：",
+          session.verificationUrl,
+        ].join("\n"),
+        "钉钉机器人自动注册",
+      );
+
+      const result = await session.waitForResult();
+      clientId = result.clientId;
+      clientSecret = result.clientSecret;
+
+      await prompter.note(
+        [
+          `注册成功!`,
+          `Client ID: ${clientId}`,
+          `Client Secret: ${clientSecret.slice(0, 8)}${"*".repeat(Math.max(clientSecret.length - 8, 0))}`,
+        ].join("\n"),
+        "注册完成",
+      );
+    } catch (err) {
+      const message = err instanceof RegistrationError ? err.message : String(err);
+      await prompter.note(
+        [
+          `自动注册失败: ${message}`,
+          "",
+          "将回退到手动输入模式。",
+        ].join("\n"),
+        "注册失败",
+      );
+      // Fall through to manual path
+      await noteDingTalkHelp(prompter);
+      clientId = String(
+        await prompter.text({
+          message: "Client ID (AppKey)",
+          placeholder: "dingxxxxxxxx",
+          initialValue: resolved.clientId ?? undefined,
+          validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
+        }),
+      ).trim();
+      clientSecret = String(
+        await prompter.text({
+          message: "Client Secret (AppSecret)",
+          placeholder: "xxx-xxx-xxx-xxx",
+          initialValue: resolved.clientSecret ?? undefined,
+          validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
+        }),
+      ).trim();
+    }
+  } else {
+    // Manual path — existing behavior
+    await noteDingTalkHelp(prompter);
+    clientId = String(
+      await prompter.text({
+        message: "Client ID (AppKey)",
+        placeholder: "dingxxxxxxxx",
+        initialValue: resolved.clientId ?? undefined,
+        validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
+      }),
+    ).trim();
+    clientSecret = String(
+      await prompter.text({
+        message: "Client Secret (AppSecret)",
+        placeholder: "xxx-xxx-xxx-xxx",
+        initialValue: resolved.clientSecret ?? undefined,
+        validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
+      }),
+    ).trim();
+  }
+
+  // ── Remaining configuration (unchanged) ────────────────────────────────
   const wantsCardMode = await prompter.confirm({
     message: "Enable AI interactive card mode? (for streaming AI responses)",
     initialValue: resolved.messageType === "card",
