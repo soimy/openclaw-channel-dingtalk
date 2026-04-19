@@ -7,6 +7,20 @@ vi.mock("openclaw/plugin-sdk/setup", () => ({
     formatDocsLink: (path: string) => `https://docs.example${path}`,
 }));
 
+const mockBeginDeviceRegistration = vi.fn();
+const mockOpenUrlInBrowser = vi.fn();
+
+vi.mock("../../src/device-registration", () => ({
+  beginDeviceRegistration: (...args: unknown[]) => mockBeginDeviceRegistration(...args),
+  openUrlInBrowser: (...args: unknown[]) => mockOpenUrlInBrowser(...args),
+  RegistrationError: class RegistrationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "RegistrationError";
+    }
+  },
+}));
+
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "../../src/onboarding";
 
 function listAccountIds(cfg: OpenClawConfig): string[] {
@@ -98,10 +112,11 @@ describe("dingtalk setup wizard", () => {
 
         const select = vi
             .fn()
-            .mockResolvedValueOnce("answer")
-            .mockResolvedValueOnce("allowlist")
-            .mockResolvedValueOnce("allowlist")
-            .mockResolvedValueOnce("all");
+            .mockResolvedValueOnce("manual")     // credential method
+            .mockResolvedValueOnce("answer")     // cardStreamingMode
+            .mockResolvedValueOnce("allowlist")  // dmPolicy
+            .mockResolvedValueOnce("allowlist")  // groupPolicy
+            .mockResolvedValueOnce("all");       // displayNameResolution
 
         const result = await runSetupWizardConfigure({
             cfg: {} as any,
@@ -173,9 +188,10 @@ describe("dingtalk setup wizard", () => {
 
         const select = vi
             .fn()
-            .mockResolvedValueOnce("open")
-            .mockResolvedValueOnce("disabled")
-            .mockResolvedValueOnce("disabled");
+            .mockResolvedValueOnce("manual")     // credential method
+            .mockResolvedValueOnce("open")       // dmPolicy
+            .mockResolvedValueOnce("disabled")   // groupPolicy
+            .mockResolvedValueOnce("disabled");  // displayNameResolution
 
         const result = await runSetupWizardConfigure({
             cfg: {} as any,
@@ -191,5 +207,142 @@ describe("dingtalk setup wizard", () => {
         expect(dingtalkConfig.groupPolicy).toBe("disabled");
         expect(dingtalkConfig.groupAllowFrom).toBeUndefined();
         expect(text).toHaveBeenCalledTimes(6);
+    });
+
+    it("auto-register branch writes credentials to config", async () => {
+        mockBeginDeviceRegistration.mockResolvedValueOnce({
+            verificationUrl: "https://oapi.dingtalk.com/verify?code=test",
+            waitForResult: vi.fn().mockResolvedValueOnce({
+                clientId: "ding-auto-id",
+                clientSecret: "ding-auto-secret-12345",
+            }),
+        });
+
+        const note = vi.fn();
+        const text = vi
+            .fn()
+            .mockResolvedValueOnce("")       // mediaUrlAllowlist
+            .mockResolvedValueOnce("")       // groupAllowFrom
+            .mockResolvedValueOnce("7")      // maxReconnectCycles
+            .mockResolvedValueOnce("20")     // mediaMaxMb
+            .mockResolvedValueOnce("14");    // journalTTLDays
+
+        const confirm = vi
+            .fn()
+            .mockResolvedValueOnce(false)    // card mode
+            .mockResolvedValueOnce(true)     // reconnect limits
+            .mockResolvedValueOnce(true)     // mediaMaxMb
+            .mockResolvedValueOnce(true);    // journalTTLDays
+
+        const select = vi
+            .fn()
+            .mockResolvedValueOnce("auto")       // credential method
+            .mockResolvedValueOnce("open")       // dmPolicy
+            .mockResolvedValueOnce("open")       // groupPolicy
+            .mockResolvedValueOnce("disabled");  // displayNameResolution
+
+        const result = await runSetupWizardConfigure({
+            cfg: {} as any,
+            prompter: { note, text, confirm, select } as unknown as WizardPrompter,
+        });
+
+        const dingtalkConfig = result.cfg.channels?.dingtalk;
+        expect(dingtalkConfig).toBeTruthy();
+        if (!dingtalkConfig) throw new Error("Expected dingtalk config");
+
+        expect(dingtalkConfig.clientId).toBe("ding-auto-id");
+        expect(dingtalkConfig.clientSecret).toBe("ding-auto-secret-12345");
+        expect(mockOpenUrlInBrowser).toHaveBeenCalledWith(
+            "https://oapi.dingtalk.com/verify?code=test",
+        );
+    });
+
+    it("auto-register failure falls back to manual input", async () => {
+        mockBeginDeviceRegistration.mockRejectedValueOnce(
+            new (class extends Error {
+              name = "RegistrationError";
+              constructor() { super("network timeout"); }
+            })(),
+        );
+
+        const note = vi.fn();
+        const text = vi
+            .fn()
+            .mockResolvedValueOnce("ding-fallback-id")    // clientId (manual)
+            .mockResolvedValueOnce("ding-fallback-secret") // clientSecret (manual)
+            .mockResolvedValueOnce("")       // mediaUrlAllowlist
+            .mockResolvedValueOnce("")       // groupAllowFrom
+            .mockResolvedValueOnce("10")     // maxReconnectCycles
+            .mockResolvedValueOnce("20")     // mediaMaxMb
+            .mockResolvedValueOnce("7");     // journalTTLDays
+
+        const confirm = vi
+            .fn()
+            .mockResolvedValueOnce(false)    // card mode
+            .mockResolvedValueOnce(true)     // reconnect limits
+            .mockResolvedValueOnce(true)     // mediaMaxMb
+            .mockResolvedValueOnce(true);    // journalTTLDays
+
+        const select = vi
+            .fn()
+            .mockResolvedValueOnce("auto")       // credential method (chooses auto but it fails)
+            .mockResolvedValueOnce("open")       // dmPolicy
+            .mockResolvedValueOnce("open")       // groupPolicy
+            .mockResolvedValueOnce("disabled");  // displayNameResolution
+
+        const result = await runSetupWizardConfigure({
+            cfg: {} as any,
+            prompter: { note, text, confirm, select } as unknown as WizardPrompter,
+        });
+
+        const dingtalkConfig = result.cfg.channels?.dingtalk;
+        expect(dingtalkConfig).toBeTruthy();
+        if (!dingtalkConfig) throw new Error("Expected dingtalk config");
+
+        expect(dingtalkConfig.clientId).toBe("ding-fallback-id");
+        expect(dingtalkConfig.clientSecret).toBe("ding-fallback-secret");
+        expect(note).toHaveBeenCalledWith(expect.stringContaining("network timeout"), expect.any(String));
+    });
+
+    it("manual branch works unchanged", async () => {
+        mockBeginDeviceRegistration.mockReset();
+
+        const note = vi.fn();
+        const text = vi
+            .fn()
+            .mockResolvedValueOnce("ding-manual-id")
+            .mockResolvedValueOnce("ding-manual-secret")
+            .mockResolvedValueOnce("")
+            .mockResolvedValueOnce("")
+            .mockResolvedValueOnce("10")
+            .mockResolvedValueOnce("20")
+            .mockResolvedValueOnce("7");
+
+        const confirm = vi
+            .fn()
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true);
+
+        const select = vi
+            .fn()
+            .mockResolvedValueOnce("manual")     // credential method
+            .mockResolvedValueOnce("open")       // dmPolicy
+            .mockResolvedValueOnce("open")       // groupPolicy
+            .mockResolvedValueOnce("disabled");  // displayNameResolution
+
+        const result = await runSetupWizardConfigure({
+            cfg: {} as any,
+            prompter: { note, text, confirm, select } as unknown as WizardPrompter,
+        });
+
+        const dingtalkConfig = result.cfg.channels?.dingtalk;
+        expect(dingtalkConfig).toBeTruthy();
+        if (!dingtalkConfig) throw new Error("Expected dingtalk config");
+
+        expect(dingtalkConfig.clientId).toBe("ding-manual-id");
+        expect(dingtalkConfig.clientSecret).toBe("ding-manual-secret");
+        expect(mockBeginDeviceRegistration).not.toHaveBeenCalled();
     });
 });
