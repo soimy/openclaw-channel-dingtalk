@@ -280,9 +280,10 @@ describe("openUrlInBrowser", () => {
   });
 
   it("does not throw when exec fails", () => {
-    vi.mocked(exec).mockImplementationOnce((_cmd: string, cb: (err: Error | null) => void) => {
+    vi.mocked(exec).mockImplementationOnce(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as (err: Error | null) => void;
       cb(new Error("no browser"));
-    });
+    }) as typeof exec);
     expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
   });
 });
