@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { clearAllForTest, getUsage, recordRunStart } from "../../src/run-usage-store";
+import { clearAllForTest, getUsageByRunId, recordRunStart } from "../../src/run-usage-store";
 
 describe("llm_output hook registration", () => {
   let registeredHooks: Map<string, Function>;
@@ -42,7 +42,7 @@ describe("llm_output hook registration", () => {
     const handler = registeredHooks.get("llm_output")!;
     expect(handler).toBeDefined();
 
-    recordRunStart("run-abc", "acct-1", "conv-1");
+    recordRunStart("run-abc");
 
     await handler(
       {
@@ -56,7 +56,7 @@ describe("llm_output hook registration", () => {
       { channelId: "dingtalk", sessionId: "session-xyz" },
     );
 
-    expect(getUsage("acct-1", "conv-1")).toEqual({
+    expect(getUsageByRunId("run-abc")).toEqual({
       input: 100,
       output: 50,
       total: 150,
@@ -70,7 +70,7 @@ describe("llm_output hook registration", () => {
 
     const handler = registeredHooks.get("llm_output")!;
 
-    recordRunStart("run-skip", "acct-2", "conv-2");
+    recordRunStart("run-skip");
 
     await handler(
       {
@@ -83,6 +83,6 @@ describe("llm_output hook registration", () => {
       { channelId: "dingtalk", sessionId: "session-skip" },
     );
 
-    expect(getUsage("acct-2", "conv-2")).toBeUndefined();
+    expect(getUsageByRunId("run-skip")).toEqual({});
   });
 });
