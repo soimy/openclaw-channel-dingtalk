@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import httpClient from "./http-client.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -124,32 +124,50 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
     signal?: AbortSignal;
   }): Promise<RegistrationResult> => {
     const deadline = Date.now() + expiresIn * 1000;
-    let retryStart = 0;
+    let networkRetryStart = 0;
+    let statusRetryStart = 0;
+
+    const signal = options?.signal;
+    const abortPromise = signal
+      ? new Promise<never>((_resolve, reject) => {
+          const handler = () => reject(new RegistrationError("registration cancelled"));
+          signal.addEventListener("abort", handler, { once: true });
+        })
+      : null;
 
     while (Date.now() < deadline) {
-      if (options?.signal?.aborted) {
+      if (signal?.aborted) {
         throw new RegistrationError("registration cancelled");
       }
 
-      await new Promise((resolve) => setTimeout(resolve, interval * 1000));
+      // AbortSignal-aware sleep
+      await (abortPromise
+        ? Promise.race([
+            new Promise((resolve) => setTimeout(resolve, interval * 1000)),
+            abortPromise,
+          ])
+        : new Promise((resolve) => setTimeout(resolve, interval * 1000)));
 
       let result: PollResult;
       try {
         result = await pollRegistration(deviceCode);
       } catch {
-        if (!retryStart) {
-          retryStart = Date.now();
+        if (!networkRetryStart) {
+          networkRetryStart = Date.now();
         }
-        if (Date.now() - retryStart < RETRY_WINDOW_MS) {
+        if (Date.now() - networkRetryStart < RETRY_WINDOW_MS) {
           continue;
         }
         throw new RegistrationError("registration polling failed after retry window");
       }
 
+      // Successful poll resets network retry window
+      networkRetryStart = 0;
+
       const { status } = result;
 
       if (status === "WAITING") {
-        retryStart = 0;
+        statusRetryStart = 0;
         options?.onWaiting?.();
         continue;
       }
@@ -163,11 +181,15 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
         return { clientId, clientSecret };
       }
 
-      // FAIL / EXPIRED — retry within window
-      if (!retryStart) {
-        retryStart = Date.now();
+      if (status === "EXPIRED") {
+        throw new RegistrationError("authorization expired, please restart registration");
       }
-      if (Date.now() - retryStart < RETRY_WINDOW_MS) {
+
+      // FAIL — retry within window
+      if (!statusRetryStart) {
+        statusRetryStart = Date.now();
+      }
+      if (Date.now() - statusRetryStart < RETRY_WINDOW_MS) {
         continue;
       }
       throw new RegistrationError(`authorization failed: ${result.failReason ?? status}`);
@@ -183,16 +205,19 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
 
 export function openUrlInBrowser(url: string): void {
   const platform = process.platform;
-  let command: string;
+  let bin: string;
+  let args: string[];
   if (platform === "darwin") {
-    command = `open "${url}"`;
+    bin = "open";
+    args = [url];
   } else if (platform === "win32") {
-    command = `start "" "${url}"`;
+    bin = "cmd";
+    args = ["/c", "start", "", url];
   } else {
-    command = `xdg-open "${url}"`;
+    bin = "xdg-open";
+    args = [url];
   }
-  exec(command, (err) => {
-    // Silently ignore — caller falls back to note() with the URL
+  execFile(bin, args, (err) => {
     void err;
   });
 }

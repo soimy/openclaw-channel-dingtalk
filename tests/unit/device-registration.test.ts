@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import httpClient from "../../src/http-client";
 
@@ -9,7 +9,7 @@ vi.mock("../../src/http-client", () => ({
 }));
 
 vi.mock("node:child_process", () => ({
-  exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 import {
@@ -246,44 +246,44 @@ describe("openUrlInBrowser", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls exec with 'open' on darwin", () => {
+  it("calls execFile with 'open' on darwin", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "darwin" });
     try {
       openUrlInBrowser("https://example.com");
-      expect(exec).toHaveBeenCalledWith('open "https://example.com"', expect.any(Function));
+      expect(execFile).toHaveBeenCalledWith("open", ["https://example.com"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
   });
 
-  it("calls exec with 'xdg-open' on linux", () => {
+  it("calls execFile with 'xdg-open' on linux", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "linux" });
     try {
       openUrlInBrowser("https://example.com");
-      expect(exec).toHaveBeenCalledWith('xdg-open "https://example.com"', expect.any(Function));
+      expect(execFile).toHaveBeenCalledWith("xdg-open", ["https://example.com"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
   });
 
-  it("calls exec with 'start' on win32", () => {
+  it("calls execFile with 'cmd' on win32", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "win32" });
     try {
       openUrlInBrowser("https://example.com");
-      expect(exec).toHaveBeenCalledWith('start "" "https://example.com"', expect.any(Function));
+      expect(execFile).toHaveBeenCalledWith("cmd", ["/c", "start", "", "https://example.com"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
   });
 
-  it("does not throw when exec fails", () => {
-    vi.mocked(exec).mockImplementationOnce(((...args: unknown[]) => {
+  it("does not throw when execFile fails", () => {
+    vi.mocked(execFile).mockImplementationOnce(((...args: unknown[]) => {
       const cb = args[args.length - 1] as (err: Error | null) => void;
       cb(new Error("no browser"));
-    }) as typeof exec);
+    }) as typeof execFile);
     expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
   });
 });
