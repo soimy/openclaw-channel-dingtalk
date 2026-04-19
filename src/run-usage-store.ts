@@ -19,7 +19,7 @@ export function recordRunStart(runId: string, accountId: string, conversationId:
 
 export function accumulateUsage(runId: string, usage: UsageAccumulation): void {
   const mapping = runMappings.get(runId);
-  if (!mapping) return;
+  if (!mapping) { return; }
 
   const key = sessionKey(mapping.accountId, mapping.conversationId);
   const existing = usageStore.get(key) ?? {};
