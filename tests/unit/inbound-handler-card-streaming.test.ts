@@ -685,6 +685,74 @@ describe("inbound-handler card streaming", () => {
       expect(blockListJson).toContain("先检查当前目录");
       expect(blockListJson).toContain("最终答案：/tmp");
     });
+
+    it("card flow recovers thinking and answer from mixed reasoning-on partial snapshots", async () => {
+      const runtime = buildRuntime();
+      runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+        .fn()
+        .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+          expect(replyOptions?.disableBlockStreaming).toBe(false);
+          await replyOptions?.onPartialReply?.({
+            text: "Reasoning:\n_Reason: 先检查当前目录_\n\n最终答案：/tmp",
+          });
+          await dispatcherOptions.deliver({ text: "" }, { kind: "final" });
+          return { queuedFinal: false };
+        });
+      runtime.channel.session.resolveStorePath = vi
+        .fn()
+        .mockReturnValueOnce("/tmp/account-store-card-mixed-reasoning-partial.json")
+        .mockReturnValueOnce("/tmp/agent-store-card-mixed-reasoning-partial.json");
+      runtime.channel.session.readSessionUpdatedAt = vi.fn().mockReturnValue(1234567890);
+      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      fs.writeFileSync(
+        "/tmp/agent-store-card-mixed-reasoning-partial.json",
+        JSON.stringify({
+          s1: {
+            sessionId: "session-card-mixed-reasoning-partial",
+            updatedAt: 1234567890,
+            reasoningLevel: "on",
+          },
+        }),
+      );
+
+      const card = {
+        cardInstanceId: "card_reasoning_on_mixed_partial",
+        state: "1",
+        lastUpdated: Date.now(),
+      } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
+      shared.createAICardMock.mockResolvedValueOnce(card);
+      shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          dmPolicy: "open",
+          messageType: "card",
+          ackReaction: "",
+        } as unknown as DingTalkConfig,
+        data: {
+          msgId: "m_card_reasoning_on_mixed_partial",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as unknown as { data: unknown });
+
+      expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+      const commitPayload = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1];
+      expect(commitPayload?.blockListJson ?? "").toContain("先检查当前目录");
+      expect(commitPayload?.blockListJson ?? "").toContain("最终答案：/tmp");
+      expect(commitPayload?.content ?? "").toContain("最终答案：/tmp");
+      expect(commitPayload?.content ?? "").not.toContain("Reason: 先检查当前目录");
+    });
   });
 
   describe("late block and tool handling", () => {

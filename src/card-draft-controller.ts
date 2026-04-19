@@ -26,6 +26,13 @@ type TimelineEntry = {
     mediaId?: string;
 };
 
+// DingTalk markdown variable token definitions:
+// https://open.dingtalk.com/document/development/markdown-variable-new
+const PROCESS_BLOCK_FONT_SIZE_TOKEN = "common_footnote_text_style__font_size";
+// DingTalk markdown variable token definitions:
+// https://open.dingtalk.com/document/development/markdown-variable-new
+const PROCESS_BLOCK_FONT_COLOR_TOKEN_V2 = "common_level2_base_color";
+
 export interface CardDraftController {
     updateAnswer: (text: string, options?: { stream?: boolean; renderBlocks?: boolean }) => Promise<void>;
     updateReasoning: (text: string) => Promise<void>;
@@ -84,7 +91,10 @@ function normalizeAnswerText(text: string | undefined): string {
 }
 
 function wrapProcessBlockMarkdown(text: string): string {
-    return `> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>${text}</font>`;
+    const lines = text.split("\n").filter((line) => line.trim());
+    return lines
+        .map((line) => `> <font sizeToken=${PROCESS_BLOCK_FONT_SIZE_TOKEN} colorTokenV2=${PROCESS_BLOCK_FONT_COLOR_TOKEN_V2}>${line}</font>`)
+        .join("\n");
 }
 
 export function createCardDraftController(params: {

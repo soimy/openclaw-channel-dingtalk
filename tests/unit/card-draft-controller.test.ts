@@ -43,7 +43,10 @@ function getBlockText(blocks: CardBlock[], index: number): string {
 }
 
 function getProcessBlockText(text: string): string {
-    return `> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>${text}</font>`;
+    const lines = text.split("\n").filter((line) => line.trim());
+    return lines
+        .map((line) => `> <font sizeToken=common_footnote_text_style__font_size colorTokenV2=common_level2_base_color>${line}</font>`)
+        .join("\n");
 }
 
 describe("card-draft-controller", () => {
@@ -99,8 +102,29 @@ describe("card-draft-controller", () => {
         const blocks = parseBlocks(sentContent);
         expect(blocks[0]).toEqual({
             type: 1,
-            markdown: "> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>Analyzing...</font>",
+            markdown: getProcessBlockText("Analyzing..."),
         });
+    });
+
+    it("wraps multi-line thinking blocks with per-line quote and font styling", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        await ctrl.appendThinkingBlock("Reason: 先检查当前目录\n还在整理发送链路\n确认 reply strategy 入口");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        expect(blocks[0]).toEqual({
+            type: 1,
+            markdown: getProcessBlockText("Reason: 先检查当前目录\n还在整理发送链路\n确认 reply strategy 入口"),
+        });
+        // Each line must have its own `> <font>...</font>` wrapper
+        const lines = blocks[0]?.markdown?.split("\n") ?? [];
+        expect(lines).toHaveLength(3);
+        for (const line of lines) {
+            expect(line).toMatch(/^> <font .+>.+<\/font>$/);
+        }
     });
 
     it("wraps tool blocks with quote and font styling", async () => {
@@ -114,7 +138,7 @@ describe("card-draft-controller", () => {
         const blocks = parseBlocks(sentContent);
         expect(blocks[0]).toEqual({
             type: 2,
-            markdown: "> <font sizeToken=common_h5_text_style__font_size colorTokenV2=common_level2_base_color>Exec: pwd</font>",
+            markdown: getProcessBlockText("Exec: pwd"),
         });
     });
 

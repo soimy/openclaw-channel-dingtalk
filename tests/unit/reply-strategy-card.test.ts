@@ -320,6 +320,29 @@ describe("reply-strategy-card", () => {
             expect(commitPayload?.blockListJson).toContain('"text":"系统图"');
         });
 
+        it("splits mixed reasoning+answer partial snapshots into thinking and answer lanes", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({
+                text: "Reasoning:\n_Reason: 先检查当前目录_\n\n最终答案：/tmp",
+            });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.blockListJson).toContain("Reason: 先检查当前目录");
+            expect(commitPayload?.blockListJson).toContain("最终答案：/tmp");
+            expect(commitPayload?.content).toContain("最终答案：/tmp");
+            expect(commitPayload?.content).not.toContain("Reason: 先检查当前目录");
+        });
+
         it("all mode streams answer partials and reasoning snapshots live", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {

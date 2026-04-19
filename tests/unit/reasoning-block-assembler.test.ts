@@ -123,6 +123,45 @@ describe("reasoning-block-assembler", () => {
         expect(assembler.flushPendingAtBoundary()).toEqual([]);
     });
 
+    it("handles multi-paragraph reasoning snapshots with growing prefix (real upstream format)", () => {
+        const assembler = createReasoningBlockAssembler();
+
+        // Snapshot 1: first paragraph still open (no closing `_`)
+        expect(
+            assembler.ingestSnapshot(
+                "Reasoning:\n_Reason: 用户需要一个PNG格式的纳米香蕉图片，并建议使用'nanobanana'技能。我需要查看是否有相关的skill",
+            ),
+        ).toEqual([]);
+
+        // Snapshot 2: first paragraph closed, second paragraph still open
+        expect(
+            assembler.ingestSnapshot(
+                "Reasoning:\n" +
+                "_Reason: 用户需要一个PNG格式的纳米香蕉图片，并建议使用'nanobanana'技能。我需要查看是否有相关的skill_\n" +
+                "_Reason: 从之前看到的可用技能列表中，我没有看到'nanobanana'这个技能",
+            ),
+        ).toEqual([
+            "Reason: 用户需要一个PNG格式的纳米香蕉图片，并建议使用'nanobanana'技能。我需要查看是否有相关的skill",
+        ]);
+
+        // Snapshot 3: both paragraphs closed, third still open
+        expect(
+            assembler.ingestSnapshot(
+                "Reasoning:\n" +
+                "_Reason: 用户需要一个PNG格式的纳米香蕉图片，并建议使用'nanobanana'技能。我需要查看是否有相关的skill_\n" +
+                "_Reason: 从之前看到的可用技能列表中，我没有看到'nanobanana'这个技能_\n" +
+                "_Reason: Canvas需要一个node参数，我可以使用HTML文件包含SVG",
+            ),
+        ).toEqual([
+            "Reason: 从之前看到的可用技能列表中，我没有看到'nanobanana'这个技能",
+        ]);
+
+        // Boundary flush emits the still-open third paragraph
+        expect(assembler.flushPendingAtBoundary()).toEqual([
+            "Reason: Canvas需要一个node参数，我可以使用HTML文件包含SVG",
+        ]);
+    });
+
     it("reset clears both consumed history and pending reasoning", () => {
         const assembler = createReasoningBlockAssembler();
 

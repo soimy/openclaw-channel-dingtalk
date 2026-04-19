@@ -276,7 +276,20 @@ export function createCardReplyStrategy(
     if (!text) {
       return;
     }
-    await controller.updateAnswer(rewriteLocalMarkdownImagesToPlaceholders(text), {
+    const rewrittenSnapshot = rewriteLocalMarkdownImagesToPlaceholders(text);
+    const normalizedSnapshot = normalizeDeliveredText(rewrittenSnapshot, { isReasoning: false });
+
+    if (normalizedSnapshot.reasoningText) {
+      await applyModeAwareReasoningSnapshot(normalizedSnapshot.reasoningText);
+    }
+
+    const answerSnapshot = normalizedSnapshot.answerText
+      ?? (!normalizedSnapshot.reasoningText ? rewrittenSnapshot : undefined);
+    if (!answerSnapshot) {
+      return;
+    }
+
+    await controller.updateAnswer(answerSnapshot, {
       stream: streamAnswerLive,
       renderBlocks: renderAnswerBlocksLive,
     });
