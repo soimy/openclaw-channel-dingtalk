@@ -6,14 +6,14 @@ import type {
   WizardPrompter,
 } from "openclaw/plugin-sdk/setup";
 import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw/plugin-sdk/setup";
-import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
-import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
 import {
   beginDeviceRegistration,
   openUrlInBrowser,
   RegistrationError,
 } from "./device-registration.js";
+import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
+import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 
 const channel = "dingtalk" as const;
 
@@ -264,11 +264,7 @@ async function configureDingTalkAccount(params: {
     } catch (err) {
       const message = err instanceof RegistrationError ? err.message : String(err);
       await prompter.note(
-        [
-          `自动注册失败: ${message}`,
-          "",
-          "将回退到手动输入模式。",
-        ].join("\n"),
+        [`自动注册失败: ${message}`, "", "将回退到手动输入模式。"].join("\n"),
         "注册失败",
       );
       // Fall through to manual path
@@ -366,7 +362,8 @@ async function configureDingTalkAccount(params: {
     initialValue: (resolved.mediaUrlAllowlist || []).join(", ") || undefined,
   });
   const mediaUrlAllowlistParsed = parseList(String(mediaUrlAllowlistEntry ?? ""));
-  const mediaUrlAllowlist = mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
+  const mediaUrlAllowlist =
+    mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
 
   const groupPolicyValue = await prompter.select({
     message: "Group message policy",
@@ -556,8 +553,7 @@ export const dingtalkSetupWizard: ChannelSetupWizard = {
     resolveStatusLines: ({ configured }) => [
       `DingTalk: ${configured ? "configured" : "needs setup"}`,
     ],
-    resolveSelectionHint: ({ configured }) =>
-      configured ? "configured" : "钉钉企业机器人",
+    resolveSelectionHint: ({ configured }) => (configured ? "configured" : "钉钉企业机器人"),
     resolveQuickstartScore: ({ configured }) => (configured ? 1 : 4),
   },
   resolveAccountIdForConfigure: async ({

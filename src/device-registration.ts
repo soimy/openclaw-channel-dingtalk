@@ -39,7 +39,10 @@ interface PollResult {
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
-async function apiPost(path: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function apiPost(
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   const url = `${REGISTRATION_BASE_URL}${path}`;
   const resp = await httpClient.post(url, payload, { timeout: 15_000 });
   const data = resp.data as Record<string, unknown>;
@@ -86,7 +89,9 @@ async function beginRegistration(nonce: string): Promise<BeginResult> {
 
 async function pollRegistration(deviceCode: string): Promise<PollResult> {
   const data = await apiPost("/app/registration/poll", { device_code: deviceCode });
-  const raw = String(data.status ?? "").trim().toUpperCase();
+  const raw = String(data.status ?? "")
+    .trim()
+    .toUpperCase();
   const status: PollStatus = ["WAITING", "SUCCESS", "FAIL", "EXPIRED"].includes(raw)
     ? (raw as PollStatus)
     : "FAIL";
@@ -155,9 +160,7 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
       // FAIL / EXPIRED — retry within window
       if (!retryStart) retryStart = Date.now();
       if (Date.now() - retryStart < RETRY_WINDOW_MS) continue;
-      throw new RegistrationError(
-        `authorization failed: ${result.failReason ?? status}`,
-      );
+      throw new RegistrationError(`authorization failed: ${result.failReason ?? status}`);
     }
 
     throw new RegistrationError("authorization timed out, please retry");
