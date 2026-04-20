@@ -1165,6 +1165,30 @@ describe("reply-strategy-card", () => {
             expect(taskInfo.agent).toBe("代码专家");
         });
 
+        it("includes partial statusLine in early onModelSelected update", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "old-model", effort: "low", agent: "TestBot" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            // Trigger onModelSelected — this calls buildTaskInfoJson() + updateAICardTaskInfo()
+            opts.onModelSelected?.({ model: "claude-sonnet-4-20250514", thinkLevel: "high" } as any);
+
+            expect(updateAICardTaskInfoMock).toHaveBeenCalled();
+            const taskInfoJson = updateAICardTaskInfoMock.mock.calls[0][1];
+            const parsed = JSON.parse(taskInfoJson);
+            // Early update has model + effort + agent but no tokens or taskTime
+            expect(parsed.statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
+            expect(parsed.statusLine).not.toContain("↑");
+        });
+
         it("uses the latest card dapi_usage at finalize after early taskInfo refresh", async () => {
             const card = makeCard({
                 accountId: "main",
