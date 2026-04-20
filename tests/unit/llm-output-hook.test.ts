@@ -2,6 +2,26 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { clearAllForTest, getUsageByRunId, recordRunStart } from "../../src/run-usage-store";
 
+vi.mock("../../src/channel", () => ({
+  dingtalkPlugin: {},
+}));
+
+vi.mock("../../src/runtime", () => ({
+  setDingTalkRuntime: vi.fn(),
+}));
+
+vi.mock("../../src/config", () => ({
+  getConfig: vi.fn(() => ({})),
+}));
+
+vi.mock("../../src/docs-service", () => ({
+  createDoc: vi.fn(),
+  appendToDoc: vi.fn(),
+  searchDocs: vi.fn(),
+  listDocs: vi.fn(),
+  DocCreateAppendError: class extends Error {},
+}));
+
 describe("llm_output hook registration", () => {
   let registeredHooks: Map<string, Function>;
   let mockApi: OpenClawPluginApi;
