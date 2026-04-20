@@ -67,10 +67,19 @@ const SEGMENTS: Segment[] = [
   { configKey: "cardStatusDapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `API×${d.dapi_usage}` : undefined },
 ];
 
+const SEGMENTS_PER_LINE = 3;
+
 export function renderStatusLine(data: StatusLineData, config: StatusLineConfig): string {
-  return SEGMENTS
+  const rendered = SEGMENTS
     .filter((seg) => config[seg.configKey] ?? seg.defaultOn)
     .map((seg) => seg.render(data))
-    .filter(Boolean)
-    .join(" | ");
+    .filter(Boolean) as string[];
+
+  if (rendered.length === 0) { return ""; }
+
+  const lines: string[] = [];
+  for (let i = 0; i < rendered.length; i += SEGMENTS_PER_LINE) {
+    lines.push(rendered.slice(i, i + SEGMENTS_PER_LINE).join(" | "));
+  }
+  return lines.join("\n");
 }
