@@ -27,6 +27,8 @@ import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext 
 import { resolveRelativePath } from "./config";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { getTaskTimeSeconds, updateSessionState } from "./session-state";
+import { renderStatusLine } from "./card/statusline-renderer";
+import type { StatusLineData } from "./card/statusline-renderer";
 import { recordRunStart, getUsageByRunId, clearRun } from "./run-usage-store";
 import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
@@ -97,6 +99,19 @@ export function createCardReplyStrategy(
         if (typeof tokenUsage.total === "number") { info.totalTokens = tokenUsage.total; }
       }
     }
+    // Assemble configurable statusline
+    const statusLineData: StatusLineData = {
+      model: info.model as string | undefined,
+      effort: info.effort as string | undefined,
+      agent: info.agent as string | undefined,
+      taskTime: info.taskTime as number | undefined,
+      inputTokens: info.inputTokens as number | undefined,
+      outputTokens: info.outputTokens as number | undefined,
+      cacheRead: info.cacheRead as number | undefined,
+      dapi_usage: info.dapi_usage as number | undefined,
+    };
+    const statusLine = renderStatusLine(statusLineData, config);
+    if (statusLine) { info.statusLine = statusLine; }
     return Object.keys(info).length > 0 ? JSON.stringify(info) : undefined;
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);

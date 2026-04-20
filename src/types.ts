@@ -94,6 +94,18 @@ export interface DingTalkConfig extends OpenClawConfig {
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
   cardAtSender?: string;
+  /** Show model name in AI card status line footer */
+  cardStatusModel?: boolean;
+  /** Show thinking effort level in AI card status line footer */
+  cardStatusEffort?: boolean;
+  /** Show agent display name in AI card status line footer */
+  cardStatusAgent?: boolean;
+  /** Show task elapsed time in AI card status line footer */
+  cardStatusTaskTime?: boolean;
+  /** Show token usage summary in AI card status line footer */
+  cardStatusTokens?: boolean;
+  /** Show DingTalk API call count in AI card status line footer */
+  cardStatusDapiUsage?: boolean;
 }
 
 /**

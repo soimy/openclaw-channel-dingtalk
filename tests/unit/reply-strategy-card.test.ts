@@ -1109,6 +1109,21 @@ describe("reply-strategy-card", () => {
             expect(taskInfo.taskTime).toBeGreaterThanOrEqual(4);
         });
 
+        it("includes statusLine in taskInfoJson on finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            await strategy.deliver({ text: "Hello", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalled();
+            const taskInfoJson = commitAICardBlocksMock.mock.calls[0][1].taskInfoJson;
+            const parsed = JSON.parse(taskInfoJson);
+            expect(parsed.statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
+        });
+
         it("omits taskInfoJson when taskMeta is not provided", async () => {
             const card = makeCard();
             const ctx = buildCtx(card);
