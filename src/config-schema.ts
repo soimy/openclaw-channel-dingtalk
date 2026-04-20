@@ -156,6 +156,24 @@ const DingTalkAccountConfigShape = {
    *  Set to a non-empty string (e.g. "✅ 回复完成") to enable — the value is used as the message text.
    *  Leave empty or omit to disable. */
   cardAtSender: z.string().optional(),
+
+  /** Show model name in AI card status line footer. */
+  cardStatusModel: z.boolean().optional().default(true),
+
+  /** Show thinking effort level in AI card status line footer. */
+  cardStatusEffort: z.boolean().optional().default(true),
+
+  /** Show agent display name in AI card status line footer. */
+  cardStatusAgent: z.boolean().optional().default(true),
+
+  /** Show task elapsed time in AI card status line footer. */
+  cardStatusTaskTime: z.boolean().optional().default(false),
+
+  /** Show token usage summary (input/output/cache) in AI card status line footer. */
+  cardStatusTokens: z.boolean().optional().default(false),
+
+  /** Show DingTalk API call count in AI card status line footer. */
+  cardStatusDapiUsage: z.boolean().optional().default(false),
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);
