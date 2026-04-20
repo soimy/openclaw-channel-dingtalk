@@ -64,7 +64,7 @@ const SEGMENTS: Segment[] = [
   { configKey: "cardStatusAgent", defaultOn: true, render: (d) => d.agent || undefined },
   { configKey: "cardStatusTaskTime", defaultOn: false, render: (d) => typeof d.taskTime === "number" ? formatDuration(d.taskTime) : undefined },
   { configKey: "cardStatusTokens", defaultOn: false, render: renderTokenSegment },
-  { configKey: "cardStatusDapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `API×${d.dapi_usage}` : undefined },
+  { configKey: "cardStatusDapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `DAPI+${d.dapi_usage}` : undefined },
 ];
 
 const SEGMENTS_PER_LINE = 3;
