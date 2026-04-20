@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { resolveRelativePath } from "./path-utils";
 
 export type SecretInputRef = {
   source: "env" | "file" | "exec";
@@ -96,6 +95,25 @@ export function normalizeSecretInputString(value: unknown): string | undefined {
   return `<${value.source}:${value.provider}:${value.id}>`;
 }
 
+export function parseSecretInputString(value: unknown): SecretInput | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const match = trimmed.match(/^<(env|file|exec):([^:>]+):(.+)>$/);
+  if (!match) {
+    return trimmed;
+  }
+  return {
+    source: match[1] as SecretInputRef["source"],
+    provider: match[2],
+    id: match[3],
+  };
+}
+
 export async function resolveSecretInputString(
   value: unknown,
   log?: SecretInputLog,
@@ -131,9 +149,7 @@ export async function resolveSecretInputStringWithFailure(
     try {
       // Trust boundary: file SecretInput reads the configured local path. Use it
       // only with trusted plugin configuration.
-      const filePath = value.id.startsWith("~/")
-        ? path.resolve(os.homedir(), value.id.slice(2))
-        : path.resolve(value.id);
+      const filePath = resolveRelativePath(value.id);
       const secret = (await readFile(filePath, "utf8")).trim();
       if (secret) {
         return { value: secret };

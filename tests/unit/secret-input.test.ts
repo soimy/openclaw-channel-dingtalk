@@ -6,6 +6,7 @@ import { isConfigured } from "../../src/config";
 import { DingTalkConfigSchema } from "../../src/config-schema";
 import {
   formatSecretInputResolutionFailure,
+  parseSecretInputString,
   resolveSecretInputString,
   resolveSecretInputStringWithFailure,
 } from "../../src/secret-input";
@@ -122,5 +123,14 @@ describe("SecretInput support", () => {
       id: "/missing-dingtalk-secret",
     });
     expect(result.failure?.reason).toContain("ENOENT");
+  });
+
+  it("parses normalized SecretInput strings back into object refs", () => {
+    expect(parseSecretInputString("<env:env:DINGTALK_TEST_SECRET>")).toEqual({
+      source: "env",
+      provider: "env",
+      id: "DINGTALK_TEST_SECRET",
+    });
+    expect(parseSecretInputString("plain-secret")).toBe("plain-secret");
   });
 });
