@@ -128,74 +128,86 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
     let statusRetryStart = 0;
 
     const signal = options?.signal;
+    let abortHandler: (() => void) | null = null;
     const abortPromise = signal
       ? new Promise<never>((_resolve, reject) => {
-          const handler = () => reject(new RegistrationError("registration cancelled"));
-          signal.addEventListener("abort", handler, { once: true });
+          abortHandler = () => reject(new RegistrationError("registration cancelled"));
+          signal.addEventListener("abort", abortHandler, { once: true });
         })
       : null;
+    // Suppress unhandled rejection when abort fires outside Promise.race
+    abortPromise?.catch(() => {});
 
-    while (Date.now() < deadline) {
-      if (signal?.aborted) {
-        throw new RegistrationError("registration cancelled");
-      }
+    const sleep = () =>
+      new Promise((resolve) => setTimeout(resolve, interval * 1000));
 
-      // AbortSignal-aware sleep
-      await (abortPromise
-        ? Promise.race([
-            new Promise((resolve) => setTimeout(resolve, interval * 1000)),
-            abortPromise,
-          ])
-        : new Promise((resolve) => setTimeout(resolve, interval * 1000)));
-
-      let result: PollResult;
-      try {
-        result = await pollRegistration(deviceCode);
-      } catch {
-        if (!networkRetryStart) {
-          networkRetryStart = Date.now();
+    try {
+      while (Date.now() < deadline) {
+        if (signal?.aborted) {
+          throw new RegistrationError("registration cancelled");
         }
-        if (Date.now() - networkRetryStart < RETRY_WINDOW_MS) {
+
+        // AbortSignal-aware sleep
+        await (abortPromise ? Promise.race([sleep(), abortPromise]) : sleep());
+
+        // Check again after sleep — abort may have fired during sleep
+        if (signal?.aborted) {
+          throw new RegistrationError("registration cancelled");
+        }
+
+        let result: PollResult;
+        try {
+          result = await pollRegistration(deviceCode);
+        } catch {
+          if (!networkRetryStart) {
+            networkRetryStart = Date.now();
+          }
+          if (Date.now() - networkRetryStart < RETRY_WINDOW_MS) {
+            continue;
+          }
+          throw new RegistrationError("registration polling failed after retry window");
+        }
+
+        // Successful poll resets network retry window
+        networkRetryStart = 0;
+
+        const { status } = result;
+
+        if (status === "WAITING") {
+          statusRetryStart = 0;
+          options?.onWaiting?.();
           continue;
         }
-        throw new RegistrationError("registration polling failed after retry window");
-      }
 
-      // Successful poll resets network retry window
-      networkRetryStart = 0;
-
-      const { status } = result;
-
-      if (status === "WAITING") {
-        statusRetryStart = 0;
-        options?.onWaiting?.();
-        continue;
-      }
-
-      if (status === "SUCCESS") {
-        const clientId = result.clientId;
-        const clientSecret = result.clientSecret;
-        if (!clientId || !clientSecret) {
-          throw new RegistrationError("authorization succeeded but credentials are missing");
+        if (status === "SUCCESS") {
+          const clientId = result.clientId;
+          const clientSecret = result.clientSecret;
+          if (!clientId || !clientSecret) {
+            throw new RegistrationError("authorization succeeded but credentials are missing");
+          }
+          return { clientId, clientSecret };
         }
-        return { clientId, clientSecret };
+
+        if (status === "EXPIRED") {
+          throw new RegistrationError("authorization expired, please restart registration");
+        }
+
+        // FAIL — retry within window
+        if (!statusRetryStart) {
+          statusRetryStart = Date.now();
+        }
+        if (Date.now() - statusRetryStart < RETRY_WINDOW_MS) {
+          continue;
+        }
+        throw new RegistrationError(`authorization failed: ${result.failReason ?? status}`);
       }
 
-      if (status === "EXPIRED") {
-        throw new RegistrationError("authorization expired, please restart registration");
+      throw new RegistrationError("authorization timed out, please retry");
+    } finally {
+      if (abortHandler && signal) {
+        signal.removeEventListener("abort", abortHandler);
       }
-
-      // FAIL — retry within window
-      if (!statusRetryStart) {
-        statusRetryStart = Date.now();
-      }
-      if (Date.now() - statusRetryStart < RETRY_WINDOW_MS) {
-        continue;
-      }
-      throw new RegistrationError(`authorization failed: ${result.failReason ?? status}`);
     }
-
-    throw new RegistrationError("authorization timed out, please retry");
   };
 
   return { verificationUrl, waitForResult };
