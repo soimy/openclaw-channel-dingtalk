@@ -250,8 +250,8 @@ describe("openUrlInBrowser", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "darwin" });
     try {
-      openUrlInBrowser("https://example.com");
-      expect(execFile).toHaveBeenCalledWith("open", ["https://example.com"], expect.any(Function));
+      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
+      expect(execFile).toHaveBeenCalledWith("open", ["https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
@@ -261,8 +261,8 @@ describe("openUrlInBrowser", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "linux" });
     try {
-      openUrlInBrowser("https://example.com");
-      expect(execFile).toHaveBeenCalledWith("xdg-open", ["https://example.com"], expect.any(Function));
+      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
+      expect(execFile).toHaveBeenCalledWith("xdg-open", ["https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
@@ -272,8 +272,8 @@ describe("openUrlInBrowser", () => {
     const original = process.platform;
     Object.defineProperty(process, "platform", { value: "win32" });
     try {
-      openUrlInBrowser("https://example.com");
-      expect(execFile).toHaveBeenCalledWith("cmd", ["/c", "start", "", "https://example.com"], expect.any(Function));
+      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
+      expect(execFile).toHaveBeenCalledWith("cmd", ["/c", "start", "", "https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
     } finally {
       Object.defineProperty(process, "platform", { value: original });
     }
@@ -284,6 +284,21 @@ describe("openUrlInBrowser", () => {
       const cb = args[args.length - 1] as (err: Error | null) => void;
       cb(new Error("no browser"));
     }) as typeof execFile);
-    expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+    expect(() => openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test")).not.toThrow();
+  });
+
+  it("does not call execFile for non-https or non-dingtalk URLs", () => {
+    const original = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      openUrlInBrowser("http://evil.com");
+      expect(execFile).not.toHaveBeenCalled();
+      openUrlInBrowser("https://evil.com");
+      expect(execFile).not.toHaveBeenCalled();
+      openUrlInBrowser("file:///etc/passwd");
+      expect(execFile).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", { value: original });
+    }
   });
 });

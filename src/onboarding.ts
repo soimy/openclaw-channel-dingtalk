@@ -249,9 +249,14 @@ async function configureDingTalkAccount(params: {
         "钉钉机器人自动注册",
       );
 
+      let lastWaitingNote = 0;
       const result = await session.waitForResult({
         onWaiting: () => {
-          void prompter.note("仍在等待授权，请在钉钉中完成扫码...", "轮询中");
+          const now = Date.now();
+          if (now - lastWaitingNote >= 15_000) {
+            lastWaitingNote = now;
+            prompter.note("仍在等待授权，请在钉钉中完成扫码...", "轮询中").catch(() => {});
+          }
         },
       });
       clientId = result.clientId;
@@ -261,7 +266,7 @@ async function configureDingTalkAccount(params: {
         [
           `注册成功!`,
           `Client ID: ${clientId}`,
-          `Client Secret: ${clientSecret.slice(0, 8)}${"*".repeat(Math.max(clientSecret.length - 8, 0))}`,
+          `Client Secret: [已获取，请查看配置文件]`,
         ].join("\n"),
         "注册完成",
       );

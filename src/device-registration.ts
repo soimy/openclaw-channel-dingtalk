@@ -216,6 +216,16 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
 // ── Browser helper ─────────────────────────────────────────────────────────
 
 export function openUrlInBrowser(url: string): void {
+  // Validate URL before handing to OS launcher
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".dingtalk.com")) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
   const platform = process.platform;
   let bin: string;
   let args: string[];
