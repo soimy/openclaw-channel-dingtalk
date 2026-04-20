@@ -84,8 +84,8 @@ async function beginRegistration(nonce: string): Promise<BeginResult> {
   return {
     deviceCode,
     verificationUrl,
-    expiresIn: Number(data.expires_in ?? 7200),
-    interval: Math.max(Number(data.interval ?? 3), 2),
+    expiresIn: Number(data.expires_in ?? 7200) || 7200,
+    interval: Math.max(Number(data.interval ?? 3) || 3, 2),
   };
 }
 

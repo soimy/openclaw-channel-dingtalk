@@ -249,7 +249,11 @@ async function configureDingTalkAccount(params: {
         "钉钉机器人自动注册",
       );
 
-      const result = await session.waitForResult();
+      const result = await session.waitForResult({
+        onWaiting: () => {
+          void prompter.note("仍在等待授权，请在钉钉中完成扫码...", "轮询中");
+        },
+      });
       clientId = result.clientId;
       clientSecret = result.clientSecret;
 
