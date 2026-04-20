@@ -89,7 +89,8 @@
     "effort": "medium",
     "dapi_usage": 12,
     "taskTime": 24,
-    "agent": "main"
+    "agent": "main",
+    "statusLine": "gpt-5.4 | medium | MyBot"
   },
   "version": 1
 }
