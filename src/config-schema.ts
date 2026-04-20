@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store";
+import { buildSecretInputSchema } from "./secret-input";
 
 const AckReactionSchema = z.union([
   z.literal(""),
@@ -29,7 +30,7 @@ const DingTalkAccountConfigShape = {
   clientId: z.string().optional(),
 
   /** DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. */
-  clientSecret: z.string().optional(),
+  clientSecret: buildSecretInputSchema().optional(),
 
   /** Direct-message access policy: open, pairing, or allowlist. */
   dmPolicy: z.enum(["open", "pairing", "allowlist"]).optional().default("open"),

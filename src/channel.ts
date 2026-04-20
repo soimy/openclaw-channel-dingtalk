@@ -19,6 +19,7 @@ import {
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveRuntimeConfig,
   resolveGroupConfig,
   resolveRelativePath,
   resolveRobotCode,
@@ -38,6 +39,7 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { resolveOriginalPeerId, preloadPeerIdsFromSessions } from "./peer-id-registry";
 import { getDingTalkRuntime } from "./runtime";
+import { hasConfiguredSecretInput } from "./secret-input";
 import {
   sendMessage,
   sendProactiveMedia,
@@ -206,7 +208,7 @@ function describeDingTalkMessageTool(cfg: OpenClawConfig): {
   schema: null;
 } {
   const config = getConfig(cfg);
-  const configured = Boolean(config.clientId && config.clientSecret);
+  const configured = Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
     return { actions: [], capabilities: [], schema: null };
   }
@@ -367,7 +369,9 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const id = accountId || "default";
       const account = config.accounts?.[id];
       const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
-      const configured = Boolean(resolvedConfig.clientId && resolvedConfig.clientSecret);
+      const configured = Boolean(
+        resolvedConfig.clientId && hasConfiguredSecretInput(resolvedConfig.clientSecret),
+      );
       return {
         accountId: id,
         config: resolvedConfig,
@@ -378,7 +382,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     defaultAccountId: (): string => "default",
     isConfigured: (account: ResolvedAccount): boolean =>
-      Boolean(account.config?.clientId && account.config?.clientSecret),
+      Boolean(account.config?.clientId && hasConfiguredSecretInput(account.config?.clientSecret)),
     describeAccount: (account: ResolvedAccount) => ({
       accountId: account.accountId,
       name: account.config?.name || "DingTalk",
@@ -617,10 +621,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
   gateway: {
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
       const { account, cfg, abortSignal } = ctx;
-      const config = account.config;
-      if (!config.clientId || !config.clientSecret) {
-        throw new Error("DingTalk clientId and clientSecret are required");
-      }
       let accountStorePath: string | undefined;
       try {
         const rt = getDingTalkRuntime();
@@ -634,9 +634,10 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       const pluginLog = resolvePluginDebugLog({
         accountId: account.accountId,
         storePath: accountStorePath,
-        debug: config.debug,
+        debug: account.config.debug,
         baseLog: ctx.log,
       });
+      const config = await resolveRuntimeConfig(account.config, pluginLog);
       setCurrentLogger(pluginLog, account.accountId);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);

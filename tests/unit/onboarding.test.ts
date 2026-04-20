@@ -153,6 +153,24 @@ describe("dingtalk setup wizard", () => {
         expect(dingtalkConfig?.clientSecret).toBe("ding_secret");
     });
 
+    it("generic setup input preserves normalized SecretInput references", () => {
+        const cfg = dingtalkSetupAdapter.applyAccountConfig({
+            cfg: {} as any,
+            accountId: "default",
+            input: {
+                token: "ding_client",
+                password: "<env:env:DINGTALK_SECRET>",
+            } as any,
+        });
+
+        const dingtalkConfig = cfg.channels?.dingtalk as any;
+        expect(dingtalkConfig?.clientSecret).toEqual({
+            source: "env",
+            provider: "env",
+            id: "DINGTALK_SECRET",
+        });
+    });
+
     it("configure with disabled groupPolicy skips groupAllowFrom prompt", async () => {
         const note = vi.fn();
         const text = vi

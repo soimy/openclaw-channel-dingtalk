@@ -19,6 +19,7 @@ import type {
   ChannelLogSink as SDKChannelLogSink,
 } from "openclaw/plugin-sdk/channel-runtime";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
+import type { SecretInput } from "./secret-input";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
 // Accept arbitrary strings for backward compatibility; the recommended
@@ -32,7 +33,7 @@ export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
  */
 export interface DingTalkConfig extends OpenClawConfig {
   clientId: string;
-  clientSecret: string;
+  clientSecret: SecretInput;
   name?: string;
   enabled?: boolean;
   dmPolicy?: "open" | "pairing" | "allowlist";
@@ -102,7 +103,7 @@ export interface DingTalkConfig extends OpenClawConfig {
 export interface DingTalkChannelConfig {
   enabled?: boolean;
   clientId: string;
-  clientSecret: string;
+  clientSecret: SecretInput;
   name?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
   groupPolicy?: "open" | "allowlist" | "disabled";
@@ -730,4 +731,3 @@ export interface ConnectionAttemptResult {
   error?: Error;
   nextDelay?: number;
 }
-
