@@ -56,7 +56,7 @@ export async function hideCardStopButton(
     try {
       await updateCardVariables(
         outTrackId,
-        { hasAction: STOP_ACTION_HIDDEN, stop_action: String(STOP_ACTION_HIDDEN) },
+        { hasAction: String(STOP_ACTION_HIDDEN), stop_action: String(STOP_ACTION_HIDDEN) },
         token,
         config,
       );
