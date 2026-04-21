@@ -30,8 +30,28 @@ export function getUsageByRunId(runId: string): UsageAccumulation | undefined {
   return usageStore.get(runId);
 }
 
+export function getAggregatedUsage(runIds: Set<string> | undefined): UsageAccumulation {
+  const result: UsageAccumulation = {};
+  if (!runIds) { return result; }
+  for (const runId of runIds) {
+    const usage = usageStore.get(runId);
+    if (!usage) { continue; }
+    for (const field of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
+      if (typeof usage[field] === "number") {
+        result[field] = (result[field] ?? 0) + usage[field];
+      }
+    }
+  }
+  return result;
+}
+
 export function clearRun(runId: string | undefined): void {
   if (runId) { usageStore.delete(runId); }
+}
+
+export function clearRuns(runIds: Set<string> | undefined): void {
+  if (!runIds) { return; }
+  for (const runId of runIds) { usageStore.delete(runId); }
 }
 
 export function clearAllForTest(): void {

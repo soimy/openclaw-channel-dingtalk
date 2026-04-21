@@ -29,7 +29,7 @@ import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import { getTaskTimeSeconds, updateSessionState } from "./session-state";
 import { renderStatusLine } from "./card/statusline-renderer";
 import type { StatusLineData } from "./card/statusline-renderer";
-import { recordRunStart, getUsageByRunId, clearRun } from "./run-usage-store";
+import { recordRunStart, getAggregatedUsage, clearRuns } from "./run-usage-store";
 import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
@@ -89,15 +89,13 @@ export function createCardReplyStrategy(
     if (typeof resolvedUsage === "number") { info.dapi_usage = resolvedUsage; }
     if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
     if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
-    if (ctx.taskMeta.runId) {
-      const tokenUsage = getUsageByRunId(ctx.taskMeta.runId);
-      if (tokenUsage) {
-        if (typeof tokenUsage.input === "number") { info.inputTokens = tokenUsage.input; }
-        if (typeof tokenUsage.output === "number") { info.outputTokens = tokenUsage.output; }
-        if (typeof tokenUsage.cacheRead === "number") { info.cacheRead = tokenUsage.cacheRead; }
-        if (typeof tokenUsage.cacheWrite === "number") { info.cacheWrite = tokenUsage.cacheWrite; }
-        if (typeof tokenUsage.total === "number") { info.totalTokens = tokenUsage.total; }
-      }
+    if (ctx.taskMeta.runIds && ctx.taskMeta.runIds.size > 0) {
+      const tokenUsage = getAggregatedUsage(ctx.taskMeta.runIds);
+      if (typeof tokenUsage.input === "number") { info.inputTokens = tokenUsage.input; }
+      if (typeof tokenUsage.output === "number") { info.outputTokens = tokenUsage.output; }
+      if (typeof tokenUsage.cacheRead === "number") { info.cacheRead = tokenUsage.cacheRead; }
+      if (typeof tokenUsage.cacheWrite === "number") { info.cacheWrite = tokenUsage.cacheWrite; }
+      if (typeof tokenUsage.total === "number") { info.totalTokens = tokenUsage.total; }
     }
     // Assemble configurable statusline
     const statusLineData: StatusLineData = {
@@ -414,7 +412,10 @@ export function createCardReplyStrategy(
             return;
           }
           recordRunStart(runId);
-          if (ctx.taskMeta) { ctx.taskMeta.runId = runId; }
+          if (ctx.taskMeta) {
+            if (!ctx.taskMeta.runIds) { ctx.taskMeta.runIds = new Set(); }
+            ctx.taskMeta.runIds.add(runId);
+          }
         },
 
         onPartialReply: async (payload) => {
@@ -598,7 +599,7 @@ export function createCardReplyStrategy(
         log?.info?.("[DingTalk][Finalize] Skipping — card stop was requested");
         lifecycleState = "sealed";
         if (card.accountId && card.conversationId) {
-          clearRun(ctx.taskMeta?.runId);
+          clearRuns(ctx.taskMeta?.runIds);
         }
         return;
       }
@@ -638,7 +639,7 @@ export function createCardReplyStrategy(
         }
         lifecycleState = "sealed";
         if (card.accountId && card.conversationId) {
-          clearRun(ctx.taskMeta?.runId);
+          clearRuns(ctx.taskMeta?.runIds);
         }
         return;
       }
@@ -647,7 +648,7 @@ export function createCardReplyStrategy(
         log?.info?.("[DingTalk][Finalize] Skipping — card already STOPPED");
         lifecycleState = "sealed";
         if (card.accountId && card.conversationId) {
-          clearRun(ctx.taskMeta?.runId);
+          clearRuns(ctx.taskMeta?.runIds);
         }
         return;
       }
@@ -677,7 +678,7 @@ export function createCardReplyStrategy(
         }
         lifecycleState = "sealed";
         if (card.accountId && card.conversationId) {
-          clearRun(ctx.taskMeta?.runId);
+          clearRuns(ctx.taskMeta?.runIds);
         }
         return;
       }
@@ -789,7 +790,7 @@ export function createCardReplyStrategy(
       } finally {
         lifecycleState = "sealed";
         if (card.accountId && card.conversationId) {
-          clearRun(ctx.taskMeta?.runId);
+          clearRuns(ctx.taskMeta?.runIds);
         }
       }
     },
@@ -797,7 +798,7 @@ export function createCardReplyStrategy(
     async abort(_error: Error): Promise<void> {
       lifecycleState = "sealed";
       if (card.accountId && card.conversationId) {
-        clearRun(ctx.taskMeta?.runId);
+        clearRuns(ctx.taskMeta?.runIds);
       }
       if (!isCardInTerminalState(card.state)) {
         controller.stop();

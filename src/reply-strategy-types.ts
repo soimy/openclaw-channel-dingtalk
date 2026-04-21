@@ -64,7 +64,7 @@ export interface TaskMeta {
   usage?: number;
   elapsedMs?: number;
   agent?: string;
-  runId?: string;
+  runIds?: Set<string>;
 }
 
 export interface ReplyStrategyContext {

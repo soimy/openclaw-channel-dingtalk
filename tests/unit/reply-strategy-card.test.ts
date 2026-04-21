@@ -4,6 +4,7 @@ import * as cardService from "../../src/card-service";
 import * as sendService from "../../src/send-service";
 import * as mediaUtils from "../../src/media-utils";
 import { clearAllSessionStatesForTest, initSessionState } from "../../src/session-state";
+import { clearAllForTest as clearAllUsageForTest, recordRunStart, accumulateUsage, getUsageByRunId } from "../../src/run-usage-store";
 import { AICardStatus } from "../../src/types";
 import type { AICardInstance } from "../../src/types";
 import type { ReplyStrategyContext } from "../../src/reply-strategy";
@@ -95,6 +96,7 @@ describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         clearAllSessionStatesForTest();
+        clearAllUsageForTest();
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
         updateAICardTaskInfoMock.mockClear().mockResolvedValue(undefined);
@@ -1378,6 +1380,67 @@ describe("reply-strategy-card", () => {
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const options = sendMessageMock.mock.calls[0]?.[3];
             expect(options?.forceMarkdown).toBe(true);
+        });
+
+        it("aggregates token usage across multiple runs (session-recovery)", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 5000,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
+                config: {
+                    clientId: "id", clientSecret: "secret", messageType: "card",
+                    cardStatusTokens: true,
+                } as any,
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            // First run
+            opts.onAgentRunStart?.("run-1");
+            accumulateUsage("run-1", { input: 100, output: 50, total: 150 });
+
+            // Second run (session-recovery)
+            opts.onAgentRunStart?.("run-2");
+            accumulateUsage("run-2", { input: 200, output: 80, total: 280 });
+
+            await strategy.deliver({ text: "Hello", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalled();
+            const taskInfoJson = commitAICardBlocksMock.mock.calls[0][1].taskInfoJson;
+            const parsed = JSON.parse(taskInfoJson);
+            // Usage should be aggregated: 100+200=300 input, 50+80=130 output
+            expect(parsed.inputTokens).toBe(300);
+            expect(parsed.outputTokens).toBe(130);
+            expect(parsed.totalTokens).toBe(430);
+        });
+
+        it("clears all run entries from usageStore on finalize", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "test" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onAgentRunStart?.("run-a");
+            accumulateUsage("run-a", { input: 10, output: 5 });
+            opts.onAgentRunStart?.("run-b");
+            accumulateUsage("run-b", { input: 20, output: 10 });
+
+            await strategy.deliver({ text: "Done", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            // Both runs should be cleared from the store (no memory leak)
+            expect(getUsageByRunId("run-a")).toBeUndefined();
+            expect(getUsageByRunId("run-b")).toBeUndefined();
         });
     });
 });
