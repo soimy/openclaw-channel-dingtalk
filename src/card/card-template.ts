@@ -4,9 +4,10 @@ export const STOP_ACTION_VISIBLE = true;
 export const STOP_ACTION_HIDDEN = false;
 
 export const BUILTIN_DINGTALK_CARD_TEMPLATE_ID =
-  process.env.DINGTALK_CARD_TEMPLATE_ID || "5db37f25-ac9e-4250-9c1d-c4ddba6e16e9.schema";
+  process.env.DINGTALK_CARD_TEMPLATE_ID || "675cde2f-f526-40cb-b828-f5b2b57b8b77.schema";
 export const BUILTIN_DINGTALK_CARD_CONTENT_KEY = "content";
 export const BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY = "blockList";
+export const BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY = "copy_content";
 
 export interface DingTalkCardTemplateContract {
   templateId: string;
@@ -15,6 +16,8 @@ export interface DingTalkCardTemplateContract {
   streamingKey: string;
   /** V2: key for the block-list loopArray variable. */
   blockListKey: string;
+  /** V2: key for the plain-text copy content variable (String type for card copy action). */
+  copyContentKey: string;
 }
 
 /** Frozen singleton — no allocation on every call. */
@@ -23,5 +26,6 @@ export const DINGTALK_CARD_TEMPLATE: Readonly<DingTalkCardTemplateContract> = Ob
   contentKey: BUILTIN_DINGTALK_CARD_CONTENT_KEY,
   streamingKey: BUILTIN_DINGTALK_CARD_CONTENT_KEY,
   blockListKey: BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY,
+  copyContentKey: BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY,
 });
 

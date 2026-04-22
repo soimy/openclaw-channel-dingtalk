@@ -9,7 +9,7 @@
 import {
   commitAICardBlocks,
   isCardInTerminalState,
-  updateAICardTaskInfo,
+  updateAICardStatusLine,
 } from "./card-service";
 import { splitCardReasoningAnswerText } from "./card/reasoning-answer-split";
 import { createReasoningBlockAssembler } from "./card/reasoning-block-assembler";
@@ -50,20 +50,13 @@ export function createCardReplyStrategy(
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
 
-  const buildTaskInfoJson = (): string | undefined => {
+  const buildStatusLine = (): string | undefined => {
     if (!ctx.taskMeta) {
       return undefined;
     }
-    const info: Record<string, unknown> = {};
-    if (!ctx.taskMeta.model && card.taskInfo?.model) {
-      ctx.taskMeta.model = card.taskInfo.model;
-    }
-    if (!ctx.taskMeta.effort && card.taskInfo?.effort) {
-      ctx.taskMeta.effort = card.taskInfo.effort;
-    }
     const resolvedUsage =
-      typeof card.taskInfo?.dapi_usage === "number"
-        ? card.taskInfo.dapi_usage
+      typeof card.dapiUsage === "number"
+        ? card.dapiUsage
         : typeof ctx.taskMeta.usage === "number"
           ? ctx.taskMeta.usage
           : undefined;
@@ -84,33 +77,28 @@ export function createCardReplyStrategy(
       metaElapsedMs ?? 0,
     );
 
-    if (ctx.taskMeta.model) { info.model = ctx.taskMeta.model; }
-    if (ctx.taskMeta.effort) { info.effort = ctx.taskMeta.effort; }
-    if (typeof resolvedUsage === "number") { info.dapi_usage = resolvedUsage; }
-    if (typeof ctx.taskMeta.elapsedMs === "number") { info.taskTime = Math.round(ctx.taskMeta.elapsedMs / 1000); }
-    if (ctx.taskMeta.agent) { info.agent = ctx.taskMeta.agent; }
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let cacheRead: number | undefined;
     if (ctx.taskMeta.runIds && ctx.taskMeta.runIds.size > 0) {
       const tokenUsage = getAggregatedUsage(ctx.taskMeta.runIds);
-      if (typeof tokenUsage.input === "number") { info.inputTokens = tokenUsage.input; }
-      if (typeof tokenUsage.output === "number") { info.outputTokens = tokenUsage.output; }
-      if (typeof tokenUsage.cacheRead === "number") { info.cacheRead = tokenUsage.cacheRead; }
-      if (typeof tokenUsage.cacheWrite === "number") { info.cacheWrite = tokenUsage.cacheWrite; }
-      if (typeof tokenUsage.total === "number") { info.totalTokens = tokenUsage.total; }
+      if (typeof tokenUsage.input === "number") { inputTokens = tokenUsage.input; }
+      if (typeof tokenUsage.output === "number") { outputTokens = tokenUsage.output; }
+      if (typeof tokenUsage.cacheRead === "number") { cacheRead = tokenUsage.cacheRead; }
     }
-    // Assemble configurable statusline
+
     const statusLineData: StatusLineData = {
-      model: info.model as string | undefined,
-      effort: info.effort as string | undefined,
-      agent: info.agent as string | undefined,
-      taskTime: info.taskTime as number | undefined,
-      inputTokens: info.inputTokens as number | undefined,
-      outputTokens: info.outputTokens as number | undefined,
-      cacheRead: info.cacheRead as number | undefined,
-      dapi_usage: info.dapi_usage as number | undefined,
+      model: ctx.taskMeta.model,
+      effort: ctx.taskMeta.effort,
+      agent: ctx.taskMeta.agent,
+      taskTime: typeof ctx.taskMeta.elapsedMs === "number" ? Math.round(ctx.taskMeta.elapsedMs / 1000) : undefined,
+      inputTokens,
+      outputTokens,
+      cacheRead,
+      dapi_usage: resolvedUsage,
     };
     const statusLine = renderStatusLine(statusLineData, config);
-    if (statusLine) { info.statusLine = statusLine; }
-    return Object.keys(info).length > 0 ? JSON.stringify(info) : undefined;
+    return statusLine || undefined;
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
   const streamAnswerLive = mode === "answer" || mode === "all";
@@ -134,6 +122,7 @@ export function createCardReplyStrategy(
     log,
     realTimeStreamEnabled: streamAnswerLive,
     throttleMs: config.cardStreamInterval ?? 1000,
+    getStatusLine: buildStatusLine,
   });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
@@ -437,18 +426,13 @@ export function createCardReplyStrategy(
             model: selected.model,
             effort: selected.thinkLevel,
           });
-          card.taskInfo = {
-            ...card.taskInfo,
-            model: selected.model,
-            effort: selected.thinkLevel,
-          };
           if (ctx.taskMeta) {
             ctx.taskMeta.model = selected.model;
             ctx.taskMeta.effort = selected.thinkLevel;
           }
-          const taskInfoJson = buildTaskInfoJson();
-          if (taskInfoJson) {
-            void updateAICardTaskInfo(card, taskInfoJson, log);
+          const statusLine = buildStatusLine();
+          if (statusLine) {
+            void updateAICardStatusLine(card, statusLine, log);
           }
         },
       };
@@ -709,13 +693,13 @@ export function createCardReplyStrategy(
           `preview="${content.slice(0, 120)}"`,
         );
 
-        // Build taskInfo JSON for card template
-        const taskInfoJson = buildTaskInfoJson();
+        // Build statusLine for card template
+        const statusLine = buildStatusLine();
 
         await commitAICardBlocks(card, {
           blockListJson,
           content,
-          taskInfoJson,
+          statusLine,
           quotedRef: ctx.replyQuotedRef,
         }, log);
 

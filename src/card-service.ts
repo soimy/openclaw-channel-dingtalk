@@ -211,12 +211,8 @@ export function clearAICardDegrade(accountId: string, log?: Logger): void {
 }
 
 export function incrementCardDapiCount(card: AICardInstance): number {
-  const next = (card.taskInfo?.dapi_usage || 0) + 1;
-  card.taskInfo = {
-    ...card.taskInfo,
-    dapi_usage: next,
-    taskTime: Math.max(0, Math.round((Date.now() - card.createdAt) / 1000)),
-  };
+  const next = (card.dapiUsage || 0) + 1;
+  card.dapiUsage = next;
   return next;
 }
 
@@ -344,8 +340,8 @@ interface CreateAICardOptions {
   contextConversationId?: string;
   /** Quote content to display in card header (shown when non-empty) */
   quoteContent?: string;
-  /** Initial taskInfo JSON to show on the first createAndDeliver render. */
-  taskInfoJson?: string;
+  /** Initial statusLine string to show on the first createAndDeliver render. */
+  statusLine?: string;
 }
 
 interface PendingCardRecord {
@@ -791,7 +787,7 @@ export async function createAICard(
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
       [template.streamingKey]: "",
       quoteContent: options.quoteContent || "",
-      ...(options.taskInfoJson?.trim() ? { taskInfo: options.taskInfoJson } : {}),
+      ...(options.statusLine?.trim() ? { statusLine: options.statusLine } : {}),
       // V2 template uses hasAction (string), V1 uses stop_action (string)
       // DingTalk cardParamMap requires all values to be strings
       hasAction: String(STOP_ACTION_VISIBLE),
@@ -889,10 +885,7 @@ export async function createAICard(
       config,
       processQueryKey: processQueryKey || extractCardProcessQueryKey(resp.data),
       outTrackId,
-      taskInfo: {
-        dapi_usage: 1,
-        taskTime: 0,
-      },
+      dapiUsage: 1,
     };
     if (shouldPersistPending) {
       upsertPendingCard(aiCardInstance, options.storePath, log);
@@ -937,15 +930,14 @@ export async function createAICard(
 }
 
 /**
- * Update blockList via PUT /v1.0/card/instances API.
- * Required because streaming API returns 500 for complex loopArray types.
+ * Update statusLine via PUT /v1.0/card/instances API.
  */
-export async function updateAICardTaskInfo(
+export async function updateAICardStatusLine(
   card: AICardInstance,
-  taskInfoJson: string,
+  statusLine: string,
   log?: Logger,
 ): Promise<void> {
-  if (isCardInTerminalState(card.state) || !taskInfoJson.trim()) {
+  if (isCardInTerminalState(card.state) || !statusLine.trim()) {
     return;
   }
 
@@ -954,7 +946,7 @@ export async function updateAICardTaskInfo(
   try {
     await updateCardVariables(
       card.outTrackId || card.cardInstanceId,
-      { taskInfo: taskInfoJson },
+      { statusLine },
       card.accessToken,
       card.config,
     );
@@ -962,7 +954,7 @@ export async function updateAICardTaskInfo(
     card.lastUpdated = Date.now();
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    log?.warn?.(`[DingTalk][AICard] TaskInfo update failed: ${message}`);
+    log?.warn?.(`[DingTalk][AICard] StatusLine update failed: ${message}`);
   }
 }
 
@@ -970,6 +962,7 @@ export async function updateAICardBlockList(
   card: AICardInstance,
   blockListJson: string,
   log?: Logger,
+  options?: { statusLine?: string },
 ): Promise<void> {
   if (isCardInTerminalState(card.state)) {
     log?.debug?.(
@@ -985,6 +978,9 @@ export async function updateAICardBlockList(
   const params: Record<string, unknown> = {
     [template.blockListKey]: blockListJson,
   };
+  if (options?.statusLine?.trim()) {
+    params.statusLine = options.statusLine;
+  }
 
   try {
     await updateCardVariables(
@@ -1057,8 +1053,8 @@ export interface FinalizeCardOptions {
   content: string;
   /** Optional quoted message preview text */
   quoteContent?: string;
-  /** Optional task metadata JSON string */
-  taskInfoJson?: string;
+  /** Optional statusLine string for card template */
+  statusLine?: string;
   /** Optional quoted message reference for caching */
   quotedRef?: QuotedRef;
 }
@@ -1066,7 +1062,7 @@ export interface FinalizeCardOptions {
 /**
  * Commit blocks and finalize card via single instances API call.
  * V2 template requires finalize through instances API (not streaming API).
- * Writes blockList, content, quoteContent, taskInfo, and flowStatus in one call.
+ * Writes blockList, content, quoteContent, statusLine, and flowStatus in one call.
  */
 export async function commitAICardBlocks(
   card: AICardInstance,
@@ -1085,7 +1081,8 @@ export async function commitAICardBlocks(
   const template = DINGTALK_CARD_TEMPLATE;
   const updates: Record<string, unknown> = {
     [template.blockListKey]: options.blockListJson,
-    [template.streamingKey]: options.content, // content for copy action
+    [template.streamingKey]: options.content, // markdown content for display
+    [template.copyContentKey]: options.content, // same markdown as String type for card copy action
     flowStatus: 3, // completed state - V2 template hides stop button automatically
   };
 
@@ -1093,8 +1090,8 @@ export async function commitAICardBlocks(
   if (options.quoteContent?.trim()) {
     updates.quoteContent = options.quoteContent;
   }
-  if (options.taskInfoJson?.trim()) {
-    updates.taskInfo = options.taskInfoJson;
+  if (options.statusLine?.trim()) {
+    updates.statusLine = options.statusLine;
   }
 
   log?.debug?.(
@@ -1378,6 +1375,7 @@ export async function finalizeStoppedAICard(
       {
         [template.blockListKey]: payload.blockListJson,
         [template.streamingKey]: payload.content,
+        [template.copyContentKey]: payload.content,
         flowStatus: 3,
       },
       card.accessToken,

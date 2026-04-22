@@ -148,7 +148,7 @@ export function resolveAtAgents(
 }
 
 /**
- * Get agent display name for taskInfo in card template.
+ * Get agent display name for statusLine in card template.
  *
  * Priority:
  * 1. subAgentOptions.matchedName - user-friendly name from @mention (e.g., "代码专家")

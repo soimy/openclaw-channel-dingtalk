@@ -80,6 +80,32 @@ describe("card-draft-controller", () => {
         expect(getBlockText(blocks, 0)).toBe("Hello world");
     });
 
+    it("passes getStatusLine result to updateAICardBlockList", async () => {
+        const card = makeCard();
+        const getStatusLine = vi.fn().mockReturnValue("claude-sonnet | high");
+        const ctrl = createCardDraftController({ card, throttleMs: 0, getStatusLine });
+
+        ctrl.updateAnswer("Hello");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const opts = updateAICardBlockListMock.mock.calls[0]?.[3];
+        expect(opts).toEqual({ statusLine: "claude-sonnet | high" });
+    });
+
+    it("omits statusLine option when getStatusLine returns undefined", async () => {
+        const card = makeCard();
+        const getStatusLine = vi.fn().mockReturnValue(undefined);
+        const ctrl = createCardDraftController({ card, throttleMs: 0, getStatusLine });
+
+        ctrl.updateAnswer("Hello");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const opts = updateAICardBlockListMock.mock.calls[0]?.[3];
+        expect(opts).toBeUndefined();
+    });
+
     it("updateReasoning sends a thinking block", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });

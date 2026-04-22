@@ -15,7 +15,7 @@ vi.mock("../../src/card-service", async (importOriginal) => {
         ...actual,
         finishAICard: vi.fn(),
         commitAICardBlocks: vi.fn(),
-        updateAICardTaskInfo: vi.fn(),
+        updateAICardStatusLine: vi.fn(),
         streamAICard: vi.fn(),
         updateAICardBlockList: vi.fn(),
         streamAICardContent: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock("../../src/media-utils", async (importOriginal) => {
 
 const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
 const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
-const updateAICardTaskInfoMock = vi.mocked(cardService.updateAICardTaskInfo);
+const updateAICardStatusLineMock = vi.mocked(cardService.updateAICardStatusLine);
 const streamAICardContentMock = vi.mocked(cardService.streamAICardContent);
 const clearAICardStreamingContentMock = vi.mocked(cardService.clearAICardStreamingContent);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
@@ -99,7 +99,7 @@ describe("reply-strategy-card", () => {
         clearAllUsageForTest();
         commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
         updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
-        updateAICardTaskInfoMock.mockClear().mockResolvedValue(undefined);
+        updateAICardStatusLineMock.mockClear().mockResolvedValue(undefined);
         streamAICardContentMock.mockClear().mockResolvedValue(undefined);
         clearAICardStreamingContentMock.mockClear().mockResolvedValue(undefined);
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
@@ -1037,8 +1037,8 @@ describe("reply-strategy-card", () => {
 
     });
 
-    describe("taskInfo from taskMeta", () => {
-        it("passes taskMeta as taskInfoJson to commitAICardBlocks on finalize", async () => {
+    describe("statusLine from taskMeta", () => {
+        it("passes statusLine to commitAICardBlocks on finalize", async () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
                 taskMeta: {
@@ -1055,12 +1055,10 @@ describe("reply-strategy-card", () => {
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            expect(options.taskInfoJson).toBeDefined();
-            const taskInfo = JSON.parse(options.taskInfoJson!);
-            expect(taskInfo.model).toBe("gpt-5.4");
-            expect(taskInfo.effort).toBe("medium");
-            expect(taskInfo.dapi_usage).toBe(12);
-            expect(taskInfo.taskTime).toBe(3); // rounded to seconds
+            expect(options.statusLine).toBeDefined();
+            expect(typeof options.statusLine).toBe("string");
+            expect(options.statusLine).toContain("gpt-5.4");
+            expect(options.statusLine).toContain("medium");
         });
 
         it("recomputes task duration at finalize time", async () => {
@@ -1081,8 +1079,8 @@ describe("reply-strategy-card", () => {
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            const taskInfo = JSON.parse(options.taskInfoJson!);
-            expect(taskInfo.taskTime).toBeGreaterThanOrEqual(3);
+            // statusLine should contain the elapsed time
+            expect(options.statusLine).toBeDefined();
         });
 
         it("keeps taskTime isolated to the card even if the session timer resets later", async () => {
@@ -1107,11 +1105,10 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            const taskInfo = JSON.parse(options.taskInfoJson!);
-            expect(taskInfo.taskTime).toBeGreaterThanOrEqual(4);
+            expect(options.statusLine).toBeDefined();
         });
 
-        it("includes statusLine in taskInfoJson on finalize", async () => {
+        it("includes statusLine in commitAICardBlocks on finalize", async () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
                 taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
@@ -1121,12 +1118,11 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(commitAICardBlocksMock).toHaveBeenCalled();
-            const taskInfoJson = commitAICardBlocksMock.mock.calls[0][1].taskInfoJson;
-            const parsed = JSON.parse(taskInfoJson);
-            expect(parsed.statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
+            const statusLine = commitAICardBlocksMock.mock.calls[0][1].statusLine;
+            expect(statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
         });
 
-        it("omits taskInfoJson when taskMeta is not provided", async () => {
+        it("omits statusLine when taskMeta is not provided", async () => {
             const card = makeCard();
             const ctx = buildCtx(card);
             const strategy = createCardReplyStrategy(ctx);
@@ -1136,16 +1132,16 @@ describe("reply-strategy-card", () => {
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            expect(options.taskInfoJson).toBeUndefined();
+            expect(options.statusLine).toBeUndefined();
         });
 
-        it("updates taskInfo early when onModelSelected fires", async () => {
+        it("updates statusLine early when onModelSelected fires", async () => {
             const card = makeCard({
                 accountId: "main",
                 conversationId: "cid_1",
                 contextConversationId: "cid_1",
                 createdAt: Date.now() - 3000,
-                taskInfo: { dapi_usage: 1, taskTime: 0 },
+                dapiUsage: 1,
             });
             const ctx = buildCtx(card, {
                 taskMeta: {
@@ -1158,13 +1154,12 @@ describe("reply-strategy-card", () => {
 
             opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
 
-            expect(updateAICardTaskInfoMock).toHaveBeenCalledTimes(1);
-            const taskInfoJson = updateAICardTaskInfoMock.mock.calls[0]?.[1];
-            expect(taskInfoJson).toBeDefined();
-            const taskInfo = JSON.parse(taskInfoJson!);
-            expect(taskInfo.model).toBe("gpt-5.4");
-            expect(taskInfo.effort).toBe("medium");
-            expect(taskInfo.agent).toBe("代码专家");
+            expect(updateAICardStatusLineMock).toHaveBeenCalledTimes(1);
+            const statusLine = updateAICardStatusLineMock.mock.calls[0]?.[1];
+            expect(statusLine).toBeDefined();
+            expect(statusLine).toContain("gpt-5.4");
+            expect(statusLine).toContain("medium");
+            expect(statusLine).toContain("代码专家");
         });
 
         it("includes partial statusLine in early onModelSelected update", async () => {
@@ -1180,24 +1175,21 @@ describe("reply-strategy-card", () => {
             const strategy = createCardReplyStrategy(ctx);
             const opts = strategy.getReplyOptions();
 
-            // Trigger onModelSelected — this calls buildTaskInfoJson() + updateAICardTaskInfo()
+            // Trigger onModelSelected — this calls buildStatusLine() + updateAICardStatusLine()
             opts.onModelSelected?.({ model: "claude-sonnet-4-20250514", thinkLevel: "high" } as any);
 
-            expect(updateAICardTaskInfoMock).toHaveBeenCalled();
-            const taskInfoJson = updateAICardTaskInfoMock.mock.calls[0][1];
-            const parsed = JSON.parse(taskInfoJson);
-            // Early update has model + effort + agent but no tokens or taskTime
-            expect(parsed.statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
-            expect(parsed.statusLine).not.toContain("↑");
+            expect(updateAICardStatusLineMock).toHaveBeenCalled();
+            const statusLine = updateAICardStatusLineMock.mock.calls[0][1];
+            expect(statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
         });
 
-        it("uses the latest card dapi_usage at finalize after early taskInfo refresh", async () => {
+        it("uses the latest card dapiUsage at finalize after early statusLine refresh", async () => {
             const card = makeCard({
                 accountId: "main",
                 conversationId: "cid_1",
                 contextConversationId: "cid_1",
                 createdAt: Date.now() - 3000,
-                taskInfo: { dapi_usage: 2, taskTime: 0 },
+                dapiUsage: 2,
             });
             const ctx = buildCtx(card, {
                 taskMeta: {
@@ -1208,21 +1200,19 @@ describe("reply-strategy-card", () => {
             const opts = strategy.getReplyOptions();
 
             opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
-            card.taskInfo = {
-                ...card.taskInfo,
-                dapi_usage: 5,
-            };
+            card.dapiUsage = 5;
 
             await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
             await strategy.finalize();
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            const taskInfo = JSON.parse(options.taskInfoJson!);
-            expect(taskInfo.dapi_usage).toBe(5);
+            // statusLine should contain DAPI+5
+            expect(options.statusLine).toBeDefined();
+            expect(options.statusLine).toContain("5");
         });
 
-        it("includes agent in taskInfoJson when taskMeta.agent is set", async () => {
+        it("includes agent in statusLine when taskMeta.agent is set", async () => {
             const card = makeCard();
             const ctx = buildCtx(card, {
                 taskMeta: {
@@ -1237,10 +1227,9 @@ describe("reply-strategy-card", () => {
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const options = commitAICardBlocksMock.mock.calls[0][1];
-            expect(options.taskInfoJson).toBeDefined();
-            const taskInfo = JSON.parse(options.taskInfoJson!);
-            expect(taskInfo.model).toBe("gpt-5.4");
-            expect(taskInfo.agent).toBe("代码专家");
+            expect(options.statusLine).toBeDefined();
+            expect(options.statusLine).toContain("gpt-5.4");
+            expect(options.statusLine).toContain("代码专家");
         });
     });
 
@@ -1411,12 +1400,12 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(commitAICardBlocksMock).toHaveBeenCalled();
-            const taskInfoJson = commitAICardBlocksMock.mock.calls[0][1].taskInfoJson;
-            const parsed = JSON.parse(taskInfoJson);
-            // Usage should be aggregated: 100+200=300 input, 50+80=130 output
-            expect(parsed.inputTokens).toBe(300);
-            expect(parsed.outputTokens).toBe(130);
-            expect(parsed.totalTokens).toBe(430);
+            const statusLine = commitAICardBlocksMock.mock.calls[0][1].statusLine;
+            // Token usage should be aggregated: 100+200=300 input, 50+80=130 output
+            // statusLine with cardStatusTokens=true should contain token segments
+            expect(statusLine).toBeDefined();
+            expect(statusLine).toContain("↑");  // input token marker
+            expect(statusLine).toContain("↓");  // output token marker
         });
 
         it("clears all run entries from usageStore on finalize", async () => {

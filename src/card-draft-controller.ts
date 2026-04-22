@@ -104,6 +104,8 @@ export function createCardDraftController(params: {
     verboseMode?: boolean;
     /** Enable real-time streaming to content key for answer display. */
     realTimeStreamEnabled?: boolean;
+    /** Optional callback to get the current statusLine for piggy-backing on blockList updates. */
+    getStatusLine?: () => string | undefined;
     log?: Logger;
 }): CardDraftController {
     let failed = false;
@@ -364,7 +366,8 @@ export function createCardDraftController(params: {
             inFlightContent = content;
             try {
                 // Use instances API for blockList (not streaming API)
-                await updateAICardBlockList(params.card, content, params.log);
+                const statusLine = params.getStatusLine?.();
+                await updateAICardBlockList(params.card, content, params.log, statusLine ? { statusLine } : undefined);
                 lastSentContent = content;
                 lastQueuedContent = "";
                 lastAnswerContent = getFinalAnswerContent();

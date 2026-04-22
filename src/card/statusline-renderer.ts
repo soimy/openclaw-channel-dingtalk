@@ -62,8 +62,8 @@ const SEGMENTS: Segment[] = [
   { configKey: "cardStatusModel", defaultOn: true, render: (d) => d.model || undefined },
   { configKey: "cardStatusEffort", defaultOn: true, render: (d) => d.effort || undefined },
   { configKey: "cardStatusAgent", defaultOn: true, render: (d) => d.agent || undefined },
-  { configKey: "cardStatusTaskTime", defaultOn: false, render: (d) => typeof d.taskTime === "number" ? formatDuration(d.taskTime) : undefined },
   { configKey: "cardStatusTokens", defaultOn: false, render: renderTokenSegment },
+  { configKey: "cardStatusTaskTime", defaultOn: false, render: (d) => typeof d.taskTime === "number" ? formatDuration(d.taskTime) : undefined },
   { configKey: "cardStatusDapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `DAPI+${d.dapi_usage}` : undefined },
 ];
 

@@ -684,13 +684,8 @@ export interface AICardInstance {
   lastStreamedContent?: string; // Latest copy/content text shown to user
   lastBlockListJson?: string; // Latest rendered CardBlock[] JSON for V2 instances API
   outTrackId?: string;
-  taskInfo?: {
-    model?: string;
-    effort?: string;
-    agent?: string;
-    dapi_usage?: number;
-    taskTime?: number;
-  };
+  /** Cumulative DingTalk API call count for this card instance. */
+  dapiUsage?: number;
 }
 
 /**

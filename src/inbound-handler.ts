@@ -11,6 +11,7 @@ import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-r
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
+import { renderStatusLine } from "./card/statusline-renderer";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
@@ -825,7 +826,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
   const taskInfoConversationId = groupId || to;
   const sessionTaskState = initSessionState(accountId, taskInfoConversationId);
-  const initialTaskMeta = {
+  const initialStatusLine = renderStatusLine({
     model: sessionTaskState.model,
     effort: sessionTaskState.effort,
     agent: getAgentDisplayName({
@@ -833,12 +834,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       agentId: route.agentId,
       agentsList: cfg.agents?.list,
     }),
-  };
-  const initialTaskInfo = Object.fromEntries(
-    Object.entries(initialTaskMeta).filter(([, value]) => typeof value === "string" && value.trim()),
-  );
-  const initialTaskInfoJson =
-    Object.keys(initialTaskInfo).length > 0 ? JSON.stringify(initialTaskInfo) : undefined;
+  }, dingtalkConfig) || undefined;
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
@@ -866,7 +862,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         storePath: accountStorePath,
         contextConversationId: groupId,
         quoteContent: inboundQuoteText,
-        taskInfoJson: initialTaskInfoJson,
+        statusLine: initialStatusLine,
       });
       if (aiCard) {
         currentAICard = aiCard;

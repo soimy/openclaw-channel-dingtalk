@@ -73,7 +73,7 @@ describe("renderStatusLine", () => {
       cardStatusDapiUsage: true,
     };
     expect(renderStatusLine(fullData, config)).toBe(
-      "claude-sonnet-4-20250514 | high | MyBot\n2m 5s | ↑45.2k(C:32.1k) ↓28.7k | DAPI+23",
+      "claude-sonnet-4-20250514 | high | MyBot\n↑45.2k(C:32.1k) ↓28.7k | 2m 5s | DAPI+23",
     );
   });
 
