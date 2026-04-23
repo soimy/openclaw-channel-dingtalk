@@ -4,12 +4,14 @@ import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-
 import axios from "./http-client";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
+import { getAgentDisplayName } from "./targeting/agent-name-matcher";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
-import { createAICard, finishAICard, isCardInTerminalState } from "./card-service";
+import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
+import { renderStatusLine } from "./card/statusline-renderer";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
 import { AICardStatus } from "./types";
@@ -55,6 +57,7 @@ import {
   setSessionPeerOverride,
 } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
+import { getSessionState, initSessionState } from "./session-state";
 import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
@@ -388,6 +391,8 @@ function buildGroupTurnContextPrompt(params: {
 type ReplyStreamPayload = {
   text?: string;
   isReasoning?: boolean;
+  mediaUrl?: string;
+  mediaUrls?: string[];
 };
 
 type ReplyChunkInfo = {
@@ -534,6 +539,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (!extractedContent.text) {
     return;
   }
+
+  // Preserve raw inbound text before any rewriting (e.g., sub-agent context hint)
+  // for use in card quoteContent which should show the user's original message.
+  const rawInboundText = extractedContent.text.trim();
 
   // Add context hint for sub-agent mode, stripping quoted prefix to avoid protocol noise in agent context.
   if (subAgentOptions) {
@@ -814,19 +823,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
-  // Decide BTW bypass once, here. Two consequences depend on this single decision:
-  //   1. Skip createAICard below — /btw must never create a card it can't finalize
-  //      (CLAUDE.md anti-pattern: no multiple active cards per accountId:conversationId).
-  //   2. Drive the actual /btw bypass dispatch later in this function (see the
-  //      `if (isBtwBypass)` branch below, after the abort branch).
-  // Both consequences read this constant; nothing recomputes the check, so the two
-  // sites can never disagree. The check uses `content.text` (pre-OCR user body),
-  // not `inboundText` (which is content.text + attachment OCR), because /btw is a
-  // command typed by the user — we must not dispatch BTW because some attached
-  // image's OCR happens to start with "/btw". This data dependency is also why the
-  // sibling abort flag is NOT lifted here: abort uses `inboundText` (its historical
-  // input), and `inboundText` is not yet computed at this point in the pipeline.
   const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
+  const taskInfoConversationId = groupId || to;
+  const sessionTaskState = initSessionState(accountId, taskInfoConversationId);
+  const initialStatusLine = renderStatusLine({
+    model: sessionTaskState.model,
+    effort: sessionTaskState.effort,
+    agent: getAgentDisplayName({
+      subAgentOptions,
+      agentId: route.agentId,
+      agentsList: cfg.agents?.list,
+    }),
+  }, dingtalkConfig) || undefined;
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
@@ -844,10 +852,17 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log?.debug?.(
         `[DingTalk][AICard] conversationType=${data.conversationType}, conversationId=${to}`,
       );
+      // quoteContent always shows the inbound message text so the user can
+      // identify which of their messages this card is replying to.
+      // Use rawInboundText ( preserved before sub-agent rewriting) to avoid
+      // showing internal routing context like "[你被 @ 为...]" in the card UI.
+      const inboundQuoteText = rawInboundText.slice(0, 200);
       const aiCard = await createAICard(dingtalkConfig, to, log, {
         accountId,
         storePath: accountStorePath,
         contextConversationId: groupId,
+        quoteContent: inboundQuoteText,
+        statusLine: initialStatusLine,
       });
       if (aiCard) {
         currentAICard = aiCard;
@@ -873,7 +888,6 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
     }
   }
-
   const hasLegacyQuoteContent =
     typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
 
@@ -1509,9 +1523,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
     // Finalize the card that was created for this message before the abort check.
     // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+    // Use V2 finalize (commitAICardBlocks) for consistent state transition.
     if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
       try {
-        await finishAICard(currentAICard, abortConfirmationText ?? "已停止", log);
+        const abortText = abortConfirmationText ?? "已停止";
+        const abortBlockList = [{ type: 0, markdown: abortText }];
+        const blockListJson = JSON.stringify(abortBlockList);
+
+        await commitAICardBlocks(currentAICard, {
+          blockListJson,
+          content: abortText,
+        }, log);
+
+        log?.debug?.(`[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`);
       } catch (cardErr) {
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
@@ -1860,6 +1884,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       legacyCardStreamReasoning === undefined
         ? dingtalkConfig
         : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
+    const sessionTaskState = getSessionState(accountId, taskInfoConversationId);
+    const taskMeta = {
+      model: sessionTaskState?.model,
+      effort: sessionTaskState?.effort,
+      elapsedMs: typeof sessionTaskState?.taskStartTime === "number"
+        ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
+        : undefined,
+      agent: getAgentDisplayName({
+        subAgentOptions,
+        agentId: route.agentId,
+        agentsList: cfg.agents?.list,
+      }),
+    };
+
     const strategy = createReplyStrategy({
       config: strategyConfig,
       card: currentAICard,
@@ -1883,6 +1921,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       replyQuotedRef,
       deliverMedia: deliverMediaAttachments,
       isStopRequested: isCurrentCardStopRequested,
+      inboundText: rawInboundText,
+      taskMeta,
     });
 
     try {
@@ -1939,19 +1979,26 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         `queuedFinalType=${typeof bufferedFinal}`,
       );
 
-      if (deliveredFinalCount === 0 && typeof bufferedFinal === "string" && bufferedFinal.trim()) {
-        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinal);
-        const richBufferedPayload = {
-          text: bufferedFinal,
-          mediaUrls: [],
-        } as ReplyStreamPayload;
-        await strategy.deliver({
-          text: inlineReplyPayload.text,
-          mediaUrls: extractMediaUrls(richBufferedPayload, inlineReplyPayload),
-          audioAsVoice: extractSharedAudioAsVoice(richBufferedPayload, inlineReplyPayload),
-          kind: "final",
-          isReasoning: false,
-        });
+      const bufferedFinalPayload =
+        typeof bufferedFinal === "string"
+          ? ({ text: bufferedFinal } satisfies ReplyStreamPayload)
+          : bufferedFinal && typeof bufferedFinal === "object"
+            ? (bufferedFinal as ReplyStreamPayload)
+            : undefined;
+
+      if (deliveredFinalCount === 0 && bufferedFinalPayload) {
+        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinalPayload.text);
+        const mediaUrls = extractMediaUrls(bufferedFinalPayload, inlineReplyPayload);
+        const hasBufferedText = typeof bufferedFinalPayload.text === "string" && bufferedFinalPayload.text.trim().length > 0;
+        if (hasBufferedText || mediaUrls.length > 0) {
+          await strategy.deliver({
+            text: inlineReplyPayload.text,
+            mediaUrls,
+            audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
+            kind: "final",
+            isReasoning: bufferedFinalPayload.isReasoning === true,
+          });
+        }
       }
     } catch (dispatchErr: unknown) {
       const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));

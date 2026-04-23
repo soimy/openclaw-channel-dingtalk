@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCardReplyStrategy } from "../../src/reply-strategy-card";
 import * as cardService from "../../src/card-service";
 import * as sendService from "../../src/send-service";
+import * as mediaUtils from "../../src/media-utils";
+import { clearAllSessionStatesForTest, initSessionState } from "../../src/session-state";
+import { clearAllForTest as clearAllUsageForTest, recordRunStart, accumulateUsage, getUsageByRunId } from "../../src/run-usage-store";
 import { AICardStatus } from "../../src/types";
 import type { AICardInstance } from "../../src/types";
 import type { ReplyStrategyContext } from "../../src/reply-strategy";
@@ -11,8 +14,12 @@ vi.mock("../../src/card-service", async (importOriginal) => {
     return {
         ...actual,
         finishAICard: vi.fn(),
-        recallAICardMessage: vi.fn(),
+        commitAICardBlocks: vi.fn(),
+        updateAICardStatusLine: vi.fn(),
         streamAICard: vi.fn(),
+        updateAICardBlockList: vi.fn(),
+        streamAICardContent: vi.fn(),
+        clearAICardStreamingContent: vi.fn(),
     };
 });
 
@@ -23,13 +30,36 @@ vi.mock("../../src/send-service", async (importOriginal) => {
         sendMessage: vi.fn().mockResolvedValue({ ok: true }),
         sendBySession: vi.fn().mockResolvedValue({}),
         sendProactiveTextOrMarkdown: vi.fn().mockResolvedValue({}),
+        sendProactiveMedia: vi.fn().mockResolvedValue({ ok: true, mediaId: "test-media-id" }),
+        uploadMedia: vi.fn().mockResolvedValue({ mediaId: "test-media-id" }),
     };
 });
 
-const finishAICardMock = vi.mocked(cardService.finishAICard);
-const recallAICardMessageMock = vi.mocked(cardService.recallAICardMessage);
-const streamAICardMock = vi.mocked(cardService.streamAICard);
+vi.mock("../../src/media-utils", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../src/media-utils")>();
+    return {
+        ...actual,
+        prepareMediaInput: vi.fn().mockImplementation(async (input: string) => ({ path: input })),
+        resolveOutboundMediaType: vi.fn().mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            // Detect media type based on file extension
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
+                return "image";
+            }
+            return "file";
+        }),
+    };
+});
+
+const commitAICardBlocksMock = vi.mocked(cardService.commitAICardBlocks);
+const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
+const updateAICardStatusLineMock = vi.mocked(cardService.updateAICardStatusLine);
+const streamAICardContentMock = vi.mocked(cardService.streamAICardContent);
+const clearAICardStreamingContentMock = vi.mocked(cardService.clearAICardStreamingContent);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
+const sendProactiveMediaMock = vi.mocked(sendService.sendProactiveMedia);
+const uploadMediaMock = vi.mocked(sendService.uploadMedia);
+const prepareMediaInputMock = vi.mocked(mediaUtils.prepareMediaInput);
+const resolveOutboundMediaTypeMock = vi.mocked(mediaUtils.resolveOutboundMediaType);
 
 function makeCard(overrides: Partial<AICardInstance> = {}): AICardInstance {
     return {
@@ -65,10 +95,29 @@ function buildCtx(
 describe("reply-strategy-card", () => {
     beforeEach(() => {
         vi.useFakeTimers();
-        finishAICardMock.mockReset().mockResolvedValue(undefined as any);
-        recallAICardMessageMock.mockReset().mockResolvedValue(true);
-        streamAICardMock.mockReset().mockResolvedValue(undefined);
-        sendMessageMock.mockReset().mockResolvedValue({ ok: true });
+        clearAllSessionStatesForTest();
+        clearAllUsageForTest();
+        commitAICardBlocksMock.mockClear().mockResolvedValue(undefined);
+        updateAICardBlockListMock.mockClear().mockResolvedValue(undefined);
+        updateAICardStatusLineMock.mockClear().mockResolvedValue(undefined);
+        streamAICardContentMock.mockClear().mockResolvedValue(undefined);
+        clearAICardStreamingContentMock.mockClear().mockResolvedValue(undefined);
+        sendMessageMock.mockClear().mockResolvedValue({ ok: true });
+        sendProactiveMediaMock.mockClear().mockResolvedValue({ ok: true, mediaId: "test-media-id" });
+        uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id", buffer: Buffer.from("") });
+        prepareMediaInputMock.mockImplementation(async (input: string) => ({ path: input }));
+        resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".gif")) {
+                return "image";
+            }
+            if (mediaPath.endsWith(".mp3") || mediaPath.endsWith(".wav")) {
+                return "voice";
+            }
+            if (mediaPath.endsWith(".mp4") || mediaPath.endsWith(".mov")) {
+                return "video";
+            }
+            return "file";
+        });
     });
 
     afterEach(() => {
@@ -90,57 +139,10 @@ describe("reply-strategy-card", () => {
             expect(strategy.getReplyOptions().disableBlockStreaming).toBe(false);
         });
 
-        it("registers onPartialReply when cardStreamingMode=answer", () => {
+        it("always registers onPartialReply (for all streaming modes)", () => {
             const card = makeCard();
-            const ctx = buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
-            });
-            const opts = createCardReplyStrategy(ctx).getReplyOptions();
-            expect(opts.onPartialReply).toBeDefined();
-        });
-
-        it("registers onPartialReply when cardStreamingMode=off so answer snapshots can still be buffered locally", () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
-            }));
+            const strategy = createCardReplyStrategy(buildCtx(card));
             expect(strategy.getReplyOptions().onPartialReply).toBeDefined();
-        });
-
-        it("streams partial answers into the card timeline when cardStreamingMode=answer", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            await opts.onPartialReply?.({ text: "阶段性答案" });
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("阶段性答案");
-        });
-
-        it("buffers partial answers locally when cardStreamingMode=off and reuses them during finalize", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            await opts.onPartialReply?.({ text: "阶段性答案" });
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(streamAICardMock).not.toHaveBeenCalled();
-
-            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("阶段性答案");
-            expect(rendered).not.toContain("✅ Done");
-            expect(strategy.getFinalText()).toBe("阶段性答案");
         });
 
         it("always registers onReasoningStream and onAssistantMessageStart", () => {
@@ -157,13 +159,13 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 先检查当前改动_" });
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前改动");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("Reason: 先检查当前改动");
         });
 
         it("buffers unprefixed reasoning stream lines until the final answer boundary", async () => {
@@ -173,13 +175,13 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_先检查当前目录_" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 先检查当前目录");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("先检查当前目录");
         });
 
         it("flushes the latest grown unprefixed reasoning snapshot instead of the first truncated line", async () => {
@@ -190,14 +192,14 @@ describe("reply-strategy-card", () => {
             await opts.onReasoningStream?.({ text: "Reasoning:\n_用户再次_" });
             await opts.onReasoningStream?.({ text: "Reasoning:\n_用户再次要求分步思考后给出结论_" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const streamed = streamAICardMock.mock.calls[0]?.[1] ?? "";
-            expect(streamed).toContain("> 用户再次要求分步思考后给出结论");
-            expect(streamed).not.toContain("> 用户再次\n");
+            const streamed = updateAICardBlockListMock.mock.calls[0]?.[1] ?? "";
+            expect(streamed).toContain("用户再次要求分步思考后给出结论");
+            expect(streamed).not.toContain("用户再次\n");
         });
 
         it("resets reasoning assembly on a new assistant turn so later turns can emit fresh think blocks", async () => {
@@ -207,14 +209,14 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第一轮思考_" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
 
             await opts.onAssistantMessageStart?.();
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第二轮新思考_" });
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(2);
-            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("> Reason: 第二轮新思考");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(2);
+            expect(updateAICardBlockListMock.mock.calls[1]?.[1]).toContain("Reason: 第二轮新思考");
         });
 
         it("flushes unfinished reasoning before resetting on a new assistant turn", async () => {
@@ -224,13 +226,13 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 第一轮未封口" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await opts.onAssistantMessageStart?.();
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 第一轮未封口");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("Reason: 第一轮未封口");
         });
     });
 
@@ -242,23 +244,18 @@ describe("reply-strategy-card", () => {
             }));
             const opts = strategy.getReplyOptions();
 
-            expect(opts.onPartialReply).toBeDefined();
-
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_先检查当前目录_" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> 先检查当前目录");
-            expect(rendered).toContain("最终答案");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
         });
 
         it("answer mode streams partial answers but buffers reasoning until boundary/final", async () => {
@@ -270,19 +267,82 @@ describe("reply-strategy-card", () => {
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
 
             await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 暂存思考" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+        });
 
+        it("answer mode finalize does not clear streaming content before the final card commit", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 暂存思考");
-            expect(rendered).toContain("最终答案");
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(clearAICardStreamingContentMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+        });
+
+        it("answer mode rewrites local markdown image snapshots to placeholder text before final upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "说明如下\n\n![系统图](./artifacts/demo.png)" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("见下图系统图");
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).not.toContain("![系统图](./artifacts/demo.png)");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![系统图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("见下图系统图");
+            expect(commitPayload?.blockListJson).toContain('"type":3');
+            expect(commitPayload?.blockListJson).toContain('"text":"系统图"');
+        });
+
+        it("splits mixed reasoning+answer partial snapshots into thinking and answer lanes", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({
+                text: "Reasoning:\n_Reason: 先检查当前目录_\n\n最终答案：/tmp",
+            });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.blockListJson).toContain("Reason: 先检查当前目录");
+            expect(commitPayload?.blockListJson).toContain("最终答案：/tmp");
+            expect(commitPayload?.content).toContain("最终答案：/tmp");
+            expect(commitPayload?.content).not.toContain("Reason: 先检查当前目录");
         });
 
         it("all mode streams answer partials and reasoning snapshots live", async () => {
@@ -294,17 +354,15 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "第一轮推理" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 第一轮推理");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("第一轮推理");
 
             await opts.onAssistantMessageStart?.();
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(2);
-            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("阶段性答案");
+            expect(updateAICardBlockListMock.mock.calls.length).toBeGreaterThan(1);
         });
 
         it("legacy fallback maps cardRealTimeStream=true to all mode when cardStreamingMode is omitted", async () => {
@@ -318,91 +376,8 @@ describe("reply-strategy-card", () => {
 
             await opts.onReasoningStream?.({ text: "兼容模式推理" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> 兼容模式推理");
-
-            await opts.onPartialReply?.({ text: "兼容模式答案" });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(2);
-            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("兼容模式答案");
-        });
-
-        it("legacy fallback uses the unified 1000ms default throttle when cardStreamInterval is unset", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardRealTimeStream: true } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            await opts.onReasoningStream?.({ text: "快速推理1" });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-
-            await opts.onReasoningStream?.({ text: "快速推理2" });
-            await vi.advanceTimersByTimeAsync(999);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-
-            await vi.advanceTimersByTimeAsync(1);
-            expect(streamAICardMock).toHaveBeenCalledTimes(2);
-            expect(streamAICardMock.mock.calls[1]?.[1]).toContain("> 快速推理2");
-        });
-
-        it("explicit cardStreamingMode wins over deprecated cardRealTimeStream", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "s",
-                    messageType: "card",
-                    cardStreamingMode: "off",
-                    cardRealTimeStream: true,
-                } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            expect(opts.onPartialReply).toBeDefined();
-
-            await opts.onPartialReply?.({ text: "阶段性答案" });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
-
-            await opts.onReasoningStream?.({ text: "Reasoning:\n_Reason: 优先显式模式" });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).not.toHaveBeenCalled();
-
-            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 优先显式模式");
-            expect(rendered).toContain("最终答案");
-        });
-
-        it("respects cardStreamInterval for throttle in all mode", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "s",
-                    messageType: "card",
-                    cardStreamingMode: "all",
-                    cardStreamInterval: 2000,
-                } as any,
-            }));
-            const opts = strategy.getReplyOptions();
-
-            await opts.onReasoningStream?.({ text: "快速思考1" });
-            await vi.advanceTimersByTimeAsync(500);
-            await opts.onReasoningStream?.({ text: "快速思考2" });
-            await vi.advanceTimersByTimeAsync(500);
-
-            const callsAt1000 = streamAICardMock.mock.calls.length;
-            expect(callsAt1000).toBe(1);
-
-            await vi.advanceTimersByTimeAsync(1000);
-            const callsAt2000 = streamAICardMock.mock.calls.length;
-            expect(callsAt2000).toBe(2);
-            expect(streamAICardMock.mock.calls[callsAt2000 - 1]?.[1]).toContain("> 快速思考2");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("兼容模式推理");
         });
     });
 
@@ -412,18 +387,216 @@ describe("reply-strategy-card", () => {
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
             expect(sendMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(strategy.getFinalText()).toBe("final answer");
         });
 
-        it("deliver(final) delivers media attachments", async () => {
-            const deliverMedia = vi.fn();
+        it("deliver(final) delivers media as image blocks", async () => {
             const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, { deliverMedia }));
+            const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "text", mediaUrls: ["/img.png"], kind: "final" });
-            expect(deliverMedia).toHaveBeenCalledWith(["/img.png"], {
-                audioAsVoice: undefined,
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "/img.png",
+                "image",
+                expect.anything(),
+            );
+        });
+
+        it("keeps public markdown images inline in final answer text", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![公网图](https://example.com/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            expect(uploadMediaMock).not.toHaveBeenCalled();
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.blockListJson).toContain("![公网图](https://example.com/demo.png)");
+            expect(commitPayload?.content).toContain("![公网图](https://example.com/demo.png)");
+        });
+
+        it("extracts local markdown images into card image blocks and leaves placeholder text", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    mediaUrlAllowlist: ["http://127.0.0.1:3000/**"],
+                } as any,
             });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](http://127.0.0.1:3000/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            expect(prepareMediaInputMock).toHaveBeenCalledWith(
+                "http://127.0.0.1:3000/demo.png",
+                expect.anything(),
+                ["http://127.0.0.1:3000/**"],
+            );
+            expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("见下图本地图");
+            expect(commitPayload?.content).not.toContain("![本地图](http://127.0.0.1:3000/demo.png)");
+            expect(commitPayload?.blockListJson).toContain('"type":3');
+            expect(commitPayload?.blockListJson).toContain('"mediaId":"test-media-id"');
+            expect(commitPayload?.blockListJson).toContain('"text":"本地图"');
+        });
+
+        it("passes mediaUrlAllowlist when preparing payload mediaUrls and deferred attachments", async () => {
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+                if (mediaPath.endsWith(".png")) {
+                    return "image";
+                }
+                return "file";
+            });
+
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: {
+                    clientId: "id",
+                    clientSecret: "secret",
+                    messageType: "card",
+                    mediaUrlAllowlist: ["https://example.com/**"],
+                } as any,
+            }));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "回复内容",
+                mediaUrls: ["https://example.com/demo.png", "https://example.com/demo.pdf"],
+            } as any);
+            await strategy.finalize();
+
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                1,
+                "https://example.com/demo.png",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                2,
+                "https://example.com/demo.pdf",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
+            expect(prepareMediaInputMock).toHaveBeenNthCalledWith(
+                3,
+                "https://example.com/demo.pdf",
+                expect.anything(),
+                ["https://example.com/**"],
+            );
+        });
+
+        it("normalizes relative markdown image paths before upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringMatching(/artifacts[\\/]demo\.png$/),
+                "image",
+                expect.anything(),
+            );
+            expect(uploadMediaMock.mock.calls[0]?.[1]).not.toBe("./artifacts/demo.png");
+        });
+
+        it("normalizes plain relative markdown image paths before upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringMatching(/artifacts[\\/]demo\.png$/),
+                "image",
+                expect.anything(),
+            );
+            expect(uploadMediaMock.mock.calls[0]?.[1]).not.toBe("artifacts/demo.png");
+        });
+
+        it("preserves markdown image order when extracting multiple local images", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "前文\n\n![图一](./artifacts/one.png)\n\n中间\n\n![图二](./artifacts/two.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            const blockListJson = commitPayload?.blockListJson ?? "";
+            expect(blockListJson.indexOf('"text":"图一"')).toBeLessThan(blockListJson.indexOf('"text":"图二"'));
+        });
+
+        it("keeps final answer block before extracted image blocks in final-only delivery", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            const blocks = JSON.parse(commitPayload?.blockListJson ?? "[]") as Array<{ type: number; markdown?: string; text?: string }>;
+            expect(blocks[0]).toMatchObject({
+                type: 0,
+                markdown: "说明如下\n\n见下图本地图",
+            });
+            expect(blocks[1]).toMatchObject({
+                type: 3,
+                text: "本地图",
+            });
+        });
+
+        it("preserves original markdown image text when local image upload fails", async () => {
+            uploadMediaMock.mockRejectedValueOnce(new Error("upload failed"));
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](./artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+
+            await strategy.finalize();
+
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).toContain("![本地图](./artifacts/demo.png)");
+            expect(commitPayload?.blockListJson).not.toContain('"type":3');
         });
 
         it("deliver(tool) appends to the controller instead of sendMessage append mode", async () => {
@@ -452,40 +625,22 @@ describe("reply-strategy-card", () => {
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
-        it("deliver(tool) does not depend on sendMessage append mode success", async () => {
-            const card = makeCard();
-            sendMessageMock.mockResolvedValueOnce({ ok: false, error: "tool send failed" });
-            const strategy = createCardReplyStrategy(buildCtx(card));
-            await expect(
-                strategy.deliver({ text: "tool output", mediaUrls: [], kind: "tool" }),
-            ).resolves.toBeUndefined();
-            expect(sendMessageMock).not.toHaveBeenCalled();
-        });
-
-        it("deliver(tool) skips when tool text is empty after formatting", async () => {
+        it("deliver(block) delivers media as image blocks", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
-            // undefined text → formatContentForCard returns ""
-            await strategy.deliver({ text: undefined, mediaUrls: [], kind: "tool" });
+            await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.png"], kind: "block" });
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "/tmp/file.png",
+                "image",
+                expect.anything(),
+            );
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
-        it("deliver(block) delivers media but ignores text", async () => {
-            const deliverMedia = vi.fn();
+        it("deliver(block) routes reasoning-on blocks into the card timeline", async () => {
             const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, { deliverMedia }));
-            await strategy.deliver({ text: "ignored", mediaUrls: ["/tmp/file.pdf"], kind: "block" });
-            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/file.pdf"], {
-                audioAsVoice: undefined,
-            });
-            expect(sendMessageMock).not.toHaveBeenCalled();
-        });
-
-        it("deliver(block) with explicit reasoning metadata respects off-mode buffering before final", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "off" } as any,
-            }));
+            const strategy = createCardReplyStrategy(buildCtx(card));
 
             await strategy.deliver({
                 text: "Reasoning:\n_Reason: 先检查当前目录_",
@@ -495,52 +650,8 @@ describe("reply-strategy-card", () => {
             });
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(streamAICardMock).not.toHaveBeenCalled();
-
-            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(streamAICardMock.mock.calls.length).toBeGreaterThanOrEqual(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 先检查当前目录");
-            expect(rendered).toContain("最终答案");
-        });
-
-        it("deliver(block) with explicit reasoning metadata streams live in all mode", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "all" } as any,
-            }));
-
-            await strategy.deliver({
-                text: "Reasoning:\n_Reason: 先检查当前目录_",
-                mediaUrls: [],
-                kind: "block",
-                isReasoning: true,
-            });
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("> Reason: 先检查当前目录");
-        });
-
-        it("deliver(block) routes standalone Reasoning text into the thinking lane when no explicit reasoning metadata is present", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text: "Reasoning:\n_用户要求分步思考后给结论，纯推理任务。_",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> 用户要求分步思考后给结论，纯推理任务。");
-            expect(rendered).not.toContain("Reasoning:\n_用户要求分步思考后给结论，纯推理任务。_");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("Reason: 先检查当前目录");
         });
 
         it("deliver(block) updates the answer timeline when block streaming is enabled for card mode", async () => {
@@ -556,74 +667,8 @@ describe("reply-strategy-card", () => {
             });
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls[0]?.[1]).toContain("最终答案");
-            expect(streamAICardMock.mock.calls[0]?.[1]).not.toContain("> 最终答案");
-        });
-
-        it("deliver(block) splits mixed answer-plus-Reasoning payloads into thinking and answer timeline entries", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text: "结论：3天\n\nReasoning:\n_1. 任务总量设为 1。_\n_2. 团队总效率为 1/3。_",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("结论：3天");
-            expect(rendered).toContain("> 1. 任务总量设为 1。");
-            expect(rendered).not.toContain("Reasoning:\n_1. 任务总量设为 1。_");
-            expect(rendered.match(/> 1\. 任务总量设为 1。/g)?.length ?? 0).toBe(1);
-            expect(rendered.indexOf("> 1. 任务总量设为 1。")).toBeLessThan(rendered.indexOf("结论：3天"));
-        });
-
-        it("deliver(block) keeps markdown reasoning-process sections as plain answer text without explicit reasoning markers", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text:
-                    "**分步思考过程**：\n\n" +
-                    "**第一步：设定基准并计算单人效率**\n" +
-                    "- 设总任务量为 1\n" +
-                    "- 第1人效率：1 ÷ 10 = 1/10\n\n" +
-                    "**结论：这项任务预计 3 天完成。** ✅",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("**分步思考过程**：");
-            expect(rendered).toContain("**第一步：设定基准并计算单人效率**");
-            expect(rendered).toContain("- 第1人效率：1 ÷ 10 = 1/10");
-            expect(rendered).toContain("**结论：这项任务预计 3 天完成。** ✅");
-            expect(rendered).not.toContain("> **分步思考过程**：");
-        });
-        it("deliver(block) preserves answer text even when card block streaming is disabled", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card));
-
-            await strategy.deliver({
-                text: "这是通过 block 投递的答案",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("这是通过 block 投递的答案");
-            expect(rendered).not.toContain("✅ Done");
+            expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("最终答案");
         });
 
         it("deliver(final) with empty text still falls through for card finalize", async () => {
@@ -632,10 +677,54 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             expect(strategy.getFinalText()).toBe("✅ Done");
         });
+
+        it("ignores all callbacks and deliveries after finalize seals the card lifecycle", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card));
+            const opts = strategy.getReplyOptions();
+
+            await strategy.deliver({ text: "answer", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+
+            commitAICardBlocksMock.mockClear();
+            updateAICardBlockListMock.mockClear();
+
+            // After finalize, lifecycle is sealed — these should all be ignored
+            await opts.onPartialReply?.({ text: "late partial" });
+            await opts.onReasoningStream?.({ text: "late reasoning" });
+            await opts.onAssistantMessageStart?.();
+            await strategy.deliver({ text: "late delivery", mediaUrls: [], kind: "block" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
+        });
+
+        it("in final_seen state, late tool is inserted before the current answer", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onPartialReply?.({ text: "initial answer" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await strategy.deliver({ text: "final answer text", mediaUrls: [], kind: "final" });
+            // Now in "final_seen" state
+
+            await strategy.deliver({ text: "late tool result", mediaUrls: [], kind: "tool" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            // The late tool should have been inserted (appendToolBeforeCurrentAnswer)
+            const lastContent = updateAICardBlockListMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(lastContent).toContain("late tool result");
+        });
     });
 
     describe("finalize", () => {
-        it("calls finishAICard with the rendered timeline instead of answer-only text", async () => {
+        it("calls commitAICardBlocks with answer-only markdown (not including reasoning/tool blocks)", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             strategy.getReplyOptions().onReasoningStream?.({ text: "先检查差异" });
@@ -643,15 +732,15 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "the answer", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("> 先检查差异");
-            expect(rendered).toContain("> git diff --stat");
-            expect(rendered).toContain("the answer");
-            expect(rendered).not.toContain("> the answer");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls[0][1]?.content;
+            // getRenderedContent now returns only answer markdown, not JSON with all blocks
+            expect(rendered).toBe("the answer");
+            expect(rendered).not.toContain("先检查差异");  // reasoning not included
+            expect(rendered).not.toContain("git diff --stat");  // tool not included
         });
 
-        it("preserves answer and tool blocks in event order during finalize", async () => {
+        it("finalize renders answer blocks in order excluding tool blocks", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(
                 buildCtx(card, {
@@ -659,7 +748,7 @@ describe("reply-strategy-card", () => {
                         clientId: "id",
                         clientSecret: "secret",
                         messageType: "card",
-                        cardRealTimeStream: true,
+                        cardStreamingMode: "answer",
                     } as any,
                 }),
             );
@@ -677,25 +766,27 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "阶段3答案：两次工具都已完成", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
+            // Only answer blocks should be in the rendered content
             const phase1Index = rendered.indexOf("阶段1答案：准备先检查当前目录");
-            const tool1Index = rendered.indexOf("🛠️ Exec: pwd");
             const phase2Index = rendered.indexOf("阶段2答案：pwd 已返回结果");
-            const tool2Index = rendered.indexOf("🛠️ Exec: printf ok");
             const phase3Index = rendered.indexOf("阶段3答案：两次工具都已完成");
 
+            // Answers should be in order
             expect(phase1Index).toBeGreaterThanOrEqual(0);
-            expect(tool1Index).toBeGreaterThan(phase1Index);
-            expect(phase2Index).toBeGreaterThan(tool1Index);
-            expect(tool2Index).toBeGreaterThan(phase2Index);
-            expect(phase3Index).toBeGreaterThan(tool2Index);
+            expect(phase2Index).toBeGreaterThan(phase1Index);
+            expect(phase3Index).toBeGreaterThan(phase2Index);
+
+            // Tool blocks should NOT be in the rendered content (it's markdown, not JSON)
+            expect(rendered).not.toContain("🛠️ Exec: pwd");
+            expect(rendered).not.toContain("🛠️ Exec: printf ok");
         });
 
         it("skips finalize when card is already FINISHED and no new content", async () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.finalize();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(sendMessageMock).not.toHaveBeenCalled();
         });
 
@@ -704,7 +795,7 @@ describe("reply-strategy-card", () => {
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "recovery answer", mediaUrls: [], kind: "final" });
             await strategy.finalize();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
             expect(fallbackText).toContain("recovery answer");
@@ -713,17 +804,17 @@ describe("reply-strategy-card", () => {
             });
         });
 
-        it("sends rendered timeline as FINISHED recovery fallback when reasoning content exists", async () => {
+        it("keeps FINISHED recovery fallback answer-only even when reasoning content exists", async () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             strategy.getReplyOptions().onReasoningStream?.({ text: "思考中" });
             await strategy.deliver({ text: "final answer", mediaUrls: [], kind: "final" });
             await strategy.finalize();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
-            expect(fallbackText).toContain("> 思考中");
             expect(fallbackText).toContain("final answer");
+            expect(fallbackText).not.toContain("> 思考中");
         });
 
         it("logs warning but does not throw when FINISHED recovery fallback send fails", async () => {
@@ -738,7 +829,7 @@ describe("reply-strategy-card", () => {
             );
         });
 
-        it("sends markdown fallback with the rendered timeline when card FAILED", async () => {
+        it("sends markdown fallback with answer-only content when card FAILED", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             strategy.getReplyOptions().onReasoningStream?.({ text: "分析上下文" });
@@ -747,30 +838,28 @@ describe("reply-strategy-card", () => {
             card.state = AICardStatus.FAILED;
             await strategy.finalize();
 
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
             const fallbackText = sendMessageMock.mock.calls[0][2];
-            expect(fallbackText).toContain("> 分析上下文");
-            expect(fallbackText).toContain("> git status");
             expect(fallbackText).toContain("full answer");
             expect(sendMessageMock.mock.calls[0][3]).toMatchObject({
                 forceMarkdown: true,
             });
         });
 
-        it("sets card state to FAILED when finishAICard throws", async () => {
+        it("sets card state to FAILED when commitAICardBlocks throws", async () => {
             const card = makeCard();
-            finishAICardMock.mockRejectedValueOnce(new Error("api error"));
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("api error"));
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.deliver({ text: "text", mediaUrls: [], kind: "final" });
             await strategy.finalize();
             expect(card.state).toBe(AICardStatus.FAILED);
         });
 
-        it("logs error payload when finishAICard throws with response data", async () => {
+        it("logs error payload when commitAICardBlocks throws with response data", async () => {
             const card = makeCard();
             const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-            finishAICardMock.mockRejectedValueOnce({
+            commitAICardBlocksMock.mockRejectedValueOnce({
                 message: "finalize failed",
                 response: { data: { code: "invalidParameter", message: "bad param" } },
             });
@@ -802,10 +891,8 @@ describe("reply-strategy-card", () => {
         it("does nothing when card FAILED and no fallback text available", async () => {
             const card = makeCard({ state: AICardStatus.FAILED });
             const strategy = createCardReplyStrategy(buildCtx(card));
-            // No deliver(final), no lastStreamedContent
             await strategy.finalize();
-            expect(sendMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
         });
 
         it("uses a file-only placeholder answer when no answer text is available", async () => {
@@ -815,205 +902,9 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls[0][1];
-            expect(rendered).toContain("> 我来发附件");
-            expect(rendered).toContain("✅ Done");
-        });
-
-        it("recalls an empty direct-chat card after media-only final delivery succeeds", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            const deliverMedia = vi.fn().mockResolvedValue(undefined);
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia,
-            }));
-
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
-            await strategy.finalize();
-
-            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-voice.mp3"], {
-                audioAsVoice: true,
-            });
-            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
-            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
-            expect(finishAICardMock).not.toHaveBeenCalled();
-        });
-
-        it("recalls an empty group card after media-only final delivery succeeds", async () => {
-            const card = makeCard({ conversationId: "cid//group-1" });
-            const deliverMedia = vi.fn().mockResolvedValue(undefined);
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: false,
-                to: "cid//group-1",
-                groupId: "cid//group-1",
-                sessionWebhook: "",
-                deliverMedia,
-            }) as any);
-
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-file.pdf"], kind: "final" });
-            await strategy.finalize();
-
-            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-file.pdf"], {
-                audioAsVoice: undefined,
-            });
-            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
-            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
-            expect(finishAICardMock).not.toHaveBeenCalled();
-        });
-
-        it("recalls an empty card when media is delivered outside final and no textual content exists", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            const deliverMedia = vi.fn().mockResolvedValue(undefined);
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia,
-            }));
-
-            await strategy.deliver({
-                text: "",
-                mediaUrls: ["/tmp/reply-voice.mp3"],
-                kind: "block",
-                audioAsVoice: true,
-            });
-            await strategy.finalize();
-
-            expect(deliverMedia).toHaveBeenCalledWith(["/tmp/reply-voice.mp3"], {
-                audioAsVoice: true,
-            });
-            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
-            expect(recallAICardMessageMock).toHaveBeenCalledWith(card, expect.anything());
-            expect(finishAICardMock).not.toHaveBeenCalled();
-        });
-
-        it("keeps the card when media-only final delivery still has reasoning content", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia: vi.fn().mockResolvedValue(undefined),
-            }));
-
-            await strategy.getReplyOptions().onReasoningStream?.({ text: "先说明我要发送语音附件" });
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
-            await strategy.finalize();
-
-            expect(recallAICardMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> 先说明我要发送语音附件");
-            expect(rendered).toContain("✅ Done");
-        });
-
-        it("does not recall when a media-only final is followed by a late textual final before finalize", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia: vi.fn().mockResolvedValue(undefined),
-            }));
-
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
-            await strategy.deliver({ text: "晚到 final 文本", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(recallAICardMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("晚到 final 文本");
-        });
-
-        it("does not recall when media arrives before a later textual final in the same reply cycle", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia: vi.fn().mockResolvedValue(undefined),
-            }));
-
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "block", audioAsVoice: true });
-            await strategy.deliver({ text: "最终文本答案", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(recallAICardMessageMock).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("最终文本答案");
-        });
-
-        it("falls back to Done finalization when empty-card recall fails", async () => {
-            const card = makeCard({ conversationId: "manager8031" });
-            recallAICardMessageMock.mockResolvedValueOnce(false);
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                isDirect: true,
-                to: "manager8031",
-                sessionWebhook: "",
-                deliverMedia: vi.fn().mockResolvedValue(undefined),
-            }));
-
-            await strategy.deliver({ text: "", mediaUrls: ["/tmp/reply-voice.mp3"], kind: "final", audioAsVoice: true });
-            await strategy.finalize();
-
-            expect(recallAICardMessageMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("✅ Done");
-        });
-
-        it("uses the standard empty final reply when process blocks exist but no answer text was delivered", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            } as any) as any);
-
-            await strategy.deliver({
-                text: "Reasoning:\n_Reason: 先执行 pwd_",
-                mediaUrls: [],
-                kind: "block",
-                isReasoning: true,
-            });
-            await strategy.deliver({ text: "pwd", mediaUrls: [], kind: "tool" });
-            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 先执行 pwd");
-            expect(rendered).toContain("> pwd");
-            expect(rendered).toContain("✅ Done");
-            expect(rendered).not.toContain("/Users/sym/clawd");
-        });
-
-        it("ignores legacy transcript fallback inputs even when they are present on the strategy context", async () => {
-            const card = makeCard();
-            const readFinalAnswerFromTranscript = vi.fn().mockResolvedValue("/Users/sym/clawd");
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-                sessionKey: "agent:main:direct:manager8031",
-                sessionAgentId: "main",
-                enableTemporaryTranscriptFinalAnswerFallback: true,
-                readFinalAnswerFromTranscript,
-            } as any) as any);
-
-            await strategy.deliver({
-                text: "Reasoning:\n_Reason: 先执行 pwd_",
-                mediaUrls: [],
-                kind: "block",
-                isReasoning: true,
-            });
-            await strategy.deliver({ text: "pwd", mediaUrls: [], kind: "tool" });
-            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(readFinalAnswerFromTranscript).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("✅ Done");
-            expect(rendered).not.toContain("/Users/sym/clawd");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls[0][1]?.content;
+            expect(rendered).toBe("✅ Done");
         });
 
         it("finalize preserves answer text that only arrived through block delivery", async () => {
@@ -1025,116 +916,12 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "block" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("最终答案");
             expect(rendered).not.toContain("✅ Done");
         });
 
-        it("finalize keeps the latest partial answer when final delivery has no explicit answer text", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardRealTimeStream: true,
-                } as any,
-            }));
-
-            await strategy.getReplyOptions().onPartialReply?.({ text: "阶段性答案" });
-            await strategy.deliver({
-                text: "Reasoning:\n_Reason: 先执行 pwd_",
-                mediaUrls: [],
-                kind: "block",
-                isReasoning: true,
-            });
-            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("阶段性答案");
-            expect(rendered).toContain("> Reason: 先执行 pwd");
-        });
-
-        it("finalize keeps late pure-reasoning blocks before the current answer in the same segment", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text: "收到！这是一条完全不需要工具的消息。",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.deliver({
-                text: "Reasoning:\n_The user is asking me to send a message that doesn't require tools._",
-                mediaUrls: [],
-                kind: "block",
-                isReasoning: true,
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> The user is asking me to send a message that doesn't require tools.");
-            expect(rendered).toContain("收到！这是一条完全不需要工具的消息。");
-            expect(rendered.indexOf("> The user is asking me to send a message that doesn't require tools.")).toBeLessThan(
-                rendered.indexOf("收到！这是一条完全不需要工具的消息。"),
-            );
-        });
-
-        it("finalize routes late visible Reasoning text without metadata into the thinking lane", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text: "经过分步计算，结论如下：任务预计 3 天完成。",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.deliver({
-                text: "Reasoning:\n_1. 先计算每个人的效率_\n_2. 再汇总总效率_",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> 1. 先计算每个人的效率");
-            expect(rendered).toContain("> 2. 再汇总总效率");
-            expect(rendered).not.toContain("Reasoning:\n_1. 先计算每个人的效率_");
-        });
-
-        it("finalize splits mixed final payloads into thinking and answer content without explicit reasoning metadata", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-            }));
-
-            await strategy.deliver({
-                text: "经过分步计算，结论如下：任务预计 3 天完成。\n\nReasoning:\n_1. 先计算每个人的效率_\n_2. 再汇总总效率_",
-                mediaUrls: [],
-                kind: "final",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("经过分步计算，结论如下：任务预计 3 天完成。");
-            expect(rendered).toContain("> 1. 先计算每个人的效率");
-            expect(rendered).not.toContain("Reasoning:\n_1. 先计算每个人的效率_");
-            expect(rendered.match(/> 1\. 先计算每个人的效率/g)?.length ?? 0).toBe(1);
-            expect(rendered.indexOf("> 1. 先计算每个人的效率")).toBeLessThan(
-                rendered.indexOf("经过分步计算，结论如下：任务预计 3 天完成。"),
-            );
-            expect(strategy.getFinalText()).toBe("经过分步计算，结论如下：任务预计 3 天完成。");
-        });
         it("finalize prefers the final answer snapshot over an earlier partial answer", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
@@ -1142,7 +929,7 @@ describe("reply-strategy-card", () => {
                     clientId: "id",
                     clientSecret: "secret",
                     messageType: "card",
-                    cardRealTimeStream: true,
+                    cardStreamingMode: "answer",
                 } as any,
             }));
             const replyOptions = strategy.getReplyOptions();
@@ -1151,169 +938,12 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "阶段性答案 + 最终补充", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("阶段性答案 + 最终补充");
-            expect(rendered).not.toContain("阶段性答案\n");
             expect(strategy.getFinalText()).toBe("阶段性答案 + 最终补充");
         });
 
-        it("ignores late partial snapshots after first final while still accepting late answer blocks/finals, reasoning, and tool tails", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardStreamingMode: "answer",
-                } as any,
-            }));
-            const replyOptions = strategy.getReplyOptions();
-
-            await replyOptions.onPartialReply?.({ text: "阶段性答案" });
-            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
-
-            await replyOptions.onPartialReply?.({ text: "晚到 partial 答案（应忽略）" });
-            await strategy.deliver({ text: "晚到 block 答案（应吸收）", mediaUrls: [], kind: "block" });
-            await replyOptions.onReasoningStream?.({ text: "Reasoning:\n_Reason: 最后补齐思考_" });
-            await strategy.deliver({ text: "late tool output", mediaUrls: [], kind: "tool" });
-            await strategy.deliver({ text: "晚到 final 覆盖答案（应吸收）", mediaUrls: [], kind: "final" });
-
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 最后补齐思考");
-            expect(rendered).toContain("> late tool output");
-            expect(rendered.indexOf("> late tool output")).toBeLessThan(
-                rendered.indexOf("晚到 final 覆盖答案（应吸收）"),
-            );
-            expect(rendered).not.toContain("晚到 partial 答案（应忽略）");
-            expect(rendered).not.toContain("首个最终答案");
-            expect(rendered).not.toContain("阶段性答案");
-            expect(strategy.getFinalText()).toBe("晚到 final 覆盖答案（应吸收）");
-        });
-
-        it("in final_seen inserts late tool before the last sealed answer that gets overridden at finalize", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardStreamingMode: "answer",
-                } as any,
-            }));
-            const replyOptions = strategy.getReplyOptions();
-
-            await replyOptions.onPartialReply?.({ text: "阶段性答案（将被冻结答案覆盖）" });
-            await replyOptions.onAssistantMessageStart?.();
-            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
-            await strategy.deliver({ text: "late sealed-case tool output", mediaUrls: [], kind: "tool" });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("首个最终答案");
-            expect(rendered).toContain("> late sealed-case tool output");
-            expect(rendered.indexOf("> late sealed-case tool output")).toBeLessThan(
-                rendered.indexOf("首个最终答案"),
-            );
-            expect(rendered).not.toContain("阶段性答案（将被冻结答案覆盖）");
-        });
-
-        it("ignores all callbacks and deliveries after finalize seals the card lifecycle", async () => {
-            const card = makeCard();
-            const ctx = buildCtx(card, {
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardStreamingMode: "all",
-                } as any,
-            });
-            const strategy = createCardReplyStrategy(ctx);
-            const replyOptions = strategy.getReplyOptions();
-
-            await strategy.deliver({ text: "首个最终答案", mediaUrls: [], kind: "final" });
-            await strategy.finalize();
-
-            const streamCallCountAfterFinalize = streamAICardMock.mock.calls.length;
-            await replyOptions.onPartialReply?.({ text: "sealed 后 partial（应忽略）" });
-            await replyOptions.onReasoningStream?.({ text: "Reasoning:\n_Reason: sealed 后 reasoning（应忽略）_" });
-            await replyOptions.onAssistantMessageStart?.();
-            await strategy.deliver({ text: "sealed 后 tool（应忽略）", mediaUrls: [], kind: "tool" });
-            await strategy.deliver({ text: "sealed 后 final（应忽略）", mediaUrls: ["/tmp/final.png"], kind: "final" });
-
-            expect(streamAICardMock.mock.calls.length).toBe(streamCallCountAfterFinalize);
-            expect(ctx.deliverMedia).not.toHaveBeenCalled();
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(strategy.getFinalText()).toBe("首个最终答案");
-        });
-
-        it("streams plain reasoning-like partial replies as ordinary answer text when no explicit reasoning signal exists", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardRealTimeStream: true,
-                } as any,
-            }));
-            const replyOptions = strategy.getReplyOptions();
-
-            await replyOptions.onPartialReply?.({
-                text: "分步推理过程如下：\n1. 先计算每个人的效率\n2. 再汇总总效率",
-            });
-            await strategy.deliver({
-                text: "任务预计 3 天完成。",
-                mediaUrls: [],
-                kind: "final",
-            });
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(streamAICardMock).toHaveBeenCalled();
-            const streamed = streamAICardMock.mock.calls.at(0)?.[1] ?? "";
-            expect(streamed).toContain("分步推理过程如下：");
-            expect(streamed).toContain("1. 先计算每个人的效率");
-            expect(streamed).not.toContain("> 分步推理过程如下：");
-        });
-
-        it("keeps markdown-wrapped reasoning-process text as plain answer content when reasoning-on compatibility is disabled", async () => {
-            const card = makeCard();
-            const strategy = createCardReplyStrategy(buildCtx(card, {
-                disableBlockStreaming: false,
-                config: {
-                    clientId: "id",
-                    clientSecret: "secret",
-                    messageType: "card",
-                    cardRealTimeStream: true,
-                } as any,
-            }));
-            const replyOptions = strategy.getReplyOptions();
-
-            await replyOptions.onPartialReply?.({
-                text: "**分步思考过程**：\n\n**第一步：设定基准并计算单人效率**",
-            });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(streamAICardMock).toHaveBeenCalledTimes(1);
-            expect(streamAICardMock.mock.calls.at(-1)?.[1] ?? "").toContain("**分步思考过程**：");
-
-            await strategy.deliver({
-                text: "**分步思考过程**：\n\n**第一步：设定基准并计算单人效率**\n\nReasoning:\n_1. 设总任务量为1_\n_2. 团队总效率为1/3_",
-                mediaUrls: [],
-                kind: "block",
-            });
-            await strategy.finalize();
-
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("**分步思考过程**：");
-            expect(rendered).toContain("Reasoning:\n_1. 设总任务量为1_");
-            expect(rendered).not.toContain("> 1. 设总任务量为1");
-        });
         it("flushes pending reasoning before appending a tool block", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
@@ -1325,10 +955,10 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "git diff --stat", mediaUrls: [], kind: "tool" });
             await vi.advanceTimersByTimeAsync(0);
 
-            const rendered = streamAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 先检查当前目录");
-            expect(rendered).toContain("> 还在整理发送链路");
-            expect(rendered).toContain("> git diff --stat");
+            const rendered = updateAICardBlockListMock.mock.calls.at(-1)?.[1] ?? "";
+            expect(rendered).toContain("Reason: 先检查当前目录");
+            expect(rendered).toContain("还在整理发送链路");
+            expect(rendered).toContain("git diff --stat");
         });
 
         it("flushes pending reasoning before final answer is finalized", async () => {
@@ -1342,26 +972,25 @@ describe("reply-strategy-card", () => {
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            const rendered = finishAICardMock.mock.calls.at(-1)?.[1] ?? "";
-            expect(rendered).toContain("> Reason: 先检查当前目录");
-            expect(rendered).toContain("> 还在整理发送链路");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("最终答案");
+            expect(rendered).not.toContain("Reason: 先检查当前目录");
         });
     });
 
     describe("abort", () => {
-        it("calls finishAICard with error message", async () => {
+        it("calls commitAICardBlocks with error message", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
-            expect(finishAICardMock).toHaveBeenCalledTimes(1);
-            expect(finishAICardMock.mock.calls[0][1]).toContain("处理失败");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            expect(commitAICardBlocksMock.mock.calls[0][1]?.content).toContain("处理失败");
         });
 
-        it("sets card FAILED when finishAICard throws during abort", async () => {
+        it("sets card FAILED when commitAICardBlocks throws during abort", async () => {
             const card = makeCard();
-            finishAICardMock.mockRejectedValueOnce(new Error("cannot finalize"));
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("cannot finalize"));
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
             expect(card.state).toBe(AICardStatus.FAILED);
@@ -1371,7 +1000,436 @@ describe("reply-strategy-card", () => {
             const card = makeCard({ state: AICardStatus.FINISHED });
             const strategy = createCardReplyStrategy(buildCtx(card));
             await strategy.abort(new Error("dispatch crashed"));
-            expect(finishAICardMock).not.toHaveBeenCalled();
+            expect(commitAICardBlocksMock).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("quoteContent from inboundText", () => {
+        it("does not overwrite quoteContent during finalize because card creation owns that field", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                inboundText: "用户发送的原始消息",
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.quoteContent).toBeUndefined();
+        });
+
+        it("omits quoteContent when inboundText is empty", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                inboundText: "",
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.quoteContent).toBeUndefined();
+        });
+
+    });
+
+    describe("statusLine from taskMeta", () => {
+        it("passes statusLine to commitAICardBlocks on finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    effort: "medium",
+                    usage: 12,
+                    elapsedMs: 3400,
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.statusLine).toBeDefined();
+            expect(typeof options.statusLine).toBe("string");
+            expect(options.statusLine).toContain("gpt-5.4");
+            expect(options.statusLine).toContain("medium");
+        });
+
+        it("recomputes task duration at finalize time", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    effort: "medium",
+                    usage: 12,
+                    elapsedMs: 0,
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await vi.advanceTimersByTimeAsync(3200);
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            // statusLine should contain the elapsed time
+            expect(options.statusLine).toBeDefined();
+        });
+
+        it("keeps taskTime isolated to the card even if the session timer resets later", async () => {
+            initSessionState("main", "cid_1");
+            await vi.advanceTimersByTimeAsync(4000);
+
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 4000,
+            });
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                },
+            }));
+
+            initSessionState("main", "cid_1");
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.statusLine).toBeDefined();
+        });
+
+        it("includes statusLine in commitAICardBlocks on finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            await strategy.deliver({ text: "Hello", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalled();
+            const statusLine = commitAICardBlocksMock.mock.calls[0][1].statusLine;
+            expect(statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
+        });
+
+        it("omits statusLine when taskMeta is not provided", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.statusLine).toBeUndefined();
+        });
+
+        it("updates statusLine early when onModelSelected fires", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+                dapiUsage: 1,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    usage: 2,
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
+
+            expect(updateAICardStatusLineMock).toHaveBeenCalledTimes(1);
+            const statusLine = updateAICardStatusLineMock.mock.calls[0]?.[1];
+            expect(statusLine).toBeDefined();
+            expect(statusLine).toContain("gpt-5.4");
+            expect(statusLine).toContain("medium");
+            expect(statusLine).toContain("代码专家");
+        });
+
+        it("includes partial statusLine in early onModelSelected update", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "old-model", effort: "low", agent: "TestBot" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            // Trigger onModelSelected — this calls buildStatusLine() + updateAICardStatusLine()
+            opts.onModelSelected?.({ model: "claude-sonnet-4-20250514", thinkLevel: "high" } as any);
+
+            expect(updateAICardStatusLineMock).toHaveBeenCalled();
+            const statusLine = updateAICardStatusLineMock.mock.calls[0][1];
+            expect(statusLine).toBe("claude-sonnet-4-20250514 | high | TestBot");
+        });
+
+        it("uses the latest card dapiUsage at finalize after early statusLine refresh", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 3000,
+                dapiUsage: 2,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onModelSelected?.({ model: "gpt-5.4", thinkLevel: "medium" } as any);
+            card.dapiUsage = 5;
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            // statusLine should contain DAPI+5
+            expect(options.statusLine).toBeDefined();
+            expect(options.statusLine).toContain("5");
+        });
+
+        it("includes agent in statusLine when taskMeta.agent is set", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card, {
+                taskMeta: {
+                    model: "gpt-5.4",
+                    agent: "代码专家",
+                },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            const options = commitAICardBlocksMock.mock.calls[0][1];
+            expect(options.statusLine).toBeDefined();
+            expect(options.statusLine).toContain("gpt-5.4");
+            expect(options.statusLine).toContain("代码专家");
+        });
+    });
+
+    describe("non-image media handling", () => {
+        it("defers non-image attachments and sends them after card finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Setup: voice file should be deferred, not embedded in card
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".mp3") || mediaPath.endsWith(".m4a")) {
+                    return "voice";
+                }
+                return "file";
+            });
+            prepareMediaInputMock.mockImplementation(async (input) => ({ path: input, cleanup: vi.fn() }));
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: ["file://voice.mp3"] });
+            await strategy.finalize();
+
+            // Card should be finalized first
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+
+            // Non-image media should be sent via sessionWebhook when available
+            // The implementation prefers sessionWebhook for reply-session semantics
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            expect(sendMessageMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "cid_1",
+                "",
+                expect.objectContaining({
+                    sessionWebhook: "https://session.webhook",
+                    mediaPath: "file://voice.mp3",
+                    mediaType: "voice",
+                    accountId: "main",
+                    storePath: "/tmp/store.json",
+                })
+            );
+
+            // sendProactiveMedia should NOT be called since sessionWebhook is available
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+
+        it("embeds image media in card instead of sending separately", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg")) {
+                    return "image";
+                }
+                return "file";
+            });
+
+            await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: ["file://image.png"] });
+            await strategy.finalize();
+
+            // Image should be uploaded for card embedding
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "file://image.png",
+                "image",
+                expect.anything()
+            );
+
+            // Non-image media should NOT be sent separately
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+
+        it("sends multiple non-image attachments after finalize", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }) => {
+                if (mediaPath.endsWith(".mp3")) return "voice";
+                if (mediaPath.endsWith(".mp4")) return "video";
+                if (mediaPath.endsWith(".pdf")) return "file";
+                return "image";
+            });
+            prepareMediaInputMock.mockImplementation(async (input) => ({ path: input, cleanup: vi.fn() }));
+
+            await strategy.deliver({
+                kind: "final",
+                text: "回复内容",
+                mediaUrls: ["file://voice.mp3", "file://video.mp4", "file://doc.pdf"]
+            });
+            await strategy.finalize();
+
+            // All three non-image attachments should be sent via sessionWebhook
+            expect(sendMessageMock).toHaveBeenCalledTimes(3);
+
+            // sendProactiveMedia should NOT be called since sessionWebhook is available
+            expect(sendProactiveMediaMock).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("card failure fallback", () => {
+        it("sends user-friendly fallback message when card fails without answer content", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.finalize();
+
+            // Should send fallback message
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0][2];
+            // Should NOT be JSON (no blockList)
+            expect(sentText).not.toMatch(/^\[/);
+            expect(sentText).not.toMatch(/^\{/);
+        });
+
+        it("sends rendered timeline content when card fails with answer content", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Deliver final answer content
+            await strategy.deliver({ kind: "final", text: "最终答案内容", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0]?.[2];
+            expect(sentText).toContain("最终答案内容");
+        });
+
+        it("uses forceMarkdown when sending fallback after card failure", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const options = sendMessageMock.mock.calls[0]?.[3];
+            expect(options?.forceMarkdown).toBe(true);
+        });
+
+        it("aggregates token usage across multiple runs (session-recovery)", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+                createdAt: Date.now() - 5000,
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
+                config: {
+                    clientId: "id", clientSecret: "secret", messageType: "card",
+                    cardStatusLine: { tokens: true },
+                } as any,
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            // First run
+            opts.onAgentRunStart?.("run-1");
+            accumulateUsage("run-1", { input: 100, output: 50, total: 150 });
+
+            // Second run (session-recovery)
+            opts.onAgentRunStart?.("run-2");
+            accumulateUsage("run-2", { input: 200, output: 80, total: 280 });
+
+            await strategy.deliver({ text: "Hello", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            expect(commitAICardBlocksMock).toHaveBeenCalled();
+            const statusLine = commitAICardBlocksMock.mock.calls[0][1].statusLine;
+            // Token usage should be aggregated: 100+200=300 input, 50+80=130 output
+            // statusLine with cardStatusTokens=true should contain token segments
+            expect(statusLine).toBeDefined();
+            expect(statusLine).toContain("↑");  // input token marker
+            expect(statusLine).toContain("↓");  // output token marker
+        });
+
+        it("clears all run entries from usageStore on finalize", async () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+            });
+            const ctx = buildCtx(card, {
+                taskMeta: { model: "test" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+            const opts = strategy.getReplyOptions();
+
+            opts.onAgentRunStart?.("run-a");
+            accumulateUsage("run-a", { input: 10, output: 5 });
+            opts.onAgentRunStart?.("run-b");
+            accumulateUsage("run-b", { input: 20, output: 10 });
+
+            await strategy.deliver({ text: "Done", mediaUrls: [], kind: "final" });
+            await strategy.finalize();
+
+            // Both runs should be cleared from the store (no memory leak)
+            expect(getUsageByRunId("run-a")).toBeUndefined();
+            expect(getUsageByRunId("run-b")).toBeUndefined();
         });
     });
 });

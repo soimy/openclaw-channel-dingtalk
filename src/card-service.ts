@@ -25,6 +25,7 @@ import {
 import type {
   AICardInstance,
   AICardStreamingRequest,
+  CardBlock,
   DingTalkConfig,
   DingTalkTrackingMetadata,
   Logger,
@@ -53,7 +54,12 @@ export async function hideCardStopButton(
 ): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await updateCardVariables(outTrackId, { stop_action: STOP_ACTION_HIDDEN }, token, config);
+      await updateCardVariables(
+        outTrackId,
+        { hasAction: String(STOP_ACTION_HIDDEN), stop_action: String(STOP_ACTION_HIDDEN) },
+        token,
+        config,
+      );
       return;
     } catch (err) {
       if (attempt >= retries) {
@@ -204,6 +210,12 @@ export function clearAICardDegrade(accountId: string, log?: Logger): void {
   log?.info?.(`[DingTalk][AICard][Degrade] Cleared for account=${accountId}, lastReason=${reason}`);
 }
 
+export function incrementCardDapiCount(card: AICardInstance): number {
+  const next = (card.dapiUsage || 0) + 1;
+  card.dapiUsage = next;
+  return next;
+}
+
 function extractCardProcessQueryKey(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") {
     return undefined;
@@ -270,6 +282,7 @@ async function putAICardStreamingField(
       `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`,
     );
     card.lastUpdated = Date.now();
+    incrementCardDapiCount(card);
   } catch (err: any) {
     if (err.response?.status === 401 && card.config && !tokenAlreadyRefreshed) {
       log?.warn?.("[DingTalk][AICard] Received 401 error, attempting token refresh and retry...");
@@ -286,6 +299,7 @@ async function putAICardStreamingField(
           `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
         );
         card.lastUpdated = Date.now();
+        incrementCardDapiCount(card);
         return;
       } catch (retryErr: any) {
         log?.error?.(`[DingTalk][AICard] Retry after token refresh failed: ${retryErr.message}`);
@@ -324,6 +338,10 @@ interface CreateAICardOptions {
   storePath?: string;
   persistPending?: boolean;
   contextConversationId?: string;
+  /** Quote content to display in card header (shown when non-empty) */
+  quoteContent?: string;
+  /** Initial statusLine string to show on the first createAndDeliver render. */
+  statusLine?: string;
 }
 
 interface PendingCardRecord {
@@ -335,6 +353,8 @@ interface PendingCardRecord {
   createdAt: number;
   lastUpdated: number;
   state: string;
+  lastContent?: string;
+  lastBlockListJson?: string;
 }
 
 interface PendingCardStateFile {
@@ -371,7 +391,9 @@ function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCa
         typeof entry.accountId === "string" &&
         typeof entry.cardInstanceId === "string" &&
         (entry.outTrackId === undefined || typeof entry.outTrackId === "string") &&
-        typeof entry.conversationId === "string",
+        typeof entry.conversationId === "string" &&
+        (entry.lastContent === undefined || typeof entry.lastContent === "string") &&
+        (entry.lastBlockListJson === undefined || typeof entry.lastBlockListJson === "string"),
       ),
     ),
   };
@@ -443,6 +465,8 @@ function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logge
     createdAt: card.createdAt,
     lastUpdated: card.lastUpdated,
     state: card.state,
+    lastContent: card.lastStreamedContent,
+    lastBlockListJson: card.lastBlockListJson,
   };
   const index = state.pendingCards.findIndex((item) => item.cardInstanceId === card.cardInstanceId);
   if (index >= 0) {
@@ -452,6 +476,36 @@ function upsertPendingCard(card: AICardInstance, storePath?: string, log?: Logge
   }
   state.updatedAt = Date.now();
   writePendingCardState(state, storePath, log);
+}
+
+function parseStoredBlockList(blockListJson?: string): CardBlock[] {
+  if (!blockListJson?.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(blockListJson) as unknown;
+    return Array.isArray(parsed) ? (parsed as CardBlock[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildStoppedCardFinalizePayload(params: {
+  reason: string;
+  previousContent?: string;
+  previousBlockListJson?: string;
+}): { blockListJson: string; content: string } {
+  const markerText = params.reason.trim();
+  const baseContent = params.previousContent?.trim() || "";
+  const blocks = parseStoredBlockList(params.previousBlockListJson);
+  blocks.push({ type: 0, markdown: markerText });
+  const content = baseContent
+    ? `${baseContent}\n\n---\n*${markerText}*`
+    : markerText;
+  return {
+    blockListJson: JSON.stringify(blocks),
+    content,
+  };
 }
 
 function removePendingCard(card: AICardInstance, log?: Logger): void {
@@ -498,6 +552,26 @@ export function isCardInTerminalState(state: string): boolean {
     || state === AICardStatus.STOPPED
     || state === AICardStatus.FAILED
   );
+}
+
+/**
+ * Ensure card access token is fresh (refresh if >90min old).
+ * Mutates card.accessToken in place if refreshed.
+ */
+async function ensureFreshToken(card: AICardInstance, log?: Logger): Promise<void> {
+  const tokenAge = Date.now() - card.createdAt;
+  const tokenRefreshThreshold = 90 * 60 * 1000;
+
+  if (tokenAge > tokenRefreshThreshold && card.config) {
+    log?.debug?.("[DingTalk][AICard] Token age exceeds threshold, refreshing...");
+    try {
+      card.accessToken = await getAccessToken(card.config, log);
+      log?.debug?.("[DingTalk][AICard] Token refreshed successfully");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log?.warn?.(`[DingTalk][AICard] Failed to refresh token: ${msg}`);
+    }
+  }
 }
 
 export function formatContentForCard(content: string | undefined, type: "thinking" | "tool"): string {
@@ -657,16 +731,23 @@ async function finalizePendingCardsByAccount(
       lastUpdated: entry.lastUpdated || Date.now(),
       state: normalizeRecoveredState(entry.state),
       config,
+      lastStreamedContent: entry.lastContent,
+      lastBlockListJson: entry.lastBlockListJson,
     };
     try {
-      await finishAICard(card, reason, log);
+      await finalizeStoppedAICard(card, {
+        reason,
+        previousContent: entry.lastContent,
+        previousBlockListJson: entry.lastBlockListJson,
+      }, log);
       finalizedCount += 1;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const action = mode === "recover" ? "recover" : "finalize";
+      const message = err instanceof Error ? err.message : String(err);
       log?.warn?.(
-        `[DingTalk][AICard] Failed to ${action} active card ${entry.cardInstanceId}: ${err.message}`,
+        `[DingTalk][AICard] Failed to ${action} active card ${entry.cardInstanceId}: ${message}`,
       );
-      removePendingCardById(entry.cardInstanceId, storePath, log);
+      // Pending record intentionally kept for manual investigation
     }
   }
   return finalizedCount;
@@ -705,8 +786,13 @@ export async function createAICard(
     // Status is set to "streaming" via the streaming API immediately after creation.
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
-      [template.contentKey]: "",
-      stop_action: STOP_ACTION_VISIBLE,
+      [template.streamingKey]: "",
+      quoteContent: options.quoteContent || "",
+      ...(options.statusLine?.trim() ? { statusLine: options.statusLine } : {}),
+      // V2 template uses hasAction (string), V1 uses stop_action (string)
+      // DingTalk cardParamMap requires all values to be strings
+      hasAction: String(STOP_ACTION_VISIBLE),
+      stop_action: String(STOP_ACTION_VISIBLE),
     };
     const createAndDeliverBody = {
       cardTemplateId: template.templateId,
@@ -758,6 +844,13 @@ export async function createAICard(
           cardInstanceId?: unknown;
         }
       | undefined;
+    const deliverResults = (responseData?.result as { deliverResults?: Array<{ success?: boolean; errorMsg?: string }> } | undefined)?.deliverResults;
+    if (Array.isArray(deliverResults)) {
+      const failedDelivery = deliverResults.find((item) => item?.success === false);
+      if (failedDelivery) {
+        throw new Error(failedDelivery.errorMsg?.trim() || "DingTalk card delivery failed");
+      }
+    }
     const responseTracking = responseData?.result;
     const processQueryKey =
       typeof responseTracking?.processQueryKey === "string" &&
@@ -793,6 +886,7 @@ export async function createAICard(
       config,
       processQueryKey: processQueryKey || extractCardProcessQueryKey(resp.data),
       outTrackId,
+      dapiUsage: 1,
     };
     if (shouldPersistPending) {
       upsertPendingCard(aiCardInstance, options.storePath, log);
@@ -836,6 +930,216 @@ export async function createAICard(
   }
 }
 
+/**
+ * Update statusLine via PUT /v1.0/card/instances API.
+ */
+export async function updateAICardStatusLine(
+  card: AICardInstance,
+  statusLine: string,
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state) || !statusLine.trim()) {
+    return;
+  }
+
+  await ensureFreshToken(card, log);
+
+  try {
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      { statusLine },
+      card.accessToken,
+      card.config,
+    );
+    incrementCardDapiCount(card);
+    card.lastUpdated = Date.now();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.warn?.(`[DingTalk][AICard] StatusLine update failed: ${message}`);
+  }
+}
+
+export async function updateAICardBlockList(
+  card: AICardInstance,
+  blockListJson: string,
+  log?: Logger,
+  options?: { statusLine?: string },
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    log?.debug?.(
+      `[DingTalk][AICard] Skip blockList update because card already terminal: outTrackId=${card.cardInstanceId} state=${card.state}`,
+    );
+    return;
+  }
+
+  // Ensure token is fresh before API call
+  await ensureFreshToken(card, log);
+
+  const template = DINGTALK_CARD_TEMPLATE;
+  const params: Record<string, unknown> = {
+    [template.blockListKey]: blockListJson,
+  };
+  if (options?.statusLine?.trim()) {
+    params.statusLine = options.statusLine;
+  }
+
+  try {
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      params,
+      card.accessToken,
+      card.config,
+    );
+    incrementCardDapiCount(card);
+    card.lastBlockListJson = blockListJson;
+    card.lastUpdated = Date.now();
+    if (card.state === AICardStatus.PROCESSING) {
+      card.state = AICardStatus.INPUTING;
+    }
+    upsertPendingCard(card, card.storePath, log);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.error?.(`[DingTalk][AICard] BlockList update failed: ${message}`);
+    throw err;
+  }
+}
+
+/**
+ * Stream answer text to content key for real-time display.
+ * Only used when cardRealTimeStream=true.
+ * Uses streaming API because content is a simple string type.
+ */
+export async function streamAICardContent(
+  card: AICardInstance,
+  text: string,
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    return;
+  }
+  const template = DINGTALK_CARD_TEMPLATE;
+  await putAICardStreamingField(card, template.streamingKey, text, false, log);
+  card.lastStreamedContent = text;
+  upsertPendingCard(card, card.storePath, log);
+}
+
+/**
+ * Clear the streaming content key.
+ * Called when transitioning from streaming to blockList commit.
+ */
+export async function clearAICardStreamingContent(
+  card: AICardInstance,
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    return;
+  }
+  const template = DINGTALK_CARD_TEMPLATE;
+  try {
+    await putAICardStreamingField(card, template.streamingKey, "", false, log);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.debug?.(`[DingTalk][AICard] Non-critical: failed to clear streaming content: ${message}`);
+  }
+}
+
+/**
+ * Options for finalizing an AI Card via instances API.
+ * All variables are written in a single API call for V2 template compatibility.
+ */
+export interface FinalizeCardOptions {
+  /** CardBlock[] JSON string for blockList variable */
+  blockListJson: string;
+  /** Pure markdown answer text for copy action (content variable) */
+  content: string;
+  /** Optional quoted message preview text */
+  quoteContent?: string;
+  /** Optional statusLine string for card template */
+  statusLine?: string;
+  /** Optional quoted message reference for caching */
+  quotedRef?: QuotedRef;
+}
+
+/**
+ * Commit blocks and finalize card via single instances API call.
+ * V2 template requires finalize through instances API (not streaming API).
+ * Writes blockList, content, quoteContent, statusLine, and flowStatus in one call.
+ */
+export async function commitAICardBlocks(
+  card: AICardInstance,
+  options: FinalizeCardOptions,
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    log?.debug?.(
+      `[DingTalk][AICard] Skip finalize because card already terminal: outTrackId=${card.cardInstanceId} state=${card.state}`,
+    );
+    return;
+  }
+
+  await ensureFreshToken(card, log);
+
+  const template = DINGTALK_CARD_TEMPLATE;
+  const updates: Record<string, unknown> = {
+    [template.blockListKey]: options.blockListJson,
+    [template.streamingKey]: options.content, // markdown content for display
+    [template.copyContentKey]: options.content, // same markdown as String type for card copy action
+    flowStatus: 3, // completed state - V2 template hides stop button automatically
+  };
+
+  // Optional fields
+  if (options.quoteContent?.trim()) {
+    updates.quoteContent = options.quoteContent;
+  }
+  if (options.statusLine?.trim()) {
+    updates.statusLine = options.statusLine;
+  }
+
+  log?.debug?.(
+    `[DingTalk][AICard] Finalizing via instances API: outTrackId=${card.outTrackId || card.cardInstanceId} ` +
+    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=3` +
+    (options.statusLine ? ` statusLine="${options.statusLine}"` : ""),
+  );
+
+  try {
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      updates,
+      card.accessToken,
+      card.config,
+    );
+    incrementCardDapiCount(card);
+    card.lastBlockListJson = options.blockListJson;
+    card.lastStreamedContent = options.content;
+    card.lastUpdated = Date.now();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log?.error?.(`[DingTalk][AICard] Finalize via instances API failed: ${message}`);
+    throw err;
+  }
+
+  // Cache card content for quote recovery
+  if (card.conversationId && options.content.trim() && card.accountId && card.processQueryKey) {
+    const primaryConversationId = card.contextConversationId || card.conversationId;
+    cacheCardContentByProcessQueryKey(
+      card.accountId,
+      primaryConversationId,
+      card.processQueryKey,
+      options.content,
+      card.storePath,
+      options.quotedRef,
+      log,
+    );
+  }
+
+  // Update local state
+  card.state = AICardStatus.FINISHED;
+  card.lastUpdated = Date.now();
+  removePendingCard(card, log);
+  log?.info?.(`[DingTalk][AICard] Card finalized: outTrackId=${card.outTrackId || card.cardInstanceId} state=FINISHED`);
+}
+
+
 export async function streamAICard(
   card: AICardInstance,
   content: string,
@@ -858,6 +1162,7 @@ export async function streamAICard(
       removePendingCard(card, log);
     } else if (card.state === AICardStatus.PROCESSING) {
       card.state = AICardStatus.INPUTING;
+      upsertPendingCard(card, card.storePath, log);
     }
   } catch (err: any) {
     card.state = AICardStatus.FAILED;
@@ -873,6 +1178,14 @@ export async function streamAICard(
   }
 }
 
+/**
+ * Finalize AI Card via streaming API.
+ *
+ * @deprecated For V2 template, use `commitAICardBlocks()` instead which finalizes
+ * via instances API (single call writes blockList, content, flowStatus=3).
+ * This function is kept for backward compatibility with V1 template and for
+ * card-stop-handler which uses streaming API for immediate stop acknowledgment.
+ */
 export async function finishAICard(
   card: AICardInstance,
   content: string,
@@ -1036,6 +1349,53 @@ export async function finishStoppedAICard(
     card.state = AICardStatus.STOPPED;
     card.lastUpdated = Date.now();
     removePendingCard(card, log);
+  }
+}
+
+export async function finalizeStoppedAICard(
+  card: AICardInstance,
+  options: {
+    reason: string;
+    previousContent?: string;
+    previousBlockListJson?: string;
+  },
+  log?: Logger,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    log?.debug?.(
+      `[DingTalk][AICard] finalizeStoppedAICard skipped — already terminal: ${card.state}`,
+    );
+    return;
+  }
+
+  await ensureFreshToken(card, log);
+  const template = DINGTALK_CARD_TEMPLATE;
+  const payload = buildStoppedCardFinalizePayload(options);
+  try {
+    await updateCardVariables(
+      card.outTrackId || card.cardInstanceId,
+      {
+        [template.blockListKey]: payload.blockListJson,
+        [template.streamingKey]: payload.content,
+        [template.copyContentKey]: payload.content,
+        flowStatus: 3,
+      },
+      card.accessToken,
+      card.config,
+    );
+    incrementCardDapiCount(card);
+    card.lastBlockListJson = payload.blockListJson;
+    card.lastStreamedContent = payload.content;
+    card.state = AICardStatus.STOPPED;
+    card.lastUpdated = Date.now();
+    removePendingCard(card, log);
+  } catch (err: unknown) {
+    card.lastBlockListJson = payload.blockListJson;
+    card.lastStreamedContent = payload.content;
+    card.state = AICardStatus.STOPPED;
+    card.lastUpdated = Date.now();
+    // Keep pending record for manual investigation on API failure
+    throw err;
   }
 }
 

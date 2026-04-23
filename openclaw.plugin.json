@@ -253,6 +253,44 @@
             "type": "string",
             "description": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
           },
+          "cardStatusLine": {
+            "type": "object",
+            "description": "Status line visibility toggles for the AI card footer.",
+            "additionalProperties": false,
+            "default": { "model": true, "effort": true, "agent": true, "taskTime": false, "tokens": false, "dapiUsage": false },
+            "properties": {
+              "model": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show model name in AI card status line footer."
+              },
+              "effort": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show thinking effort level in AI card status line footer."
+              },
+              "agent": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show agent display name in AI card status line footer."
+              },
+              "taskTime": {
+                "type": "boolean",
+                "default": false,
+                "description": "Show task elapsed time in AI card status line footer."
+              },
+              "tokens": {
+                "type": "boolean",
+                "default": false,
+                "description": "Show token usage summary (input/output/cache) in AI card status line footer."
+              },
+              "dapiUsage": {
+                "type": "boolean",
+                "default": false,
+                "description": "Show DingTalk API call count in AI card status line footer."
+              }
+            }
+          },
           "showThinkingStream": {
             "type": "boolean",
             "description": "Legacy compatibility field from older card streaming behavior. It is not used by the current runtime and new configs should omit it."
@@ -498,6 +536,44 @@
                 "cardAtSender": {
                   "type": "string",
                   "description": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
+                },
+                "cardStatusLine": {
+                  "type": "object",
+                  "description": "Status line visibility toggles for the AI card footer.",
+                  "additionalProperties": false,
+                  "default": { "model": true, "effort": true, "agent": true, "taskTime": false, "tokens": false, "dapiUsage": false },
+                  "properties": {
+                    "model": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Show model name in AI card status line footer."
+                    },
+                    "effort": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Show thinking effort level in AI card status line footer."
+                    },
+                    "agent": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Show agent display name in AI card status line footer."
+                    },
+                    "taskTime": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show task elapsed time in AI card status line footer."
+                    },
+                    "tokens": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show token usage summary (input/output/cache) in AI card status line footer."
+                    },
+                    "dapiUsage": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show DingTalk API call count in AI card status line footer."
+                    }
+                  }
                 }
               }
             }
@@ -677,6 +753,34 @@
         "cardAtSender": {
           "label": "Card Mention Follow-Up",
           "help": "Send a follow-up @mention text after card finalization in group chats. Any non-empty string becomes the message body."
+        },
+        "cardStatusLine": {
+          "label": "Status Line",
+          "help": "Configure which information segments appear in the AI card footer status line."
+        },
+        "cardStatusLine.model": {
+          "label": "Model Name",
+          "help": "Show the LLM model name in the AI card footer status line."
+        },
+        "cardStatusLine.effort": {
+          "label": "Thinking Effort",
+          "help": "Show the thinking effort level (e.g. high, medium) in the AI card footer."
+        },
+        "cardStatusLine.agent": {
+          "label": "Agent Name",
+          "help": "Show the agent display name in the AI card footer."
+        },
+        "cardStatusLine.taskTime": {
+          "label": "Task Time",
+          "help": "Show elapsed task time in the AI card footer."
+        },
+        "cardStatusLine.tokens": {
+          "label": "Token Usage",
+          "help": "Show a compact token usage summary (input/output/cache) in the AI card footer."
+        },
+        "cardStatusLine.dapiUsage": {
+          "label": "API Calls",
+          "help": "Show the DingTalk API call count in the AI card footer."
         },
         "showThinkingStream": {
           "label": "Legacy Show Thinking Stream",

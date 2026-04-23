@@ -113,8 +113,8 @@ describe('actions.send mediaUrl redirect integration', () => {
             expect.objectContaining({
                 ok: true,
                 to: 'cidA1B2C3',
-                mediaType: 'image',
                 messageId: 'proactive_1',
+                result: { processQueryKey: 'proactive_1' },
             })
         );
         expect(getAccessTokenMock).toHaveBeenCalledTimes(2);
