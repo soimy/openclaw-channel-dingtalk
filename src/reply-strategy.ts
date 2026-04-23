@@ -17,6 +17,7 @@ export type {
   ReplyOptions,
   ReplyStrategy,
   ReplyStrategyContext,
+  TaskMeta,
 } from "./reply-strategy-types";
 
 // ---- Factory -----------------------------------------------------

@@ -3,6 +3,7 @@ import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig } from "./src/config";
 import { appendToDoc, createDoc, DocCreateAppendError, listDocs, searchDocs } from "./src/docs-service";
+import { accumulateUsage } from "./src/run-usage-store";
 import { setDingTalkRuntime } from "./src/runtime";
 
 type GatewayMethodContext = Pick<
@@ -81,5 +82,11 @@ export default defineChannelPluginEntry({
   setRuntime: setDingTalkRuntime,
   registerFull(api) {
     registerDingTalkDocsGatewayMethods(api);
+
+    api.on("llm_output", (event: { runId: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number } }) => {
+      if (event.usage) {
+        accumulateUsage(event.runId, event.usage);
+      }
+    });
   },
 });

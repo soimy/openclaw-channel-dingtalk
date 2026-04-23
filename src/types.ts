@@ -94,6 +94,15 @@ export interface DingTalkConfig extends OpenClawConfig {
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
   cardAtSender?: string;
+  /** Status line visibility toggles for the AI card footer */
+  cardStatusLine?: {
+    model?: boolean;
+    effort?: boolean;
+    agent?: boolean;
+    taskTime?: boolean;
+    tokens?: boolean;
+    dapiUsage?: boolean;
+  };
 }
 
 /**
@@ -669,8 +678,11 @@ export interface AICardInstance {
   lastUpdated: number;
   state: AICardState; // Current card state: PROCESSING, INPUTING, FINISHED, STOPPED, FAILED
   config?: DingTalkConfig; // Store config reference for token refresh
-  lastStreamedContent?: string;
+  lastStreamedContent?: string; // Latest copy/content text shown to user
+  lastBlockListJson?: string; // Latest rendered CardBlock[] JSON for V2 instances API
   outTrackId?: string;
+  /** Cumulative DingTalk API call count for this card instance. */
+  dapiUsage?: number;
 }
 
 /**
@@ -730,4 +742,15 @@ export interface ConnectionAttemptResult {
   error?: Error;
   nextDelay?: number;
 }
-
+/**
+ * CardBlock types for AI Card v2 blockList.
+ * - 0 = answer (markdown text)
+ * - 1 = thinking process
+ * - 2 = tool result
+ * - 3 = image (uploaded mediaId)
+ */
+export type CardBlock =
+  | { type: 0; markdown: string }
+  | { type: 1; markdown: string }
+  | { type: 2; markdown: string }
+  | { type: 3; mediaId: string; text?: string };

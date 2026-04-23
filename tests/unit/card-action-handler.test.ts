@@ -1,20 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shared = vi.hoisted(() => ({
-    finishStoppedAICardMock: vi.fn().mockResolvedValue(undefined),
-    hideCardStopButtonMock: vi.fn().mockResolvedValue(undefined),
-    getAccessTokenMock: vi.fn().mockResolvedValue('mock-token'),
+    finalizeStoppedAICardMock: vi.fn().mockResolvedValue(undefined),
     updateCardVariablesMock: vi.fn().mockResolvedValue(200),
     dispatchDingTalkCardStopCommandMock: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock('../../src/card-service', () => ({
-    finishStoppedAICard: shared.finishStoppedAICardMock,
-    hideCardStopButton: shared.hideCardStopButtonMock,
-}));
-
-vi.mock('../../src/auth', () => ({
-    getAccessToken: shared.getAccessTokenMock,
+    finalizeStoppedAICard: shared.finalizeStoppedAICardMock,
 }));
 
 vi.mock('../../src/card-callback-service', async (importOriginal) => {
@@ -42,9 +35,7 @@ import { AICardStatus } from '../../src/types';
 describe('card-action-handler', () => {
     beforeEach(() => {
         clearCardRunRegistryForTest();
-        shared.finishStoppedAICardMock.mockResolvedValue(undefined);
-        shared.hideCardStopButtonMock.mockResolvedValue(undefined);
-        shared.getAccessTokenMock.mockResolvedValue('mock-token');
+        shared.finalizeStoppedAICardMock.mockResolvedValue(undefined);
         shared.updateCardVariablesMock.mockResolvedValue(200);
         shared.dispatchDingTalkCardStopCommandMock.mockResolvedValue({ ok: true });
     });
@@ -98,12 +89,10 @@ describe('card-action-handler', () => {
                 clickerUserId: 'user_abc',
             }),
         );
-        expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
-        const stoppedContent = shared.finishStoppedAICardMock.mock.calls[0][1];
-        expect(stoppedContent).toContain('partial output...');
-        expect(stoppedContent).toContain('已停止');
-        expect(shared.hideCardStopButtonMock).toHaveBeenCalledTimes(1);
-        expect(shared.hideCardStopButtonMock.mock.calls[0][0]).toBe('track_1');
+        expect(shared.finalizeStoppedAICardMock).toHaveBeenCalledTimes(1);
+        const finalizeOptions = shared.finalizeStoppedAICardMock.mock.calls[0][1];
+        expect(finalizeOptions.previousContent).toContain('partial output...');
+        expect(finalizeOptions.reason).toBe('⏹️ 已停止');
         expect(isCardRunStopRequested('track_1')).toBe(true);
         expect(resolveCardRun('track_1')).toBeTruthy();
     });
@@ -140,7 +129,7 @@ describe('card-action-handler', () => {
 
         expect(result.handled).toBe(true);
         expect(shared.dispatchDingTalkCardStopCommandMock).not.toHaveBeenCalled();
-        expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
+        expect(shared.finalizeStoppedAICardMock).toHaveBeenCalledTimes(1);
         expect(isCardRunStopRequested('track_queued')).toBe(true);
     });
 
@@ -176,7 +165,7 @@ describe('card-action-handler', () => {
 
         expect(result.handled).toBe(true);
         expect(shared.dispatchDingTalkCardStopCommandMock).not.toHaveBeenCalled();
-        expect(shared.finishStoppedAICardMock).not.toHaveBeenCalled();
+        expect(shared.finalizeStoppedAICardMock).not.toHaveBeenCalled();
         expect(resolveCardRun('track_stopped')).toBeTruthy();
     });
 
@@ -226,7 +215,7 @@ describe('card-action-handler', () => {
 
         expect(result.handled).toBe(true);
         expect(shared.dispatchDingTalkCardStopCommandMock).not.toHaveBeenCalled();
-        expect(shared.finishStoppedAICardMock).not.toHaveBeenCalled();
+        expect(shared.finalizeStoppedAICardMock).not.toHaveBeenCalled();
         expect(isCardRunStopRequested('track_group')).toBe(false);
     });
 
@@ -261,7 +250,7 @@ describe('card-action-handler', () => {
 
         expect(result.handled).toBe(true);
         expect(shared.dispatchDingTalkCardStopCommandMock).not.toHaveBeenCalled();
-        expect(shared.finishStoppedAICardMock).not.toHaveBeenCalled();
+        expect(shared.finalizeStoppedAICardMock).not.toHaveBeenCalled();
         expect(isCardRunStopRequested('track_nouser')).toBe(false);
     });
 
@@ -301,6 +290,6 @@ describe('card-action-handler', () => {
         });
 
         expect(result.handled).toBe(true);
-        expect(shared.finishStoppedAICardMock).toHaveBeenCalledTimes(1);
+        expect(shared.finalizeStoppedAICardMock).toHaveBeenCalledTimes(1);
     });
 });

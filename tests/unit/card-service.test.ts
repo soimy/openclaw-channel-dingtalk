@@ -21,6 +21,7 @@ vi.mock('axios', () => {
 import {
     activateAICardDegrade,
     clearAICardDegrade,
+    commitAICardBlocks,
     createAICard,
     finalizeActiveCardsForAccount,
     finishAICard,
@@ -31,6 +32,7 @@ import {
     recoverPendingCardsForAccount,
     sendProactiveCardText,
     streamAICard,
+    updateAICardBlockList,
 } from '../../src/card-service';
 import { BUILTIN_DINGTALK_CARD_TEMPLATE_ID } from '../../src/card/card-template';
 import { getAccessToken } from '../../src/auth';
@@ -96,13 +98,33 @@ describe('card-service', () => {
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
+            hasAction: 'true',
             stop_action: 'true',
+            quoteContent: '',
         });
         expect(body.cardTemplateId).toBe(BUILTIN_DINGTALK_CARD_TEMPLATE_ID);
         expect(body.imGroupOpenDeliverModel).toEqual({
             robotCode: 'id',
             extension: { dynamicSummary: 'true' },
         });
+    });
+
+    it('createAICard includes initial statusLine in createAndDeliver payload when provided', async () => {
+        mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        await createAICard(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'cidA1B2C3',
+            undefined,
+            {
+                statusLine: 'gpt-5.4 | medium | 代码专家',
+            }
+        );
+
+        const body = mockedAxios.post.mock.calls[0]?.[1];
+        expect(body.cardData?.cardParamMap.statusLine).toBe(
+            'gpt-5.4 | medium | 代码专家'
+        );
     });
 
     it('createAICard uses robot deliver payload for direct chat cards', async () => {
@@ -262,6 +284,7 @@ describe('card-service', () => {
 
         expect(mockedAxios.put).toHaveBeenCalledTimes(2);
         expect(card.state).toBe(AICardStatus.INPUTING);
+        expect(card.dapiUsage).toBe(1);
     });
 
     it('streamAICard skips updates when card is already STOPPED', async () => {
@@ -651,6 +674,8 @@ describe('card-service', () => {
                     createdAt: Date.now() - 1000,
                     lastUpdated: Date.now() - 1000,
                     state: '1',
+                    lastContent: '部分回答',
+                    lastBlockListJson: JSON.stringify([{ type: 0, markdown: '部分回答' }]),
                 },
             ],
         };
@@ -668,7 +693,10 @@ describe('card-service', () => {
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
         expect(putBody.outTrackId).toBe('card_recover_1');
-        expect(putBody.isFinalize).toBe(true);
+        expect(putBody.cardData?.cardParamMap.flowStatus).toBe('3');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('部分回答');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('已自动结束');
+        expect(putBody.cardData?.cardParamMap.content).toContain('部分回答');
         const afterRecover = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterRecover.pendingCards).toHaveLength(0);
     });
@@ -685,6 +713,8 @@ describe('card-service', () => {
                     createdAt: Date.now() - 1000,
                     lastUpdated: Date.now() - 1000,
                     state: '2',
+                    lastContent: '处理中内容',
+                    lastBlockListJson: JSON.stringify([{ type: 0, markdown: '处理中内容' }]),
                 },
             ],
         };
@@ -702,10 +732,39 @@ describe('card-service', () => {
         expect(finalized).toBe(1);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
-        expect(putBody.content).toBe('stop-reason');
-        expect(putBody.isFinalize).toBe(true);
+        expect(putBody.cardData?.cardParamMap.flowStatus).toBe('3');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('处理中内容');
+        expect(putBody.cardData?.cardParamMap.blockList).toContain('stop-reason');
+        expect(putBody.cardData?.cardParamMap.content).toContain('处理中内容');
         const afterFinalize = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         expect(afterFinalize.pendingCards).toHaveLength(0);
+    });
+
+    it('sendProactiveCardText fails when createAndDeliver contains unsuccessful deliverResults', async () => {
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                success: true,
+                result: {
+                    outTrackId: 'track_card_fail_1',
+                    processQueryKey: 'card_process_fail_1',
+                    cardInstanceId: 'card_instance_fail_1',
+                    deliverResults: [{ success: false, errorMsg: 'spaceId is illegal' }],
+                },
+            },
+        });
+
+        const result = await sendProactiveCardText(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'manager0831',
+            'proactive done'
+        );
+
+        expect(result).toMatchObject({
+            ok: false,
+            error: expect.any(String),
+        });
+        expect(mockedAxios.put).not.toHaveBeenCalled();
     });
 
     it('sendProactiveCardText does not persist pending card state', async () => {
@@ -805,9 +864,180 @@ describe('card-service', () => {
         );
 
         expect(recovered).toBe(1);
-        // 2 PUTs: content isFinalize=true + hide stop button
-        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const putBody = mockedAxios.put.mock.calls[0]?.[1];
         expect(putBody.outTrackId).toBe('track_distinct_1');
+        expect(putBody.cardData?.cardParamMap?.flowStatus).toBe('3');
+    });
+});
+
+describe('token refresh', () => {
+    let storePath = '';
+    let stateDirPath = '';
+
+    beforeEach(() => {
+        mockedAxios.mockReset();
+        mockedAxios.post.mockReset();
+        mockedAxios.put.mockReset();
+        mockedGetAccessToken.mockReset();
+        mockedGetAccessToken.mockResolvedValue('token_abc');
+        stateDirPath = path.join(
+            os.tmpdir(),
+            `openclaw-dingtalk-token-refresh-${Date.now()}-${Math.random().toString(16).slice(2)}`
+        );
+        storePath = path.join(stateDirPath, 'session-store.json');
+    });
+
+    afterEach(() => {
+        fs.rmSync(stateDirPath, { force: true, recursive: true });
+    });
+
+    it('refreshes token before updateAICardBlockList when token is older than 90 minutes', async () => {
+        const oldTimestamp = Date.now() - 100 * 60 * 1000; // 100 minutes ago
+        const card = {
+            cardInstanceId: 'card_old_token',
+            outTrackId: 'track_old_token',
+            accessToken: 'old_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: oldTimestamp,
+            lastUpdated: oldTimestamp,
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+        mockedGetAccessToken.mockResolvedValue('fresh_token');
+
+        await updateAICardBlockList(card, JSON.stringify([{ type: 0, markdown: 'test' }]));
+
+        // Token should be refreshed
+        expect(mockedGetAccessToken).toHaveBeenCalledTimes(1);
+        expect(card.accessToken).toBe('fresh_token');
+        // API should be called with fresh token
+        expect(mockedAxios.put).toHaveBeenCalled();
+    });
+
+    it('does not refresh token before updateAICardBlockList when token is fresh', async () => {
+        const recentTimestamp = Date.now() - 30 * 60 * 1000; // 30 minutes ago
+        const card = {
+            cardInstanceId: 'card_fresh_token',
+            outTrackId: 'track_fresh_token',
+            accessToken: 'current_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: recentTimestamp,
+            lastUpdated: recentTimestamp,
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await updateAICardBlockList(card, JSON.stringify([{ type: 0, markdown: 'test' }]));
+
+        // Token should NOT be refreshed
+        expect(mockedGetAccessToken).not.toHaveBeenCalled();
+        expect(card.accessToken).toBe('current_token');
+    });
+
+    it('includes statusLine in the same updateCardVariables call when provided', async () => {
+        const card = {
+            cardInstanceId: 'card_sl',
+            outTrackId: 'track_sl',
+            accessToken: 'tok',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await updateAICardBlockList(
+            card,
+            JSON.stringify([{ type: 0, markdown: 'test' }]),
+            undefined,
+            { statusLine: 'claude-sonnet | high' },
+        );
+
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+        const payload = mockedAxios.put.mock.calls[0][1];
+        const paramMap = payload.cardData.cardParamMap;
+        expect(paramMap.blockList).toBeDefined();
+        expect(paramMap.statusLine).toBe('claude-sonnet | high');
+    });
+
+    it('omits statusLine from updateCardVariables when not provided', async () => {
+        const card = {
+            cardInstanceId: 'card_no_sl',
+            outTrackId: 'track_no_sl',
+            accessToken: 'tok',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await updateAICardBlockList(card, JSON.stringify([{ type: 0, markdown: 'test' }]));
+
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+        const payload = mockedAxios.put.mock.calls[0][1];
+        const paramMap = payload.cardData.cardParamMap;
+        expect(paramMap.blockList).toBeDefined();
+        expect(paramMap.statusLine).toBeUndefined();
+    });
+
+    it('refreshes token before commitAICardBlocks when token is older than 90 minutes', async () => {
+        const oldTimestamp = Date.now() - 100 * 60 * 1000; // 100 minutes ago
+        const card = {
+            cardInstanceId: 'card_commit_old',
+            outTrackId: 'track_commit_old',
+            accessToken: 'old_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: oldTimestamp,
+            lastUpdated: oldTimestamp,
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+        mockedGetAccessToken.mockResolvedValue('fresh_token');
+
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'test' }]),
+            content: 'test content',
+        });
+
+        // Token should be refreshed
+        expect(mockedGetAccessToken).toHaveBeenCalledTimes(1);
+        expect(card.accessToken).toBe('fresh_token');
+    });
+
+    it('does not refresh token before commitAICardBlocks when token is fresh', async () => {
+        const recentTimestamp = Date.now() - 30 * 60 * 1000; // 30 minutes ago
+        const card = {
+            cardInstanceId: 'card_commit_fresh',
+            outTrackId: 'track_commit_fresh',
+            accessToken: 'current_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: recentTimestamp,
+            lastUpdated: recentTimestamp,
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'test' }]),
+            content: 'test content',
+        });
+
+        // Token should NOT be refreshed
+        expect(mockedGetAccessToken).not.toHaveBeenCalled();
+        expect(card.accessToken).toBe('current_token');
     });
 });

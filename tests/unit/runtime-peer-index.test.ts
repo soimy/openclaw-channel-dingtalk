@@ -21,6 +21,7 @@ const shared = vi.hoisted(() => ({
                 runtime: unknown;
                 registerChannel: (registration: { plugin: unknown }) => void;
                 registrationMode?: string;
+                on?: (...args: unknown[]) => void;
             }) {
                 entry.setRuntime?.(api.runtime);
                 api.registerChannel({ plugin: entry.plugin });
@@ -164,6 +165,7 @@ describe("runtime + peer registry + index plugin", () => {
             registrationMode: "full",
             registerChannel,
             registerGatewayMethod,
+            on: vi.fn(),
             config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
             logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         } as any);
@@ -203,6 +205,7 @@ describe("runtime + peer registry + index plugin", () => {
             registrationMode: "full",
             registerChannel: vi.fn(),
             registerGatewayMethod,
+            on: vi.fn(),
             config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
             logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         } as any);
@@ -237,6 +240,7 @@ describe("runtime + peer registry + index plugin", () => {
             registrationMode: "full",
             registerChannel: vi.fn(),
             registerGatewayMethod,
+            on: vi.fn(),
             config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
             logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         } as any);

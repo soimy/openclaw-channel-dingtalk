@@ -6,6 +6,7 @@
  * can share these interfaces without circular imports.
  */
 
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import type { DingTalkConfig, Logger, QuotedRef } from "./types";
 
 // ---- Internal helper type ----
@@ -35,6 +36,8 @@ export interface ReplyOptions {
   onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
   onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;
+  onAgentRunStart?: GetReplyOptions["onAgentRunStart"];
+  onModelSelected?: GetReplyOptions["onModelSelected"];
 }
 
 export interface ReplyStrategy {
@@ -55,6 +58,15 @@ export interface ReplyStrategy {
 }
 
 /** Shared context passed to every strategy implementation. */
+export interface TaskMeta {
+  model?: string;
+  effort?: string;
+  usage?: number;
+  elapsedMs?: number;
+  agent?: string;
+  runIds?: Set<string>;
+}
+
 export interface ReplyStrategyContext {
   config: InternalReplyStrategyConfig;
   to: string;
@@ -76,4 +88,6 @@ export interface ReplyStrategyContext {
    */
   deliverMedia: (urls: string[], options?: { audioAsVoice?: boolean }) => Promise<void>;
   isStopRequested?: () => boolean;
+  inboundText?: string;
+  taskMeta?: TaskMeta;
 }

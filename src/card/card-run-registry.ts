@@ -61,6 +61,8 @@ export function registerCardRun(
     agentId: string;
     ownerUserId?: string;
     card?: AICardInstance;
+    /** Override registeredAt timestamp (useful for tests). */
+    registeredAt?: number;
   },
 ): void {
   const trimmed = outTrackId.trim();
@@ -74,7 +76,7 @@ export function registerCardRun(
     agentId: params.agentId,
     ownerUserId: params.ownerUserId,
     card: params.card,
-    registeredAt: Date.now(),
+    registeredAt: params.registeredAt ?? Date.now(),
   });
   ensureSweepTimer();
 }
@@ -88,6 +90,57 @@ export function attachCardRunController(outTrackId: string, controller: CardDraf
 
 export function resolveCardRun(outTrackId: string): CardRunRecord | null {
   return records.get(outTrackId.trim()) ?? null;
+}
+
+/**
+ * Find the most recently registered card run for a given account + conversation.
+ * Uses case-insensitive match of the conversationId within sessionKey.
+ *
+ * @param accountId - The DingTalk account ID
+ * @param conversationId - The target conversation ID (matches within sessionKey)
+ * @param options - Optional filtering criteria
+ * @param options.ownerUserId - If provided, only return runs owned by this user
+ */
+export function resolveCardRunByConversation(
+  accountId: string,
+  conversationId: string,
+  options?: { ownerUserId?: string },
+): CardRunRecord | null {
+  const lowerCid = conversationId.toLowerCase();
+  const targetOwner = options?.ownerUserId;
+  let latest: CardRunRecord | null = null;
+  for (const record of records.values()) {
+    if (record.accountId !== accountId) { continue; }
+    if (!record.sessionKey.toLowerCase().includes(lowerCid)) { continue; }
+    // If ownerUserId filter is specified, only match runs owned by that user
+    if (targetOwner !== undefined && record.ownerUserId !== targetOwner) { continue; }
+    if (!latest || record.registeredAt > latest.registeredAt) {
+      latest = record;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Find the most recently registered card run for a given account + owner.
+ * This is a fallback query when conversationId is unavailable (e.g., sessionKey=-).
+ *
+ * @param accountId - The DingTalk account ID
+ * @param ownerUserId - The DingTalk userId of the card owner
+ */
+export function resolveCardRunByOwner(
+  accountId: string,
+  ownerUserId: string,
+): CardRunRecord | null {
+  let latest: CardRunRecord | null = null;
+  for (const record of records.values()) {
+    if (record.accountId !== accountId) { continue; }
+    if (record.ownerUserId !== ownerUserId) { continue; }
+    if (!latest || record.registeredAt > latest.registeredAt) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 export function markCardRunStopRequested(outTrackId: string): void {

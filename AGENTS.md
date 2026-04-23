@@ -196,6 +196,16 @@ Planned domain summary:
 - Message dedup state in `src/dedup.ts`
 - Runtime stored via getter/setter in `src/runtime.ts`
 
+**Test File Structure:**
+
+- Single test file should stay under 500 lines; files approaching 800+ lines require split planning
+- Use `-` suffix to split by feature domain: `inbound-handler-quote.test.ts`, `send-service-media.test.ts`
+- Share mock fixtures via `tests/unit/fixtures/` for complex multi-file test suites
+- Each split file should focus on one feature domain with 10-25 tests
+- Keep core end-to-end flow tests in the main file; extract sub-feature tests to split files
+- Before splitting, analyze test chain for redundancy: merge tests validating same behavior ≥3 times
+- Test file naming follows `source-module-{domain}.test.ts` pattern
+
 ## ANTI-PATTERNS (THIS PROJECT)
 
 **Prohibited:**

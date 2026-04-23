@@ -1,6 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { getAccessToken } from "../auth";
-import { finishStoppedAICard, hideCardStopButton } from "../card-service";
+import { finalizeStoppedAICard } from "../card-service";
 import { dispatchDingTalkCardStopCommand } from "../command/card-stop-command";
 import type { DingTalkConfig, Logger } from "../types";
 import { AICardStatus } from "../types";
@@ -31,7 +30,9 @@ export async function stopCardRun(params: {
     return { ok: true, status: "already-stopped", lastContent: record.card?.lastStreamedContent };
   }
 
-  const lastContent = record.card?.lastStreamedContent;
+  const lastContent = record.controller?.getRenderedContent?.() || record.card?.lastStreamedContent;
+  const lastBlockListJson =
+    record.controller?.getRenderedBlocks?.() || record.card?.lastBlockListJson;
 
   markCardRunStopRequested(params.outTrackId);
   record.controller?.stop();
@@ -64,28 +65,17 @@ export async function stopCardRun(params: {
     }
   }
 
-  // --- Phase 2: Finalize card via streaming API (isFinalize=true) ---
+  // --- Phase 2: Finalize card via instances API so V2 blockList/content stay consistent ---
   if (record.card) {
-    const stoppedContent = lastContent
-      ? `${lastContent}\n\n---\n*⏹️ 已停止*`
-      : "⏹️ 已停止";
     try {
-      await finishStoppedAICard(record.card, stoppedContent, params.log);
+      await finalizeStoppedAICard(record.card, {
+        reason: "⏹️ 已停止",
+        previousContent: lastContent,
+        previousBlockListJson: lastBlockListJson,
+      }, params.log);
     } catch (error) {
       params.log?.warn?.(
         `[${params.accountId}] [DingTalk][CardStop] failed to finalize stopped card: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  // --- Phase 3: Hide stop button (with retry, consistent with finishAICard path) ---
-  if (params.config) {
-    try {
-      const token = await getAccessToken(params.config, params.log);
-      await hideCardStopButton(params.outTrackId, token, params.config);
-    } catch (error) {
-      params.log?.debug?.(
-        `[${params.accountId}] [DingTalk][CardStop] non-critical: failed to hide stop button: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
