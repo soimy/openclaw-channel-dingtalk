@@ -29,16 +29,20 @@ export interface StatusLineData {
 }
 
 export interface StatusLineConfig {
-  cardStatusModel?: boolean;
-  cardStatusEffort?: boolean;
-  cardStatusAgent?: boolean;
-  cardStatusTaskTime?: boolean;
-  cardStatusTokens?: boolean;
-  cardStatusDapiUsage?: boolean;
+  cardStatusLine?: {
+    model?: boolean;
+    effort?: boolean;
+    agent?: boolean;
+    taskTime?: boolean;
+    tokens?: boolean;
+    dapiUsage?: boolean;
+  };
 }
 
+type SegmentKey = "model" | "effort" | "agent" | "tokens" | "taskTime" | "dapiUsage";
+
 interface Segment {
-  configKey: keyof StatusLineConfig;
+  key: SegmentKey;
   defaultOn: boolean;
   render: (d: StatusLineData) => string | undefined;
 }
@@ -59,19 +63,24 @@ function renderTokenSegment(data: StatusLineData): string | undefined {
 }
 
 const SEGMENTS: Segment[] = [
-  { configKey: "cardStatusModel", defaultOn: true, render: (d) => d.model || undefined },
-  { configKey: "cardStatusEffort", defaultOn: true, render: (d) => d.effort || undefined },
-  { configKey: "cardStatusAgent", defaultOn: true, render: (d) => d.agent || undefined },
-  { configKey: "cardStatusTokens", defaultOn: false, render: renderTokenSegment },
-  { configKey: "cardStatusTaskTime", defaultOn: false, render: (d) => typeof d.taskTime === "number" ? formatDuration(d.taskTime) : undefined },
-  { configKey: "cardStatusDapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `DAPI+${d.dapi_usage}` : undefined },
+  { key: "model", defaultOn: true, render: (d) => d.model || undefined },
+  { key: "effort", defaultOn: true, render: (d) => d.effort || undefined },
+  { key: "agent", defaultOn: true, render: (d) => d.agent || undefined },
+  { key: "tokens", defaultOn: false, render: renderTokenSegment },
+  { key: "taskTime", defaultOn: false, render: (d) => typeof d.taskTime === "number" ? formatDuration(d.taskTime) : undefined },
+  { key: "dapiUsage", defaultOn: false, render: (d) => typeof d.dapi_usage === "number" ? `DAPI+${d.dapi_usage}` : undefined },
 ];
 
 const SEGMENTS_PER_LINE = 3;
 
+function resolveSegmentEnabled(seg: Segment, config: StatusLineConfig): boolean {
+  const value = config.cardStatusLine?.[seg.key];
+  return typeof value === "boolean" ? value : seg.defaultOn;
+}
+
 export function renderStatusLine(data: StatusLineData, config: StatusLineConfig): string {
   const rendered = SEGMENTS
-    .filter((seg) => config[seg.configKey] ?? seg.defaultOn)
+    .filter((seg) => resolveSegmentEnabled(seg, config))
     .map((seg) => seg.render(data))
     .filter(Boolean) as string[];
 

@@ -1382,7 +1382,7 @@ describe("reply-strategy-card", () => {
                 taskMeta: { model: "claude-sonnet-4-20250514", effort: "high", agent: "TestBot" },
                 config: {
                     clientId: "id", clientSecret: "secret", messageType: "card",
-                    cardStatusTokens: true,
+                    cardStatusLine: { tokens: true },
                 } as any,
             });
             const strategy = createCardReplyStrategy(ctx);

@@ -157,23 +157,24 @@ const DingTalkAccountConfigShape = {
    *  Leave empty or omit to disable. */
   cardAtSender: z.string().optional(),
 
-  /** Show model name in AI card status line footer. */
-  cardStatusModel: z.boolean().optional().default(true),
-
-  /** Show thinking effort level in AI card status line footer. */
-  cardStatusEffort: z.boolean().optional().default(true),
-
-  /** Show agent display name in AI card status line footer. */
-  cardStatusAgent: z.boolean().optional().default(true),
-
-  /** Show task elapsed time in AI card status line footer. */
-  cardStatusTaskTime: z.boolean().optional().default(false),
-
-  /** Show token usage summary (input/output/cache) in AI card status line footer. */
-  cardStatusTokens: z.boolean().optional().default(false),
-
-  /** Show DingTalk API call count in AI card status line footer. */
-  cardStatusDapiUsage: z.boolean().optional().default(false),
+  /** Status line visibility toggles for the AI card footer. */
+  cardStatusLine: z
+    .object({
+      /** Show model name. */
+      model: z.boolean().optional().default(true),
+      /** Show thinking effort level. */
+      effort: z.boolean().optional().default(true),
+      /** Show agent display name. */
+      agent: z.boolean().optional().default(true),
+      /** Show task elapsed time. */
+      taskTime: z.boolean().optional().default(false),
+      /** Show token usage summary (input/output/cache). */
+      tokens: z.boolean().optional().default(false),
+      /** Show DingTalk API call count. */
+      dapiUsage: z.boolean().optional().default(false),
+    })
+    .optional()
+    .default({ model: true, effort: true, agent: true, taskTime: false, tokens: false, dapiUsage: false }),
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);

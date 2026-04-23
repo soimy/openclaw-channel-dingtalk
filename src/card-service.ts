@@ -1096,7 +1096,8 @@ export async function commitAICardBlocks(
 
   log?.debug?.(
     `[DingTalk][AICard] Finalizing via instances API: outTrackId=${card.outTrackId || card.cardInstanceId} ` +
-    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=3`,
+    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=3` +
+    `${options.statusLine ? ` statusLine="${options.statusLine}"` : ""}`,
   );
 
   try {

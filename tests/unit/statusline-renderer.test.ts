@@ -65,12 +65,7 @@ describe("renderStatusLine", () => {
 
   it("renders all segments enabled", () => {
     const config: StatusLineConfig = {
-      cardStatusModel: true,
-      cardStatusEffort: true,
-      cardStatusAgent: true,
-      cardStatusTaskTime: true,
-      cardStatusTokens: true,
-      cardStatusDapiUsage: true,
+      cardStatusLine: { model: true, effort: true, agent: true, taskTime: true, tokens: true, dapiUsage: true },
     };
     expect(renderStatusLine(fullData, config)).toBe(
       "claude-sonnet-4-20250514 | high | MyBot\n↑45.2k(C:32.1k) ↓28.7k | 2m 5s | DAPI+23",
@@ -79,10 +74,7 @@ describe("renderStatusLine", () => {
 
   it("hides disabled segments", () => {
     const config: StatusLineConfig = {
-      cardStatusModel: true,
-      cardStatusEffort: false,
-      cardStatusAgent: false,
-      cardStatusTokens: true,
+      cardStatusLine: { model: true, effort: false, agent: false, tokens: true },
     };
     expect(renderStatusLine(fullData, config)).toBe(
       "claude-sonnet-4-20250514 | ↑45.2k(C:32.1k) ↓28.7k",
@@ -90,48 +82,31 @@ describe("renderStatusLine", () => {
   });
 
   it("omits cache parenthetical when cacheRead is 0", () => {
-    const data: StatusLineData = {
-      inputTokens: 1_200,
-      outputTokens: 800,
-      cacheRead: 0,
-    };
+    const data: StatusLineData = { inputTokens: 1_200, outputTokens: 800, cacheRead: 0 };
     const config: StatusLineConfig = {
-      cardStatusModel: false,
-      cardStatusEffort: false,
-      cardStatusAgent: false,
-      cardStatusTokens: true,
+      cardStatusLine: { model: false, effort: false, agent: false, tokens: true },
     };
     expect(renderStatusLine(data, config)).toBe("↑1.2k ↓800");
   });
 
   it("omits cache parenthetical when cacheRead is undefined", () => {
-    const data: StatusLineData = {
-      inputTokens: 5_000,
-      outputTokens: 2_000,
-    };
+    const data: StatusLineData = { inputTokens: 5_000, outputTokens: 2_000 };
     const config: StatusLineConfig = {
-      cardStatusModel: false,
-      cardStatusEffort: false,
-      cardStatusAgent: false,
-      cardStatusTokens: true,
+      cardStatusLine: { model: false, effort: false, agent: false, tokens: true },
     };
     expect(renderStatusLine(data, config)).toBe("↑5.0k ↓2.0k");
   });
 
   it("returns empty string when all segments disabled or empty", () => {
     const config: StatusLineConfig = {
-      cardStatusModel: false,
-      cardStatusEffort: false,
-      cardStatusAgent: false,
+      cardStatusLine: { model: false, effort: false, agent: false },
     };
     expect(renderStatusLine({}, config)).toBe("");
   });
 
   it("skips segments whose data is missing even if enabled", () => {
     const config: StatusLineConfig = {
-      cardStatusModel: true,
-      cardStatusTaskTime: true,
-      cardStatusTokens: true,
+      cardStatusLine: { model: true, taskTime: true, tokens: true },
     };
     const data: StatusLineData = { model: "gpt-4o" };
     expect(renderStatusLine(data, config)).toBe("gpt-4o");
@@ -139,10 +114,7 @@ describe("renderStatusLine", () => {
 
   it("renders only model + tokens (minimal + tokens)", () => {
     const config: StatusLineConfig = {
-      cardStatusModel: true,
-      cardStatusEffort: false,
-      cardStatusAgent: false,
-      cardStatusTokens: true,
+      cardStatusLine: { model: true, effort: false, agent: false, tokens: true },
     };
     const data: StatusLineData = {
       model: "claude-sonnet-4-20250514",
