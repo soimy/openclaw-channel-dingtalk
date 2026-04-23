@@ -671,4 +671,132 @@ describe('message-utils', () => {
         expect(content.quoted?.previewText).toBe('[Quoted chatRecord]');
         expect(content.quoted?.previewMessageType).toBe('chatRecord');
     });
+
+    it('chatRecord reply — logged DingTalk summary-only payload has no detailed records to expand', () => {
+        const message = {
+            msgId: 'msgv+gE8CSZUZWAKbxk3KrUYA==',
+            createAt: 1776067733725,
+            conversationType: '2',
+            conversationId: 'cid4AkDhNKBaSK+cq6zt4dDEA==',
+            senderId: 'sender',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            originalMsgId: 'msgrAGRxGTFIE0Jr5rrzqj1sQ==',
+            msgtype: 'text',
+            text: {
+                isReplyMsg: true,
+                content: ' 重新学习一下',
+                repliedMsg: {
+                    createdAt: 1776065111071,
+                    senderId: 'sender',
+                    msgType: 'chatRecord',
+                    msgId: 'msgrAGRxGTFIE0Jr5rrzqj1sQ==',
+                    content: {
+                        summary: '祝欣莹:[消息]\n溯煜:[分享]\n溯煜:[图片]\n溯煜:这个就是',
+                        title: '溯煜与祝欣莹的聊天记录',
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.text).toBe('重新学习一下');
+        expect(content.quoted?.previewText).toBe(
+            '[溯煜与祝欣莹的聊天记录] 祝欣莹:[消息]\n溯煜:[分享]\n溯煜:[图片]\n溯煜:这个就是',
+        );
+        expect(content.quoted?.previewText).not.toContain('[聊天记录内容]');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
+
+    it('chatRecord reply — expands detailed forwarded records when DingTalk includes them', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'text',
+            text: {
+                content: '学下这个内容',
+                isReplyMsg: true,
+                repliedMsg: {
+                    msgType: 'chatRecord',
+                    msgId: 'quoted_chat_4',
+                    content: {
+                        title: '溯煜与祝欣莹的聊天记录',
+                        summary: '祝欣莹:[消息]\n溯煜:这个就是',
+                        chatRecord: [
+                            { senderName: '祝欣莹', content: '原始正文' },
+                            { senderNick: '溯煜', content: { text: '这个就是' } },
+                        ],
+                    },
+                },
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.quoted?.previewText).toContain('[溯煜与祝欣莹的聊天记录]');
+        expect(content.quoted?.previewText).toContain('[聊天记录内容]');
+        expect(content.quoted?.previewText).toContain('祝欣莹: 原始正文');
+        expect(content.quoted?.previewText).toContain('溯煜: 这个就是');
+        expect(content.quoted?.previewMessageType).toBe('chatRecord');
+    });
+
+    it('top-level chatRecord — expands records aliases instead of only summary', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'chatRecord',
+            content: {
+                summary: '祝欣莹:[消息]\n溯煜:[分享]',
+                records: [
+                    { senderName: '祝欣莹', content: '第一条' },
+                    { senderName: '溯煜', message: '第二条' },
+                ],
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.messageType).toBe('chatRecord');
+        expect(content.text).toContain('[聊天记录摘要] 祝欣莹:[消息]');
+        expect(content.text).toContain('[聊天记录内容]');
+        expect(content.text).toContain('祝欣莹: 第一条');
+        expect(content.text).toContain('溯煜: 第二条');
+    });
+
+    it('top-level chatRecord — expands messages aliases', () => {
+        const message = {
+            msgId: 'test',
+            createAt: 0,
+            conversationType: '1',
+            conversationId: 'cid',
+            senderId: 'sid',
+            chatbotUserId: 'bot',
+            sessionWebhook: 'https://example.com',
+            msgtype: 'chatRecord',
+            content: {
+                summary: '溯煜:[图片]',
+                messages: [
+                    { senderName: '溯煜', content: '图片里的原始描述' },
+                ],
+            },
+        } as any;
+
+        const content = extractMessageContent(message);
+
+        expect(content.messageType).toBe('chatRecord');
+        expect(content.text).toContain('[聊天记录摘要] 溯煜:[图片]');
+        expect(content.text).toContain('[聊天记录内容]');
+        expect(content.text).toContain('溯煜: 图片里的原始描述');
+    });
 });
