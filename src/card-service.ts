@@ -741,12 +741,13 @@ async function finalizePendingCardsByAccount(
         previousBlockListJson: entry.lastBlockListJson,
       }, log);
       finalizedCount += 1;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const action = mode === "recover" ? "recover" : "finalize";
+      const message = err instanceof Error ? err.message : String(err);
       log?.warn?.(
-        `[DingTalk][AICard] Failed to ${action} active card ${entry.cardInstanceId}: ${err.message}`,
+        `[DingTalk][AICard] Failed to ${action} active card ${entry.cardInstanceId}: ${message}`,
       );
-      removePendingCardById(entry.cardInstanceId, storePath, log);
+      // Pending record intentionally kept for manual investigation
     }
   }
   return finalizedCount;
@@ -1383,12 +1384,18 @@ export async function finalizeStoppedAICard(
       card.config,
     );
     incrementCardDapiCount(card);
-  } finally {
     card.lastBlockListJson = payload.blockListJson;
     card.lastStreamedContent = payload.content;
     card.state = AICardStatus.STOPPED;
     card.lastUpdated = Date.now();
     removePendingCard(card, log);
+  } catch (err: unknown) {
+    card.lastBlockListJson = payload.blockListJson;
+    card.lastStreamedContent = payload.content;
+    card.state = AICardStatus.STOPPED;
+    card.lastUpdated = Date.now();
+    // Keep pending record for manual investigation on API failure
+    throw err;
   }
 }
 
