@@ -99,6 +99,12 @@ const sessionReasoningLevelCache = new Map<string, {
   updatedAt?: number;
   reasoningLevel?: string;
 }>();
+// Prevent concurrent card creation for the same conversation.
+// createAICard runs before acquireSessionLock (for immediate visual feedback),
+// but two inbound messages can race past each other's card-run registration.
+// This synchronous Set closes that window — JavaScript's single-threaded
+// concurrency means check-and-set is atomic from the caller's perspective.
+const cardCreationInFlight = new Set<string>();
 type ReplyMode = "card" | "markdown";
 
 function resolveQuotedContextAllowFrom(
@@ -847,6 +853,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
 
+  let cardFlightKey: string | undefined;
+  if (useCardMode && !isBtwBypass) {
+    const key = `${accountId}:${to}`;
+    if (cardCreationInFlight.has(key)) {
+      useCardMode = false;
+      log?.debug?.(
+        `[DingTalk][AICard] Skip card creation — active card already exists for account=${accountId} conversation=${to}`,
+      );
+    } else {
+      cardCreationInFlight.add(key);
+      cardFlightKey = key;
+    }
+  }
+
   if (useCardMode && !isBtwBypass) {
     try {
       log?.debug?.(
@@ -877,19 +897,32 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         }
       } else {
         useCardMode = false;
+        if (cardFlightKey) {
+          cardCreationInFlight.delete(cardFlightKey);
+          cardFlightKey = undefined;
+        }
         log?.warn?.(
           "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
         );
       }
     } catch (err: any) {
       useCardMode = false;
+      if (cardFlightKey) {
+        cardCreationInFlight.delete(cardFlightKey);
+        cardFlightKey = undefined;
+      }
       log?.warn?.(
         `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
       );
     }
   }
-  const hasLegacyQuoteContent =
-    typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
+  // Outer try/finally: guarantees cardFlightKey cleanup regardless of exit path.
+  // Covers pre-lock operations, abort/btw early returns, and the main dispatch.
+  // The Set entry must be removed even if something throws between card creation
+  // and session-lock acquisition (e.g., recordInboundSession failure).
+  try {
+    const hasLegacyQuoteContent =
+      typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
 
   if (hasLegacyQuoteContent && !quotedRef) {
     log?.debug?.(
@@ -2021,5 +2054,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       sessionKey: route.sessionKey,
     });
     releaseSessionLock();
+  }
+  } finally {
+    if (cardFlightKey) {
+      cardCreationInFlight.delete(cardFlightKey);
+    }
   }
 }
