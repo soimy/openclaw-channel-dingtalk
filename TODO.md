@@ -134,9 +134,11 @@
 
 ### 4. 图片 / 语音 / 媒体链路补强
 相关 Issues：
+- [#542 单条消息多张图片只收到第一张，mediaPaths 未处理](https://github.com/soimy/openclaw-channel-dingtalk/issues/542)（状态：开启）
 
 任务：
 - [ ] 回归本地图片发送
+- [ ] 跟进 `#542` 的富文本多图片入站链路：确认 `message-utils.ts` 已提取 `mediaPaths` 后，补 `inbound-handler.ts` 多媒体下载、上下文注入与回归用例
 - [ ] 回归语音消息发送
 - [ ] （拟完成，请评估）跟进 `#516` 的媒体类型判定回归：`.mp3` 默认按附件发送的修复已合入，仍需补一次 v3.5.3 升级后的文件/语音分流实机回归
   - [x] [#517 fix(media): default audio files to attachment instead of voice message](https://github.com/soimy/openclaw-channel-dingtalk/pull/517)（状态：合并）
@@ -286,7 +288,7 @@
 相关 Issues：
 - [#353 如何让龙虾在群里中@其他成员](https://github.com/soimy/openclaw-channel-dingtalk/issues/353)（状态：已关闭（2026-04-25 自动关闭，可重开））
 - [#417 在钉钉群里，@机器人后让他生成图片发群里，结果发了一条全员钉钉通知](https://github.com/soimy/openclaw-channel-dingtalk/issues/417)（状态：已关闭（2026-04-25 自动关闭，可重开））
-- [#522 [功能建议] AI Card支持@User响应](https://github.com/soimy/openclaw-channel-dingtalk/issues/522)（状态：开启）（Stale）
+- [#522 [功能建议] AI Card支持@User响应](https://github.com/soimy/openclaw-channel-dingtalk/issues/522)（状态：已关闭（2026-04-28 自动关闭，可重开））
 
 任务：
 - [ ] （拟完成，请评估）明确 @单人 需求范围
