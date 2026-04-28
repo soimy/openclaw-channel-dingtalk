@@ -12,20 +12,12 @@ import {
   openUrlInBrowser,
   RegistrationError,
 } from "./device-registration.js";
-import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "./message-context-store.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 
 const channel = "dingtalk" as const;
 
 function isConfigured(account: DingTalkConfig): boolean {
   return Boolean(account.clientId && account.clientSecret);
-}
-
-function parseList(value: string): string[] {
-  return value
-    .split(/[\n,;]+/g)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 }
 
 function applyAccountNameToChannelSection(params: {
@@ -57,33 +49,62 @@ async function promptDingTalkAccountId(options: {
   defaultAccountId: string;
 }): Promise<string> {
   const existingIds = options.listAccountIds(options.cfg);
-  if (existingIds.length === 0) {
+  const hasDefault = existingIds.includes(options.defaultAccountId);
+  const namedIds = existingIds.filter((id) => id !== options.defaultAccountId);
+  const action = await options.prompter.select({
+    message: `Choose ${options.label} account`,
+    options: [
+      {
+        label: hasDefault ? "Configure default account" : "Add default account",
+        value: "default",
+      },
+      ...(namedIds.length > 0
+        ? [{ label: "Modify existing named account", value: "existing" }]
+        : []),
+      { label: "Add named account", value: "new" },
+    ],
+    initialValue: hasDefault ? "default" : namedIds.length > 0 ? "existing" : "default",
+  });
+
+  if (action === "default") {
     return options.defaultAccountId;
   }
-  const useExisting = await options.prompter.confirm({
-    message: `Use existing ${options.label} account?`,
-    initialValue: true,
-  });
-  if (useExisting) {
-    if (existingIds.includes(options.currentId)) {
-      return options.currentId;
-    }
+
+  if (action === "existing") {
     const selected = await options.prompter.select({
       message: `Select existing ${options.label} account`,
-      options: existingIds.map((accountId) => ({
+      options: namedIds.map((accountId) => ({
         label: accountId,
         value: accountId,
       })),
-      initialValue: existingIds[0],
+      initialValue: namedIds[0],
     });
     return normalizeAccountId(String(selected));
   }
-  const newId = await options.prompter.text({
-    message: `New ${options.label} account ID`,
-    placeholder: options.defaultAccountId,
-    initialValue: options.defaultAccountId,
-  });
-  return normalizeAccountId(String(newId));
+
+  while (true) {
+    const raw = await options.prompter.text({
+      message: `New ${options.label} account ID`,
+      placeholder: "work",
+      initialValue: "",
+    });
+    const normalized = normalizeAccountId(String(raw));
+    if (!normalized || normalized === options.defaultAccountId) {
+      await options.prompter.note(
+        "Enter a non-default account ID, for example: work",
+        "DingTalk account",
+      );
+      continue;
+    }
+    if (existingIds.includes(normalized)) {
+      await options.prompter.note(
+        `Account "${normalized}" already exists. Choose Modify existing named account to edit it.`,
+        "DingTalk account",
+      );
+      continue;
+    }
+    return normalized;
+  }
 }
 
 async function noteDingTalkHelp(prompter: WizardPrompter): Promise<void> {
@@ -99,6 +120,141 @@ async function noteDingTalkHelp(prompter: WizardPrompter): Promise<void> {
     ].join("\n"),
     "DingTalk setup",
   );
+}
+
+async function noteDmAllowlistGuidance(prompter: WizardPrompter): Promise<void> {
+  await prompter.note(
+    [
+      "DM allowlist requires DingTalk userId values.",
+      "Ask each target user to send a direct message to this bot.",
+      "The plugin will show the observed userId so an admin can add it to channels.dingtalk.allowFrom.",
+    ].join("\n"),
+    "DingTalk DM allowlist",
+  );
+}
+
+async function noteGroupAllowlistGuidance(prompter: WizardPrompter): Promise<void> {
+  await prompter.note(
+    [
+      "Group allowlist requires DingTalk conversationId values.",
+      "Ask a member to @mention this bot in the target group.",
+      "The plugin will show the observed group ID so an admin can configure channels.dingtalk.groups or related allowlist settings.",
+    ].join("\n"),
+    "DingTalk group allowlist",
+  );
+}
+
+async function noteDingTalkSetupComplete(prompter: WizardPrompter): Promise<void> {
+  await prompter.note(
+    [
+      "DingTalk configuration has been saved.",
+      "For named accounts, configuration lives under channels.dingtalk.accounts.",
+      "If you selected allowlist policies, ask the target user or group to message this bot first; the plugin will show IDs that an admin can add manually.",
+      "Advanced runtime settings can be edited in the config UI or openclaw.json.",
+      "Restart the gateway to apply changes:",
+      "  openclaw gateway restart",
+    ].join("\n"),
+    "DingTalk setup complete",
+  );
+}
+
+function validateMinInteger(min: number) {
+  return (value: string): string | undefined => {
+    const raw = String(value ?? "").trim();
+    const num = Number(raw);
+    if (!raw) {
+      return "Required";
+    }
+    if (!Number.isInteger(num) || num < min) {
+      return `Must be an integer >= ${min}`;
+    }
+    return undefined;
+  };
+}
+
+type CardAdvancedConfig = Partial<
+  Pick<
+    DingTalkConfig,
+    "cardStreamingMode" | "cardStreamInterval" | "cardAtSender" | "cardStatusLine"
+  >
+>;
+
+async function promptCardAdvancedConfig(params: {
+  resolved: DingTalkConfig;
+  prompter: WizardPrompter;
+}): Promise<CardAdvancedConfig> {
+  const { resolved, prompter } = params;
+  const cardStreamingMode = (await prompter.select({
+    message: "Card streaming mode",
+    options: [
+      { label: "Off - answer does not stream incrementally", value: "off" },
+      { label: "Answer - only answer streams incrementally", value: "answer" },
+      { label: "All - answer and thinking stream incrementally", value: "all" },
+    ],
+    initialValue: resolved.cardStreamingMode ?? (resolved.cardRealTimeStream ? "all" : "off"),
+  })) as DingTalkConfig["cardStreamingMode"];
+
+  const cardStreamInterval = Number(
+    String(
+      await prompter.text({
+        message: "Card stream interval (ms)",
+        placeholder: "1000",
+        initialValue: String(resolved.cardStreamInterval ?? 1000),
+        validate: validateMinInteger(200),
+      }),
+    ).trim(),
+  );
+
+  const cardAtSenderRaw = String(
+    await prompter.text({
+      message: "Card completion @mention text (optional)",
+      placeholder: "回复完成",
+      initialValue: resolved.cardAtSender || undefined,
+    }),
+  ).trim();
+
+  const wantsStatusLine = await prompter.confirm({
+    message: "Customize AI card status line?",
+    initialValue: Boolean(resolved.cardStatusLine),
+  });
+
+  let cardStatusLine: DingTalkConfig["cardStatusLine"] | undefined;
+  if (wantsStatusLine) {
+    const current = resolved.cardStatusLine ?? {};
+    cardStatusLine = {
+      model: await prompter.confirm({
+        message: "Show model name?",
+        initialValue: current.model ?? true,
+      }),
+      effort: await prompter.confirm({
+        message: "Show thinking effort?",
+        initialValue: current.effort ?? true,
+      }),
+      agent: await prompter.confirm({
+        message: "Show agent name?",
+        initialValue: current.agent ?? true,
+      }),
+      taskTime: await prompter.confirm({
+        message: "Show task elapsed time?",
+        initialValue: current.taskTime ?? false,
+      }),
+      tokens: await prompter.confirm({
+        message: "Show token usage?",
+        initialValue: current.tokens ?? false,
+      }),
+      dapiUsage: await prompter.confirm({
+        message: "Show DingTalk API usage?",
+        initialValue: current.dapiUsage ?? false,
+      }),
+    };
+  }
+
+  return {
+    cardStreamingMode,
+    cardStreamInterval,
+    ...(cardAtSenderRaw ? { cardAtSender: cardAtSenderRaw } : {}),
+    ...(cardStatusLine ? { cardStatusLine } : {}),
+  };
 }
 
 function applyAccountConfig(params: {
@@ -133,6 +289,11 @@ function applyAccountConfig(params: {
       : {}),
     ...(input.messageType ? { messageType: input.messageType } : {}),
     ...(input.cardStreamingMode ? { cardStreamingMode: input.cardStreamingMode } : {}),
+    ...(typeof input.cardStreamInterval === "number"
+      ? { cardStreamInterval: input.cardStreamInterval }
+      : {}),
+    ...(input.cardAtSender ? { cardAtSender: input.cardAtSender } : {}),
+    ...(input.cardStatusLine ? { cardStatusLine: input.cardStatusLine } : {}),
     ...(typeof input.maxReconnectCycles === "number"
       ? { maxReconnectCycles: input.maxReconnectCycles }
       : {}),
@@ -198,18 +359,6 @@ function applyGenericSetupInput(params: {
   });
 }
 
-function validatePositiveInteger(value: string): string | undefined {
-  const raw = String(value ?? "").trim();
-  const num = Number(raw);
-  if (!raw) {
-    return "Required";
-  }
-  if (!Number.isInteger(num) || num < 1) {
-    return "Must be an integer >= 1";
-  }
-  return undefined;
-}
-
 async function configureDingTalkAccount(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -263,11 +412,9 @@ async function configureDingTalkAccount(params: {
       clientSecret = result.clientSecret;
 
       await prompter.note(
-        [
-          `注册成功!`,
-          `Client ID: ${clientId}`,
-          `Client Secret: [已获取，请查看配置文件]`,
-        ].join("\n"),
+        [`注册成功!`, `Client ID: ${clientId}`, `Client Secret: [已获取，请查看配置文件]`].join(
+          "\n",
+        ),
         "注册完成",
       );
     } catch (err) {
@@ -316,223 +463,71 @@ async function configureDingTalkAccount(params: {
     ).trim();
   }
 
-  // ── Remaining configuration (unchanged) ────────────────────────────────
-  const wantsCardMode = await prompter.confirm({
-    message: "Enable AI interactive card mode? (for streaming AI responses)",
-    initialValue: resolved.messageType === "card",
-  });
-
-  let messageType: "markdown" | "card" = "markdown";
-  let cardStreamingMode: DingTalkConfig["cardStreamingMode"];
-
-  if (wantsCardMode) {
-    await prompter.note(
-      [
-        "AI interactive card mode now uses the built-in DingTalk template contract.",
-        "No manual Template ID or content field configuration is required.",
-        "Legacy cardTemplateId/cardTemplateKey config is deprecated and ignored.",
-      ].join("\n"),
-      "Built-in AI Card Template",
-    );
-    messageType = "card";
-    cardStreamingMode = (await prompter.select({
-      message: "Card streaming mode",
-      options: [
-        { label: "Off - answer does not stream incrementally", value: "off" },
-        { label: "Answer - only answer streams incrementally", value: "answer" },
-        { label: "All - answer and thinking stream incrementally", value: "all" },
-      ],
-      initialValue: resolved.cardStreamingMode ?? (resolved.cardRealTimeStream ? "all" : "off"),
-    })) as DingTalkConfig["cardStreamingMode"];
-  }
-
-  const dmPolicyValue = await prompter.select({
+  const dmPolicyValue = (await prompter.select({
     message: "Direct message policy",
     options: [
       { label: "Open - anyone can DM", value: "open" },
-      { label: "Allowlist - only allowed users", value: "allowlist" },
+      { label: "Pairing - require OpenClaw pairing approval", value: "pairing" },
+      { label: "Allowlist - only manually allowed users", value: "allowlist" },
     ],
     initialValue: resolved.dmPolicy ?? "open",
-  });
+  })) as "open" | "pairing" | "allowlist";
 
-  let allowFrom: string[] | undefined;
   if (dmPolicyValue === "allowlist") {
-    const entry = await prompter.text({
-      message: "Allowed user IDs (comma-separated)",
-      placeholder: "user1, user2",
-    });
-    const parsed = parseList(String(entry ?? ""));
-    allowFrom = parsed.length > 0 ? parsed : undefined;
+    await noteDmAllowlistGuidance(prompter);
   }
 
-  const mediaUrlAllowlistEntry = await prompter.text({
-    message: "Media URL allowlist (comma-separated host/IP/CIDR, optional)",
-    placeholder: "cdn.example.com, 192.168.1.23, 10.0.0.0/8",
-    initialValue: (resolved.mediaUrlAllowlist || []).join(", ") || undefined,
-  });
-  const mediaUrlAllowlistParsed = parseList(String(mediaUrlAllowlistEntry ?? ""));
-  const mediaUrlAllowlist =
-    mediaUrlAllowlistParsed.length > 0 ? mediaUrlAllowlistParsed : undefined;
-
-  const groupPolicyValue = await prompter.select({
+  const groupPolicyValue = (await prompter.select({
     message: "Group message policy",
     options: [
       { label: "Open - any group can use bot", value: "open" },
-      { label: "Allowlist - only allowed groups", value: "allowlist" },
+      { label: "Allowlist - only manually configured groups", value: "allowlist" },
       { label: "Disabled - block all group messages", value: "disabled" },
     ],
     initialValue: resolved.groupPolicy ?? "open",
-  });
+  })) as "open" | "allowlist" | "disabled";
 
   if (groupPolicyValue === "allowlist") {
-    await prompter.note(
-      [
-        'groupPolicy=allowlist requires "groups" config to specify allowed group IDs.',
-        "After setup, manually add group conversationIds to your config:",
-        "",
-        '  "groups": { "cidXXX": {}, "cidYYY": { "systemPrompt": "..." } }',
-        "",
-        'Groups not listed will be blocked. Use "*" as key to allow all groups.',
-      ].join("\n"),
-    );
+    await noteGroupAllowlistGuidance(prompter);
   }
 
-  let groupAllowFrom: string[] | undefined;
-  if (groupPolicyValue !== "disabled") {
-    const groupAllowFromEntry = await prompter.text({
-      message: "Group sender allowlist - user IDs allowed in groups (comma-separated, optional)",
-      placeholder: "user1, user2",
-      initialValue: (resolved.groupAllowFrom || []).join(", ") || undefined,
-    });
-    const parsedGroupAllowFrom = parseList(String(groupAllowFromEntry ?? ""));
-    groupAllowFrom = parsedGroupAllowFrom.length > 0 ? parsedGroupAllowFrom : undefined;
-  }
-
-  await prompter.note(
-    [
-      "Enabling learned displayName target resolution has tradeoffs:",
-      "- learned names come from observed inbound messages and can become stale",
-      "- duplicate display names can resolve to the wrong group or user",
-      '- current upstream target resolution does not provide requester authz, so "all" applies to every caller that can reach the send flow',
-      "Use explicit IDs for sensitive or high-risk deliveries.",
-    ].join("\n"),
-    "displayName resolution risk",
-  );
-
-  const displayNameResolutionValue = await prompter.select({
-    message: "Learned displayName target resolution",
+  const messageType = (await prompter.select({
+    message: "Reply message type",
     options: [
-      {
-        label: "Disabled - require explicit IDs",
-        value: "disabled",
-      },
-      {
-        label: "All - learned lookup for all callers (higher risk)",
-        value: "all",
-      },
+      { label: "Markdown - standard DingTalk messages", value: "markdown" },
+      { label: "AI Card - interactive card replies", value: "card" },
     ],
-    initialValue: resolved.displayNameResolution ?? "disabled",
-  });
+    initialValue: resolved.messageType ?? "markdown",
+  })) as "markdown" | "card";
 
-  await prompter.note(
-    [
-      "Advanced host context visibility is available as channels.dingtalk.contextVisibility.",
-      "Recommended advanced mode: allowlist_quote.",
-      "Modes:",
-      "- all: preserve the current host supplemental-context behavior",
-      "- allowlist: keep only host allowlisted supplemental context",
-      "- allowlist_quote: keep explicit quote/reply context while filtering extra context",
-      "This is separate from displayNameResolution and should be set manually if needed.",
-      resolved.contextVisibility
-        ? `Current resolved value: ${resolved.contextVisibility}`
-        : "Current resolved value: host default",
-    ].join("\n"),
-    "Advanced context visibility",
-  );
-
-  let maxReconnectCycles: number | undefined;
-  const wantsReconnectLimits = await prompter.confirm({
-    message: "Configure runtime reconnect cycle limit? (recommended)",
-    initialValue: typeof resolved.maxReconnectCycles === "number",
+  const wantsAdvanced = await prompter.confirm({
+    message: "Configure advanced DingTalk options?",
+    initialValue: false,
   });
-  if (wantsReconnectLimits) {
-    const parsedCycles = Number(
-      String(
-        await prompter.text({
-          message: "Max runtime reconnect cycles",
-          placeholder: "10",
-          initialValue: String(resolved.maxReconnectCycles ?? 10),
-          validate: (value: string) => validatePositiveInteger(value),
-        }),
-      ).trim(),
+  let cardAdvanced: CardAdvancedConfig = {};
+  if (wantsAdvanced && messageType === "card") {
+    cardAdvanced = await promptCardAdvancedConfig({ resolved, prompter });
+  } else if (wantsAdvanced) {
+    await prompter.note(
+      "No markdown-specific advanced onboarding options are required. Other advanced settings can be edited in the config UI or openclaw.json.",
+      "DingTalk advanced options",
     );
-    maxReconnectCycles = Number.isInteger(parsedCycles) && parsedCycles > 0 ? parsedCycles : 10;
   }
 
-  let mediaMaxMb: number | undefined;
-  const wantsMediaMax = await prompter.confirm({
-    message: "Configure inbound media max size in MB? (optional)",
-    initialValue: typeof resolved.mediaMaxMb === "number",
-  });
-  if (wantsMediaMax) {
-    const parsedMediaMax = Number(
-      String(
-        await prompter.text({
-          message: "Max inbound media size (MB)",
-          placeholder: "20",
-          initialValue:
-            typeof resolved.mediaMaxMb === "number" ? String(resolved.mediaMaxMb) : "20",
-          validate: (value: string) => validatePositiveInteger(value),
-        }),
-      ).trim(),
-    );
-    mediaMaxMb = Number.isInteger(parsedMediaMax) && parsedMediaMax > 0 ? parsedMediaMax : 20;
-  }
-
-  let journalTTLDays: number | undefined;
-  const wantsJournalTTL = await prompter.confirm({
-    message: "Configure quote journal retention in days?",
-    initialValue: typeof resolved.journalTTLDays === "number",
-  });
-  if (wantsJournalTTL) {
-    const parsedJournalTTL = Number(
-      String(
-        await prompter.text({
-          message: "Quote journal retention days",
-          placeholder: String(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
-          initialValue:
-            typeof resolved.journalTTLDays === "number"
-              ? String(resolved.journalTTLDays)
-              : String(DEFAULT_MESSAGE_CONTEXT_TTL_DAYS),
-          validate: (value: string) => validatePositiveInteger(value),
-        }),
-      ).trim(),
-    );
-    journalTTLDays =
-      Number.isInteger(parsedJournalTTL) && parsedJournalTTL > 0
-        ? parsedJournalTTL
-        : DEFAULT_MESSAGE_CONTEXT_TTL_DAYS;
-  }
-
-  return applyAccountConfig({
+  const nextCfg = applyAccountConfig({
     cfg,
     accountId,
     input: {
       clientId: String(clientId).trim(),
       clientSecret: String(clientSecret).trim(),
-      dmPolicy: dmPolicyValue as "open" | "allowlist",
-      groupPolicy: groupPolicyValue as "open" | "allowlist" | "disabled",
-      allowFrom,
-      groupAllowFrom,
-      displayNameResolution: displayNameResolutionValue as "disabled" | "all",
-      mediaUrlAllowlist,
+      dmPolicy: dmPolicyValue,
+      groupPolicy: groupPolicyValue,
       messageType,
-      cardStreamingMode,
-      maxReconnectCycles,
-      mediaMaxMb,
-      journalTTLDays,
+      ...cardAdvanced,
     },
   });
+  await noteDingTalkSetupComplete(prompter);
+  return nextCfg;
 }
 
 export const dingtalkSetupAdapter: ChannelSetupAdapter = {
