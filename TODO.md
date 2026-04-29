@@ -95,6 +95,8 @@
   - [x] [#518 fix(card): deliver markdown fallback when session-recovery updates a finished card](https://github.com/soimy/openclaw-channel-dingtalk/pull/518)（状态：合并）
 - [ ] 跟进 `#457` 对 `/reasoning on` 与 `/reasoning stream` 的统一交付方案，确认多轮 assistant turn 与 finalize 边界在 card 模式稳定
   - [ ] [#457 fix(card): unify reasoning-on and reasoning-stream block delivery](https://github.com/soimy/openclaw-channel-dingtalk/pull/457)（状态：审核中）
+- [ ] 跟进 `#543` 的同会话并发建卡 guard：复核“单卡片 + markdown 降级”路径、P2 review 建议与真机快速连发验证
+  - [ ] [#543 fix(card): prevent duplicate card creation via synchronous in-flight guard](https://github.com/soimy/openclaw-channel-dingtalk/pull/543)（状态：审核中（CI 通过，Greptile 仅 P2 风格建议））
 - [ ] 复核 `#419` 关闭结论：确认“会话锁外提前建卡/空 Done 卡片”修复是否已入 `main`；若未落地，按最小补丁重提
   - [ ] [#418 fix: use dispatch counts to prevent empty "Done" card finalize](https://github.com/soimy/openclaw-channel-dingtalk/pull/418)（状态：已关闭未合并）
 
@@ -231,9 +233,9 @@
 
 ### 8. 多账号 / 多 agent / schema 与路由配置收敛
 相关 Issues：
-- [#460 [问题反馈] 多agent模式下, 通过@助手 /new /stop 等执行失败](https://github.com/soimy/openclaw-channel-dingtalk/issues/460)（状态：开启）（Stale）
+- [#460 [问题反馈] 多agent模式下, 通过@助手 /new /stop 等执行失败](https://github.com/soimy/openclaw-channel-dingtalk/issues/460)（状态：已关闭（2026-04-29 自动关闭，可重开））
 - [#492 可以支持不同的人，通过同一个钉钉机器人，会话绑定到不同的agent里吗？](https://github.com/soimy/openclaw-channel-dingtalk/issues/492)（状态：已关闭（2026-04-26 自动关闭，可重开））
-- [#530 [功能建议] 刚需，多agent协同办公](https://github.com/soimy/openclaw-channel-dingtalk/issues/530)（状态：开启）（Stale）
+- [#530 [功能建议] 刚需，多agent协同办公](https://github.com/soimy/openclaw-channel-dingtalk/issues/530)（状态：已关闭（2026-04-29 自动关闭，可重开））
 
 任务：
 - [ ] 补齐配置示例
@@ -400,6 +402,8 @@
   - [x] [#175 docs: align README cardTemplateKey default](https://github.com/soimy/openclaw-channel-dingtalk/pull/175)（状态：合并）
   - [x] [#199 docs: align onboarding and runtime defaults](https://github.com/soimy/openclaw-channel-dingtalk/pull/199)（状态：合并）
 - [ ] 补 onboarding 示例
+- [ ] 跟进 `#537` 的 DingTalk Device Flow 自动注册 onboarding：确认最新简化流程、P2 review 建议与手动扫码/失败回退实机验证
+  - [ ] [#537 feat(onboarding): add DingTalk Device Flow auto-registration to setup wizard](https://github.com/soimy/openclaw-channel-dingtalk/pull/537)（状态：审核中（CI 通过，待手动验证））
 - [ ] 补配置说明
 - [ ] 补常见问题
 - [ ] 补排障说明
