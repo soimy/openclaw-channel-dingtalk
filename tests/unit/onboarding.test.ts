@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import type { OpenClawConfig, WizardPrompter } from "openclaw/plugin-sdk/setup";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk/setup", () => ({
     DEFAULT_ACCOUNT_ID: "default",
@@ -96,6 +97,21 @@ describe("dingtalk setup wizard", () => {
                 message: expect.stringContaining("DingTalk account"),
             }),
         );
+    });
+
+    it("forces account target selection for DingTalk onboarding surfaces", () => {
+        const shouldPrompt = dingtalkSetupWizard.resolveShouldPromptAccountIds?.({
+            cfg: {} as any,
+            shouldPromptAccountIds: false,
+        });
+
+        expect(shouldPrompt).toBe(true);
+    });
+
+    it("keeps DingTalk onboarding prompts in English", () => {
+        const onboardingSource = readFileSync("src/onboarding.ts", "utf8");
+
+        expect(onboardingSource).not.toMatch(/\p{Script=Han}/u);
     });
 
     it("allows modifying an existing named account during setup", async () => {
@@ -335,7 +351,7 @@ describe("dingtalk setup wizard", () => {
             .mockResolvedValueOnce("ding-id")
             .mockResolvedValueOnce("ding-secret")
             .mockResolvedValueOnce("750")
-            .mockResolvedValueOnce("回复完成");
+            .mockResolvedValueOnce("Reply complete");
         const confirm = vi
             .fn()
             .mockResolvedValueOnce(true)
@@ -362,7 +378,7 @@ describe("dingtalk setup wizard", () => {
         const dingtalkConfig = result.cfg.channels?.dingtalk as any;
         expect(dingtalkConfig.cardStreamingMode).toBe("answer");
         expect(dingtalkConfig.cardStreamInterval).toBe(750);
-        expect(dingtalkConfig.cardAtSender).toBe("回复完成");
+        expect(dingtalkConfig.cardAtSender).toBe("Reply complete");
         expect(dingtalkConfig.cardStatusLine).toEqual({
             model: true,
             effort: false,

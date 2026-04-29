@@ -208,7 +208,7 @@ async function promptCardAdvancedConfig(params: {
   const cardAtSenderRaw = String(
     await prompter.text({
       message: "Card completion @mention text (optional)",
-      placeholder: "回复完成",
+      placeholder: "Reply complete",
       initialValue: resolved.cardAtSender || undefined,
     }),
   ).trim();
@@ -370,10 +370,10 @@ async function configureDingTalkAccount(params: {
   // ── Credential acquisition: auto-register or manual ────────────────────
   const hasExistingCredentials = Boolean(resolved.clientId && resolved.clientSecret);
   const credentialMethod = await prompter.select({
-    message: "如何获取钉钉机器人凭证?",
+    message: "How do you want to get DingTalk bot credentials?",
     options: [
-      { label: "自动注册 OpenClaw 钉钉机器人", value: "auto" },
-      { label: "输入已有钉钉机器人的 Client ID / Client Secret", value: "manual" },
+      { label: "Auto-register an OpenClaw DingTalk bot", value: "auto" },
+      { label: "Enter an existing DingTalk bot Client ID / Client Secret", value: "manual" },
     ],
     initialValue: hasExistingCredentials ? "manual" : "auto",
   });
@@ -389,13 +389,13 @@ async function configureDingTalkAccount(params: {
 
       await prompter.note(
         [
-          "已在浏览器中打开授权页面。",
-          "请在钉钉中扫描授权码完成注册。",
+          "Opened the authorization page in your browser.",
+          "Scan the authorization code in DingTalk to finish registration.",
           "",
-          "如果浏览器未自动打开，请手动访问以下链接：",
+          "If the browser did not open automatically, visit this link manually:",
           session.verificationUrl,
         ].join("\n"),
-        "钉钉机器人自动注册",
+        "DingTalk bot auto-registration",
       );
 
       let lastWaitingNote = 0;
@@ -404,7 +404,9 @@ async function configureDingTalkAccount(params: {
           const now = Date.now();
           if (now - lastWaitingNote >= 15_000) {
             lastWaitingNote = now;
-            prompter.note("仍在等待授权，请在钉钉中完成扫码...", "轮询中").catch(() => {});
+            prompter
+              .note("Waiting for authorization. Please finish the scan in DingTalk...", "Polling")
+              .catch(() => {});
           }
         },
       });
@@ -412,16 +414,18 @@ async function configureDingTalkAccount(params: {
       clientSecret = result.clientSecret;
 
       await prompter.note(
-        [`注册成功!`, `Client ID: ${clientId}`, `Client Secret: [已获取，请查看配置文件]`].join(
-          "\n",
-        ),
-        "注册完成",
+        [
+          "Registration succeeded!",
+          `Client ID: ${clientId}`,
+          "Client Secret: [captured; see config file]",
+        ].join("\n"),
+        "Registration complete",
       );
     } catch (err) {
       const message = err instanceof RegistrationError ? err.message : String(err);
       await prompter.note(
-        [`自动注册失败: ${message}`, "", "将回退到手动输入模式。"].join("\n"),
-        "注册失败",
+        [`Auto-registration failed: ${message}`, "", "Falling back to manual input."].join("\n"),
+        "Registration failed",
       );
       // Fall through to manual path
       await noteDingTalkHelp(prompter);
@@ -557,9 +561,11 @@ export const dingtalkSetupWizard: ChannelSetupWizard = {
     resolveStatusLines: ({ configured }) => [
       `DingTalk: ${configured ? "configured" : "needs setup"}`,
     ],
-    resolveSelectionHint: ({ configured }) => (configured ? "configured" : "钉钉企业机器人"),
+    resolveSelectionHint: ({ configured }) =>
+      configured ? "configured" : "DingTalk enterprise bot",
     resolveQuickstartScore: ({ configured }) => (configured ? 1 : 4),
   },
+  resolveShouldPromptAccountIds: () => true,
   resolveAccountIdForConfigure: async ({
     cfg,
     prompter,
