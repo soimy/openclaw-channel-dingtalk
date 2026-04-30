@@ -875,7 +875,7 @@ describe("inbound-handler card streaming", () => {
   });
 
   describe("concurrent message streaming", () => {
-    it("concurrent messages keep tool streaming bound to the correct card", async () => {
+    it("concurrent messages: second message falls back to markdown while first card is streaming", async () => {
       let resolveA!: () => void;
       const gateA = new Promise<void>((r) => {
         resolveA = r;
@@ -886,12 +886,7 @@ describe("inbound-handler card streaming", () => {
         state: "1",
         lastUpdated: Date.now(),
       } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
-      const cardB = {
-        cardInstanceId: "card_B",
-        state: "1",
-        lastUpdated: Date.now(),
-      } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
-      shared.createAICardMock.mockResolvedValueOnce(cardA).mockResolvedValueOnce(cardB);
+      shared.createAICardMock.mockResolvedValueOnce(cardA);
       shared.isCardInTerminalStateMock.mockReturnValue(false);
 
       const runtimeA = buildRuntime();
@@ -907,9 +902,8 @@ describe("inbound-handler card streaming", () => {
       runtimeB.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
         .fn()
         .mockImplementation(async ({ dispatcherOptions }) => {
-          await dispatcherOptions.deliver({ text: "tool B" }, { kind: "tool" });
-          await dispatcherOptions.deliver({ text: "reply B" }, { kind: "final" });
-          return { queuedFinal: "reply B" };
+          await dispatcherOptions.deliver({ text: "reply B markdown" }, { kind: "final" });
+          return { queuedFinal: "reply B markdown" };
         });
       shared.getRuntimeMock.mockReturnValueOnce(runtimeA).mockReturnValueOnce(runtimeB);
 
@@ -938,7 +932,12 @@ describe("inbound-handler card streaming", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as { data: unknown });
+      } as unknown as { data: unknown; dingtalkConfig: unknown });
+
+      // Wait for card_A creation to complete before starting message B.
+      await vi.waitFor(() => {
+        expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+      });
 
       const promiseB = handleDingTalkMessage({
         ...baseParams,
@@ -953,24 +952,21 @@ describe("inbound-handler card streaming", () => {
           sessionWebhook: "https://session.webhook",
           createAt: Date.now(),
         },
-      } as unknown as { data: unknown });
+      } as unknown as { data: unknown; dingtalkConfig: unknown });
 
       await promiseB;
       resolveA();
       await promiseA;
 
-      // PR#494 + V2: tool streaming uses updateAICardBlockList, not streamAICard
+      // Only one card should be created — second message falls back to markdown.
+      expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+      // Tool streaming should be bound to card_A only.
       const blockListCalls = shared.updateAICardBlockListMock.mock.calls;
       const toolCallA = blockListCalls.find(
         (call: unknown[]) => JSON.stringify(call[1] ?? "").includes("tool A"),
       );
-      const toolCallB = blockListCalls.find(
-        (call: unknown[]) => JSON.stringify(call[1] ?? "").includes("tool B"),
-      );
       expect(toolCallA).toBeTruthy();
-      expect(toolCallB).toBeTruthy();
       expect(toolCallA?.[0]?.cardInstanceId).toBe("card_A");
-      expect(toolCallB?.[0]?.cardInstanceId).toBe("card_B");
     });
   });
 

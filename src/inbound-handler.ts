@@ -1,30 +1,24 @@
 import fs from "node:fs";
 import * as path from "node:path";
 import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
-import axios from "./http-client";
+import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
-import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
-import { getAgentDisplayName } from "./targeting/agent-name-matcher";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
-import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
+import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
 import { renderStatusLine } from "./card/statusline-renderer";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
-import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
-import { AICardStatus } from "./types";
 import {
-  isCardRunStopRequested,
-  registerCardRun,
-  removeCardRun,
-} from "./card/card-run-registry";
-import {
-  buildLearningContextBlock,
-  isLearningEnabled,
-} from "./feedback-learning-service";
-import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
+  resolveAckReactionSetting,
+  resolveGroupConfig,
+  resolveRelativePath,
+  resolveRobotCode,
+} from "./config";
+import { buildLearningContextBlock, isLearningEnabled } from "./feedback-learning-service";
+import axios from "./http-client";
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {
@@ -33,8 +27,14 @@ import {
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
+import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { deliverBtwReply, stripLeadingMentions } from "./messaging/btw-deliver";
 import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
+import {
+  downloadGroupFile,
+  getUnionIdByStaffId,
+  resolveQuotedFile,
+} from "./messaging/quoted-file-service";
 import {
   buildInboundQuotedRef,
   createReplyQuotedRef,
@@ -45,7 +45,6 @@ import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
-import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./messaging/quoted-file-service";
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
@@ -58,13 +57,26 @@ import {
 } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
 import { getSessionState, initSessionState } from "./session-state";
+import { getAgentDisplayName } from "./targeting/agent-name-matcher";
+import {
+  buildAgentSessionKey,
+  resolveSubAgentRoute,
+  dispatchSubAgents,
+} from "./targeting/agent-routing";
+import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
 import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
+import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
-import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData, parseBooleanLike } from "./utils";
-import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
+import {
+  formatDingTalkErrorPayloadLog,
+  getErrorMessage,
+  getErrorResponseData,
+  maskSensitiveData,
+  parseBooleanLike,
+} from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -95,10 +107,19 @@ const STANDALONE_MEDIA_PATH_EXTENSIONS = new Set([
   ".rar",
 ]);
 const proactiveHintLastSentAt = new Map<string, number>();
-const sessionReasoningLevelCache = new Map<string, {
-  updatedAt?: number;
-  reasoningLevel?: string;
-}>();
+const sessionReasoningLevelCache = new Map<
+  string,
+  {
+    updatedAt?: number;
+    reasoningLevel?: string;
+  }
+>();
+// Prevent concurrent card creation for the same conversation.
+// createAICard runs before acquireSessionLock (for immediate visual feedback),
+// but two inbound messages can race past each other's card-run registration.
+// This synchronous Set closes that window — JavaScript's single-threaded
+// concurrency means check-and-set is atomic from the caller's perspective.
+const cardCreationInFlight = new Set<string>();
 type ReplyMode = "card" | "markdown";
 
 function resolveQuotedContextAllowFrom(
@@ -133,7 +154,15 @@ function filterQuotedRuntimeContext(params: {
   currentSenderId: string;
   currentSenderOriginalId: string;
 }): ReturnType<typeof resolveQuotedRuntimeContext> {
-  const { context, config, isDirect, groupId, quotedSenderId, currentSenderId, currentSenderOriginalId } = params;
+  const {
+    context,
+    config,
+    isDirect,
+    groupId,
+    quotedSenderId,
+    currentSenderId,
+    currentSenderOriginalId,
+  } = params;
   if (!context || isDirect) {
     return context;
   }
@@ -150,9 +179,7 @@ function filterQuotedRuntimeContext(params: {
     currentSenderOriginalId,
   });
   const senderAllowed =
-    allow.hasEntries && !!senderId
-      ? isSenderAllowed({ allow, senderId })
-      : false;
+    allow.hasEntries && !!senderId ? isSenderAllowed({ allow, senderId }) : false;
 
   if (senderAllowed) {
     return context;
@@ -178,9 +205,9 @@ function readSessionReasoningLevel(params: {
   const cacheKey = `${params.storePath}:${params.sessionKey}`;
   const cached = sessionReasoningLevelCache.get(cacheKey);
   if (
-    cached
-    && params.sessionUpdatedAt !== undefined
-    && cached.updatedAt === params.sessionUpdatedAt
+    cached &&
+    params.sessionUpdatedAt !== undefined &&
+    cached.updatedAt === params.sessionUpdatedAt
   ) {
     return cached.reasoningLevel;
   }
@@ -520,7 +547,16 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions, preDownloadedMedia } = params;
+  const {
+    cfg,
+    accountId,
+    data,
+    sessionWebhook,
+    log,
+    dingtalkConfig,
+    subAgentOptions,
+    preDownloadedMedia,
+  } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -649,31 +685,32 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (groupAccess.legacyFallback) {
       log?.info?.(
         `[DingTalk] DEPRECATED: groupPolicy=allowlist is using "allowFrom" for group access control. ` +
-        `Please migrate to "groups" (group ID allowlist) or "groupAllowFrom" (sender allowlist).`,
+          `Please migrate to "groups" (group ID allowlist) or "groupAllowFrom" (sender allowlist).`,
       );
     }
 
     if (!groupAccess.allowed) {
       if (groupAccess.reason === "disabled") {
-        log?.debug?.(`[DingTalk] Group disabled: all group messages dropped (groupPolicy=disabled)`);
+        log?.debug?.(
+          `[DingTalk] Group disabled: all group messages dropped (groupPolicy=disabled)`,
+        );
         return;
       }
 
-      const denyMessage = groupAccess.reason === "sender_not_allowed"
-        ? `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到群聊允许列表中。`
-        : `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`;
+      const denyMessage =
+        groupAccess.reason === "sender_not_allowed"
+          ? `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到群聊允许列表中。`
+          : `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`;
 
       log?.debug?.(
         `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} reason=${groupAccess.reason}`,
       );
 
       try {
-        await sendBySession(
-          dingtalkConfig,
-          sessionWebhook,
-          denyMessage,
-          { log, atUserId: senderId },
-        );
+        await sendBySession(dingtalkConfig, sessionWebhook, denyMessage, {
+          log,
+          atUserId: senderId,
+        });
       } catch (err: any) {
         log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
         if (err?.response?.data !== undefined) {
@@ -686,9 +723,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       return;
     }
 
-    log?.debug?.(
-      `[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId}`,
-    );
+    log?.debug?.(`[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId}`);
   }
 
   // Calculate account store path and session peer (for session alias feature)
@@ -826,15 +861,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
   const taskInfoConversationId = groupId || to;
   const sessionTaskState = initSessionState(accountId, taskInfoConversationId);
-  const initialStatusLine = renderStatusLine({
-    model: sessionTaskState.model,
-    effort: sessionTaskState.effort,
-    agent: getAgentDisplayName({
-      subAgentOptions,
-      agentId: route.agentId,
-      agentsList: cfg.agents?.list,
-    }),
-  }, dingtalkConfig) || undefined;
+  const initialStatusLine =
+    renderStatusLine(
+      {
+        model: sessionTaskState.model,
+        effort: sessionTaskState.effort,
+        agent: getAgentDisplayName({
+          subAgentOptions,
+          agentId: route.agentId,
+          agentsList: cfg.agents?.list,
+        }),
+      },
+      dingtalkConfig,
+    ) || undefined;
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
@@ -846,6 +885,20 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // sending a separate plain-text message.
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
+
+  let cardFlightKey: string | undefined;
+  if (useCardMode && !isBtwBypass) {
+    const key = `${accountId}:${to}`;
+    if (cardCreationInFlight.has(key)) {
+      useCardMode = false;
+      log?.debug?.(
+        `[DingTalk][AICard] Skip card creation — active card already exists for account=${accountId} conversation=${to}`,
+      );
+    } else {
+      cardCreationInFlight.add(key);
+      cardFlightKey = key;
+    }
+  }
 
   if (useCardMode && !isBtwBypass) {
     try {
@@ -877,1149 +930,1195 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         }
       } else {
         useCardMode = false;
+        if (cardFlightKey) {
+          cardCreationInFlight.delete(cardFlightKey);
+          cardFlightKey = undefined;
+        }
         log?.warn?.(
           "[DingTalk] Failed to create AI card (returned null), fallback to text/markdown.",
         );
       }
     } catch (err: any) {
       useCardMode = false;
+      if (cardFlightKey) {
+        cardCreationInFlight.delete(cardFlightKey);
+        cardFlightKey = undefined;
+      }
       log?.warn?.(
         `[DingTalk] Failed to create AI card: ${err.message}, fallback to text/markdown.`,
       );
     }
   }
-  const hasLegacyQuoteContent =
-    typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
-
-  if (hasLegacyQuoteContent && !quotedRef) {
-    log?.debug?.(
-      `[DingTalk] Legacy quoteContent present without resolvable quotedRef: ` +
-        `conversationType=${data.conversationType} conversationId=${data.conversationId} ` +
-        `msgId=${data.msgId} originalMsgId=${data.originalMsgId || "(none)"}`,
-    );
-  }
-  if (quotedRef) {
-    log?.debug?.(
-      `[DingTalk][QuotedRef] Built inbound quotedRef msgId=${data.msgId} scope=${groupId} ` +
-        `quotedRef=${JSON.stringify(quotedRef)}`,
-    );
-  } else if (
-    data.text?.isReplyMsg ||
-    data.originalMsgId ||
-    data.originalProcessQueryKey ||
-    content.quoted
-  ) {
-    log?.debug?.(
-      `[DingTalk][QuotedRef] Reply metadata present without resolvable quotedRef ` +
-        `msgId=${data.msgId} scope=${groupId} originalMsgId=${data.originalMsgId || "(none)"} ` +
-        `originalProcessQueryKey=${data.originalProcessQueryKey || "(none)"}`,
-    );
-  }
-
+  // Outer try/finally: guarantees cardFlightKey cleanup regardless of exit path.
+  // Covers pre-lock operations, abort/btw early returns, and the main dispatch.
+  // The Set entry must be removed even if something throws between card creation
+  // and session-lock acquisition (e.g., recordInboundSession failure).
   try {
-    upsertInboundMessageContext({
-      storePath: accountStorePath,
-      accountId,
-      conversationId: groupId,
-      msgId: data.msgId,
-      messageType: content.messageType,
-      text: content.text,
-      quotedRef,
-      senderId,
-      senderName,
-      createdAt: data.createAt,
-      ttlMs: ttlDaysToMs(journalTTLDays),
-      ttlReferenceMs: data.createAt,
-      cleanupCreatedAtTtlDays: journalTTLDays,
-      topic: null,
-    });
-  } catch (err) {
-    log?.warn?.(`[DingTalk] Message context inbound append failed: ${String(err)}`);
-  }
+    const hasLegacyQuoteContent =
+      typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
 
-  const robotCode = resolveRobotCode(dingtalkConfig);
-  let mediaPath: string | undefined;
-  let mediaType: string | undefined;
-  let attachmentContextMsgId = data.msgId;
-  let attachmentContextCreatedAt = data.createAt;
-  let attachmentContextMessageType = content.messageType;
-  let attachmentContextFileName = data.content?.fileName;
-
-  // Use pre-downloaded media if available (from sub-agent outer call)
-  if (preDownloadedMedia?.mediaPath) {
-    mediaPath = preDownloadedMedia.mediaPath;
-    mediaType = preDownloadedMedia.mediaType;
-  } else if (content.mediaPath && robotCode) {
-    // Download media only if not pre-downloaded
-    const media = await downloadMedia(
-      dingtalkConfig,
-      content.mediaPath,
-      log,
-      attachmentContextFileName,
-    );
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
+    if (hasLegacyQuoteContent && !quotedRef) {
+      log?.debug?.(
+        `[DingTalk] Legacy quoteContent present without resolvable quotedRef: ` +
+          `conversationType=${data.conversationType} conversationId=${data.conversationId} ` +
+          `msgId=${data.msgId} originalMsgId=${data.originalMsgId || "(none)"}`,
+      );
     }
-  }
-
-  // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
-  if (content.mediaPath && data.msgId) {
-    upsertInboundMessageContext({
-      storePath: accountStorePath,
-      accountId,
-      conversationId: data.conversationId,
-      msgId: data.msgId,
-      createdAt: data.createAt,
-      messageType: content.messageType,
-      media: {
-        downloadCode: content.mediaPath,
-        spaceId: data.content?.spaceId,
-        fileId: data.content?.fileId,
-      },
-      attachmentFileName: attachmentContextFileName,
-      ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
-      topic: null,
-    });
-  }
-
-  // User-sent DingTalk doc / Drive file card: cache msgId -> {spaceId,fileId}
-  // during the original message turn, and try downloading immediately in DM.
-  if (
-    content.messageType === "interactiveCardFile" &&
-    data.msgId &&
-    content.docSpaceId &&
-    content.docFileId
-  ) {
-    upsertInboundMessageContext({
-      storePath: accountStorePath,
-      accountId,
-      conversationId: data.conversationId,
-      msgId: data.msgId,
-      createdAt: data.createAt,
-      messageType: content.messageType,
-      media: {
-        spaceId: content.docSpaceId,
-        fileId: content.docFileId,
-      },
-      attachmentFileName: attachmentContextFileName,
-      ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
-      topic: null,
-    });
-
-    if (!mediaPath && isDirect && data.senderStaffId) {
-      try {
-        const unionId = await getUnionIdByStaffId(dingtalkConfig, data.senderStaffId, log);
-        const docMedia = await downloadGroupFile(
-          dingtalkConfig,
-          content.docSpaceId,
-          content.docFileId,
-          unionId,
-          log,
-          attachmentContextFileName,
-        );
-        if (docMedia) {
-          mediaPath = docMedia.path;
-          mediaType = docMedia.mimeType;
-        }
-      } catch (err: any) {
-        log?.warn?.(`[DingTalk] Doc card download failed: ${err.message}`);
-      }
+    if (quotedRef) {
+      log?.debug?.(
+        `[DingTalk][QuotedRef] Built inbound quotedRef msgId=${data.msgId} scope=${groupId} ` +
+          `quotedRef=${JSON.stringify(quotedRef)}`,
+      );
+    } else if (
+      data.text?.isReplyMsg ||
+      data.originalMsgId ||
+      data.originalProcessQueryKey ||
+      content.quoted
+    ) {
+      log?.debug?.(
+        `[DingTalk][QuotedRef] Reply metadata present without resolvable quotedRef ` +
+          `msgId=${data.msgId} scope=${groupId} originalMsgId=${data.originalMsgId || "(none)"} ` +
+          `originalProcessQueryKey=${data.originalProcessQueryKey || "(none)"}`,
+      );
     }
-  }
 
-  const quotedRecord = resolveQuotedRecord({
-    storePath: accountStorePath,
-    accountId,
-    conversationId: data.conversationId,
-    quotedRef,
-    log,
-  });
-  const quotedRuntimeContext = filterQuotedRuntimeContext({
-    context: resolveQuotedRuntimeContext({
-      storePath: accountStorePath,
-      accountId,
-      conversationId: data.conversationId,
-      quotedRef,
-      firstRecord: quotedRecord,
-      firstPreview:
-        content.quoted?.previewText ||
-        content.quoted?.previewMessageType
-          ? {
-              text: content.quoted.previewText,
-              messageType: content.quoted.previewMessageType,
-              senderId: content.quoted.previewSenderId,
-            }
-          : undefined,
-      log,
-    }),
-    config: dingtalkConfig,
-    isDirect,
-    groupId,
-    quotedSenderId: quotedRecord?.senderId || content.quoted?.previewSenderId,
-    currentSenderId: senderId,
-    currentSenderOriginalId: senderOriginalId,
-  });
-
-  // Try downloading a quoted file from cached downloadCode/spaceId+fileId.
-  const tryDownloadFromRecord = async (
-    record: {
-      msgId?: string;
-      media?: {
-        downloadCode?: string;
-        spaceId?: string;
-        fileId?: string;
-      };
-    } | null,
-    originalFilename?: string,
-  ): Promise<MediaFile | null> => {
-    if (!record?.media) {
-      return null;
+    try {
+      upsertInboundMessageContext({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: groupId,
+        msgId: data.msgId,
+        messageType: content.messageType,
+        text: content.text,
+        quotedRef,
+        senderId,
+        senderName,
+        createdAt: data.createAt,
+        ttlMs: ttlDaysToMs(journalTTLDays),
+        ttlReferenceMs: data.createAt,
+        cleanupCreatedAtTtlDays: journalTTLDays,
+        topic: null,
+      });
+    } catch (err) {
+      log?.warn?.(`[DingTalk] Message context inbound append failed: ${String(err)}`);
     }
-    let media: MediaFile | null = null;
-    if (record.media.downloadCode) {
-      media = await downloadMedia(dingtalkConfig, record.media.downloadCode, log, originalFilename);
+
+    const robotCode = resolveRobotCode(dingtalkConfig);
+    let mediaPath: string | undefined;
+    let mediaType: string | undefined;
+    let attachmentContextMsgId = data.msgId;
+    let attachmentContextCreatedAt = data.createAt;
+    let attachmentContextMessageType = content.messageType;
+    let attachmentContextFileName = data.content?.fileName;
+
+    // Use pre-downloaded media if available (from sub-agent outer call)
+    if (preDownloadedMedia?.mediaPath) {
+      mediaPath = preDownloadedMedia.mediaPath;
+      mediaType = preDownloadedMedia.mediaType;
+    } else if (content.mediaPath && robotCode) {
+      // Download media only if not pre-downloaded
+      const media = await downloadMedia(
+        dingtalkConfig,
+        content.mediaPath,
+        log,
+        attachmentContextFileName,
+      );
       if (media) {
-        log?.debug?.(
-          `[DingTalk][QuotedRef] Recovered quoted media from cached downloadCode ` +
-            `recordMsgId=${record.msgId || "(none)"} scope=${data.conversationId}`,
-        );
+        mediaPath = media.path;
+        mediaType = media.mimeType;
       }
     }
-    if (!media && record.media.spaceId && record.media.fileId && data.senderStaffId) {
-      try {
-        const unionId = await getUnionIdByStaffId(dingtalkConfig, data.senderStaffId, log);
-        media = await downloadGroupFile(
+
+    // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
+    if (content.mediaPath && data.msgId) {
+      upsertInboundMessageContext({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: data.conversationId,
+        msgId: data.msgId,
+        createdAt: data.createAt,
+        messageType: content.messageType,
+        media: {
+          downloadCode: content.mediaPath,
+          spaceId: data.content?.spaceId,
+          fileId: data.content?.fileId,
+        },
+        attachmentFileName: attachmentContextFileName,
+        ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
+        topic: null,
+      });
+    }
+
+    // User-sent DingTalk doc / Drive file card: cache msgId -> {spaceId,fileId}
+    // during the original message turn, and try downloading immediately in DM.
+    if (
+      content.messageType === "interactiveCardFile" &&
+      data.msgId &&
+      content.docSpaceId &&
+      content.docFileId
+    ) {
+      upsertInboundMessageContext({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: data.conversationId,
+        msgId: data.msgId,
+        createdAt: data.createAt,
+        messageType: content.messageType,
+        media: {
+          spaceId: content.docSpaceId,
+          fileId: content.docFileId,
+        },
+        attachmentFileName: attachmentContextFileName,
+        ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
+        topic: null,
+      });
+
+      if (!mediaPath && isDirect && data.senderStaffId) {
+        try {
+          const unionId = await getUnionIdByStaffId(dingtalkConfig, data.senderStaffId, log);
+          const docMedia = await downloadGroupFile(
+            dingtalkConfig,
+            content.docSpaceId,
+            content.docFileId,
+            unionId,
+            log,
+            attachmentContextFileName,
+          );
+          if (docMedia) {
+            mediaPath = docMedia.path;
+            mediaType = docMedia.mimeType;
+          }
+        } catch (err: any) {
+          log?.warn?.(`[DingTalk] Doc card download failed: ${err.message}`);
+        }
+      }
+    }
+
+    const quotedRecord = resolveQuotedRecord({
+      storePath: accountStorePath,
+      accountId,
+      conversationId: data.conversationId,
+      quotedRef,
+      log,
+    });
+    const quotedRuntimeContext = filterQuotedRuntimeContext({
+      context: resolveQuotedRuntimeContext({
+        storePath: accountStorePath,
+        accountId,
+        conversationId: data.conversationId,
+        quotedRef,
+        firstRecord: quotedRecord,
+        firstPreview:
+          content.quoted?.previewText || content.quoted?.previewMessageType
+            ? {
+                text: content.quoted.previewText,
+                messageType: content.quoted.previewMessageType,
+                senderId: content.quoted.previewSenderId,
+              }
+            : undefined,
+        log,
+      }),
+      config: dingtalkConfig,
+      isDirect,
+      groupId,
+      quotedSenderId: quotedRecord?.senderId || content.quoted?.previewSenderId,
+      currentSenderId: senderId,
+      currentSenderOriginalId: senderOriginalId,
+    });
+
+    // Try downloading a quoted file from cached downloadCode/spaceId+fileId.
+    const tryDownloadFromRecord = async (
+      record: {
+        msgId?: string;
+        media?: {
+          downloadCode?: string;
+          spaceId?: string;
+          fileId?: string;
+        };
+      } | null,
+      originalFilename?: string,
+    ): Promise<MediaFile | null> => {
+      if (!record?.media) {
+        return null;
+      }
+      let media: MediaFile | null = null;
+      if (record.media.downloadCode) {
+        media = await downloadMedia(
           dingtalkConfig,
-          record.media.spaceId,
-          record.media.fileId,
-          unionId,
+          record.media.downloadCode,
           log,
           originalFilename,
         );
         if (media) {
           log?.debug?.(
-            `[DingTalk][QuotedRef] Recovered quoted media from cached spaceId/fileId ` +
+            `[DingTalk][QuotedRef] Recovered quoted media from cached downloadCode ` +
               `recordMsgId=${record.msgId || "(none)"} scope=${data.conversationId}`,
           );
         }
-      } catch (err: any) {
-        log?.warn?.(`[DingTalk] spaceId+fileId fallback failed: ${err.message}`);
       }
-    }
-    return media;
-  };
-
-  // Quoted picture: download via existing downloadMedia.
-  if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
-    const quotedOriginalFilename = content.quoted.previewFileName;
-    const media =
-      (await tryDownloadFromRecord(quotedRecord, quotedOriginalFilename)) ||
-      (await downloadMedia(
-        dingtalkConfig,
-        content.quoted.mediaDownloadCode,
-        log,
-        quotedOriginalFilename,
-      ));
-    if (media) {
-      if (!quotedRecord) {
-        log?.debug?.(
-          `[DingTalk][QuotedRef] Recovered quoted image from inbound downloadCode fallback scope=${data.conversationId}`,
-        );
+      if (!media && record.media.spaceId && record.media.fileId && data.senderStaffId) {
+        try {
+          const unionId = await getUnionIdByStaffId(dingtalkConfig, data.senderStaffId, log);
+          media = await downloadGroupFile(
+            dingtalkConfig,
+            record.media.spaceId,
+            record.media.fileId,
+            unionId,
+            log,
+            originalFilename,
+          );
+          if (media) {
+            log?.debug?.(
+              `[DingTalk][QuotedRef] Recovered quoted media from cached spaceId/fileId ` +
+                `recordMsgId=${record.msgId || "(none)"} scope=${data.conversationId}`,
+            );
+          }
+        } catch (err: any) {
+          log?.warn?.(`[DingTalk] spaceId+fileId fallback failed: ${err.message}`);
+        }
       }
-      mediaPath = media.path;
-      mediaType = media.mimeType;
-      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-      attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
-      attachmentContextMessageType = quotedRecord?.messageType || content.quoted.previewMessageType || "picture";
-      attachmentContextFileName = content.quoted.previewFileName;
-    } else {
-      content.text = `[引用了一张图片，但下载失败]\n\n${content.text}`;
-    }
-  }
+      return media;
+    };
 
-  // Quoted file/audio/video (file/audio/video msgType) or unknownMsgType:
-  // Step 0 tries direct downloadCode; Steps 1-2 fall back to cache and group file API.
-  if (!mediaPath && content.quoted?.isQuotedFile) {
-    let fileResolved = false;
-
-    // Step 0: Direct download via downloadCode from quoted payload (file/audio/video msgType).
-    if (!fileResolved && content.quoted.fileDownloadCode && robotCode) {
-      const media = await downloadMedia(
-        dingtalkConfig,
-        content.quoted.fileDownloadCode,
-        log,
-        content.quoted.previewFileName,
-      );
+    // Quoted picture: download via existing downloadMedia.
+    if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
+      const quotedOriginalFilename = content.quoted.previewFileName;
+      const media =
+        (await tryDownloadFromRecord(quotedRecord, quotedOriginalFilename)) ||
+        (await downloadMedia(
+          dingtalkConfig,
+          content.quoted.mediaDownloadCode,
+          log,
+          quotedOriginalFilename,
+        ));
       if (media) {
+        if (!quotedRecord) {
+          log?.debug?.(
+            `[DingTalk][QuotedRef] Recovered quoted image from inbound downloadCode fallback scope=${data.conversationId}`,
+          );
+        }
         mediaPath = media.path;
         mediaType = media.mimeType;
-        attachmentContextMsgId = content.quoted.msgId || data.msgId;
-        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
-        attachmentContextMessageType = content.quoted.previewMessageType || "file";
-        attachmentContextFileName = content.quoted.previewFileName;
-        fileResolved = true;
-        log?.debug?.(
-          `[DingTalk][QuotedRef] Downloaded quoted file via direct downloadCode scope=${data.conversationId}`,
-        );
-      }
-    }
-
-    // Step 1: Prefer quotedRef-backed record lookup, then msgId-based cache.
-    if (!fileResolved) {
-      const cachedMedia = await tryDownloadFromRecord(
-        quotedRecord,
-        quotedRecord?.attachmentFileName || content.quoted.previewFileName,
-      );
-      if (cachedMedia) {
-        mediaPath = cachedMedia.path;
-        mediaType = cachedMedia.mimeType;
         attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-        attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
-        attachmentContextMessageType = quotedRecord?.messageType || "file";
-        attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
-        fileResolved = true;
+        attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
+        attachmentContextMessageType =
+          quotedRecord?.messageType || content.quoted.previewMessageType || "picture";
+        attachmentContextFileName = content.quoted.previewFileName;
+      } else {
+        content.text = `[引用了一张图片，但下载失败]\n\n${content.text}`;
       }
     }
 
-    // Step 2 (group only): Cache miss → fall back to group file API time-based matching.
-    if (!fileResolved && !isDirect) {
-      const resolved = await resolveQuotedFile(
-        dingtalkConfig,
-        {
-          openConversationId: data.conversationId,
-          senderStaffId: data.senderStaffId,
-          fileCreatedAt: content.quoted.fileCreatedAt,
-        },
-        log,
-      );
-      if (resolved) {
-        mediaPath = resolved.media.path;
-        mediaType = resolved.media.mimeType;
-        attachmentContextMsgId = content.quoted.msgId || data.msgId;
-        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
-        attachmentContextMessageType = "file";
-        attachmentContextFileName = resolved.name || content.quoted.previewFileName;
-        fileResolved = true;
-        log?.debug?.(
-          `[DingTalk][QuotedRef] Recovered quoted file from group file fallback ` +
-            `scope=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
+    // Quoted file/audio/video (file/audio/video msgType) or unknownMsgType:
+    // Step 0 tries direct downloadCode; Steps 1-2 fall back to cache and group file API.
+    if (!mediaPath && content.quoted?.isQuotedFile) {
+      let fileResolved = false;
+
+      // Step 0: Direct download via downloadCode from quoted payload (file/audio/video msgType).
+      if (!fileResolved && content.quoted.fileDownloadCode && robotCode) {
+        const media = await downloadMedia(
+          dingtalkConfig,
+          content.quoted.fileDownloadCode,
+          log,
+          content.quoted.previewFileName,
         );
-        if (content.quoted.msgId) {
-          upsertInboundMessageContext({
-            storePath: accountStorePath,
-            accountId,
-            conversationId: data.conversationId,
-            msgId: content.quoted.msgId,
-            createdAt: content.quoted.fileCreatedAt || Date.now(),
-            messageType: "file",
-            media: {
-              spaceId: resolved.spaceId,
-              fileId: resolved.fileId,
-            },
-            attachmentFileName: resolved.name,
-            ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
-            topic: null,
-          });
-        }
-      }
-    }
-
-    if (!fileResolved) {
-      log?.warn?.(
-        `[DingTalk] Quoted file unresolved: conversationType=${data.conversationType} conversationId=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
-      );
-      const hint = isDirect
-        ? "[引用了一个文件，内容无法自动获取，请直接发送该文件]\n\n"
-        : "[引用了一个文件，但无法获取内容]\n\n";
-      content.text = `${hint}${content.text}`;
-    }
-  }
-
-  // Quoted DingTalk doc / Drive file card:
-  // 1) Prefer msgId-based cached metadata captured when the original doc card
-  //    message was seen.
-  // 2) In group chats, if the bot never saw the original doc card message,
-  //    reuse the same group-file fallback chain as ordinary quoted files.
-  if (!mediaPath && content.quoted?.isQuotedDocCard) {
-    let docResolved = false;
-
-    const cachedDocMedia = await tryDownloadFromRecord(
-      quotedRecord,
-      quotedRecord?.attachmentFileName || content.quoted?.previewFileName,
-    );
-    if (cachedDocMedia) {
-      mediaPath = cachedDocMedia.path;
-      mediaType = cachedDocMedia.mimeType;
-      attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-      attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
-      attachmentContextMessageType =
-        quotedRecord?.messageType || content.quoted.previewMessageType || "interactiveCardFile";
-      attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
-      docResolved = true;
-    }
-
-    if (!docResolved && !isDirect && content.quoted.fileCreatedAt) {
-      const resolved = await resolveQuotedFile(
-        dingtalkConfig,
-        {
-          openConversationId: data.conversationId,
-          senderStaffId: data.senderStaffId,
-          fileCreatedAt: content.quoted.fileCreatedAt,
-        },
-        log,
-      );
-      if (resolved) {
-        mediaPath = resolved.media.path;
-        mediaType = resolved.media.mimeType;
-        attachmentContextMsgId = content.quoted.msgId || data.msgId;
-        attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
-        attachmentContextMessageType = "interactiveCardFile";
-        attachmentContextFileName = resolved.name || content.quoted.previewFileName;
-        docResolved = true;
-        log?.debug?.(
-          `[DingTalk][QuotedRef] Recovered quoted doc card from group file fallback ` +
-            `scope=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
-        );
-        if (content.quoted.msgId) {
-          upsertInboundMessageContext({
-            storePath: accountStorePath,
-            accountId,
-            conversationId: data.conversationId,
-            msgId: content.quoted.msgId,
-            createdAt: content.quoted.fileCreatedAt || Date.now(),
-            messageType: "interactiveCardFile",
-            media: {
-              spaceId: resolved.spaceId,
-              fileId: resolved.fileId,
-            },
-            attachmentFileName: resolved.name,
-            ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
-            topic: null,
-          });
-        }
-      }
-    }
-
-    if (!docResolved) {
-      log?.warn?.(
-        `[DingTalk] Quoted doc card unresolved: conversationType=${data.conversationType} conversationId=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
-      );
-      const hint = isDirect
-        ? "[引用了钉钉文档，内容无法自动获取，请直接发送该文档]\n\n"
-        : "[引用了钉钉文档，但无法获取内容]\n\n";
-      content.text = `${hint}${content.text}`;
-    }
-  }
-
-  let attachmentExtractedText: string | undefined;
-  if (mediaPath) {
-    try {
-      const extracted = await extractAttachmentText({
-        path: mediaPath,
-        mimeType: mediaType,
-        fileName: attachmentContextFileName || data.content?.fileName,
-      });
-      if (extracted?.text) {
-        upsertInboundMessageContext({
-          storePath: accountStorePath,
-          accountId,
-          conversationId: data.conversationId,
-          msgId: attachmentContextMsgId,
-          createdAt: attachmentContextCreatedAt,
-          messageType: attachmentContextMessageType,
-          attachmentText: extracted.text,
-          attachmentTextSource: extracted.sourceType,
-          attachmentTextTruncated: extracted.truncated,
-          attachmentFileName: attachmentContextFileName,
-          ttlMs: ttlDaysToMs(journalTTLDays),
-          topic: null,
-        });
-        attachmentExtractedText = `${ATTACHMENT_TEXT_PREFIX}\n${extracted.text}`;
-      }
-    } catch (err: any) {
-      log?.warn?.(`[DingTalk] Failed to extract attachment text: ${err.message}`);
-    }
-  }
-
-  const inboundBody = content.text;
-  const inboundText = attachmentExtractedText
-    ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
-    : inboundBody;
-  const learningEnabled = isLearningEnabled(dingtalkConfig);
-  const learningContextBlock = buildLearningContextBlock({
-    enabled: learningEnabled,
-    storePath: accountStorePath,
-    accountId,
-    targetId: data.conversationId,
-    content,
-  });
-  const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
-    storePath,
-    sessionKey: route.sessionKey,
-  });
-
-  const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
-  // GroupSystemPrompt is injected every turn (not only first-turn intro).
-  const groupSystemPromptParts = !isDirect
-    ? [
-        buildGroupTurnContextPrompt({
-          conversationId: groupId,
-          senderDingtalkId: senderId,
-          senderName,
-        }),
-        groupConfig?.systemPrompt?.trim(),
-      ]
-    : [];
-  const extraSystemPrompt =
-    [...groupSystemPromptParts, learningContextBlock].filter(Boolean).join("\n\n") || undefined;
-
-  if (!isDirect) {
-    noteGroupMember(storePath, groupId, senderId, senderName);
-  }
-  const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
-
-  const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
-  const body = rt.channel.reply.formatInboundEnvelope({
-    channel: "DingTalk",
-    from: fromLabel,
-    timestamp: data.createAt,
-    body: inboundText,
-    chatType: isDirect ? "direct" : "group",
-    sender: { name: senderName, id: senderId },
-    previousTimestamp,
-    envelope: envelopeOptions,
-  });
-
-  const ctx = rt.channel.reply.finalizeInboundContext({
-    Body: body,
-    RawBody: inboundText,
-    CommandBody: inboundText,
-    QuotedRef: quotedRef,
-    QuotedRefJson: quotedRef ? JSON.stringify(quotedRef) : undefined,
-    ReplyToId: quotedRuntimeContext?.replyToId,
-    ReplyToBody: quotedRuntimeContext?.replyToBody,
-    ReplyToSender: quotedRuntimeContext?.replyToSender,
-    ReplyToIsQuote: quotedRuntimeContext?.replyToIsQuote,
-    UntrustedContext: quotedRuntimeContext?.untrustedContext
-      ? [quotedRuntimeContext.untrustedContext]
-      : undefined,
-    From: to,
-    To: to,
-    SessionKey: route.sessionKey,
-    AccountId: accountId,
-    ChatType: isDirect ? "direct" : "group",
-    ConversationLabel: fromLabel,
-    GroupSubject: isDirect ? undefined : groupName,
-    SenderName: senderName,
-    SenderId: senderId,
-    Provider: "dingtalk",
-    Surface: "dingtalk",
-    MessageSid: data.msgId,
-    Timestamp: data.createAt,
-    MediaPath: mediaPath,
-    MediaType: mediaType,
-    MediaUrl: mediaPath,
-    GroupMembers: groupMembers,
-    GroupSystemPrompt: extraSystemPrompt,
-    GroupChannel: isDirect ? undefined : route.sessionKey,
-    CommandAuthorized: commandAuthorized,
-    OriginatingChannel: "dingtalk",
-    OriginatingTo: to,
-  });
-
-  await rt.channel.session.recordInboundSession({
-    storePath,
-    sessionKey: ctx.SessionKey || route.sessionKey,
-    ctx,
-    updateLastRoute: (() => {
-      if (!isDirect) {
-        return undefined;
-      }
-      const pinnedMainDmOwner = resolvePinnedMainDmOwner({
-        dmScope: cfg.session?.dmScope,
-        allowFrom: dingtalkConfig.allowFrom,
-      });
-      const senderRecipient = (senderOriginalId || senderId || "").trim().toLowerCase();
-      if (
-        pinnedMainDmOwner
-        && senderRecipient
-        && pinnedMainDmOwner.trim().toLowerCase() !== senderRecipient
-      ) {
-        log?.debug?.(
-          `[DingTalk] Skipping main-session last route update for ${senderRecipient} (pinned owner ${pinnedMainDmOwner})`,
-        );
-        return undefined;
-      }
-      return { sessionKey: route.mainSessionKey, channel: "dingtalk", to, accountId };
-    })(),
-    onRecordError: (err: unknown) => {
-      log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
-    },
-  });
-
-  log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
-
-  // ---- Pre-lock abort: bypass session lock for stop requests ----
-  // isAbortRequestText matches "/stop", "停止", "stop", "esc", etc.
-  // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
-  // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
-  // rather than waiting for it to finish before the stop message is processed.
-  //
-  // Strip leading @mention tokens before the abort check so that messages like
-  // "@Agent /stop" are correctly recognised as abort requests in both DM and group
-  // chats. In groups DingTalk usually strips @BotName at the protocol level, but
-  // in DMs with multi-agent routing the @mention prefix survives all the way here.
-  const textForAbortCheck = stripLeadingMentions(inboundText).trim();
-  if (isAbortRequestText(textForAbortCheck)) {
-    log?.info?.(
-      `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
-    );
-    // In card mode: capture the abort confirmation text so we can write it into
-    // the card (instead of sending a separate plain text message).
-    let abortConfirmationText: string | undefined;
-    try {
-      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx,
-        cfg,
-        dispatcherOptions: {
-          responsePrefix: "",
-          deliver: async (payload) => {
-            if (!payload.text) {
-              log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
-              return;
-            }
-            if (currentAICard) {
-              // Card mode: capture text — will be written to card after dispatch.
-              abortConfirmationText = payload.text;
-            } else {
-              try {
-                if (sessionWebhook) {
-                  await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
-                    log,
-                    accountId,
-                    storePath: accountStorePath,
-                  });
-                } else {
-                  await sendMessage(dingtalkConfig, to, payload.text, {
-                    log,
-                    accountId,
-                    storePath: accountStorePath,
-                    conversationId: groupId,
-                  });
-                }
-              } catch (deliverErr) {
-                log?.warn?.(
-                  `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
-                );
-              }
-            }
-          },
-        },
-      });
-    } catch (abortErr) {
-      log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
-    }
-    // Finalize the card that was created for this message before the abort check.
-    // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
-    // Use V2 finalize (commitAICardBlocks) for consistent state transition.
-    if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
-      try {
-        const abortText = abortConfirmationText ?? "已停止";
-        const abortBlockList = [{ type: 0, markdown: abortText }];
-        const blockListJson = JSON.stringify(abortBlockList);
-
-        await commitAICardBlocks(currentAICard, {
-          blockListJson,
-          content: abortText,
-        }, log);
-
-        log?.debug?.(`[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`);
-      } catch (cardErr) {
-        log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
-        currentAICard.state = AICardStatus.FAILED;
-      }
-    }
-    return;
-  }
-
-  // ---- Pre-lock BTW: bypass session lock for /btw side questions ----
-  // /btw runs an isolated, tool-less side query in openclaw without polluting
-  // the main run's transcript. The dispatch must NOT acquire the session lock,
-  // otherwise it would queue behind the in-flight main task and lose its "side
-  // question" semantics.
-  //
-  // The `isBtwBypass` flag is computed once early (just after `content` is
-  // resolved, just before `createAICard`). The same constant gates `createAICard` above and
-  // drives this branch — single decision, two consequences. See the comment
-  // at the flag's definition for why /btw uses pre-OCR `content.text` while
-  // abort uses `inboundText`.
-  if (isBtwBypass) {
-    log?.info?.(
-      `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
-    );
-    // Empty fallback (NOT "Unknown" like the file's main `senderName` variable):
-    // when the nickname is missing we want the blockquote to render as
-    // `> /btw <question>` rather than `> Unknown: /btw <question>`. Read locally
-    // here so the existing `senderName` semantics elsewhere in the file are not
-    // affected.
-    const btwSenderName = data.senderNick || "";
-    try {
-      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx,
-        cfg,
-        dispatcherOptions: {
-          responsePrefix: "",
-          deliver: async (payload) => {
-            if (!payload.text) {
-              log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
-              return;
-            }
-            await deliverBtwReply({
-              config: dingtalkConfig,
-              sessionWebhook,
-              conversationId: groupId,
-              to,
-              senderName: btwSenderName,
-              // Use pre-OCR content.text (consistent with isBtwBypass detection)
-              // so the blockquote shows the user's typed body, not body + OCR.
-              rawQuestion: content.text,
-              replyText: payload.text,
-              log,
-              accountId,
-              storePath: accountStorePath,
-            });
-          },
-        },
-      });
-    } catch (btwErr) {
-      log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
-    }
-    return;
-  }
-
-  const ackReaction =
-    typeof dingtalkConfig.ackReaction === "string"
-      ? dingtalkConfig.ackReaction.trim()
-      : resolveAckReactionSetting({
-          cfg,
-          accountId,
-          agentId: route.agentId,
-        });
-  const normalizedAckReaction = ackReaction === "off" ? "" : ackReaction;
-  const resolvedAckReaction =
-    normalizedAckReaction === "kaomoji"
-      ? classifyAckReactionEmoji(content.text).emoji
-      : normalizedAckReaction === "emoji"
-        ? "🤔思考中"
-        : normalizedAckReaction;
-  const shouldAttachAckReaction = Boolean(resolvedAckReaction);
-  let ackReactionAttached = false;
-  let ackReactionAttachedAt = 0;
-
-  if (shouldAttachAckReaction) {
-    ackReactionAttached = await attachNativeAckReaction(
-      dingtalkConfig,
-      {
-        msgId: data.msgId,
-        conversationId: groupId,
-        reactionName: resolvedAckReaction,
-      },
-      log,
-    );
-    if (ackReactionAttached) {
-      ackReactionAttachedAt = Date.now();
-      log?.debug?.(
-        `[DingTalk] Initial ack reaction attached mode=${normalizedAckReaction || "off"} reaction=${resolvedAckReaction}`,
-      );
-    }
-  }
-
-  function parseInlineReplyPayloadText(text: unknown): {
-    text?: string;
-    mediaUrls: string[];
-    audioAsVoice: boolean;
-  } {
-    if (typeof text !== "string") {
-      return { text: undefined, mediaUrls: [], audioAsVoice: false };
-    }
-
-    const normalizedText = text.replace(/\r\n/g, "\n");
-    const parsedInline = normalizedText.includes("[[")
-      ? parseInlineDirectives(normalizedText, {
-          stripAudioTag: true,
-          stripReplyTags: false,
-        })
-      : {
-          text: normalizedText,
-          audioAsVoice: false,
-          replyToCurrent: false,
-          hasAudioTag: false,
-          hasReplyTag: false,
-        };
-    const mediaUrls: string[] = [];
-    const contentLines: string[] = [];
-
-    for (const line of parsedInline.text.split("\n")) {
-      const trimmed = line.trim();
-      const mediaCandidate = trimmed.replace(/^(?:\[\[[^[\]]+\]\]\s*)+/, "");
-      if (mediaCandidate.startsWith(MEDIA_DIRECTIVE_PREFIX)) {
-        const mediaSource = mediaCandidate.slice(MEDIA_DIRECTIVE_PREFIX.length).trim();
-        if (mediaSource) {
-          mediaUrls.push(mediaSource);
-          continue;
-        }
-      }
-      contentLines.push(line);
-    }
-
-    const cleanedText = contentLines.join("\n").trim();
-    const inlineTextWasTransformed = parsedInline.text !== normalizedText;
-    if (mediaUrls.length === 0) {
-      const standaloneMediaSource = extractStandaloneMediaSource(cleanedText);
-      if (standaloneMediaSource) {
-        return {
-          text: undefined,
-          mediaUrls: [standaloneMediaSource],
-          audioAsVoice: parsedInline.audioAsVoice,
-        };
-      }
-    }
-
-    return {
-      // Keep ordinary text formatting stable except for newline normalization.
-      // Once inline parsing actually strips directives/media lines, return the
-      // cleaned body text instead of the original raw payload.
-      text: mediaUrls.length > 0 || inlineTextWasTransformed ? cleanedText || undefined : normalizedText,
-      mediaUrls,
-      audioAsVoice: parsedInline.audioAsVoice,
-    };
-  }
-
-  function extractStandaloneMediaSource(text: string): string | undefined {
-    const trimmed = text.trim();
-    if (!trimmed || trimmed.includes("\n") || /\s/.test(trimmed)) {
-      return undefined;
-    }
-
-    const hasPathLikeShape =
-      /^https?:\/\/\S+$/i.test(trimmed) ||
-      trimmed.startsWith("~/") ||
-      trimmed.startsWith("~\\") ||
-      trimmed.startsWith("./") ||
-      trimmed.startsWith(".\\") ||
-      trimmed.startsWith("../") ||
-      trimmed.startsWith("..\\") ||
-      trimmed.startsWith("/") ||
-      trimmed.startsWith("\\") ||
-      /^[a-zA-Z]:[\\/]/.test(trimmed) ||
-      trimmed.includes("/") ||
-      trimmed.includes("\\");
-    if (!hasPathLikeShape) {
-      return undefined;
-    }
-
-    return STANDALONE_MEDIA_PATH_EXTENSIONS.has(path.extname(trimmed).toLowerCase())
-      ? trimmed
-      : undefined;
-  }
-
-  // ---- Shared media delivery helper ----
-  function extractSharedAudioAsVoice(
-    payload: ReplyStreamPayload,
-    inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
-  ): boolean {
-    // Normalize all reply-time voice hints into the shared `audioAsVoice`
-    // semantic that strategies and media delivery use downstream.
-    const richPayload = payload as ReplyStreamPayload & {
-      audioAsVoice?: unknown;
-      asVoice?: unknown;
-    };
-    const sharedValue = parseBooleanLike(richPayload.audioAsVoice);
-    if (sharedValue !== undefined) {
-      return sharedValue;
-    }
-    if (parseBooleanLike(richPayload.asVoice) === true) {
-      return true;
-    }
-    return inlineReplyPayload?.audioAsVoice === true;
-  }
-
-  async function deliverMediaAttachments(urls: string[], options?: { audioAsVoice?: boolean }) {
-    for (const rawMediaUrl of urls) {
-      const preparedMedia = await prepareMediaInput(
-        rawMediaUrl,
-        log,
-        dingtalkConfig.mediaUrlAllowlist,
-      );
-      try {
-        const actualMediaPath = preparedMedia.cleanup
-          ? preparedMedia.path
-          : resolveRelativePath(preparedMedia.path);
-        const outMediaType = resolveOutboundMediaType({
-          mediaPath: actualMediaPath,
-          asVoice: options?.audioAsVoice === true,
-        });
-        if (sessionWebhook) {
-          const sendResult = await sendMessage(dingtalkConfig, to, "", {
-            sessionWebhook,
-            mediaPath: actualMediaPath,
-            mediaType: outMediaType,
-            log,
-            accountId,
-            storePath: accountStorePath,
-            conversationId: groupId,
-            quotedRef: replyQuotedRef,
-          });
-          if (!sendResult.ok) {
-            throw new Error(sendResult.error || "Media reply send failed");
-          }
-        } else {
-          const sendResult = await sendProactiveMedia(
-            dingtalkConfig,
-            to,
-            actualMediaPath,
-            outMediaType,
-            {
-              accountId,
-              log,
-              storePath: accountStorePath,
-              conversationId: groupId,
-              quotedRef: replyQuotedRef,
-            },
+        if (media) {
+          mediaPath = media.path;
+          mediaType = media.mimeType;
+          attachmentContextMsgId = content.quoted.msgId || data.msgId;
+          attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+          attachmentContextMessageType = content.quoted.previewMessageType || "file";
+          attachmentContextFileName = content.quoted.previewFileName;
+          fileResolved = true;
+          log?.debug?.(
+            `[DingTalk][QuotedRef] Downloaded quoted file via direct downloadCode scope=${data.conversationId}`,
           );
-          if (!sendResult.ok) {
-            throw new Error(sendResult.error || "Media reply send failed");
+        }
+      }
+
+      // Step 1: Prefer quotedRef-backed record lookup, then msgId-based cache.
+      if (!fileResolved) {
+        const cachedMedia = await tryDownloadFromRecord(
+          quotedRecord,
+          quotedRecord?.attachmentFileName || content.quoted.previewFileName,
+        );
+        if (cachedMedia) {
+          mediaPath = cachedMedia.path;
+          mediaType = cachedMedia.mimeType;
+          attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+          attachmentContextCreatedAt =
+            quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+          attachmentContextMessageType = quotedRecord?.messageType || "file";
+          attachmentContextFileName =
+            quotedRecord?.attachmentFileName || content.quoted.previewFileName;
+          fileResolved = true;
+        }
+      }
+
+      // Step 2 (group only): Cache miss → fall back to group file API time-based matching.
+      if (!fileResolved && !isDirect) {
+        const resolved = await resolveQuotedFile(
+          dingtalkConfig,
+          {
+            openConversationId: data.conversationId,
+            senderStaffId: data.senderStaffId,
+            fileCreatedAt: content.quoted.fileCreatedAt,
+          },
+          log,
+        );
+        if (resolved) {
+          mediaPath = resolved.media.path;
+          mediaType = resolved.media.mimeType;
+          attachmentContextMsgId = content.quoted.msgId || data.msgId;
+          attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+          attachmentContextMessageType = "file";
+          attachmentContextFileName = resolved.name || content.quoted.previewFileName;
+          fileResolved = true;
+          log?.debug?.(
+            `[DingTalk][QuotedRef] Recovered quoted file from group file fallback ` +
+              `scope=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
+          );
+          if (content.quoted.msgId) {
+            upsertInboundMessageContext({
+              storePath: accountStorePath,
+              accountId,
+              conversationId: data.conversationId,
+              msgId: content.quoted.msgId,
+              createdAt: content.quoted.fileCreatedAt || Date.now(),
+              messageType: "file",
+              media: {
+                spaceId: resolved.spaceId,
+                fileId: resolved.fileId,
+              },
+              attachmentFileName: resolved.name,
+              ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
+              topic: null,
+            });
           }
         }
-      } finally {
-        await preparedMedia.cleanup?.();
+      }
+
+      if (!fileResolved) {
+        log?.warn?.(
+          `[DingTalk] Quoted file unresolved: conversationType=${data.conversationType} conversationId=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
+        );
+        const hint = isDirect
+          ? "[引用了一个文件，内容无法自动获取，请直接发送该文件]\n\n"
+          : "[引用了一个文件，但无法获取内容]\n\n";
+        content.text = `${hint}${content.text}`;
       }
     }
-  }
 
-  // ---- Extract mediaUrls from runtime payload ----
-  function extractMediaUrls(
-    payload: ReplyStreamPayload,
-    inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
-  ): string[] {
-    const richPayload = payload as typeof payload & {
-      mediaUrl?: string;
-      mediaUrls?: string[];
-    };
-    const explicitMediaUrls = Array.isArray(richPayload.mediaUrls)
-      ? richPayload.mediaUrls.filter((entry: unknown) => typeof entry === "string" && entry.trim())
-      : richPayload.mediaUrl &&
-          typeof richPayload.mediaUrl === "string" &&
-          richPayload.mediaUrl.trim()
-        ? [richPayload.mediaUrl]
-        : [];
-    return explicitMediaUrls.length > 0
-      ? explicitMediaUrls
-      : inlineReplyPayload?.mediaUrls ?? [];
-  }
+    // Quoted DingTalk doc / Drive file card:
+    // 1) Prefer msgId-based cached metadata captured when the original doc card
+    //    message was seen.
+    // 2) In group chats, if the bot never saw the original doc card message,
+    //    reuse the same group-file fallback chain as ordinary quoted files.
+    if (!mediaPath && content.quoted?.isQuotedDocCard) {
+      let docResolved = false;
 
-  // Serialize dispatchReply + card finalize per session to prevent the runtime
-  // from receiving concurrent dispatch calls on the same session key, which
-  // causes empty replies for all but the first caller.
-  // Each sub-agent call acquires its own lock since sub-agent sessions have
-  // different session keys (different agentId), so no deadlock risk.
-  const currentOutTrackId = currentAICard?.outTrackId;
-  const shouldTrackDynamicAckReaction =
-    (normalizedAckReaction === "emoji" || normalizedAckReaction === "kaomoji")
-    && shouldAttachAckReaction;
-  const runtimeEvents = (rt as typeof rt & {
-    events?: {
-      onAgentEvent?: (listener: (event: unknown) => void) => (() => void);
-    };
-  }).events;
-  const releaseSessionLock = await acquireSessionLock(route.sessionKey);
-  const dynamicAckReactionController = createDynamicAckReactionController({
-    enabled: shouldTrackDynamicAckReaction,
-    initialReaction: resolvedAckReaction || "",
-    initialAttached: ackReactionAttached,
-    initialAttachedAt: ackReactionAttachedAt,
-    dingtalkConfig,
-    msgId: data.msgId,
-    conversationId: groupId,
-    sessionKey: route.sessionKey,
-    log,
-    runtimeEvents,
-    onReactionDisposed: () => {
-      ackReactionAttached = false;
-    },
-  });
-  try {
-    if (!ackReactionAttached && shouldAttachAckReaction) {
-      log?.debug?.("[DingTalk] Native ack reaction unavailable; skipping fallback.");
-    }
-    const isCurrentCardStopRequested = () =>
-      Boolean(
-        currentAICard
-        && (
-          currentAICard.state === AICardStatus.STOPPED
-          || (currentOutTrackId && isCardRunStopRequested(currentOutTrackId))
-        ),
+      const cachedDocMedia = await tryDownloadFromRecord(
+        quotedRecord,
+        quotedRecord?.attachmentFileName || content.quoted?.previewFileName,
       );
+      if (cachedDocMedia) {
+        mediaPath = cachedDocMedia.path;
+        mediaType = cachedDocMedia.mimeType;
+        attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
+        attachmentContextCreatedAt =
+          quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextMessageType =
+          quotedRecord?.messageType || content.quoted.previewMessageType || "interactiveCardFile";
+        attachmentContextFileName =
+          quotedRecord?.attachmentFileName || content.quoted.previewFileName;
+        docResolved = true;
+      }
 
-    if (isCurrentCardStopRequested()) {
-      log?.info?.("[DingTalk][CardStop] Skip dispatch because card was already stopped before session lock was acquired");
+      if (!docResolved && !isDirect && content.quoted.fileCreatedAt) {
+        const resolved = await resolveQuotedFile(
+          dingtalkConfig,
+          {
+            openConversationId: data.conversationId,
+            senderStaffId: data.senderStaffId,
+            fileCreatedAt: content.quoted.fileCreatedAt,
+          },
+          log,
+        );
+        if (resolved) {
+          mediaPath = resolved.media.path;
+          mediaType = resolved.media.mimeType;
+          attachmentContextMsgId = content.quoted.msgId || data.msgId;
+          attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
+          attachmentContextMessageType = "interactiveCardFile";
+          attachmentContextFileName = resolved.name || content.quoted.previewFileName;
+          docResolved = true;
+          log?.debug?.(
+            `[DingTalk][QuotedRef] Recovered quoted doc card from group file fallback ` +
+              `scope=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
+          );
+          if (content.quoted.msgId) {
+            upsertInboundMessageContext({
+              storePath: accountStorePath,
+              accountId,
+              conversationId: data.conversationId,
+              msgId: content.quoted.msgId,
+              createdAt: content.quoted.fileCreatedAt || Date.now(),
+              messageType: "interactiveCardFile",
+              media: {
+                spaceId: resolved.spaceId,
+                fileId: resolved.fileId,
+              },
+              attachmentFileName: resolved.name,
+              ttlMs: DEFAULT_MEDIA_CONTEXT_TTL_MS,
+              topic: null,
+            });
+          }
+        }
+      }
+
+      if (!docResolved) {
+        log?.warn?.(
+          `[DingTalk] Quoted doc card unresolved: conversationType=${data.conversationType} conversationId=${data.conversationId} quotedMsgId=${content.quoted.msgId || "(none)"}`,
+        );
+        const hint = isDirect
+          ? "[引用了钉钉文档，内容无法自动获取，请直接发送该文档]\n\n"
+          : "[引用了钉钉文档，但无法获取内容]\n\n";
+        content.text = `${hint}${content.text}`;
+      }
+    }
+
+    let attachmentExtractedText: string | undefined;
+    if (mediaPath) {
+      try {
+        const extracted = await extractAttachmentText({
+          path: mediaPath,
+          mimeType: mediaType,
+          fileName: attachmentContextFileName || data.content?.fileName,
+        });
+        if (extracted?.text) {
+          upsertInboundMessageContext({
+            storePath: accountStorePath,
+            accountId,
+            conversationId: data.conversationId,
+            msgId: attachmentContextMsgId,
+            createdAt: attachmentContextCreatedAt,
+            messageType: attachmentContextMessageType,
+            attachmentText: extracted.text,
+            attachmentTextSource: extracted.sourceType,
+            attachmentTextTruncated: extracted.truncated,
+            attachmentFileName: attachmentContextFileName,
+            ttlMs: ttlDaysToMs(journalTTLDays),
+            topic: null,
+          });
+          attachmentExtractedText = `${ATTACHMENT_TEXT_PREFIX}\n${extracted.text}`;
+        }
+      } catch (err: any) {
+        log?.warn?.(`[DingTalk] Failed to extract attachment text: ${err.message}`);
+      }
+    }
+
+    const inboundBody = content.text;
+    const inboundText = attachmentExtractedText
+      ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
+      : inboundBody;
+    const learningEnabled = isLearningEnabled(dingtalkConfig);
+    const learningContextBlock = buildLearningContextBlock({
+      enabled: learningEnabled,
+      storePath: accountStorePath,
+      accountId,
+      targetId: data.conversationId,
+      content,
+    });
+    const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
+    const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
+      storePath,
+      sessionKey: route.sessionKey,
+    });
+
+    const groupConfig = !isDirect ? resolveGroupConfig(dingtalkConfig, groupId) : undefined;
+    // GroupSystemPrompt is injected every turn (not only first-turn intro).
+    const groupSystemPromptParts = !isDirect
+      ? [
+          buildGroupTurnContextPrompt({
+            conversationId: groupId,
+            senderDingtalkId: senderId,
+            senderName,
+          }),
+          groupConfig?.systemPrompt?.trim(),
+        ]
+      : [];
+    const extraSystemPrompt =
+      [...groupSystemPromptParts, learningContextBlock].filter(Boolean).join("\n\n") || undefined;
+
+    if (!isDirect) {
+      noteGroupMember(storePath, groupId, senderId, senderName);
+    }
+    const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
+
+    const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
+    const body = rt.channel.reply.formatInboundEnvelope({
+      channel: "DingTalk",
+      from: fromLabel,
+      timestamp: data.createAt,
+      body: inboundText,
+      chatType: isDirect ? "direct" : "group",
+      sender: { name: senderName, id: senderId },
+      previousTimestamp,
+      envelope: envelopeOptions,
+    });
+
+    const ctx = rt.channel.reply.finalizeInboundContext({
+      Body: body,
+      RawBody: inboundText,
+      CommandBody: inboundText,
+      QuotedRef: quotedRef,
+      QuotedRefJson: quotedRef ? JSON.stringify(quotedRef) : undefined,
+      ReplyToId: quotedRuntimeContext?.replyToId,
+      ReplyToBody: quotedRuntimeContext?.replyToBody,
+      ReplyToSender: quotedRuntimeContext?.replyToSender,
+      ReplyToIsQuote: quotedRuntimeContext?.replyToIsQuote,
+      UntrustedContext: quotedRuntimeContext?.untrustedContext
+        ? [quotedRuntimeContext.untrustedContext]
+        : undefined,
+      From: to,
+      To: to,
+      SessionKey: route.sessionKey,
+      AccountId: accountId,
+      ChatType: isDirect ? "direct" : "group",
+      ConversationLabel: fromLabel,
+      GroupSubject: isDirect ? undefined : groupName,
+      SenderName: senderName,
+      SenderId: senderId,
+      Provider: "dingtalk",
+      Surface: "dingtalk",
+      MessageSid: data.msgId,
+      Timestamp: data.createAt,
+      MediaPath: mediaPath,
+      MediaType: mediaType,
+      MediaUrl: mediaPath,
+      GroupMembers: groupMembers,
+      GroupSystemPrompt: extraSystemPrompt,
+      GroupChannel: isDirect ? undefined : route.sessionKey,
+      CommandAuthorized: commandAuthorized,
+      OriginatingChannel: "dingtalk",
+      OriginatingTo: to,
+    });
+
+    await rt.channel.session.recordInboundSession({
+      storePath,
+      sessionKey: ctx.SessionKey || route.sessionKey,
+      ctx,
+      updateLastRoute: (() => {
+        if (!isDirect) {
+          return undefined;
+        }
+        const pinnedMainDmOwner = resolvePinnedMainDmOwner({
+          dmScope: cfg.session?.dmScope,
+          allowFrom: dingtalkConfig.allowFrom,
+        });
+        const senderRecipient = (senderOriginalId || senderId || "").trim().toLowerCase();
+        if (
+          pinnedMainDmOwner &&
+          senderRecipient &&
+          pinnedMainDmOwner.trim().toLowerCase() !== senderRecipient
+        ) {
+          log?.debug?.(
+            `[DingTalk] Skipping main-session last route update for ${senderRecipient} (pinned owner ${pinnedMainDmOwner})`,
+          );
+          return undefined;
+        }
+        return { sessionKey: route.mainSessionKey, channel: "dingtalk", to, accountId };
+      })(),
+      onRecordError: (err: unknown) => {
+        log?.error?.(`[DingTalk] Failed to record inbound session: ${String(err)}`);
+      },
+    });
+
+    log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
+
+    // ---- Pre-lock abort: bypass session lock for stop requests ----
+    // isAbortRequestText matches "/stop", "停止", "stop", "esc", etc.
+    // Calling dispatchReplyWithBufferedBlockDispatcher without holding the lock lets
+    // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
+    // rather than waiting for it to finish before the stop message is processed.
+    //
+    // Strip leading @mention tokens before the abort check so that messages like
+    // "@Agent /stop" are correctly recognised as abort requests in both DM and group
+    // chats. In groups DingTalk usually strips @BotName at the protocol level, but
+    // in DMs with multi-agent routing the @mention prefix survives all the way here.
+    const textForAbortCheck = stripLeadingMentions(inboundText).trim();
+    if (isAbortRequestText(textForAbortCheck)) {
+      log?.info?.(
+        `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
+      );
+      // In card mode: capture the abort confirmation text so we can write it into
+      // the card (instead of sending a separate plain text message).
+      let abortConfirmationText: string | undefined;
+      try {
+        await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+          ctx,
+          cfg,
+          dispatcherOptions: {
+            responsePrefix: "",
+            deliver: async (payload) => {
+              if (!payload.text) {
+                log?.debug?.(`[DingTalk] Abort deliver received non-text payload, skipping`);
+                return;
+              }
+              if (currentAICard) {
+                // Card mode: capture text — will be written to card after dispatch.
+                abortConfirmationText = payload.text;
+              } else {
+                try {
+                  if (sessionWebhook) {
+                    await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                      log,
+                      accountId,
+                      storePath: accountStorePath,
+                    });
+                  } else {
+                    await sendMessage(dingtalkConfig, to, payload.text, {
+                      log,
+                      accountId,
+                      storePath: accountStorePath,
+                      conversationId: groupId,
+                    });
+                  }
+                } catch (deliverErr) {
+                  log?.warn?.(
+                    `[DingTalk] Abort reply delivery failed: ${getErrorMessage(deliverErr)}`,
+                  );
+                }
+              }
+            },
+          },
+        });
+      } catch (abortErr) {
+        log?.warn?.(`[DingTalk] Abort dispatch failed: ${getErrorMessage(abortErr)}`);
+      }
+      // Finalize the card that was created for this message before the abort check.
+      // Without this, the card stays in PROCESSING ("处理中...") indefinitely.
+      // Use V2 finalize (commitAICardBlocks) for consistent state transition.
+      if (currentAICard && !isCardInTerminalState(currentAICard.state)) {
+        try {
+          const abortText = abortConfirmationText ?? "已停止";
+          const abortBlockList = [{ type: 0, markdown: abortText }];
+          const blockListJson = JSON.stringify(abortBlockList);
+
+          await commitAICardBlocks(
+            currentAICard,
+            {
+              blockListJson,
+              content: abortText,
+            },
+            log,
+          );
+
+          log?.debug?.(
+            `[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`,
+          );
+        } catch (cardErr) {
+          log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
+          currentAICard.state = AICardStatus.FAILED;
+        }
+      }
       return;
     }
 
-    // ---- Create reply strategy (card or markdown) ----
-    const replyMode: ReplyMode = useCardMode && !!currentAICard ? "card" : "markdown";
-    const sessionReasoningLevel = readSessionReasoningLevel({
-      storePath,
-      sessionKey: route.sessionKey,
-      sessionUpdatedAt: previousTimestamp,
-      log,
-    });
-    const legacyCardStreamReasoning = resolveLegacyCardStreamReasoningForInternalUse({
-      cfg,
-      accountId,
-    });
-    const strategyConfig =
-      legacyCardStreamReasoning === undefined
-        ? dingtalkConfig
-        : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
-    const sessionTaskState = getSessionState(accountId, taskInfoConversationId);
-    const taskMeta = {
-      model: sessionTaskState?.model,
-      effort: sessionTaskState?.effort,
-      elapsedMs: typeof sessionTaskState?.taskStartTime === "number"
-        ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
-        : undefined,
-      agent: getAgentDisplayName({
-        subAgentOptions,
-        agentId: route.agentId,
-        agentsList: cfg.agents?.list,
-      }),
-    };
-
-    const strategy = createReplyStrategy({
-      config: strategyConfig,
-      card: currentAICard,
-      useCardMode: replyMode === "card",
-      to,
-      sessionWebhook,
-      senderId,
-      isDirect,
-      accountId,
-      storePath: accountStorePath,
-      sessionKey: route.sessionKey,
-      sessionAgentId: route.agentId,
-      disableBlockStreaming: shouldDisableBlockStreamingForReplyMode({
-        replyMode,
-        sessionKey: route.sessionKey,
-        reasoningLevel: sessionReasoningLevel,
-        log,
-      }),
-      groupId,
-      log,
-      replyQuotedRef,
-      deliverMedia: deliverMediaAttachments,
-      isStopRequested: isCurrentCardStopRequested,
-      inboundText: rawInboundText,
-      taskMeta,
-    });
-
-    try {
-      let deliveredFinalCount = 0;
-      const dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx,
-        cfg,
-        dispatcherOptions: {
-          responsePrefix: subAgentOptions?.responsePrefix || "",
-          deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
-            if (isCurrentCardStopRequested()) {
-              log?.debug?.("[DingTalk][CardStop] Ignoring reply delivery because stop was already requested");
-              return;
-          }
-            try {
-              if (info?.kind === "final") {
-                deliveredFinalCount += 1;
-              }
-              const inlineReplyPayload = parseInlineReplyPayloadText(payload.text);
-              const mediaUrls = extractMediaUrls(payload, inlineReplyPayload);
-              const richPayload = payload as ReplyStreamPayload & { isReasoning?: boolean };
-              await strategy.deliver({
-                text: inlineReplyPayload.text,
-                mediaUrls,
-                audioAsVoice: extractSharedAudioAsVoice(payload, inlineReplyPayload),
-                kind: (info?.kind as DeliverPayload["kind"]) || "block",
-                isReasoning: richPayload.isReasoning === true,
-              });
-            } catch (err: unknown) {
-              log?.error?.(`[DingTalk] Reply failed: ${getErrorMessage(err)}`);
-              const responseData = getErrorResponseData(err);
-              if (responseData !== undefined) {
-                log?.error?.(formatDingTalkErrorPayloadLog("inbound.replyDeliver", responseData));
-              }
-              throw err;
-            }
-          },
-        },
-        replyOptions: strategy.getReplyOptions(),
-      });
-
-      const bufferedFinal =
-        dispatchResult && typeof dispatchResult === "object" && "queuedFinal" in dispatchResult
-          ? (dispatchResult as { queuedFinal?: unknown }).queuedFinal
-          : undefined;
-      const finalCount =
-        dispatchResult && typeof dispatchResult === "object" && "counts" in dispatchResult
-          ? (dispatchResult as { counts?: { final?: unknown } }).counts?.final
-          : undefined;
-
+    // ---- Pre-lock BTW: bypass session lock for /btw side questions ----
+    // /btw runs an isolated, tool-less side query in openclaw without polluting
+    // the main run's transcript. The dispatch must NOT acquire the session lock,
+    // otherwise it would queue behind the in-flight main task and lose its "side
+    // question" semantics.
+    //
+    // The `isBtwBypass` flag is computed once early (just after `content` is
+    // resolved, just before `createAICard`). The same constant gates `createAICard` above and
+    // drives this branch — single decision, two consequences. See the comment
+    // at the flag's definition for why /btw uses pre-OCR `content.text` while
+    // abort uses `inboundText`.
+    if (isBtwBypass) {
       log?.info?.(
-        `[DingTalk][Dispatch] completed — deliveredFinalCount=${deliveredFinalCount} ` +
-        `counts.final=${typeof finalCount === "number" ? finalCount : "n/a"} ` +
-        `queuedFinalType=${typeof bufferedFinal}`,
+        `[DingTalk] BTW request detected, bypassing session lock for session=${route.sessionKey}`,
       );
+      // Empty fallback (NOT "Unknown" like the file's main `senderName` variable):
+      // when the nickname is missing we want the blockquote to render as
+      // `> /btw <question>` rather than `> Unknown: /btw <question>`. Read locally
+      // here so the existing `senderName` semantics elsewhere in the file are not
+      // affected.
+      const btwSenderName = data.senderNick || "";
+      try {
+        await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+          ctx,
+          cfg,
+          dispatcherOptions: {
+            responsePrefix: "",
+            deliver: async (payload) => {
+              if (!payload.text) {
+                log?.debug?.(`[DingTalk] BTW deliver received non-text payload, skipping`);
+                return;
+              }
+              await deliverBtwReply({
+                config: dingtalkConfig,
+                sessionWebhook,
+                conversationId: groupId,
+                to,
+                senderName: btwSenderName,
+                // Use pre-OCR content.text (consistent with isBtwBypass detection)
+                // so the blockquote shows the user's typed body, not body + OCR.
+                rawQuestion: content.text,
+                replyText: payload.text,
+                log,
+                accountId,
+                storePath: accountStorePath,
+              });
+            },
+          },
+        });
+      } catch (btwErr) {
+        log?.warn?.(`[DingTalk] BTW dispatch failed: ${getErrorMessage(btwErr)}`);
+      }
+      return;
+    }
 
-      const bufferedFinalPayload =
-        typeof bufferedFinal === "string"
-          ? ({ text: bufferedFinal } satisfies ReplyStreamPayload)
-          : bufferedFinal && typeof bufferedFinal === "object"
-            ? (bufferedFinal as ReplyStreamPayload)
-            : undefined;
-
-      if (deliveredFinalCount === 0 && bufferedFinalPayload) {
-        const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinalPayload.text);
-        const mediaUrls = extractMediaUrls(bufferedFinalPayload, inlineReplyPayload);
-        const hasBufferedText = typeof bufferedFinalPayload.text === "string" && bufferedFinalPayload.text.trim().length > 0;
-        if (hasBufferedText || mediaUrls.length > 0) {
-          await strategy.deliver({
-            text: inlineReplyPayload.text,
-            mediaUrls,
-            audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
-            kind: "final",
-            isReasoning: bufferedFinalPayload.isReasoning === true,
+    const ackReaction =
+      typeof dingtalkConfig.ackReaction === "string"
+        ? dingtalkConfig.ackReaction.trim()
+        : resolveAckReactionSetting({
+            cfg,
+            accountId,
+            agentId: route.agentId,
           });
+    const normalizedAckReaction = ackReaction === "off" ? "" : ackReaction;
+    const resolvedAckReaction =
+      normalizedAckReaction === "kaomoji"
+        ? classifyAckReactionEmoji(content.text).emoji
+        : normalizedAckReaction === "emoji"
+          ? "🤔思考中"
+          : normalizedAckReaction;
+    const shouldAttachAckReaction = Boolean(resolvedAckReaction);
+    let ackReactionAttached = false;
+    let ackReactionAttachedAt = 0;
+
+    if (shouldAttachAckReaction) {
+      ackReactionAttached = await attachNativeAckReaction(
+        dingtalkConfig,
+        {
+          msgId: data.msgId,
+          conversationId: groupId,
+          reactionName: resolvedAckReaction,
+        },
+        log,
+      );
+      if (ackReactionAttached) {
+        ackReactionAttachedAt = Date.now();
+        log?.debug?.(
+          `[DingTalk] Initial ack reaction attached mode=${normalizedAckReaction || "off"} reaction=${resolvedAckReaction}`,
+        );
+      }
+    }
+
+    function parseInlineReplyPayloadText(text: unknown): {
+      text?: string;
+      mediaUrls: string[];
+      audioAsVoice: boolean;
+    } {
+      if (typeof text !== "string") {
+        return { text: undefined, mediaUrls: [], audioAsVoice: false };
+      }
+
+      const normalizedText = text.replace(/\r\n/g, "\n");
+      const parsedInline = normalizedText.includes("[[")
+        ? parseInlineDirectives(normalizedText, {
+            stripAudioTag: true,
+            stripReplyTags: false,
+          })
+        : {
+            text: normalizedText,
+            audioAsVoice: false,
+            replyToCurrent: false,
+            hasAudioTag: false,
+            hasReplyTag: false,
+          };
+      const mediaUrls: string[] = [];
+      const contentLines: string[] = [];
+
+      for (const line of parsedInline.text.split("\n")) {
+        const trimmed = line.trim();
+        const mediaCandidate = trimmed.replace(/^(?:\[\[[^[\]]+\]\]\s*)+/, "");
+        if (mediaCandidate.startsWith(MEDIA_DIRECTIVE_PREFIX)) {
+          const mediaSource = mediaCandidate.slice(MEDIA_DIRECTIVE_PREFIX.length).trim();
+          if (mediaSource) {
+            mediaUrls.push(mediaSource);
+            continue;
+          }
+        }
+        contentLines.push(line);
+      }
+
+      const cleanedText = contentLines.join("\n").trim();
+      const inlineTextWasTransformed = parsedInline.text !== normalizedText;
+      if (mediaUrls.length === 0) {
+        const standaloneMediaSource = extractStandaloneMediaSource(cleanedText);
+        if (standaloneMediaSource) {
+          return {
+            text: undefined,
+            mediaUrls: [standaloneMediaSource],
+            audioAsVoice: parsedInline.audioAsVoice,
+          };
         }
       }
-    } catch (dispatchErr: unknown) {
-      const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
-      await strategy.abort(error);
-      throw dispatchErr;
+
+      return {
+        // Keep ordinary text formatting stable except for newline normalization.
+        // Once inline parsing actually strips directives/media lines, return the
+        // cleaned body text instead of the original raw payload.
+        text:
+          mediaUrls.length > 0 || inlineTextWasTransformed
+            ? cleanedText || undefined
+            : normalizedText,
+        mediaUrls,
+        audioAsVoice: parsedInline.audioAsVoice,
+      };
     }
 
-    await strategy.finalize();
-  } finally {
-    // Only remove the registry entry if no stop was requested. When a stop is
-    // in progress, card-stop-handler may still be running async operations
-    // (finalize card, hide button, gateway abort) that read the record.
-    // In that case, let the 30-minute TTL sweep handle cleanup.
-    if (currentOutTrackId && !isCardRunStopRequested(currentOutTrackId)) {
-      removeCardRun(currentOutTrackId);
+    function extractStandaloneMediaSource(text: string): string | undefined {
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.includes("\n") || /\s/.test(trimmed)) {
+        return undefined;
+      }
+
+      const hasPathLikeShape =
+        /^https?:\/\/\S+$/i.test(trimmed) ||
+        trimmed.startsWith("~/") ||
+        trimmed.startsWith("~\\") ||
+        trimmed.startsWith("./") ||
+        trimmed.startsWith(".\\") ||
+        trimmed.startsWith("../") ||
+        trimmed.startsWith("..\\") ||
+        trimmed.startsWith("/") ||
+        trimmed.startsWith("\\") ||
+        /^[a-zA-Z]:[\\/]/.test(trimmed) ||
+        trimmed.includes("/") ||
+        trimmed.includes("\\");
+      if (!hasPathLikeShape) {
+        return undefined;
+      }
+
+      return STANDALONE_MEDIA_PATH_EXTENSIONS.has(path.extname(trimmed).toLowerCase())
+        ? trimmed
+        : undefined;
     }
-    await waitForDynamicAckDispose({
-      dispose: () => dynamicAckReactionController.dispose(MIN_THINKING_REACTION_VISIBLE_MS),
-      log,
+
+    // ---- Shared media delivery helper ----
+    function extractSharedAudioAsVoice(
+      payload: ReplyStreamPayload,
+      inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
+    ): boolean {
+      // Normalize all reply-time voice hints into the shared `audioAsVoice`
+      // semantic that strategies and media delivery use downstream.
+      const richPayload = payload as ReplyStreamPayload & {
+        audioAsVoice?: unknown;
+        asVoice?: unknown;
+      };
+      const sharedValue = parseBooleanLike(richPayload.audioAsVoice);
+      if (sharedValue !== undefined) {
+        return sharedValue;
+      }
+      if (parseBooleanLike(richPayload.asVoice) === true) {
+        return true;
+      }
+      return inlineReplyPayload?.audioAsVoice === true;
+    }
+
+    async function deliverMediaAttachments(urls: string[], options?: { audioAsVoice?: boolean }) {
+      for (const rawMediaUrl of urls) {
+        const preparedMedia = await prepareMediaInput(
+          rawMediaUrl,
+          log,
+          dingtalkConfig.mediaUrlAllowlist,
+        );
+        try {
+          const actualMediaPath = preparedMedia.cleanup
+            ? preparedMedia.path
+            : resolveRelativePath(preparedMedia.path);
+          const outMediaType = resolveOutboundMediaType({
+            mediaPath: actualMediaPath,
+            asVoice: options?.audioAsVoice === true,
+          });
+          if (sessionWebhook) {
+            const sendResult = await sendMessage(dingtalkConfig, to, "", {
+              sessionWebhook,
+              mediaPath: actualMediaPath,
+              mediaType: outMediaType,
+              log,
+              accountId,
+              storePath: accountStorePath,
+              conversationId: groupId,
+              quotedRef: replyQuotedRef,
+            });
+            if (!sendResult.ok) {
+              throw new Error(sendResult.error || "Media reply send failed");
+            }
+          } else {
+            const sendResult = await sendProactiveMedia(
+              dingtalkConfig,
+              to,
+              actualMediaPath,
+              outMediaType,
+              {
+                accountId,
+                log,
+                storePath: accountStorePath,
+                conversationId: groupId,
+                quotedRef: replyQuotedRef,
+              },
+            );
+            if (!sendResult.ok) {
+              throw new Error(sendResult.error || "Media reply send failed");
+            }
+          }
+        } finally {
+          await preparedMedia.cleanup?.();
+        }
+      }
+    }
+
+    // ---- Extract mediaUrls from runtime payload ----
+    function extractMediaUrls(
+      payload: ReplyStreamPayload,
+      inlineReplyPayload?: ReturnType<typeof parseInlineReplyPayloadText>,
+    ): string[] {
+      const richPayload = payload as typeof payload & {
+        mediaUrl?: string;
+        mediaUrls?: string[];
+      };
+      const explicitMediaUrls = Array.isArray(richPayload.mediaUrls)
+        ? richPayload.mediaUrls.filter(
+            (entry: unknown) => typeof entry === "string" && entry.trim(),
+          )
+        : richPayload.mediaUrl &&
+            typeof richPayload.mediaUrl === "string" &&
+            richPayload.mediaUrl.trim()
+          ? [richPayload.mediaUrl]
+          : [];
+      return explicitMediaUrls.length > 0
+        ? explicitMediaUrls
+        : (inlineReplyPayload?.mediaUrls ?? []);
+    }
+
+    // Serialize dispatchReply + card finalize per session to prevent the runtime
+    // from receiving concurrent dispatch calls on the same session key, which
+    // causes empty replies for all but the first caller.
+    // Each sub-agent call acquires its own lock since sub-agent sessions have
+    // different session keys (different agentId), so no deadlock risk.
+    const currentOutTrackId = currentAICard?.outTrackId;
+    const shouldTrackDynamicAckReaction =
+      (normalizedAckReaction === "emoji" || normalizedAckReaction === "kaomoji") &&
+      shouldAttachAckReaction;
+    const runtimeEvents = (
+      rt as typeof rt & {
+        events?: {
+          onAgentEvent?: (listener: (event: unknown) => void) => () => void;
+        };
+      }
+    ).events;
+    const releaseSessionLock = await acquireSessionLock(route.sessionKey);
+    const dynamicAckReactionController = createDynamicAckReactionController({
+      enabled: shouldTrackDynamicAckReaction,
+      initialReaction: resolvedAckReaction || "",
+      initialAttached: ackReactionAttached,
+      initialAttachedAt: ackReactionAttachedAt,
+      dingtalkConfig,
+      msgId: data.msgId,
+      conversationId: groupId,
       sessionKey: route.sessionKey,
+      log,
+      runtimeEvents,
+      onReactionDisposed: () => {
+        ackReactionAttached = false;
+      },
     });
-    releaseSessionLock();
+    try {
+      if (!ackReactionAttached && shouldAttachAckReaction) {
+        log?.debug?.("[DingTalk] Native ack reaction unavailable; skipping fallback.");
+      }
+      const isCurrentCardStopRequested = () =>
+        Boolean(
+          currentAICard &&
+          (currentAICard.state === AICardStatus.STOPPED ||
+            (currentOutTrackId && isCardRunStopRequested(currentOutTrackId))),
+        );
+
+      if (isCurrentCardStopRequested()) {
+        log?.info?.(
+          "[DingTalk][CardStop] Skip dispatch because card was already stopped before session lock was acquired",
+        );
+        return;
+      }
+
+      // ---- Create reply strategy (card or markdown) ----
+      const replyMode: ReplyMode = useCardMode && !!currentAICard ? "card" : "markdown";
+      const sessionReasoningLevel = readSessionReasoningLevel({
+        storePath,
+        sessionKey: route.sessionKey,
+        sessionUpdatedAt: previousTimestamp,
+        log,
+      });
+      const legacyCardStreamReasoning = resolveLegacyCardStreamReasoningForInternalUse({
+        cfg,
+        accountId,
+      });
+      const strategyConfig =
+        legacyCardStreamReasoning === undefined
+          ? dingtalkConfig
+          : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
+      const sessionTaskState = getSessionState(accountId, taskInfoConversationId);
+      const taskMeta = {
+        model: sessionTaskState?.model,
+        effort: sessionTaskState?.effort,
+        elapsedMs:
+          typeof sessionTaskState?.taskStartTime === "number"
+            ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
+            : undefined,
+        agent: getAgentDisplayName({
+          subAgentOptions,
+          agentId: route.agentId,
+          agentsList: cfg.agents?.list,
+        }),
+      };
+
+      const strategy = createReplyStrategy({
+        config: strategyConfig,
+        card: currentAICard,
+        useCardMode: replyMode === "card",
+        to,
+        sessionWebhook,
+        senderId,
+        isDirect,
+        accountId,
+        storePath: accountStorePath,
+        sessionKey: route.sessionKey,
+        sessionAgentId: route.agentId,
+        disableBlockStreaming: shouldDisableBlockStreamingForReplyMode({
+          replyMode,
+          sessionKey: route.sessionKey,
+          reasoningLevel: sessionReasoningLevel,
+          log,
+        }),
+        groupId,
+        log,
+        replyQuotedRef,
+        deliverMedia: deliverMediaAttachments,
+        isStopRequested: isCurrentCardStopRequested,
+        inboundText: rawInboundText,
+        taskMeta,
+      });
+
+      try {
+        let deliveredFinalCount = 0;
+        const dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+          ctx,
+          cfg,
+          dispatcherOptions: {
+            responsePrefix: subAgentOptions?.responsePrefix || "",
+            deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
+              if (isCurrentCardStopRequested()) {
+                log?.debug?.(
+                  "[DingTalk][CardStop] Ignoring reply delivery because stop was already requested",
+                );
+                return;
+              }
+              try {
+                if (info?.kind === "final") {
+                  deliveredFinalCount += 1;
+                }
+                const inlineReplyPayload = parseInlineReplyPayloadText(payload.text);
+                const mediaUrls = extractMediaUrls(payload, inlineReplyPayload);
+                const richPayload = payload as ReplyStreamPayload & { isReasoning?: boolean };
+                await strategy.deliver({
+                  text: inlineReplyPayload.text,
+                  mediaUrls,
+                  audioAsVoice: extractSharedAudioAsVoice(payload, inlineReplyPayload),
+                  kind: (info?.kind as DeliverPayload["kind"]) || "block",
+                  isReasoning: richPayload.isReasoning === true,
+                });
+              } catch (err: unknown) {
+                log?.error?.(`[DingTalk] Reply failed: ${getErrorMessage(err)}`);
+                const responseData = getErrorResponseData(err);
+                if (responseData !== undefined) {
+                  log?.error?.(formatDingTalkErrorPayloadLog("inbound.replyDeliver", responseData));
+                }
+                throw err;
+              }
+            },
+          },
+          replyOptions: strategy.getReplyOptions(),
+        });
+
+        const bufferedFinal =
+          dispatchResult && typeof dispatchResult === "object" && "queuedFinal" in dispatchResult
+            ? (dispatchResult as { queuedFinal?: unknown }).queuedFinal
+            : undefined;
+        const finalCount =
+          dispatchResult && typeof dispatchResult === "object" && "counts" in dispatchResult
+            ? (dispatchResult as { counts?: { final?: unknown } }).counts?.final
+            : undefined;
+
+        log?.info?.(
+          `[DingTalk][Dispatch] completed — deliveredFinalCount=${deliveredFinalCount} ` +
+            `counts.final=${typeof finalCount === "number" ? finalCount : "n/a"} ` +
+            `queuedFinalType=${typeof bufferedFinal}`,
+        );
+
+        const bufferedFinalPayload =
+          typeof bufferedFinal === "string"
+            ? ({ text: bufferedFinal } satisfies ReplyStreamPayload)
+            : bufferedFinal && typeof bufferedFinal === "object"
+              ? (bufferedFinal as ReplyStreamPayload)
+              : undefined;
+
+        if (deliveredFinalCount === 0 && bufferedFinalPayload) {
+          const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinalPayload.text);
+          const mediaUrls = extractMediaUrls(bufferedFinalPayload, inlineReplyPayload);
+          const hasBufferedText =
+            typeof bufferedFinalPayload.text === "string" &&
+            bufferedFinalPayload.text.trim().length > 0;
+          if (hasBufferedText || mediaUrls.length > 0) {
+            await strategy.deliver({
+              text: inlineReplyPayload.text,
+              mediaUrls,
+              audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
+              kind: "final",
+              isReasoning: bufferedFinalPayload.isReasoning === true,
+            });
+          }
+        }
+      } catch (dispatchErr: unknown) {
+        const error =
+          dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
+        await strategy.abort(error);
+        throw dispatchErr;
+      }
+
+      await strategy.finalize();
+    } finally {
+      // Only remove the registry entry if no stop was requested. When a stop is
+      // in progress, card-stop-handler may still be running async operations
+      // (finalize card, hide button, gateway abort) that read the record.
+      // In that case, let the 30-minute TTL sweep handle cleanup.
+      if (currentOutTrackId && !isCardRunStopRequested(currentOutTrackId)) {
+        removeCardRun(currentOutTrackId);
+      }
+      await waitForDynamicAckDispose({
+        dispose: () => dynamicAckReactionController.dispose(MIN_THINKING_REACTION_VISIBLE_MS),
+        log,
+        sessionKey: route.sessionKey,
+      });
+      releaseSessionLock();
+    }
+  } finally {
+    if (cardFlightKey) {
+      cardCreationInFlight.delete(cardFlightKey);
+    }
   }
 }
