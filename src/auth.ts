@@ -1,3 +1,4 @@
+import { resolveRuntimeConfig } from "./config";
 import axios from "./http-client";
 import type { DingTalkConfig, Logger, TokenInfo } from "./types";
 import { retryWithBackoff } from "./utils";
@@ -23,13 +24,15 @@ export async function getAccessToken(config: DingTalkConfig, log?: Logger): Prom
     return cached.accessToken;
   }
 
+  const runtimeConfig = await resolveRuntimeConfig(config, log);
+
   const token = await retryWithBackoff(
     async () => {
       const response = await axios.post<TokenInfo>(
         "https://api.dingtalk.com/v1.0/oauth2/accessToken",
         {
-          appKey: config.clientId,
-          appSecret: config.clientSecret,
+          appKey: runtimeConfig.clientId,
+          appSecret: runtimeConfig.clientSecret,
         },
       );
 

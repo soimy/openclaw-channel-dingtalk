@@ -12,12 +12,17 @@ import {
   openUrlInBrowser,
   RegistrationError,
 } from "./device-registration.js";
+import {
+  hasConfiguredSecretInput,
+  normalizeSecretInputString,
+  parseSecretInputString,
+} from "./secret-input.js";
 import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 
 const channel = "dingtalk" as const;
 
 function isConfigured(account: DingTalkConfig): boolean {
-  return Boolean(account.clientId && account.clientSecret);
+  return Boolean(account.clientId && hasConfiguredSecretInput(account.clientSecret));
 }
 
 function applyAccountNameToChannelSection(params: {
@@ -354,7 +359,9 @@ function applyGenericSetupInput(params: {
       name: params.input.name,
       clientId: typeof params.input.token === "string" ? params.input.token.trim() : undefined,
       clientSecret:
-        typeof params.input.password === "string" ? params.input.password.trim() : undefined,
+        typeof params.input.password === "string"
+          ? parseSecretInputString(params.input.password)
+          : undefined,
     },
   });
 }
@@ -368,7 +375,9 @@ async function configureDingTalkAccount(params: {
   const resolved = resolveDingTalkAccount(cfg, accountId);
 
   // ── Credential acquisition: auto-register or manual ────────────────────
-  const hasExistingCredentials = Boolean(resolved.clientId && resolved.clientSecret);
+  const hasExistingCredentials = Boolean(
+    resolved.clientId && hasConfiguredSecretInput(resolved.clientSecret),
+  );
   const credentialMethod = await prompter.select({
     message: "How do you want to get DingTalk bot credentials?",
     options: [
@@ -441,7 +450,7 @@ async function configureDingTalkAccount(params: {
         await prompter.text({
           message: "Client Secret (AppSecret)",
           placeholder: "xxx-xxx-xxx-xxx",
-          initialValue: resolved.clientSecret ?? undefined,
+          initialValue: normalizeSecretInputString(resolved.clientSecret),
           validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
         }),
       ).trim();
@@ -461,7 +470,7 @@ async function configureDingTalkAccount(params: {
       await prompter.text({
         message: "Client Secret (AppSecret)",
         placeholder: "xxx-xxx-xxx-xxx",
-        initialValue: resolved.clientSecret ?? undefined,
+        initialValue: normalizeSecretInputString(resolved.clientSecret),
         validate: (value: string) => (String(value ?? "").trim() ? undefined : "Required"),
       }),
     ).trim();
@@ -523,7 +532,7 @@ async function configureDingTalkAccount(params: {
     accountId,
     input: {
       clientId: String(clientId).trim(),
-      clientSecret: String(clientSecret).trim(),
+      clientSecret: parseSecretInputString(clientSecret),
       dmPolicy: dmPolicyValue,
       groupPolicy: groupPolicyValue,
       messageType,
