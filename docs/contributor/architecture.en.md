@@ -122,11 +122,15 @@ Responsible for:
 - AI card create/stream/finalize flow
 - Pending card recovery and caches
 - Card-specific fallback behavior
+- v2 block rendering, draft throttling, run usage recording
 
 Examples:
 
 - `src/card-service.ts`
 - `src/card-callback-service.ts`
+- `src/card-draft-controller.ts`
+- `src/draft-stream-loop.ts`
+- `src/run-usage-store.ts`
 
 ### Command
 
@@ -152,6 +156,7 @@ Responsible for:
 - Runtime getters/setters
 - Shared logger context
 - Common type definitions
+- Setup wizard and device auto-registration
 
 Examples:
 
@@ -161,6 +166,8 @@ Examples:
 - `src/runtime.ts`
 - `src/logger-context.ts`
 - `src/types.ts`
+- `src/device-registration.ts`
+- `src/onboarding.ts`
 
 ## Planned Directory Layout
 
@@ -194,6 +201,9 @@ src/
   card/
     card-service.ts
     card-callback-service.ts
+    card-draft-controller.ts
+    draft-stream-loop.ts
+    run-usage-store.ts
 
   command/
     learning-command-service.ts
@@ -207,6 +217,8 @@ src/
     runtime.ts
     logger-context.ts
     types.ts
+    device-registration.ts
+    onboarding.ts
 
   shared/
     persistence-store.ts

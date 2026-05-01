@@ -30,7 +30,32 @@ AI 卡片生命周期：
 ## 卡片附加信息
 
 - **quoteContent**：群聊或引用场景下，在卡片头部展示入站消息原文，方便定位上下文
-- **taskInfo**：卡片底部状态栏，可展示 model、effort、taskTime、tokens、dapiUsage、agent 信息（通过 `cardStatusLine` 配置子项开关）
+- **taskInfo**：卡片底部状态栏，通过 `cardStatusLine` 按需开关以下子项：
+
+  | 子项 | 说明 |
+  | --- | --- |
+  | `model` | 当前使用的模型名称 |
+  | `effort` | effort 参数（如适用） |
+  | `taskTime` | 任务耗时 |
+  | `tokens` | Token 用量统计 |
+  | `dapiUsage` | DingTalk API 调用次数 |
+  | `agent` | 当前 agent 名称（多 Agent 场景） |
+
+  配置示例：
+
+  ```json5
+  {
+    "channels": {
+      "dingtalk": {
+        "cardStatusLine": {
+          "model": true,
+          "taskTime": true,
+          "tokens": false
+        }
+      }
+    }
+  }
+  ```
 - **cardAtSender**：群聊中卡片完成后追加 @发送者 的文本消息（`channels.dingtalk.cardAtSender` 配置）
 
 ## 卡片流式模式
