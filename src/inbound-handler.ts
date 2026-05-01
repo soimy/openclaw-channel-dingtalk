@@ -1,30 +1,24 @@
 import fs from "node:fs";
 import * as path from "node:path";
 import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
-import axios from "./http-client";
+import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
-import { buildAgentSessionKey, resolveSubAgentRoute, dispatchSubAgents } from "./targeting/agent-routing";
-import { getAgentDisplayName } from "./targeting/agent-name-matcher";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
-import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { getAccessToken } from "./auth";
 import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
+import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
 import { renderStatusLine } from "./card/statusline-renderer";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
-import { resolveAckReactionSetting, resolveGroupConfig, resolveRelativePath, resolveRobotCode } from "./config";
-import { AICardStatus } from "./types";
 import {
-  isCardRunStopRequested,
-  registerCardRun,
-  removeCardRun,
-} from "./card/card-run-registry";
-import {
-  buildLearningContextBlock,
-  isLearningEnabled,
-} from "./feedback-learning-service";
-import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
+  resolveAckReactionSetting,
+  resolveGroupConfig,
+  resolveRelativePath,
+  resolveRobotCode,
+} from "./config";
+import { buildLearningContextBlock, isLearningEnabled } from "./feedback-learning-service";
+import axios from "./http-client";
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {
@@ -33,8 +27,14 @@ import {
   upsertInboundMessageContext,
 } from "./message-context-store";
 import { extractMessageContent } from "./message-utils";
+import { extractAttachmentText } from "./messaging/attachment-text-extractor";
 import { deliverBtwReply, stripLeadingMentions } from "./messaging/btw-deliver";
 import { resolveQuotedRuntimeContext } from "./messaging/quoted-context";
+import {
+  downloadGroupFile,
+  getUnionIdByStaffId,
+  resolveQuotedFile,
+} from "./messaging/quoted-file-service";
 import {
   buildInboundQuotedRef,
   createReplyQuotedRef,
@@ -45,7 +45,6 @@ import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
-import { downloadGroupFile, getUnionIdByStaffId, resolveQuotedFile } from "./messaging/quoted-file-service";
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
@@ -58,13 +57,26 @@ import {
 } from "./session-peer-store";
 import { resolveDingTalkSessionPeer } from "./session-routing";
 import { getSessionState, initSessionState } from "./session-state";
+import { getAgentDisplayName } from "./targeting/agent-name-matcher";
+import {
+  buildAgentSessionKey,
+  resolveSubAgentRoute,
+  dispatchSubAgents,
+} from "./targeting/agent-routing";
+import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
 import {
   upsertObservedGroupTarget,
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
+import { AICardStatus } from "./types";
 import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
-import { formatDingTalkErrorPayloadLog, getErrorMessage, getErrorResponseData, maskSensitiveData, parseBooleanLike } from "./utils";
-import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
+import {
+  formatDingTalkErrorPayloadLog,
+  getErrorMessage,
+  getErrorResponseData,
+  maskSensitiveData,
+  parseBooleanLike,
+} from "./utils";
 
 const DEFAULT_PROACTIVE_HINT_COOLDOWN_HOURS = 24;
 const MIN_THINKING_REACTION_VISIBLE_MS = 1200;
@@ -95,10 +107,13 @@ const STANDALONE_MEDIA_PATH_EXTENSIONS = new Set([
   ".rar",
 ]);
 const proactiveHintLastSentAt = new Map<string, number>();
-const sessionReasoningLevelCache = new Map<string, {
-  updatedAt?: number;
-  reasoningLevel?: string;
-}>();
+const sessionReasoningLevelCache = new Map<
+  string,
+  {
+    updatedAt?: number;
+    reasoningLevel?: string;
+  }
+>();
 type ReplyMode = "card" | "markdown";
 
 function resolveQuotedContextAllowFrom(
@@ -133,7 +148,15 @@ function filterQuotedRuntimeContext(params: {
   currentSenderId: string;
   currentSenderOriginalId: string;
 }): ReturnType<typeof resolveQuotedRuntimeContext> {
-  const { context, config, isDirect, groupId, quotedSenderId, currentSenderId, currentSenderOriginalId } = params;
+  const {
+    context,
+    config,
+    isDirect,
+    groupId,
+    quotedSenderId,
+    currentSenderId,
+    currentSenderOriginalId,
+  } = params;
   if (!context || isDirect) {
     return context;
   }
@@ -150,9 +173,7 @@ function filterQuotedRuntimeContext(params: {
     currentSenderOriginalId,
   });
   const senderAllowed =
-    allow.hasEntries && !!senderId
-      ? isSenderAllowed({ allow, senderId })
-      : false;
+    allow.hasEntries && !!senderId ? isSenderAllowed({ allow, senderId }) : false;
 
   if (senderAllowed) {
     return context;
@@ -178,9 +199,9 @@ function readSessionReasoningLevel(params: {
   const cacheKey = `${params.storePath}:${params.sessionKey}`;
   const cached = sessionReasoningLevelCache.get(cacheKey);
   if (
-    cached
-    && params.sessionUpdatedAt !== undefined
-    && cached.updatedAt === params.sessionUpdatedAt
+    cached &&
+    params.sessionUpdatedAt !== undefined &&
+    cached.updatedAt === params.sessionUpdatedAt
   ) {
     return cached.reasoningLevel;
   }
@@ -520,7 +541,16 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig, subAgentOptions, preDownloadedMedia } = params;
+  const {
+    cfg,
+    accountId,
+    data,
+    sessionWebhook,
+    log,
+    dingtalkConfig,
+    subAgentOptions,
+    preDownloadedMedia,
+  } = params;
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -649,31 +679,32 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (groupAccess.legacyFallback) {
       log?.info?.(
         `[DingTalk] DEPRECATED: groupPolicy=allowlist is using "allowFrom" for group access control. ` +
-        `Please migrate to "groups" (group ID allowlist) or "groupAllowFrom" (sender allowlist).`,
+          `Please migrate to "groups" (group ID allowlist) or "groupAllowFrom" (sender allowlist).`,
       );
     }
 
     if (!groupAccess.allowed) {
       if (groupAccess.reason === "disabled") {
-        log?.debug?.(`[DingTalk] Group disabled: all group messages dropped (groupPolicy=disabled)`);
+        log?.debug?.(
+          `[DingTalk] Group disabled: all group messages dropped (groupPolicy=disabled)`,
+        );
         return;
       }
 
-      const denyMessage = groupAccess.reason === "sender_not_allowed"
-        ? `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到群聊允许列表中。`
-        : `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`;
+      const denyMessage =
+        groupAccess.reason === "sender_not_allowed"
+          ? `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到群聊允许列表中。`
+          : `⛔ 访问受限\n\n您的群聊ID：\`${groupId}\`\n\n请联系管理员将此ID添加到允许列表中。`;
 
       log?.debug?.(
         `[DingTalk] Group blocked: conversationId=${groupId} senderId=${senderId} reason=${groupAccess.reason}`,
       );
 
       try {
-        await sendBySession(
-          dingtalkConfig,
-          sessionWebhook,
-          denyMessage,
-          { log, atUserId: senderId },
-        );
+        await sendBySession(dingtalkConfig, sessionWebhook, denyMessage, {
+          log,
+          atUserId: senderId,
+        });
       } catch (err: any) {
         log?.debug?.(`[DingTalk] Failed to send group access denied message: ${err.message}`);
         if (err?.response?.data !== undefined) {
@@ -686,9 +717,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       return;
     }
 
-    log?.debug?.(
-      `[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId}`,
-    );
+    log?.debug?.(`[DingTalk] Group authorized: conversationId=${groupId} senderId=${senderId}`);
   }
 
   // Calculate account store path and session peer (for session alias feature)
@@ -826,15 +855,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
   const taskInfoConversationId = groupId || to;
   const sessionTaskState = initSessionState(accountId, taskInfoConversationId);
-  const initialStatusLine = renderStatusLine({
-    model: sessionTaskState.model,
-    effort: sessionTaskState.effort,
-    agent: getAgentDisplayName({
-      subAgentOptions,
-      agentId: route.agentId,
-      agentsList: cfg.agents?.list,
-    }),
-  }, dingtalkConfig) || undefined;
+  const initialStatusLine =
+    renderStatusLine(
+      {
+        model: sessionTaskState.model,
+        effort: sessionTaskState.effort,
+        agent: getAgentDisplayName({
+          subAgentOptions,
+          agentId: route.agentId,
+          agentsList: cfg.agents?.list,
+        }),
+      },
+      dingtalkConfig,
+    ) || undefined;
 
   // 3) Select response mode (card vs markdown).
   // Card creation runs BEFORE media download so the user sees immediate visual
@@ -940,6 +973,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   const robotCode = resolveRobotCode(dingtalkConfig);
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
+  const mediaPaths: string[] = [];
+  const mediaTypes: string[] = [];
   let attachmentContextMsgId = data.msgId;
   let attachmentContextCreatedAt = data.createAt;
   let attachmentContextMessageType = content.messageType;
@@ -949,17 +984,33 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (preDownloadedMedia?.mediaPath) {
     mediaPath = preDownloadedMedia.mediaPath;
     mediaType = preDownloadedMedia.mediaType;
-  } else if (content.mediaPath && robotCode) {
-    // Download media only if not pre-downloaded
-    const media = await downloadMedia(
-      dingtalkConfig,
-      content.mediaPath,
-      log,
-      attachmentContextFileName,
-    );
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
+    mediaPaths.push(mediaPath);
+    if (mediaType) {
+      mediaTypes.push(mediaType);
+    }
+  } else if (robotCode) {
+    // Download all media attachments (richText may carry multiple images).
+    const downloadCodes =
+      content.mediaPaths && content.mediaPaths.length > 0
+        ? content.mediaPaths
+        : content.mediaPath
+          ? [content.mediaPath]
+          : [];
+    for (const downloadCode of downloadCodes) {
+      const media = await downloadMedia(
+        dingtalkConfig,
+        downloadCode,
+        log,
+        attachmentContextFileName,
+      );
+      if (media) {
+        if (!mediaPath) {
+          mediaPath = media.path;
+          mediaType = media.mimeType;
+        }
+        mediaPaths.push(media.path);
+        mediaTypes.push(media.mimeType);
+      }
     }
   }
 
@@ -1043,8 +1094,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       quotedRef,
       firstRecord: quotedRecord,
       firstPreview:
-        content.quoted?.previewText ||
-        content.quoted?.previewMessageType
+        content.quoted?.previewText || content.quoted?.previewMessageType
           ? {
               text: content.quoted.previewText,
               messageType: content.quoted.previewMessageType,
@@ -1131,7 +1181,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       mediaType = media.mimeType;
       attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
       attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
-      attachmentContextMessageType = quotedRecord?.messageType || content.quoted.previewMessageType || "picture";
+      attachmentContextMessageType =
+        quotedRecord?.messageType || content.quoted.previewMessageType || "picture";
       attachmentContextFileName = content.quoted.previewFileName;
     } else {
       content.text = `[引用了一张图片，但下载失败]\n\n${content.text}`;
@@ -1175,9 +1226,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         mediaPath = cachedMedia.path;
         mediaType = cachedMedia.mimeType;
         attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-        attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+        attachmentContextCreatedAt =
+          quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
         attachmentContextMessageType = quotedRecord?.messageType || "file";
-        attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
+        attachmentContextFileName =
+          quotedRecord?.attachmentFileName || content.quoted.previewFileName;
         fileResolved = true;
       }
     }
@@ -1252,10 +1305,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
       attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
-      attachmentContextCreatedAt = quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
+      attachmentContextCreatedAt =
+        quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
       attachmentContextMessageType =
         quotedRecord?.messageType || content.quoted.previewMessageType || "interactiveCardFile";
-      attachmentContextFileName = quotedRecord?.attachmentFileName || content.quoted.previewFileName;
+      attachmentContextFileName =
+        quotedRecord?.attachmentFileName || content.quoted.previewFileName;
       docResolved = true;
     }
 
@@ -1421,6 +1476,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     MediaPath: mediaPath,
     MediaType: mediaType,
     MediaUrl: mediaPath,
+    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaUrls: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
     GroupMembers: groupMembers,
     GroupSystemPrompt: extraSystemPrompt,
     GroupChannel: isDirect ? undefined : route.sessionKey,
@@ -1443,9 +1501,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       });
       const senderRecipient = (senderOriginalId || senderId || "").trim().toLowerCase();
       if (
-        pinnedMainDmOwner
-        && senderRecipient
-        && pinnedMainDmOwner.trim().toLowerCase() !== senderRecipient
+        pinnedMainDmOwner &&
+        senderRecipient &&
+        pinnedMainDmOwner.trim().toLowerCase() !== senderRecipient
       ) {
         log?.debug?.(
           `[DingTalk] Skipping main-session last route update for ${senderRecipient} (pinned owner ${pinnedMainDmOwner})`,
@@ -1530,12 +1588,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         const abortBlockList = [{ type: 0, markdown: abortText }];
         const blockListJson = JSON.stringify(abortBlockList);
 
-        await commitAICardBlocks(currentAICard, {
-          blockListJson,
-          content: abortText,
-        }, log);
+        await commitAICardBlocks(
+          currentAICard,
+          {
+            blockListJson,
+            content: abortText,
+          },
+          log,
+        );
 
-        log?.debug?.(`[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`);
+        log?.debug?.(
+          `[DingTalk] Abort card finalized via V2 API: card=${currentAICard.cardInstanceId}`,
+        );
       } catch (cardErr) {
         log?.warn?.(`[DingTalk] Abort card finalize failed: ${getErrorMessage(cardErr)}`);
         currentAICard.state = AICardStatus.FAILED;
@@ -1691,7 +1755,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       // Keep ordinary text formatting stable except for newline normalization.
       // Once inline parsing actually strips directives/media lines, return the
       // cleaned body text instead of the original raw payload.
-      text: mediaUrls.length > 0 || inlineTextWasTransformed ? cleanedText || undefined : normalizedText,
+      text:
+        mediaUrls.length > 0 || inlineTextWasTransformed
+          ? cleanedText || undefined
+          : normalizedText,
       mediaUrls,
       audioAsVoice: parsedInline.audioAsVoice,
     };
@@ -1815,9 +1882,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           richPayload.mediaUrl.trim()
         ? [richPayload.mediaUrl]
         : [];
-    return explicitMediaUrls.length > 0
-      ? explicitMediaUrls
-      : inlineReplyPayload?.mediaUrls ?? [];
+    return explicitMediaUrls.length > 0 ? explicitMediaUrls : (inlineReplyPayload?.mediaUrls ?? []);
   }
 
   // Serialize dispatchReply + card finalize per session to prevent the runtime
@@ -1827,13 +1892,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // different session keys (different agentId), so no deadlock risk.
   const currentOutTrackId = currentAICard?.outTrackId;
   const shouldTrackDynamicAckReaction =
-    (normalizedAckReaction === "emoji" || normalizedAckReaction === "kaomoji")
-    && shouldAttachAckReaction;
-  const runtimeEvents = (rt as typeof rt & {
-    events?: {
-      onAgentEvent?: (listener: (event: unknown) => void) => (() => void);
-    };
-  }).events;
+    (normalizedAckReaction === "emoji" || normalizedAckReaction === "kaomoji") &&
+    shouldAttachAckReaction;
+  const runtimeEvents = (
+    rt as typeof rt & {
+      events?: {
+        onAgentEvent?: (listener: (event: unknown) => void) => () => void;
+      };
+    }
+  ).events;
   const releaseSessionLock = await acquireSessionLock(route.sessionKey);
   const dynamicAckReactionController = createDynamicAckReactionController({
     enabled: shouldTrackDynamicAckReaction,
@@ -1856,15 +1923,15 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
     const isCurrentCardStopRequested = () =>
       Boolean(
-        currentAICard
-        && (
-          currentAICard.state === AICardStatus.STOPPED
-          || (currentOutTrackId && isCardRunStopRequested(currentOutTrackId))
-        ),
+        currentAICard &&
+        (currentAICard.state === AICardStatus.STOPPED ||
+          (currentOutTrackId && isCardRunStopRequested(currentOutTrackId))),
       );
 
     if (isCurrentCardStopRequested()) {
-      log?.info?.("[DingTalk][CardStop] Skip dispatch because card was already stopped before session lock was acquired");
+      log?.info?.(
+        "[DingTalk][CardStop] Skip dispatch because card was already stopped before session lock was acquired",
+      );
       return;
     }
 
@@ -1888,9 +1955,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const taskMeta = {
       model: sessionTaskState?.model,
       effort: sessionTaskState?.effort,
-      elapsedMs: typeof sessionTaskState?.taskStartTime === "number"
-        ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
-        : undefined,
+      elapsedMs:
+        typeof sessionTaskState?.taskStartTime === "number"
+          ? Math.max(0, Date.now() - sessionTaskState.taskStartTime)
+          : undefined,
       agent: getAgentDisplayName({
         subAgentOptions,
         agentId: route.agentId,
@@ -1934,9 +2002,11 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           responsePrefix: subAgentOptions?.responsePrefix || "",
           deliver: async (payload: ReplyStreamPayload, info?: ReplyChunkInfo) => {
             if (isCurrentCardStopRequested()) {
-              log?.debug?.("[DingTalk][CardStop] Ignoring reply delivery because stop was already requested");
+              log?.debug?.(
+                "[DingTalk][CardStop] Ignoring reply delivery because stop was already requested",
+              );
               return;
-          }
+            }
             try {
               if (info?.kind === "final") {
                 deliveredFinalCount += 1;
@@ -1975,8 +2045,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
       log?.info?.(
         `[DingTalk][Dispatch] completed — deliveredFinalCount=${deliveredFinalCount} ` +
-        `counts.final=${typeof finalCount === "number" ? finalCount : "n/a"} ` +
-        `queuedFinalType=${typeof bufferedFinal}`,
+          `counts.final=${typeof finalCount === "number" ? finalCount : "n/a"} ` +
+          `queuedFinalType=${typeof bufferedFinal}`,
       );
 
       const bufferedFinalPayload =
@@ -1989,7 +2059,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (deliveredFinalCount === 0 && bufferedFinalPayload) {
         const inlineReplyPayload = parseInlineReplyPayloadText(bufferedFinalPayload.text);
         const mediaUrls = extractMediaUrls(bufferedFinalPayload, inlineReplyPayload);
-        const hasBufferedText = typeof bufferedFinalPayload.text === "string" && bufferedFinalPayload.text.trim().length > 0;
+        const hasBufferedText =
+          typeof bufferedFinalPayload.text === "string" &&
+          bufferedFinalPayload.text.trim().length > 0;
         if (hasBufferedText || mediaUrls.length > 0) {
           await strategy.deliver({
             text: inlineReplyPayload.text,
@@ -2001,7 +2073,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         }
       }
     } catch (dispatchErr: unknown) {
-      const error = dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
+      const error =
+        dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
       await strategy.abort(error);
       throw dispatchErr;
     }
