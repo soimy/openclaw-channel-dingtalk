@@ -987,7 +987,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (preDownloadedMedia.mediaPaths?.length) {
       mediaPaths.push(...preDownloadedMedia.mediaPaths);
       for (let i = 0; i < preDownloadedMedia.mediaPaths.length; i++) {
-        mediaTypes.push(preDownloadedMedia.mediaTypes?.[i] || preDownloadedMedia.mediaType || "file");
+        mediaTypes.push(
+          preDownloadedMedia.mediaTypes?.[i] || preDownloadedMedia.mediaType || "file",
+        );
       }
     } else {
       mediaPaths.push(mediaPath);
@@ -1077,6 +1079,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (docMedia) {
           mediaPath = docMedia.path;
           mediaType = docMedia.mimeType;
+          mediaPaths.push(docMedia.path);
+          mediaTypes.push(docMedia.mimeType);
         }
       } catch (err: any) {
         log?.warn?.(`[DingTalk] Doc card download failed: ${err.message}`);
@@ -1212,6 +1216,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (media) {
         mediaPath = media.path;
         mediaType = media.mimeType;
+        mediaPaths.push(media.path);
+        mediaTypes.push(media.mimeType);
         attachmentContextMsgId = content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
         attachmentContextMessageType = content.quoted.previewMessageType || "file";
@@ -1232,6 +1238,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (cachedMedia) {
         mediaPath = cachedMedia.path;
         mediaType = cachedMedia.mimeType;
+        mediaPaths.push(cachedMedia.path);
+        mediaTypes.push(cachedMedia.mimeType);
         attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt =
           quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
@@ -1256,6 +1264,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
+        mediaPaths.push(resolved.media.path);
+        mediaTypes.push(resolved.media.mimeType);
         attachmentContextMsgId = content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
         attachmentContextMessageType = "file";
@@ -1311,6 +1321,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cachedDocMedia) {
       mediaPath = cachedDocMedia.path;
       mediaType = cachedDocMedia.mimeType;
+      mediaPaths.push(cachedDocMedia.path);
+      mediaTypes.push(cachedDocMedia.mimeType);
       attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
       attachmentContextCreatedAt =
         quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
@@ -1334,6 +1346,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (resolved) {
         mediaPath = resolved.media.path;
         mediaType = resolved.media.mimeType;
+        mediaPaths.push(resolved.media.path);
+        mediaTypes.push(resolved.media.mimeType);
         attachmentContextMsgId = content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
         attachmentContextMessageType = "interactiveCardFile";
