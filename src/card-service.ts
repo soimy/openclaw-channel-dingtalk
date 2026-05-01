@@ -647,7 +647,11 @@ export async function sendProactiveCardText(
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
-    await finishAICard(card, content, log);
+    const blockListJson = JSON.stringify([{ type: 0, markdown: content } satisfies CardBlock]);
+    await commitAICardBlocks(card, {
+      blockListJson,
+      content,
+    }, log);
     return {
       ok: true,
       processQueryKey: card.processQueryKey,

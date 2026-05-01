@@ -767,7 +767,7 @@ describe('card-service', () => {
         expect(mockedAxios.put).not.toHaveBeenCalled();
     });
 
-    it('sendProactiveCardText does not persist pending card state', async () => {
+    it('sendProactiveCardText finalizes proactive cards with V2 block variables without pending state', async () => {
         mockedAxios.post.mockResolvedValueOnce({
             status: 200,
             data: {
@@ -793,8 +793,18 @@ describe('card-service', () => {
             cardInstanceId: 'card_instance_1',
         });
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-        // 3 PUTs: kick to streaming + content isFinalize=true + hide stop button
-        expect(mockedAxios.put).toHaveBeenCalledTimes(3);
+        const instanceUpdates = mockedAxios.put.mock.calls.filter((call: any[]) =>
+            String(call[0]).endsWith('/v1.0/card/instances')
+        );
+        expect(instanceUpdates).toHaveLength(1);
+        const updateBody = instanceUpdates[0]?.[1];
+        expect(updateBody.outTrackId).toBe('track_card_1');
+        expect(updateBody.cardData?.cardParamMap.flowStatus).toBe('3');
+        expect(updateBody.cardData?.cardParamMap.content).toBe('proactive done');
+        expect(updateBody.cardData?.cardParamMap.copy_content).toBe('proactive done');
+        expect(JSON.parse(updateBody.cardData?.cardParamMap.blockList)).toEqual([
+            { type: 0, markdown: 'proactive done' },
+        ]);
         expect(fs.existsSync(stateFilePath)).toBe(false);
         expect(fs.existsSync(legacyStateFilePath)).toBe(false);
     });
