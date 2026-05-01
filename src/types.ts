@@ -683,6 +683,8 @@ export interface AICardInstance {
   outTrackId?: string;
   /** Cumulative DingTalk API call count for this card instance. */
   dapiUsage?: number;
+  /** True after this card has successfully opened DingTalk's streaming lifecycle. */
+  streamLifecycleOpened?: boolean;
 }
 
 /**

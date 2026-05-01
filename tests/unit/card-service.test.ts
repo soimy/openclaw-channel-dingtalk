@@ -90,14 +90,15 @@ describe('card-service', () => {
         );
 
         expect(card).toBeTruthy();
-        // Card is kicked into INPUTING (streaming) immediately after creation
-        expect(card?.state).toBe(AICardStatus.INPUTING);
+        expect(card?.state).toBe(AICardStatus.PROCESSING);
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+        expect(mockedAxios.put).not.toHaveBeenCalled();
         const body = mockedAxios.post.mock.calls[0]?.[1];
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
+            flowStatus: '2',
             hasAction: 'true',
             stop_action: 'true',
             quoteContent: '',
@@ -262,6 +263,7 @@ describe('card-service', () => {
         await streamAICard(card, 'stream text', false);
 
         expect(card.state).toBe(AICardStatus.INPUTING);
+        expect(card.streamLifecycleOpened).toBe(true);
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
     });
 
@@ -1049,5 +1051,38 @@ describe('token refresh', () => {
         // Token should NOT be refreshed
         expect(mockedGetAccessToken).not.toHaveBeenCalled();
         expect(card.accessToken).toBe('current_token');
+    });
+
+    it('finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
+        const card = {
+            cardInstanceId: 'card_stream_finalize',
+            outTrackId: 'track_stream_finalize',
+            accessToken: 'current_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+            streamLifecycleOpened: true,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'test' }]),
+            content: 'test content',
+        });
+
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        expect(mockedAxios.put.mock.calls[0][0]).toContain('/v1.0/card/streaming');
+        expect(mockedAxios.put.mock.calls[0][1]).toMatchObject({
+            outTrackId: 'track_stream_finalize',
+            key: 'content',
+            content: 'test content',
+            isFull: true,
+            isFinalize: true,
+            isError: false,
+        });
+        expect(mockedAxios.put.mock.calls[1][0]).toContain('/v1.0/card/instances');
     });
 });
