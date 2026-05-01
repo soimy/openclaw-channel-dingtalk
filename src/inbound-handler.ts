@@ -1021,8 +1021,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
   }
 
-  // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
-  if (content.mediaPath && data.msgId) {
+  // Cache downloadCode(s) (+ spaceId/fileId) for quoted file lookups (DM + group).
+  const allMediaDownloadCodes =
+    content.mediaPaths && content.mediaPaths.length > 0
+      ? content.mediaPaths
+      : content.mediaPath
+        ? [content.mediaPath]
+        : [];
+  if (allMediaDownloadCodes.length > 0 && data.msgId) {
     upsertInboundMessageContext({
       storePath: accountStorePath,
       accountId,
@@ -1031,7 +1037,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       createdAt: data.createAt,
       messageType: content.messageType,
       media: {
-        downloadCode: content.mediaPath,
+        downloadCode: allMediaDownloadCodes[0],
+        downloadCodes: allMediaDownloadCodes.length > 1 ? allMediaDownloadCodes : undefined,
         spaceId: data.content?.spaceId,
         fileId: data.content?.fileId,
       },
@@ -1168,6 +1175,38 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     }
     return media;
   };
+
+  // Quoted multi-image richText: recover all cached downloadCodes.
+  // Placed before the single-image/ file/ doc-card paths so that the
+  // !mediaPath guard prevents those paths from downloading only the first image.
+  if (
+    !mediaPath &&
+    quotedRecord?.media?.downloadCodes &&
+    quotedRecord.media.downloadCodes.length > 1
+  ) {
+    const recovered: MediaFile[] = [];
+    for (const code of quotedRecord.media.downloadCodes) {
+      const result = await downloadMedia(dingtalkConfig, code, log);
+      if (result) {
+        recovered.push(result);
+      }
+    }
+    if (recovered.length > 0) {
+      mediaPath = recovered[0].path;
+      mediaType = recovered[0].mimeType;
+      for (const m of recovered) {
+        mediaPaths.push(m.path);
+        mediaTypes.push(m.mimeType);
+      }
+      attachmentContextMsgId = quotedRecord.msgId || data.msgId;
+      attachmentContextCreatedAt = quotedRecord.createdAt || data.createAt;
+      attachmentContextMessageType = quotedRecord.messageType || "richText";
+      log?.debug?.(
+        `[DingTalk][QuotedRef] Recovered ${recovered.length} images from cached multi-image richText ` +
+          `recordMsgId=${quotedRecord.msgId || "(none)"} scope=${data.conversationId}`,
+      );
+    }
+  }
 
   // Quoted picture: download via existing downloadMedia.
   if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
