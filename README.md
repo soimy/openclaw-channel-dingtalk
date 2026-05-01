@@ -20,8 +20,10 @@
 - 支持私聊、群聊和 @机器人
 - 支持文本、图片、语音、视频、文件和钉钉文档/文件卡片
 - 支持引用消息恢复和常见文本附件正文抽取
-- 支持 Markdown 回复与 AI 卡片流式回复
+- 支持 Markdown 回复与 AI 卡片流式回复（v2 结构化 block 渲染、taskInfo 元数据、图片内联）
 - 支持多 Agent、多机器人绑定和实验性的 `@多助手路由`
+- 支持 `/btw` 旁路问答，绕过主会话锁立即获得独立快答
+- 支持 DingTalk Device Flow 自动注册，扫码授权后自动获取凭证，无需手动复制
 - 支持实时中止当前 AI generation。常用停止指令包括 `停止`、`stop`、`/stop`、`esc` 等
 - 接入 OpenClaw 消息处理与 outbound 能力
 
@@ -141,6 +143,7 @@ openclaw configure --section channels
 - [消息类型支持](docs/user/features/message-types.md)
 - [回复模式](docs/user/features/reply-modes.md)
 - [AI 卡片](docs/user/features/ai-card.md)
+- [/btw 旁路问答](docs/user/features/btw.md)
 - [钉钉文档 API](docs/user/features/dingtalk-docs-api.md)
 - [反馈学习](docs/user/features/feedback-learning.md)
 - [多 Agent 与多机器人绑定](docs/user/features/multi-agent-bindings.md)

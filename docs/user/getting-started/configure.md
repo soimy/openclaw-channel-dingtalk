@@ -17,11 +17,12 @@ openclaw configure --section channels
 配置流程通常包括：
 
 1. 选择 `dingtalk`
-2. 输入 `Client ID`
-3. 输入 `Client Secret`
-4. 确认凭证与钉钉开放平台一致（`clientId` 同时用作钉钉 API 中的 robot code；无需单独填写企业 ID 或钉钉应用 ID）
-5. 选择消息模式
-6. 选择私聊与群聊策略
+2. 选择注册方式：自动注册（浏览器扫码授权，无需手动复制凭证）或手动输入
+3. 如果选择自动注册，按提示在浏览器中完成钉钉扫码授权即可自动获取 `Client ID` / `Client Secret`
+4. 如果选择手动输入，输入 `Client ID` 和 `Client Secret`
+5. 确认凭证与钉钉开放平台一致（`clientId` 同时用作钉钉 API 中的 robot code；无需单独填写企业 ID 或钉钉应用 ID）
+6. 选择消息模式
+7. 选择私聊与群聊策略
 
 ## 方式 2：手动配置文件
 
@@ -55,8 +56,8 @@ openclaw configure --section channels
   "channels": {
     "dingtalk": {
       "messageType": "card",
-      "cardTemplateId": "your-template-id.schema",
-      "cardTemplateKey": "content"
+      "cardStreamingMode": "answer",
+      "cardStreamInterval": 1000
     }
   }
 }
