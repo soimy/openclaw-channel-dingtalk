@@ -468,6 +468,8 @@ export interface HandleDingTalkMessageParams {
   preDownloadedMedia?: {
     mediaPath?: string;
     mediaType?: string;
+    mediaPaths?: string[];
+    mediaTypes?: string[];
   };
 }
 

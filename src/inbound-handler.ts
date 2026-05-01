@@ -984,9 +984,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   if (preDownloadedMedia?.mediaPath) {
     mediaPath = preDownloadedMedia.mediaPath;
     mediaType = preDownloadedMedia.mediaType;
-    mediaPaths.push(mediaPath);
-    if (mediaType) {
-      mediaTypes.push(mediaType);
+    if (preDownloadedMedia.mediaPaths?.length) {
+      mediaPaths.push(...preDownloadedMedia.mediaPaths);
+      for (let i = 0; i < preDownloadedMedia.mediaPaths.length; i++) {
+        mediaTypes.push(preDownloadedMedia.mediaTypes?.[i] || preDownloadedMedia.mediaType || "file");
+      }
+    } else {
+      mediaPaths.push(mediaPath);
+      mediaTypes.push(mediaType || "file");
     }
   } else if (robotCode) {
     // Download all media attachments (richText may carry multiple images).
@@ -1179,6 +1184,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       }
       mediaPath = media.path;
       mediaType = media.mimeType;
+      mediaPaths.push(media.path);
+      mediaTypes.push(media.mimeType);
       attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
       attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
       attachmentContextMessageType =
