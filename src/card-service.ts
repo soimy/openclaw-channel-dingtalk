@@ -242,6 +242,7 @@ async function putAICardStreamingField(
   content: string,
   finished: boolean,
   log?: Logger,
+  options: { suppressDegrade?: boolean } = {},
 ): Promise<void> {
   const tokenAge = Date.now() - card.createdAt;
   const tokenRefreshThreshold = 90 * 60 * 1000;
@@ -321,7 +322,7 @@ async function putAICardStreamingField(
       }
     }
 
-    if (card.accountId && shouldTriggerAICardDegrade(err)) {
+    if (!options.suppressDegrade && card.accountId && shouldTriggerAICardDegrade(err)) {
       activateAICardDegrade(
         card.accountId,
         `card.stream:${err?.response?.status || "unknown"}`,
@@ -400,7 +401,8 @@ function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCa
         (entry.outTrackId === undefined || typeof entry.outTrackId === "string") &&
         typeof entry.conversationId === "string" &&
         (entry.lastContent === undefined || typeof entry.lastContent === "string") &&
-        (entry.lastBlockListJson === undefined || typeof entry.lastBlockListJson === "string"),
+        (entry.lastBlockListJson === undefined || typeof entry.lastBlockListJson === "string") &&
+        (entry.streamLifecycleOpened === undefined || typeof entry.streamLifecycleOpened === "boolean"),
       ),
     ),
   };
@@ -1055,7 +1057,9 @@ async function finalizeAICardStreamingLifecycleIfNeeded(
   }
   const template = DINGTALK_CARD_TEMPLATE;
   try {
-    await putAICardStreamingField(card, template.streamingKey, content, true, log);
+    await putAICardStreamingField(card, template.streamingKey, content, true, log, {
+      suppressDegrade: true,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log?.warn?.(`[DingTalk][AICard] Streaming lifecycle finalize failed; continuing instances finalize: ${message}`);
@@ -1391,6 +1395,7 @@ export async function finalizeStoppedAICard(
   await ensureFreshToken(card, log);
   const template = DINGTALK_CARD_TEMPLATE;
   const payload = buildStoppedCardFinalizePayload(options);
+  await finalizeAICardStreamingLifecycleIfNeeded(card, payload.content, log);
   try {
     await updateCardVariables(
       card.outTrackId || card.cardInstanceId,

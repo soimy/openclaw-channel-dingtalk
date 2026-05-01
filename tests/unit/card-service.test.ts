@@ -703,6 +703,46 @@ describe('card-service', () => {
         expect(afterRecover.pendingCards).toHaveLength(0);
     });
 
+    it('recovers pending cards by finalizing an opened streaming lifecycle before instances commit', async () => {
+        const pending = {
+            version: 1,
+            updatedAt: Date.now(),
+            pendingCards: [
+                {
+                    accountId: 'main',
+                    cardInstanceId: 'card_recover_stream_1',
+                    outTrackId: 'track_recover_stream_1',
+                    conversationId: 'cid_recover_stream_1',
+                    createdAt: Date.now() - 1000,
+                    lastUpdated: Date.now() - 1000,
+                    state: '2',
+                    lastContent: '流式回答',
+                    lastBlockListJson: JSON.stringify([{ type: 0, markdown: '流式回答' }]),
+                    streamLifecycleOpened: true,
+                },
+            ],
+        };
+        fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
+        fs.writeFileSync(stateFilePath, JSON.stringify(pending, null, 2));
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'main',
+            storePath
+        );
+
+        expect(recovered).toBe(1);
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        expect(mockedAxios.put.mock.calls[0]?.[0]).toContain('/v1.0/card/streaming');
+        expect(mockedAxios.put.mock.calls[0]?.[1]).toMatchObject({
+            outTrackId: 'track_recover_stream_1',
+            content: expect.stringContaining('流式回答'),
+            isFinalize: true,
+        });
+        expect(mockedAxios.put.mock.calls[1]?.[0]).toContain('/v1.0/card/instances');
+    });
+
     it('finalizeActiveCardsForAccount finalizes pending cards with provided reason', async () => {
         const pending = {
             version: 1,
@@ -1084,6 +1124,34 @@ describe('token refresh', () => {
             isError: false,
         });
         expect(mockedAxios.put.mock.calls[1][0]).toContain('/v1.0/card/instances');
+    });
+
+    it('does not degrade future cards when optional streaming lifecycle finalize fails', async () => {
+        const card = {
+            cardInstanceId: 'card_stream_finalize_failure',
+            outTrackId: 'track_stream_finalize_failure',
+            accessToken: 'current_token',
+            conversationId: 'cid_1',
+            accountId: 'main',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec', aicardDegradeMs: 120000 } as any,
+            streamLifecycleOpened: true,
+        } as any;
+
+        mockedAxios.put
+            .mockRejectedValueOnce({ response: { status: 500 }, message: 'stream finalize failed' })
+            .mockResolvedValueOnce({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'test' }]),
+            content: 'test content',
+        });
+
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        expect(isAICardDegraded('main')).toBe(false);
+        expect(card.state).toBe(AICardStatus.FINISHED);
     });
 
     it('commits blocks without streaming finalize when streaming lifecycle was not opened', async () => {
