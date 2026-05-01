@@ -796,7 +796,7 @@ export async function createAICard(
     // DingTalk createAndDeliver API payload.
     // Note: do NOT include template.statusKey here — the createAndDeliver API may
     // reject unknown fields if the template variable is not yet provisioned.
-    // Status is set to "streaming" via the streaming API immediately after creation.
+    // flowStatus=2 (INPUTING) is set directly so the card shows "输出中" immediately.
     const cardParamMap = {
       config: JSON.stringify({ autoLayout: true, enableForward: true }),
       [template.streamingKey]: "",

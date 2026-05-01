@@ -1085,4 +1085,27 @@ describe('token refresh', () => {
         });
         expect(mockedAxios.put.mock.calls[1][0]).toContain('/v1.0/card/instances');
     });
+
+    it('commits blocks without streaming finalize when streaming lifecycle was not opened', async () => {
+        const card = {
+            cardInstanceId: 'card_no_stream_finalize',
+            outTrackId: 'track_no_stream_finalize',
+            accessToken: 'current_token',
+            conversationId: 'cid_1',
+            state: AICardStatus.PROCESSING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'test' }]),
+            content: 'test content',
+        });
+
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+        expect(mockedAxios.put.mock.calls[0][0]).toContain('/v1.0/card/instances');
+    });
 });
