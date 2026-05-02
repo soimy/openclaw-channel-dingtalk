@@ -158,11 +158,36 @@ export async function dispatchSubAgents(params: {
   const { matchedAgents, cfg, accountId, data, dingtalkConfig, sessionWebhook, extractedContent, handleMessage, downloadMedia: download, log } = params;
 
   // Pre-download media once to avoid duplication across sub-agents
-  let preDownloadedMedia: { mediaPath?: string; mediaType?: string } | undefined;
-  if (extractedContent.mediaPath && resolveRobotCode(dingtalkConfig)) {
-    const media = await download(dingtalkConfig, extractedContent.mediaPath, log);
-    if (media) {
-      preDownloadedMedia = { mediaPath: media.path, mediaType: media.mimeType };
+  let preDownloadedMedia: {
+    mediaPath?: string;
+    mediaType?: string;
+    mediaPaths?: string[];
+    mediaTypes?: string[];
+  } | undefined;
+  const robotCode = resolveRobotCode(dingtalkConfig);
+  if (robotCode) {
+    const downloadCodes =
+      extractedContent.mediaPaths && extractedContent.mediaPaths.length > 0
+        ? extractedContent.mediaPaths
+        : extractedContent.mediaPath
+          ? [extractedContent.mediaPath]
+          : [];
+    const mediaPaths: string[] = [];
+    const mediaTypes: string[] = [];
+    for (const downloadCode of downloadCodes) {
+      const media = await download(dingtalkConfig, downloadCode, log);
+      if (media) {
+        mediaPaths.push(media.path);
+        mediaTypes.push(media.mimeType);
+      }
+    }
+    if (mediaPaths.length > 0) {
+      preDownloadedMedia = {
+        mediaPath: mediaPaths[0],
+        mediaType: mediaTypes[0],
+        mediaPaths,
+        mediaTypes,
+      };
     }
   }
   let helperMissingWarningSent = false;

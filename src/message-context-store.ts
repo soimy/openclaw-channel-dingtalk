@@ -11,8 +11,17 @@ export const DEFAULT_CREATED_AT_MATCH_WINDOW_MS = 2000;
 const MAX_RECORDS_PER_SCOPE = 1000;
 
 export type MessageContextDirection = "inbound" | "outbound";
-export type MessageAliasKind = "inboundMsgId" | "messageId" | "processQueryKey" | "outTrackId" | "cardInstanceId";
-export type MessageDeliveryKind = "session" | "proactive-text" | "proactive-card" | "proactive-media";
+export type MessageAliasKind =
+  | "inboundMsgId"
+  | "messageId"
+  | "processQueryKey"
+  | "outTrackId"
+  | "cardInstanceId";
+export type MessageDeliveryKind =
+  | "session"
+  | "proactive-text"
+  | "proactive-card"
+  | "proactive-media";
 export const DEFAULT_OUTBOUND_SENDER = {
   senderId: "bot",
   senderName: "OpenClaw",
@@ -47,6 +56,7 @@ export interface MessageRecord {
   quotedMessageId?: string;
   media?: {
     downloadCode?: string;
+    downloadCodes?: string[];
     spaceId?: string;
     fileId?: string;
   };
@@ -96,6 +106,7 @@ interface BaseUpsertParams {
   quotedMessageId?: string;
   media?: {
     downloadCode?: string;
+    downloadCodes?: string[];
     spaceId?: string;
     fileId?: string;
   };
@@ -120,7 +131,11 @@ interface ScopeParams {
 const stateCache = new Map<string, MessageContextState>();
 
 function getScopeKey(params: ScopeParams): string {
-  return JSON.stringify([params.storePath || "__memory__", params.accountId, params.conversationId || null]);
+  return JSON.stringify([
+    params.storePath || "__memory__",
+    params.accountId,
+    params.conversationId || null,
+  ]);
 }
 
 function fallbackState(): MessageContextState {
@@ -145,19 +160,26 @@ function normalizeMedia(value: unknown): MessageRecord["media"] | undefined {
   if (!candidate) {
     return undefined;
   }
-  const downloadCode = typeof candidate.downloadCode === "string" && candidate.downloadCode.trim()
-    ? candidate.downloadCode.trim()
-    : undefined;
-  const spaceId = typeof candidate.spaceId === "string" && candidate.spaceId.trim()
-    ? candidate.spaceId.trim()
-    : undefined;
-  const fileId = typeof candidate.fileId === "string" && candidate.fileId.trim()
-    ? candidate.fileId.trim()
-    : undefined;
-  if (!downloadCode && !spaceId && !fileId) {
+  const downloadCode =
+    typeof candidate.downloadCode === "string" && candidate.downloadCode.trim()
+      ? candidate.downloadCode.trim()
+      : undefined;
+  const downloadCodes =
+    Array.isArray(candidate.downloadCodes) && candidate.downloadCodes.length > 0
+      ? candidate.downloadCodes.filter((c: unknown) => typeof c === "string" && c.trim())
+      : undefined;
+  const spaceId =
+    typeof candidate.spaceId === "string" && candidate.spaceId.trim()
+      ? candidate.spaceId.trim()
+      : undefined;
+  const fileId =
+    typeof candidate.fileId === "string" && candidate.fileId.trim()
+      ? candidate.fileId.trim()
+      : undefined;
+  if (!downloadCode && (!downloadCodes || downloadCodes.length === 0) && !spaceId && !fileId) {
     return undefined;
   }
-  return { downloadCode, spaceId, fileId };
+  return { downloadCode, downloadCodes, spaceId, fileId };
 }
 
 function normalizeQuotedRef(value: unknown): QuotedRef | undefined {
@@ -180,7 +202,9 @@ function normalizeQuotedRef(value: unknown): QuotedRef | undefined {
       ? candidate.key
       : undefined;
   const valueString =
-    typeof candidate.value === "string" && candidate.value.trim() ? candidate.value.trim() : undefined;
+    typeof candidate.value === "string" && candidate.value.trim()
+      ? candidate.value.trim()
+      : undefined;
   const fallbackCreatedAt =
     typeof candidate.fallbackCreatedAt === "number" && Number.isFinite(candidate.fallbackCreatedAt)
       ? candidate.fallbackCreatedAt
@@ -213,21 +237,26 @@ function normalizeDelivery(value: unknown): MessageRecord["delivery"] | undefine
   if (!candidate) {
     return undefined;
   }
-  const messageId = typeof candidate.messageId === "string" && candidate.messageId.trim()
-    ? candidate.messageId.trim()
-    : undefined;
-  const processQueryKey = typeof candidate.processQueryKey === "string" && candidate.processQueryKey.trim()
-    ? candidate.processQueryKey.trim()
-    : undefined;
-  const outTrackId = typeof candidate.outTrackId === "string" && candidate.outTrackId.trim()
-    ? candidate.outTrackId.trim()
-    : undefined;
-  const cardInstanceId = typeof candidate.cardInstanceId === "string" && candidate.cardInstanceId.trim()
-    ? candidate.cardInstanceId.trim()
-    : undefined;
-  const kind = typeof candidate.kind === "string" && candidate.kind.trim()
-    ? (candidate.kind.trim() as MessageDeliveryKind)
-    : undefined;
+  const messageId =
+    typeof candidate.messageId === "string" && candidate.messageId.trim()
+      ? candidate.messageId.trim()
+      : undefined;
+  const processQueryKey =
+    typeof candidate.processQueryKey === "string" && candidate.processQueryKey.trim()
+      ? candidate.processQueryKey.trim()
+      : undefined;
+  const outTrackId =
+    typeof candidate.outTrackId === "string" && candidate.outTrackId.trim()
+      ? candidate.outTrackId.trim()
+      : undefined;
+  const cardInstanceId =
+    typeof candidate.cardInstanceId === "string" && candidate.cardInstanceId.trim()
+      ? candidate.cardInstanceId.trim()
+      : undefined;
+  const kind =
+    typeof candidate.kind === "string" && candidate.kind.trim()
+      ? (candidate.kind.trim() as MessageDeliveryKind)
+      : undefined;
   if (!messageId && !processQueryKey && !outTrackId && !cardInstanceId && !kind) {
     return undefined;
   }
@@ -248,30 +277,46 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
   if (!candidate) {
     return null;
   }
-  const msgId = typeof candidate.msgId === "string" && candidate.msgId.trim() ? candidate.msgId.trim() : "";
-  const direction = candidate.direction === "outbound" ? "outbound" : candidate.direction === "inbound" ? "inbound" : null;
-  const accountId = typeof candidate.accountId === "string" && candidate.accountId.trim()
-    ? candidate.accountId.trim()
-    : "";
-  const conversationId = typeof candidate.conversationId === "string" && candidate.conversationId.trim()
-    ? candidate.conversationId.trim()
-    : null;
-  const createdAt = typeof candidate.createdAt === "number" && Number.isFinite(candidate.createdAt)
-    ? candidate.createdAt
-    : NaN;
-  const updatedAt = typeof candidate.updatedAt === "number" && Number.isFinite(candidate.updatedAt)
-    ? candidate.updatedAt
-    : Date.now();
+  const msgId =
+    typeof candidate.msgId === "string" && candidate.msgId.trim() ? candidate.msgId.trim() : "";
+  const direction =
+    candidate.direction === "outbound"
+      ? "outbound"
+      : candidate.direction === "inbound"
+        ? "inbound"
+        : null;
+  const accountId =
+    typeof candidate.accountId === "string" && candidate.accountId.trim()
+      ? candidate.accountId.trim()
+      : "";
+  const conversationId =
+    typeof candidate.conversationId === "string" && candidate.conversationId.trim()
+      ? candidate.conversationId.trim()
+      : null;
+  const createdAt =
+    typeof candidate.createdAt === "number" && Number.isFinite(candidate.createdAt)
+      ? candidate.createdAt
+      : NaN;
+  const updatedAt =
+    typeof candidate.updatedAt === "number" && Number.isFinite(candidate.updatedAt)
+      ? candidate.updatedAt
+      : Date.now();
   if (!msgId || !direction || !accountId || !Number.isFinite(createdAt)) {
     return null;
   }
-  const expiresAt = typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt)
-    ? candidate.expiresAt
-    : undefined;
+  const expiresAt =
+    typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt)
+      ? candidate.expiresAt
+      : undefined;
   return {
     msgId,
     direction,
-    topic: candidate.topic === null ? null : typeof candidate.topic === "string" ? candidate.topic : null,
+    topic:
+      candidate.topic === null
+        ? null
+        : typeof candidate.topic === "string"
+          ? candidate.topic
+          : null,
     accountId,
     conversationId,
     createdAt,
@@ -279,16 +324,26 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
     expiresAt,
     messageType: typeof candidate.messageType === "string" ? candidate.messageType : undefined,
     text: typeof candidate.text === "string" ? candidate.text : undefined,
-    attachmentText: typeof candidate.attachmentText === "string" ? candidate.attachmentText : undefined,
+    attachmentText:
+      typeof candidate.attachmentText === "string" ? candidate.attachmentText : undefined,
     attachmentTextSource: normalizeAttachmentTextSource(candidate.attachmentTextSource),
     attachmentTextTruncated: candidate.attachmentTextTruncated === true ? true : undefined,
     attachmentFileName:
       typeof candidate.attachmentFileName === "string" ? candidate.attachmentFileName : undefined,
     quotedRef: normalizeQuotedRef(candidate.quotedRef),
-    senderId: typeof candidate.senderId === "string" && candidate.senderId.trim() ? candidate.senderId.trim() : undefined,
-    senderName: typeof candidate.senderName === "string" && candidate.senderName.trim() ? candidate.senderName.trim() : undefined,
+    senderId:
+      typeof candidate.senderId === "string" && candidate.senderId.trim()
+        ? candidate.senderId.trim()
+        : undefined,
+    senderName:
+      typeof candidate.senderName === "string" && candidate.senderName.trim()
+        ? candidate.senderName.trim()
+        : undefined,
     mentions: normalizeMentions(candidate.mentions),
-    chatType: candidate.chatType === "direct" || candidate.chatType === "group" ? candidate.chatType : undefined,
+    chatType:
+      candidate.chatType === "direct" || candidate.chatType === "group"
+        ? candidate.chatType
+        : undefined,
     quotedMessageId:
       typeof candidate.quotedMessageId === "string" && candidate.quotedMessageId.trim()
         ? candidate.quotedMessageId.trim()
@@ -327,10 +382,17 @@ function buildAliasEntries(record: MessageRecord): Array<[string, string]> {
 }
 
 function isRecordExpired(record: MessageRecord, nowMs: number): boolean {
-  return typeof record.expiresAt === "number" && Number.isFinite(record.expiresAt) && nowMs >= record.expiresAt;
+  return (
+    typeof record.expiresAt === "number" &&
+    Number.isFinite(record.expiresAt) &&
+    nowMs >= record.expiresAt
+  );
 }
 
-function normalizeState(state: MessageContextState, nowMs: number): { state: MessageContextState; removed: number } {
+function normalizeState(
+  state: MessageContextState,
+  nowMs: number,
+): { state: MessageContextState; removed: number } {
   const normalizedRecords: Record<string, MessageRecord> = {};
   const sortedRecords = Object.values(state.records)
     .map((record) => normalizeMessageRecord(record))
@@ -363,12 +425,15 @@ function hydrateState(params: ScopeParams, nowMs: number): MessageContextState {
   if (!params.storePath) {
     return fallbackState();
   }
-  const persisted = readNamespaceJson<Partial<PersistedMessageContextState>>(MESSAGE_CONTEXT_NAMESPACE, {
-    storePath: params.storePath,
-    scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
-    format: "json",
-    fallback: { version: MESSAGE_CONTEXT_VERSION, updatedAt: Date.now(), records: {} },
-  });
+  const persisted = readNamespaceJson<Partial<PersistedMessageContextState>>(
+    MESSAGE_CONTEXT_NAMESPACE,
+    {
+      storePath: params.storePath,
+      scope: { accountId: params.accountId, conversationId: params.conversationId || undefined },
+      format: "json",
+      fallback: { version: MESSAGE_CONTEXT_VERSION, updatedAt: Date.now(), records: {} },
+    },
+  );
   const parsedRecords = asRecord(persisted.records) || {};
   const hydrated = fallbackState();
   hydrated.updatedAt = typeof persisted.updatedAt === "number" ? persisted.updatedAt : Date.now();
@@ -426,14 +491,20 @@ function mergeText(existing: string | undefined, next: string | undefined): stri
   return next;
 }
 
-function mergeAttachmentText(existing: string | undefined, next: string | undefined): string | undefined {
+function mergeAttachmentText(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
   if (typeof next !== "string") {
     return existing;
   }
   return next;
 }
 
-function mergeQuotedRef(existing: QuotedRef | undefined, next: QuotedRef | undefined): QuotedRef | undefined {
+function mergeQuotedRef(
+  existing: QuotedRef | undefined,
+  next: QuotedRef | undefined,
+): QuotedRef | undefined {
   if (!existing) {
     return next;
   }
@@ -448,14 +519,20 @@ function mergeQuotedRef(existing: QuotedRef | undefined, next: QuotedRef | undef
   };
 }
 
-function mergeStringField(existing: string | undefined, next: string | undefined): string | undefined {
+function mergeStringField(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
   if (typeof next !== "string" || !next.trim()) {
     return existing;
   }
   return next.trim();
 }
 
-function mergeMentions(existing: string[] | undefined, next: string[] | undefined): string[] | undefined {
+function mergeMentions(
+  existing: string[] | undefined,
+  next: string[] | undefined,
+): string[] | undefined {
   if (!next) {
     return existing;
   }
@@ -474,6 +551,7 @@ function mergeMedia(
   }
   return {
     downloadCode: next.downloadCode || existing.downloadCode,
+    downloadCodes: next.downloadCodes || existing.downloadCodes,
     spaceId: next.spaceId || existing.spaceId,
     fileId: next.fileId || existing.fileId,
   };
@@ -512,7 +590,10 @@ function mergeAttachmentTextTruncated(
   return next === undefined ? existing : next;
 }
 
-function mergeAttachmentFileName(existing: string | undefined, next: string | undefined): string | undefined {
+function mergeAttachmentFileName(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
   if (typeof next !== "string") {
     return existing;
   }
@@ -521,7 +602,11 @@ function mergeAttachmentFileName(existing: string | undefined, next: string | un
 
 function resolveExistingMsgId(
   state: MessageContextState,
-  params: { direction: MessageContextDirection; msgId?: string; delivery?: MessageRecord["delivery"] },
+  params: {
+    direction: MessageContextDirection;
+    msgId?: string;
+    delivery?: MessageRecord["delivery"];
+  },
   nowMs: number,
 ): string | undefined {
   if (params.direction === "inbound" && params.msgId) {
@@ -556,11 +641,19 @@ function resolveExistingMsgId(
   return undefined;
 }
 
-function computeExpiresAt(nowMs: number, ttlMs?: number, ttlReferenceMs?: number): number | undefined {
+function computeExpiresAt(
+  nowMs: number,
+  ttlMs?: number,
+  ttlReferenceMs?: number,
+): number | undefined {
   if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
     return undefined;
   }
-  return (typeof ttlReferenceMs === "number" && Number.isFinite(ttlReferenceMs) ? ttlReferenceMs : nowMs) + ttlMs;
+  return (
+    (typeof ttlReferenceMs === "number" && Number.isFinite(ttlReferenceMs)
+      ? ttlReferenceMs
+      : nowMs) + ttlMs
+  );
 }
 
 function pruneStateByCreatedAt(
@@ -622,11 +715,15 @@ function upsertRecord(
   if (params.cleanupCreatedAtTtlDays && params.cleanupCreatedAtTtlDays > 0) {
     state = pruneStateByCreatedAt(state, params.cleanupCreatedAtTtlDays, nowMs).state;
   }
-  const existingMsgId = resolveExistingMsgId(state, {
-    direction: params.direction,
-    msgId: params.msgId,
-    delivery: params.delivery,
-  }, nowMs);
+  const existingMsgId = resolveExistingMsgId(
+    state,
+    {
+      direction: params.direction,
+      msgId: params.msgId,
+      delivery: params.delivery,
+    },
+    nowMs,
+  );
   const canonicalMsgId =
     existingMsgId ||
     params.msgId ||
@@ -648,9 +745,7 @@ function upsertRecord(
     createdAt: existing?.createdAt ?? params.createdAt,
     updatedAt: nowMs,
     expiresAt:
-      expiresAt === undefined
-        ? existing?.expiresAt
-        : Math.max(expiresAt, existing?.expiresAt ?? 0),
+      expiresAt === undefined ? existing?.expiresAt : Math.max(expiresAt, existing?.expiresAt ?? 0),
     messageType: params.messageType || existing?.messageType,
     text: mergeText(existing?.text, params.text),
     attachmentText: mergeAttachmentText(existing?.attachmentText, params.attachmentText),
@@ -692,7 +787,9 @@ export function upsertInboundMessageContext(params: UpsertInboundMessageContextP
   );
 }
 
-export function upsertOutboundMessageContext(params: UpsertOutboundMessageContextParams): string | undefined {
+export function upsertOutboundMessageContext(
+  params: UpsertOutboundMessageContextParams,
+): string | undefined {
   return upsertRecord({
     ...params,
     direction: "outbound",
@@ -780,7 +877,10 @@ export function resolveByQuotedRef(
       `[DingTalk][QuotedRef] Resolve outbound by ${quotedRef.key}=${quotedRef.value} hit=no accountId=${params.accountId} conversationId=${params.conversationId || "(none)"}`,
     );
   }
-  if (typeof quotedRef.fallbackCreatedAt === "number" && Number.isFinite(quotedRef.fallbackCreatedAt)) {
+  if (
+    typeof quotedRef.fallbackCreatedAt === "number" &&
+    Number.isFinite(quotedRef.fallbackCreatedAt)
+  ) {
     const record = resolveByCreatedAtWindow({
       ...params,
       createdAt: quotedRef.fallbackCreatedAt,
@@ -828,9 +928,7 @@ export function resolveByCreatedAtWindow(
   return bestRecord;
 }
 
-export function cleanupExpiredMessageContexts(
-  params: ScopeParams & { nowMs?: number },
-): number {
+export function cleanupExpiredMessageContexts(params: ScopeParams & { nowMs?: number }): number {
   const nowMs = params.nowMs ?? Date.now();
   const state = loadState(params, nowMs);
   const beforeCount = Object.keys(state.records).length;
@@ -850,12 +948,12 @@ export function clearMessageContextCacheForTest(): void {
 /**
  * Lists non-expired message-context records for one account/conversation scope in createdAt ascending order.
  */
-export function listMessageContexts(
-  params: ScopeParams & { nowMs?: number },
-): MessageRecord[] {
+export function listMessageContexts(params: ScopeParams & { nowMs?: number }): MessageRecord[] {
   const nowMs = params.nowMs ?? Date.now();
   const state = loadState(params, nowMs);
   return state.recentByCreatedAt
     .map((msgId) => state.records[msgId])
-    .filter((record): record is MessageRecord => Boolean(record) && !isRecordExpired(record, nowMs));
+    .filter(
+      (record): record is MessageRecord => Boolean(record) && !isRecordExpired(record, nowMs),
+    );
 }

@@ -117,8 +117,8 @@ const sessionReasoningLevelCache = new Map<
 // Prevent concurrent card creation for the same conversation.
 // createAICard runs before acquireSessionLock (for immediate visual feedback),
 // but two inbound messages can race past each other's card-run registration.
-// This synchronous Set closes that window — JavaScript's single-threaded
-// concurrency means check-and-set is atomic from the caller's perspective.
+// This synchronous Set closes that window because JavaScript check-and-set here
+// is atomic from the caller's perspective.
 const cardCreationInFlight = new Set<string>();
 type ReplyMode = "card" | "markdown";
 
@@ -892,7 +892,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (cardCreationInFlight.has(key)) {
       useCardMode = false;
       log?.debug?.(
-        `[DingTalk][AICard] Skip card creation — active card already exists for account=${accountId} conversation=${to}`,
+        `[DingTalk][AICard] Skip card creation - active card already exists for account=${accountId} conversation=${to}`,
       );
     } else {
       cardCreationInFlight.add(key);
@@ -949,10 +949,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       );
     }
   }
-  // Outer try/finally: guarantees cardFlightKey cleanup regardless of exit path.
-  // Covers pre-lock operations, abort/btw early returns, and the main dispatch.
-  // The Set entry must be removed even if something throws between card creation
-  // and session-lock acquisition (e.g., recordInboundSession failure).
+  // Outer try/finally guarantees cardFlightKey cleanup even when the handler
+  // returns or throws between card creation and session-lock release.
   try {
     const hasLegacyQuoteContent =
       typeof data.content?.quoteContent === "string" && data.content.quoteContent.trim().length > 0;
@@ -1006,6 +1004,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const robotCode = resolveRobotCode(dingtalkConfig);
     let mediaPath: string | undefined;
     let mediaType: string | undefined;
+    const mediaPaths: string[] = [];
+    const mediaTypes: string[] = [];
     let attachmentContextMsgId = data.msgId;
     let attachmentContextCreatedAt = data.createAt;
     let attachmentContextMessageType = content.messageType;
@@ -1015,22 +1015,51 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     if (preDownloadedMedia?.mediaPath) {
       mediaPath = preDownloadedMedia.mediaPath;
       mediaType = preDownloadedMedia.mediaType;
-    } else if (content.mediaPath && robotCode) {
-      // Download media only if not pre-downloaded
-      const media = await downloadMedia(
-        dingtalkConfig,
-        content.mediaPath,
-        log,
-        attachmentContextFileName,
-      );
-      if (media) {
-        mediaPath = media.path;
-        mediaType = media.mimeType;
+      if (preDownloadedMedia.mediaPaths?.length) {
+        mediaPaths.push(...preDownloadedMedia.mediaPaths);
+        for (let i = 0; i < preDownloadedMedia.mediaPaths.length; i++) {
+          mediaTypes.push(
+            preDownloadedMedia.mediaTypes?.[i] || preDownloadedMedia.mediaType || "file",
+          );
+        }
+      } else {
+        mediaPaths.push(mediaPath);
+        mediaTypes.push(mediaType || "file");
+      }
+    } else if (robotCode) {
+      // Download all media attachments (richText may carry multiple images).
+      const downloadCodes =
+        content.mediaPaths && content.mediaPaths.length > 0
+          ? content.mediaPaths
+          : content.mediaPath
+            ? [content.mediaPath]
+            : [];
+      for (const downloadCode of downloadCodes) {
+        const media = await downloadMedia(
+          dingtalkConfig,
+          downloadCode,
+          log,
+          attachmentContextFileName,
+        );
+        if (media) {
+          if (!mediaPath) {
+            mediaPath = media.path;
+            mediaType = media.mimeType;
+          }
+          mediaPaths.push(media.path);
+          mediaTypes.push(media.mimeType);
+        }
       }
     }
 
-    // Cache downloadCode (+ spaceId/fileId) for quoted file lookups (DM + group).
-    if (content.mediaPath && data.msgId) {
+    // Cache downloadCode(s) (+ spaceId/fileId) for quoted file lookups (DM + group).
+    const allMediaDownloadCodes =
+      content.mediaPaths && content.mediaPaths.length > 0
+        ? content.mediaPaths
+        : content.mediaPath
+          ? [content.mediaPath]
+          : [];
+    if (allMediaDownloadCodes.length > 0 && data.msgId) {
       upsertInboundMessageContext({
         storePath: accountStorePath,
         accountId,
@@ -1039,7 +1068,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         createdAt: data.createAt,
         messageType: content.messageType,
         media: {
-          downloadCode: content.mediaPath,
+          downloadCode: allMediaDownloadCodes[0],
+          downloadCodes: allMediaDownloadCodes.length > 1 ? allMediaDownloadCodes : undefined,
           spaceId: data.content?.spaceId,
           fileId: data.content?.fileId,
         },
@@ -1087,6 +1117,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
           if (docMedia) {
             mediaPath = docMedia.path;
             mediaType = docMedia.mimeType;
+            mediaPaths.push(docMedia.path);
+            mediaTypes.push(docMedia.mimeType);
           }
         } catch (err: any) {
           log?.warn?.(`[DingTalk] Doc card download failed: ${err.message}`);
@@ -1180,6 +1212,38 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       return media;
     };
 
+    // Quoted multi-image richText: recover all cached downloadCodes.
+    // Placed before the single-image/ file/ doc-card paths so that the
+    // !mediaPath guard prevents those paths from downloading only the first image.
+    if (
+      !mediaPath &&
+      quotedRecord?.media?.downloadCodes &&
+      quotedRecord.media.downloadCodes.length > 1
+    ) {
+      const recovered: MediaFile[] = [];
+      for (const code of quotedRecord.media.downloadCodes) {
+        const result = await downloadMedia(dingtalkConfig, code, log);
+        if (result) {
+          recovered.push(result);
+        }
+      }
+      if (recovered.length > 0) {
+        mediaPath = recovered[0].path;
+        mediaType = recovered[0].mimeType;
+        for (const m of recovered) {
+          mediaPaths.push(m.path);
+          mediaTypes.push(m.mimeType);
+        }
+        attachmentContextMsgId = quotedRecord.msgId || data.msgId;
+        attachmentContextCreatedAt = quotedRecord.createdAt || data.createAt;
+        attachmentContextMessageType = quotedRecord.messageType || "richText";
+        log?.debug?.(
+          `[DingTalk][QuotedRef] Recovered ${recovered.length} images from cached multi-image richText ` +
+            `recordMsgId=${quotedRecord.msgId || "(none)"} scope=${data.conversationId}`,
+        );
+      }
+    }
+
     // Quoted picture: download via existing downloadMedia.
     if (!mediaPath && content.quoted?.mediaDownloadCode && robotCode) {
       const quotedOriginalFilename = content.quoted.previewFileName;
@@ -1199,6 +1263,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         }
         mediaPath = media.path;
         mediaType = media.mimeType;
+        mediaPaths.push(media.path);
+        mediaTypes.push(media.mimeType);
         attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt = quotedRecord?.createdAt || data.createAt;
         attachmentContextMessageType =
@@ -1225,6 +1291,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (media) {
           mediaPath = media.path;
           mediaType = media.mimeType;
+          mediaPaths.push(media.path);
+          mediaTypes.push(media.mimeType);
           attachmentContextMsgId = content.quoted.msgId || data.msgId;
           attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
           attachmentContextMessageType = content.quoted.previewMessageType || "file";
@@ -1245,6 +1313,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (cachedMedia) {
           mediaPath = cachedMedia.path;
           mediaType = cachedMedia.mimeType;
+          mediaPaths.push(cachedMedia.path);
+          mediaTypes.push(cachedMedia.mimeType);
           attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
           attachmentContextCreatedAt =
             quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
@@ -1269,6 +1339,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (resolved) {
           mediaPath = resolved.media.path;
           mediaType = resolved.media.mimeType;
+          mediaPaths.push(resolved.media.path);
+          mediaTypes.push(resolved.media.mimeType);
           attachmentContextMsgId = content.quoted.msgId || data.msgId;
           attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
           attachmentContextMessageType = "file";
@@ -1324,6 +1396,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       if (cachedDocMedia) {
         mediaPath = cachedDocMedia.path;
         mediaType = cachedDocMedia.mimeType;
+        mediaPaths.push(cachedDocMedia.path);
+        mediaTypes.push(cachedDocMedia.mimeType);
         attachmentContextMsgId = quotedRecord?.msgId || content.quoted.msgId || data.msgId;
         attachmentContextCreatedAt =
           quotedRecord?.createdAt || content.quoted.fileCreatedAt || data.createAt;
@@ -1347,6 +1421,8 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         if (resolved) {
           mediaPath = resolved.media.path;
           mediaType = resolved.media.mimeType;
+          mediaPaths.push(resolved.media.path);
+          mediaTypes.push(resolved.media.mimeType);
           attachmentContextMsgId = content.quoted.msgId || data.msgId;
           attachmentContextCreatedAt = content.quoted.fileCreatedAt || data.createAt;
           attachmentContextMessageType = "interactiveCardFile";
@@ -1496,6 +1572,9 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       MediaPath: mediaPath,
       MediaType: mediaType,
       MediaUrl: mediaPath,
+      MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
+      MediaUrls: mediaPaths.length > 0 ? mediaPaths : undefined,
+      MediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
       GroupMembers: groupMembers,
       GroupSystemPrompt: extraSystemPrompt,
       GroupChannel: isDirect ? undefined : route.sessionKey,

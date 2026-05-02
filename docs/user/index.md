@@ -32,6 +32,7 @@
 - [AI 卡片](features/ai-card.md)
 - [钉钉文档 API](features/dingtalk-docs-api.md)
 - [反馈学习](features/feedback-learning.md)
+- [/btw 旁路问答](features/btw.md)
 - [多 Agent 与多机器人绑定](features/multi-agent-bindings.md)
 - [@多助手路由](features/at-agent-routing.md)
 

@@ -122,11 +122,15 @@ English version: [`architecture.en.md`](architecture.en.md)
 - AI Card 创建 / 流式更新 / 结束态流程
 - 待恢复卡片状态与缓存
 - 卡片特有的 fallback 行为
+- v2 block 渲染、draft 流控、run usage 记录
 
 示例：
 
 - `src/card-service.ts`
 - `src/card-callback-service.ts`
+- `src/card-draft-controller.ts`
+- `src/draft-stream-loop.ts`
+- `src/run-usage-store.ts`
 
 ### Command
 
@@ -152,6 +156,7 @@ English version: [`architecture.en.md`](architecture.en.md)
 - runtime getter / setter
 - 共享 logger context
 - 公共类型定义
+- setup wizard 与设备自动注册
 
 示例：
 
@@ -161,6 +166,8 @@ English version: [`architecture.en.md`](architecture.en.md)
 - `src/runtime.ts`
 - `src/logger-context.ts`
 - `src/types.ts`
+- `src/device-registration.ts`
+- `src/onboarding.ts`
 
 ## 计划中的目录结构
 
@@ -194,6 +201,9 @@ src/
   card/
     card-service.ts
     card-callback-service.ts
+    card-draft-controller.ts
+    draft-stream-loop.ts
+    run-usage-store.ts
 
   command/
     learning-command-service.ts
@@ -207,6 +217,8 @@ src/
     runtime.ts
     logger-context.ts
     types.ts
+    device-registration.ts
+    onboarding.ts
 
   shared/
     persistence-store.ts
