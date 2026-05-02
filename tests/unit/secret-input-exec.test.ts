@@ -5,7 +5,27 @@ const { execFileMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("node:child_process", () => ({
-  execFile: execFileMock,
+  execFile: Object.assign(execFileMock, {
+    [Symbol.for("nodejs.util.promisify.custom")]: (
+      command: string,
+      args: string[],
+      options: unknown,
+    ) =>
+      new Promise((resolve, reject) => {
+        execFileMock(
+          command,
+          args,
+          options,
+          (error: Error | null, stdout: string, stderr: string) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve({ stdout, stderr });
+          },
+        );
+      }),
+  }),
 }));
 
 describe("SecretInput exec support", () => {

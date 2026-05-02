@@ -26,6 +26,8 @@ type SecretInputLog = {
 };
 
 const execFileAsync = promisify(execFile);
+const SECRET_INPUT_PROVIDER_PATTERN = /^[^:>]+$/;
+const SECRET_INPUT_ID_PATTERN = /^[^>]+$/;
 
 function buildSecretInputFailure(
   value: SecretInputRef,
@@ -48,8 +50,8 @@ export function buildSecretInputSchema() {
     z.string(),
     z.object({
       source: z.enum(["env", "file", "exec"]),
-      provider: z.string().min(1).max(1024),
-      id: z.string().min(1).max(1024),
+      provider: z.string().min(1).max(1024).regex(SECRET_INPUT_PROVIDER_PATTERN),
+      id: z.string().min(1).max(1024).regex(SECRET_INPUT_ID_PATTERN),
     }),
   ]);
 }
@@ -63,8 +65,10 @@ export function isSecretInputRef(value: unknown): value is SecretInputRef {
     (ref.source === "env" || ref.source === "file" || ref.source === "exec") &&
     typeof ref.provider === "string" &&
     ref.provider.trim().length > 0 &&
+    SECRET_INPUT_PROVIDER_PATTERN.test(ref.provider) &&
     typeof ref.id === "string" &&
-    ref.id.trim().length > 0
+    ref.id.trim().length > 0 &&
+    SECRET_INPUT_ID_PATTERN.test(ref.id)
   );
 }
 
@@ -178,8 +182,7 @@ export async function resolveSecretInputStringWithFailure(
       timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
       windowsHide: true,
     });
-    const stdout = typeof result === "string" ? result : result.stdout;
-    const secret = String(stdout).trim();
+    const secret = String(result.stdout).trim();
     if (secret) {
       return { value: secret };
     }

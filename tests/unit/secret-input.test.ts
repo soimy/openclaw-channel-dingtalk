@@ -6,6 +6,7 @@ import { isConfigured } from "../../src/config";
 import { DingTalkConfigSchema } from "../../src/config-schema";
 import {
   formatSecretInputResolutionFailure,
+  normalizeSecretInputString,
   parseSecretInputString,
   resolveSecretInputString,
   resolveSecretInputStringWithFailure,
@@ -136,5 +137,20 @@ describe("SecretInput support", () => {
 
   it("leaves malformed normalized SecretInput strings as plain secrets", () => {
     expect(parseSecretInputString("<exec:helper:my>id>")).toBe("<exec:helper:my>id>");
+  });
+
+  it("rejects SecretInput refs that cannot round-trip through normalized placeholders", () => {
+    const providerWithColon = { source: "exec", provider: "vault:kv", id: "my-secret" } as const;
+    const idWithClosingBracket = { source: "file", provider: "local", id: "my>secret" } as const;
+
+    expect(
+      DingTalkConfigSchema.safeParse({ clientId: "id", clientSecret: providerWithColon }).success,
+    ).toBe(false);
+    expect(
+      DingTalkConfigSchema.safeParse({ clientId: "id", clientSecret: idWithClosingBracket })
+        .success,
+    ).toBe(false);
+    expect(normalizeSecretInputString(providerWithColon)).toBeUndefined();
+    expect(normalizeSecretInputString(idWithClosingBracket)).toBeUndefined();
   });
 });

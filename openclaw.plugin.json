@@ -44,8 +44,18 @@
                 "required": ["source", "provider", "id"],
                 "properties": {
                   "source": { "type": "string", "enum": ["env", "file", "exec"] },
-                  "provider": { "type": "string", "minLength": 1, "maxLength": 1024 },
-                  "id": { "type": "string", "minLength": 1, "maxLength": 1024 }
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^[^:>]+$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^[^>]+$"
+                  }
                 }
               }
             ],
@@ -340,8 +350,18 @@
                       "required": ["source", "provider", "id"],
                       "properties": {
                         "source": { "type": "string", "enum": ["env", "file", "exec"] },
-                        "provider": { "type": "string", "minLength": 1, "maxLength": 1024 },
-                        "id": { "type": "string", "minLength": 1, "maxLength": 1024 }
+                        "provider": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024,
+                          "pattern": "^[^:>]+$"
+                        },
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024,
+                          "pattern": "^[^>]+$"
+                        }
                       }
                     }
                   ],
