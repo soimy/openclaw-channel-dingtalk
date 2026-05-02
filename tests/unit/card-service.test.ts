@@ -267,6 +267,26 @@ describe('card-service', () => {
         expect(mockedAxios.put).toHaveBeenCalledTimes(1);
     });
 
+    it('streamAICard sets a timeout on DingTalk streaming requests', async () => {
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const card = {
+            cardInstanceId: 'card_timeout',
+            accessToken: 'token_abc',
+            conversationId: 'cidA1B2C3',
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            state: AICardStatus.PROCESSING,
+            config: { cardTemplateKey: 'content' },
+        } as any;
+
+        await streamAICard(card, 'stream text', false);
+
+        expect(mockedAxios.put.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+            timeout: 8000,
+        }));
+    });
+
     it('streamAICard retries once on 401 and succeeds', async () => {
         mockedAxios.put
             .mockRejectedValueOnce({ response: { status: 401 }, message: 'token expired' })

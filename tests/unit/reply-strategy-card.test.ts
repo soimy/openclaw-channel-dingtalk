@@ -294,6 +294,35 @@ describe("reply-strategy-card", () => {
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
         });
 
+        it("answer mode finalize times out a stuck streaming update and commits final content", async () => {
+            const card = makeCard();
+            const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any;
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+                log,
+            }));
+            const opts = strategy.getReplyOptions();
+            streamAICardContentMock.mockImplementationOnce(() => new Promise(() => undefined));
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+
+            await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
+            const finalizePromise = strategy.finalize().then(() => "done");
+            const outcome = Promise.race([
+                finalizePromise,
+                vi.advanceTimersByTimeAsync(3_100).then(() => "timeout"),
+            ]);
+
+            await expect(outcome).resolves.toBe("done");
+            expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            expect(commitAICardBlocksMock.mock.calls[0]?.[1]?.content).toContain("最终答案");
+            expect(log.warn).toHaveBeenCalledWith(
+                expect.stringContaining("[DingTalk][Finalize] Timed out waiting for in-flight card stream"),
+            );
+        });
+
         it("answer mode rewrites local markdown image snapshots to placeholder text before final upload", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {

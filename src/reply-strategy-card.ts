@@ -37,12 +37,38 @@ import { formatDingTalkErrorPayloadLog } from "./utils";
 
 const EMPTY_FINAL_REPLY = "✅ Done";
 const DEFAULT_CARD_FAILED_MESSAGE = "回复生成失败，请重试";
+const FINALIZE_IN_FLIGHT_WAIT_TIMEOUT_MS = 3000;
 type CardReplyLifecycleState = "open" | "final_seen" | "sealed";
 
 /** Deferred media attachment for out-of-card delivery */
 interface DeferredMedia {
   url: string;
   type: "voice" | "video" | "file";
+}
+
+async function waitForInFlightCardStreamWithTimeout(
+  promise: Promise<void>,
+  log: ReplyStrategyContext["log"],
+  phase: "finalize" | "abort",
+): Promise<boolean> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const tracked = promise.then(() => "done" as const);
+  tracked.catch(() => undefined);
+  const timeout = new Promise<"timeout">((resolve) => {
+    timeoutId = setTimeout(() => resolve("timeout"), FINALIZE_IN_FLIGHT_WAIT_TIMEOUT_MS);
+  });
+  const result = await Promise.race([tracked, timeout]);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  if (result === "timeout") {
+    log?.warn?.(
+      `[DingTalk][Finalize] Timed out waiting for in-flight card stream ` +
+      `phase=${phase} timeoutMs=${FINALIZE_IN_FLIGHT_WAIT_TIMEOUT_MS}; continuing with final commit`,
+    );
+    return false;
+  }
+  return true;
 }
 
 export function createCardReplyStrategy(
@@ -671,8 +697,10 @@ export function createCardReplyStrategy(
       try {
         await flushPendingReasoning();
 
-        await controller.flush();
-        await controller.waitForInFlight();
+        const flushed = await waitForInFlightCardStreamWithTimeout(controller.flush(), log, "finalize");
+        if (flushed) {
+          await waitForInFlightCardStreamWithTimeout(controller.waitForInFlight(), log, "finalize");
+        }
 
         // Prepare finalize options for single instances API call
         const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
@@ -786,7 +814,7 @@ export function createCardReplyStrategy(
       }
       if (!isCardInTerminalState(card.state)) {
         controller.stop();
-        await controller.waitForInFlight();
+        await waitForInFlightCardStreamWithTimeout(controller.waitForInFlight(), log, "abort");
         try {
           // For V2 template, finalize via instances API
           const errorBlockListJson = JSON.stringify([{ type: 0, markdown: "❌ 处理失败" }]);

@@ -43,6 +43,8 @@ const AICARD_DEGRADE_DEFAULT_MS = 30 * 60 * 1000;
 const CARD_CACHE_MAX_PER_CONVERSATION = 20;
 const CARD_CACHE_MAX_CONVERSATIONS = 500;
 const DYNAMIC_SUMMARY_EXTENSION = { dynamicSummary: "true" } as const;
+const CARD_STREAMING_REQUEST_TIMEOUT_MS = 8000;
+const CARD_STREAMING_SLOW_WARN_MS = 1000;
 
 const aicardDegradeByAccount = new Map<string, { untilMs: number; reason: string }>();
 
@@ -236,6 +238,30 @@ function extractCardProcessQueryKey(payload: unknown): string | undefined {
   return undefined;
 }
 
+function logCardStreamingResponse(
+  log: Logger | undefined,
+  params: {
+    key: string;
+    finished: boolean;
+    elapsedMs: number;
+    status?: number;
+    data?: unknown;
+    retry?: boolean;
+  },
+): void {
+  const prefix = params.retry
+    ? "[DingTalk][AICard] Retry streaming response"
+    : "[DingTalk][AICard] Streaming response";
+  const detail =
+    `${prefix}: status=${params.status ?? "(none)"} elapsedMs=${params.elapsedMs} ` +
+    `key=${params.key} isFinalize=${params.finished} data=${JSON.stringify(params.data)}`;
+  if (params.elapsedMs >= CARD_STREAMING_SLOW_WARN_MS) {
+    log?.warn?.(detail);
+    return;
+  }
+  log?.debug?.(detail);
+}
+
 async function putAICardStreamingField(
   card: AICardInstance,
   key: string,
@@ -274,6 +300,7 @@ async function putAICardStreamingField(
   );
 
   const requestConfig = {
+    timeout: CARD_STREAMING_REQUEST_TIMEOUT_MS,
     headers: {
       "x-acs-dingtalk-access-token": card.accessToken,
       "Content-Type": "application/json",
@@ -282,10 +309,15 @@ async function putAICardStreamingField(
   };
 
   try {
+    const startedAt = Date.now();
     const streamResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, requestConfig);
-    log?.debug?.(
-      `[DingTalk][AICard] Streaming response: status=${streamResp.status}, data=${JSON.stringify(streamResp.data)}`,
-    );
+    logCardStreamingResponse(log, {
+      key,
+      finished,
+      elapsedMs: Date.now() - startedAt,
+      status: streamResp.status,
+      data: streamResp.data,
+    });
     card.lastUpdated = Date.now();
     incrementCardDapiCount(card);
     markStreamingLifecycleAcknowledged(card, finished);
@@ -294,6 +326,7 @@ async function putAICardStreamingField(
       log?.warn?.("[DingTalk][AICard] Received 401 error, attempting token refresh and retry...");
       try {
         card.accessToken = await getAccessToken(card.config, log);
+        const retryStartedAt = Date.now();
         const retryResp = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, streamBody, {
           ...requestConfig,
           headers: {
@@ -301,9 +334,14 @@ async function putAICardStreamingField(
             "x-acs-dingtalk-access-token": card.accessToken,
           },
         });
-        log?.debug?.(
-          `[DingTalk][AICard] Retry after token refresh succeeded: status=${retryResp.status}`,
-        );
+        logCardStreamingResponse(log, {
+          key,
+          finished,
+          elapsedMs: Date.now() - retryStartedAt,
+          status: retryResp.status,
+          data: retryResp.data,
+          retry: true,
+        });
         card.lastUpdated = Date.now();
         incrementCardDapiCount(card);
         markStreamingLifecycleAcknowledged(card, finished);
