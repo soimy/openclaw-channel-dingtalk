@@ -49,6 +49,61 @@ openclaw configure --section channels
 }
 ```
 
+如果不想把 `Client Secret` 直接写入配置文件，可以把 `clientSecret` 写成 SecretInput 引用。插件仍然兼容普通字符串；引用只在运行时需要真实密钥时解析。
+
+环境变量示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "clientId": "dingxxxxxx",
+      "clientSecret": {
+        "source": "env",
+        "provider": "env",
+        "id": "DINGTALK_CLIENT_SECRET"
+      }
+    }
+  }
+}
+```
+
+本地文件示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "clientId": "dingxxxxxx",
+      "clientSecret": {
+        "source": "file",
+        "provider": "local",
+        "id": "~/.config/openclaw/dingtalk-client-secret"
+      }
+    }
+  }
+}
+```
+
+外部 helper 示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "clientId": "dingxxxxxx",
+      "clientSecret": {
+        "source": "exec",
+        "provider": "secret-helper",
+        "id": "dingtalk/client-secret"
+      }
+    }
+  }
+}
+```
+
+`exec` 会执行 `provider` 指定的二进制，并把 `id` 作为唯一参数传入；`file` 会读取 `id` 指定的本地路径。二者都应只用于受信任的本机配置。修改 SecretInput 指向的文件或 helper 输出后，建议重启 gateway，让 Stream 连接使用新的凭据。
+
 卡片模式示例：
 
 ```json5

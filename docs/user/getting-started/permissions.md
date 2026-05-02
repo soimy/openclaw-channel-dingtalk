@@ -60,7 +60,7 @@ message=auth level of org is not enough
 从开发者后台获取：
 
 - `Client ID`（与开放平台 AppKey 一致；插件将其同时用作钉钉 API 请求中的 `robotCode`）
-- `Client Secret`
+- `Client Secret`（可直接写入配置，也可在配置中用 SecretInput 引用环境变量、文件或外部 helper）
 
 ## 6. 配置联动
 

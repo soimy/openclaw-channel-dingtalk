@@ -37,8 +37,22 @@
   "channels": {
     "dingtalk": {
       "accounts": {
-        "bot_1": { "clientId": "..." },
-        "bot_2": { "clientId": "..." }
+        "bot_1": {
+          "clientId": "ding-bot-1",
+          "clientSecret": {
+            "source": "env",
+            "provider": "env",
+            "id": "DINGTALK_BOT_1_SECRET"
+          }
+        },
+        "bot_2": {
+          "clientId": "ding-bot-2",
+          "clientSecret": {
+            "source": "env",
+            "provider": "env",
+            "id": "DINGTALK_BOT_2_SECRET"
+          }
+        }
       }
     }
   }

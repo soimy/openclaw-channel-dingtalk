@@ -60,6 +60,8 @@ For a multi-account setup:
 pwsh -File scripts/dingtalk-connection-check.ps1 -Config ~/.openclaw/openclaw.json -AccountId main
 ```
 
+If `clientSecret` is configured as a SecretInput reference, the connection check scripts do not read secret files or execute helper commands on behalf of the plugin. Resolve the real secret in your current shell and pass it explicitly with `--client-id` / `--client-secret` or `-ClientId` / `-ClientSecret`. The plugin runtime still resolves SecretInput values from the configured source.
+
 ## Credential Resolution Rules
 
 Both scripts follow the same order:
