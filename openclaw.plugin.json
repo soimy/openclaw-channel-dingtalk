@@ -269,14 +269,7 @@
             "type": "object",
             "description": "Status line visibility toggles for the AI card footer.",
             "additionalProperties": false,
-            "default": {
-              "model": true,
-              "effort": true,
-              "agent": true,
-              "taskTime": false,
-              "tokens": false,
-              "dapiUsage": false
-            },
+            "default": { "model": true, "effort": true, "agent": true, "taskTime": false, "tokens": false, "dapiUsage": false },
             "properties": {
               "model": {
                 "type": "boolean",
@@ -572,14 +565,7 @@
                   "type": "object",
                   "description": "Status line visibility toggles for the AI card footer.",
                   "additionalProperties": false,
-                  "default": {
-                    "model": true,
-                    "effort": true,
-                    "agent": true,
-                    "taskTime": false,
-                    "tokens": false,
-                    "dapiUsage": false
-                  },
+                  "default": { "model": true, "effort": true, "agent": true, "taskTime": false, "tokens": false, "dapiUsage": false },
                   "properties": {
                     "model": {
                       "type": "boolean",

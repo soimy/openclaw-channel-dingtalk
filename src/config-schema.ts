@@ -121,13 +121,7 @@ const DingTalkAccountConfigShape = {
       /** Show the proactive-send permission hint when the runtime detects missing DingTalk proactive permission. */
       enabled: z.boolean().optional().default(true),
       /** Minimum cooldown in hours before the same proactive permission hint can be shown again. */
-      cooldownHours: z
-        .number()
-        .int()
-        .min(1)
-        .max(24 * 30)
-        .optional()
-        .default(24),
+      cooldownHours: z.number().int().min(1).max(24 * 30).optional().default(24),
     })
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
@@ -145,12 +139,7 @@ const DingTalkAccountConfigShape = {
   cardStreamInterval: z.number().int().min(200).optional().default(1000),
 
   /** Cooldown window in milliseconds after AI card trigger errors. Replies fall back to non-card delivery during this period. */
-  aicardDegradeMs: z
-    .number()
-    .int()
-    .min(60_000)
-    .optional()
-    .default(30 * 60 * 1000),
+  aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
 
   /** Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. */
   learningEnabled: z.boolean().optional(),
@@ -186,14 +175,7 @@ const DingTalkAccountConfigShape = {
       dapiUsage: z.boolean().optional().default(false),
     })
     .optional()
-    .default({
-      model: true,
-      effort: true,
-      agent: true,
-      taskTime: false,
-      tokens: false,
-      dapiUsage: false,
-    }),
+    .default({ model: true, effort: true, agent: true, taskTime: false, tokens: false, dapiUsage: false }),
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);

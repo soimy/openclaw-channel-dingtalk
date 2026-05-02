@@ -5,9 +5,9 @@ import {
   CHANNEL_INFLIGHT_NAMESPACE_POLICY,
   createDingTalkGateway,
 } from "./gateway/channel-gateway";
+import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { createDingTalkMessageActions } from "./messaging/channel-actions";
 import { createDingTalkOutbound } from "./messaging/channel-outbound";
-import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./onboarding.js";
 import { createDingTalkStatus } from "./platform/channel-status";
 import { hasConfiguredSecretInput } from "./secret-input";
 import {
@@ -131,4 +131,9 @@ export { getAccessToken } from "./auth";
 export { createAICard, finishAICard, streamAICard } from "./card-service";
 export { detectMediaTypeFromExtension } from "./media-utils";
 export { getLogger } from "./logger-context";
-export { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./send-service";
+export {
+  sendBySession,
+  sendMessage,
+  sendProactiveMedia,
+  uploadMedia,
+} from "./send-service";
