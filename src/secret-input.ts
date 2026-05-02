@@ -103,7 +103,7 @@ export function parseSecretInputString(value: unknown): SecretInput | undefined 
   if (!trimmed) {
     return undefined;
   }
-  const match = trimmed.match(/^<(env|file|exec):([^:>]+):(.+)>$/);
+  const match = trimmed.match(/^<(env|file|exec):([^:>]+):([^>]+)>$/);
   if (!match) {
     return trimmed;
   }

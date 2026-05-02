@@ -2,7 +2,6 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import {
   formatSecretInputResolutionFailure,
   hasConfiguredSecretInput,
-  normalizeSecretInputString,
   resolveDingTalkSecretConfig,
 } from "./secret-input";
 import type { DingTalkChannelConfig, DingTalkConfig } from "./types";
@@ -16,14 +15,12 @@ function normalizeLearningConfig(
 ): DingTalkConfig {
   return {
     ...config,
-    learningEnabled: options.applyDefaults
-      ? (config.learningEnabled ?? false)
-      : config.learningEnabled,
+    learningEnabled: options.applyDefaults ? config.learningEnabled ?? false : config.learningEnabled,
     learningAutoApply: options.applyDefaults
-      ? (config.learningAutoApply ?? false)
+      ? config.learningAutoApply ?? false
       : config.learningAutoApply,
     learningNoteTtlMs: options.applyDefaults
-      ? (config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS)
+      ? config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
       : config.learningNoteTtlMs,
     cardStreamingMode: options.applyDefaults
       ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? "all" : "off"))
@@ -64,10 +61,8 @@ export function mergeAccountWithDefaults(
   channelCfg: DingTalkConfig,
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
-  const { accounts: _accounts, ...defaultCandidate } = channelCfg as DingTalkConfig & {
-    accounts?: unknown;
-    verboseRealtimeStream?: unknown;
-  };
+  const { accounts: _accounts, ...defaultCandidate } =
+    channelCfg as DingTalkConfig & { accounts?: unknown; verboseRealtimeStream?: unknown };
   const defaults = stripRemovedLegacyFields(defaultCandidate as DingTalkConfig);
   const normalizedAccountCfg = stripRemovedLegacyFields(
     normalizeLearningConfig(accountCfg, { applyDefaults: false }),
@@ -159,10 +154,7 @@ function hasOwn(obj: unknown, key: string): boolean {
   return typeof obj === "object" && obj !== null && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-function resolveAgentIdentityEmoji(
-  cfg: OpenClawConfig,
-  agentId?: string | null,
-): string | undefined {
+function resolveAgentIdentityEmoji(cfg: OpenClawConfig, agentId?: string | null): string | undefined {
   const targetAgentId = String(agentId || "").trim();
   if (!targetAgentId) {
     return undefined;
@@ -241,6 +233,7 @@ export function stripTargetPrefix(target: string): { targetId: string; isExplici
 // ============ Onboarding Helper Functions ============
 
 const DEFAULT_ACCOUNT_ID = "default";
+
 
 /**
  * List all DingTalk account IDs from config
@@ -328,19 +321,20 @@ export function resolveDingTalkAccount(
       ...config,
       accountId: id,
       configured: Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret)),
-      clientSecret: normalizeSecretInputString(config.clientSecret) || "",
     };
   }
 
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
-    const merged = mergeAccountWithDefaults(dingtalk as DingTalkConfig, accountConfig);
+    const merged = mergeAccountWithDefaults(
+      dingtalk as DingTalkConfig,
+      accountConfig,
+    );
     const publicMerged = stripRemovedLegacyFields(merged);
     return {
       ...publicMerged,
       accountId: id,
       configured: Boolean(merged.clientId && hasConfiguredSecretInput(merged.clientSecret)),
-      clientSecret: normalizeSecretInputString(merged.clientSecret) || "",
     };
   }
 

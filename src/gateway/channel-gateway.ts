@@ -1,7 +1,10 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import { analyzeCardCallback } from "../card-callback-service";
-import { finalizeActiveCardsForAccount, recoverPendingCardsForAccount } from "../card-service";
 import { handleCardAction } from "../card/card-action-handler";
+import {
+  finalizeActiveCardsForAccount,
+  recoverPendingCardsForAccount,
+} from "../card-service";
 import { resolveRobotCode, resolveRuntimeConfig } from "../config";
 import { ConnectionManager } from "../connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "../dedup";
@@ -170,6 +173,9 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
         debug: config.debug,
         baseLog: ctx.log,
       });
+      // Stream credentials are resolved once per account start. If a file/exec
+      // SecretInput rotates, restart the gateway/account so reconnects use the
+      // new secret.
       const runtimeConfig = await resolveRuntimeConfig(config, pluginLog);
       setCurrentLogger(pluginLog, account.accountId);
 
@@ -494,9 +500,7 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
-            pluginLog?.info?.(
-              `[${account.accountId}] DingTalk Stream client connected successfully`,
-            );
+            pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
             await nativeStopPromise;
           }
         } catch (err: any) {

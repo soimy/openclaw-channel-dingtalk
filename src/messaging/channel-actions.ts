@@ -6,6 +6,7 @@ import { extractToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getConfig, stripTargetPrefix } from "../config";
 import { getLogger } from "../logger-context";
 import { resolveOriginalPeerId } from "../peer-id-registry";
+import { hasConfiguredSecretInput } from "../secret-input";
 import { sendMedia, sendMessage } from "../send-service";
 import { parseBooleanLike } from "../utils";
 
@@ -50,7 +51,7 @@ function inferCardOwnerIdFromTarget(target: string): string | undefined {
 
 function describeDingTalkMessageTool(cfg: OpenClawConfig) {
   const config = getConfig(cfg);
-  const configured = Boolean(config.clientId && config.clientSecret);
+  const configured = Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
     return { actions: [], capabilities: [], schema: null };
   }

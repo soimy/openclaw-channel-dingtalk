@@ -68,6 +68,27 @@ describe("dingtalk setup wizard", () => {
         expect(configured).toBe(false);
     });
 
+    it("status treats a missing env SecretInput as unconfigured", async () => {
+        delete process.env.DINGTALK_MISSING_SETUP_SECRET;
+
+        const configured = await dingtalkSetupWizard.status.resolveConfigured({
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        clientId: "ding_client",
+                        clientSecret: {
+                            source: "env",
+                            provider: "env",
+                            id: "DINGTALK_MISSING_SETUP_SECRET",
+                        },
+                    },
+                },
+            } as any,
+        });
+
+        expect(configured).toBe(false);
+    });
+
     it("allows adding a named account during setup", async () => {
         const confirm = vi.fn();
         const select = vi.fn().mockResolvedValueOnce("new");
@@ -208,6 +229,49 @@ describe("dingtalk setup wizard", () => {
         const dingtalkConfig = cfg.channels?.dingtalk;
         expect(dingtalkConfig?.clientId).toBe("ding_client");
         expect(dingtalkConfig?.clientSecret).toBe("ding_secret");
+    });
+
+    it("preserves existing SecretInput when manual setup saves unchanged credentials", async () => {
+        process.env.DINGTALK_EXISTING_SECRET = "secret-from-env";
+        const note = vi.fn();
+        const text = vi.fn(async (options: { initialValue?: string }) => options.initialValue);
+        const confirm = vi.fn().mockResolvedValueOnce(false);
+        const select = vi
+            .fn()
+            .mockResolvedValueOnce("manual")
+            .mockResolvedValueOnce("open")
+            .mockResolvedValueOnce("open")
+            .mockResolvedValueOnce("markdown");
+
+        const result = await runSetupWizardConfigure({
+            cfg: {
+                channels: {
+                    dingtalk: {
+                        clientId: "ding_client",
+                        clientSecret: {
+                            source: "env",
+                            provider: "env",
+                            id: "DINGTALK_EXISTING_SECRET",
+                        },
+                    },
+                },
+            } as any,
+            prompter: { note, text, confirm, select } as unknown as WizardPrompter,
+        });
+
+        const dingtalkConfig = result.cfg.channels?.dingtalk;
+        expect(dingtalkConfig?.clientId).toBe("ding_client");
+        expect(dingtalkConfig?.clientSecret).toEqual({
+            source: "env",
+            provider: "env",
+            id: "DINGTALK_EXISTING_SECRET",
+        });
+        expect(text).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                initialValue: "<env:env:DINGTALK_EXISTING_SECRET>",
+            }),
+        );
     });
 
     it("configure with disabled groupPolicy skips groupAllowFrom prompt", async () => {

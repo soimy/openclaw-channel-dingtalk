@@ -66,6 +66,31 @@ describe("createDingTalkMessageActions", () => {
         });
     });
 
+    it("does not expose send actions when env SecretInput is missing", () => {
+        const actions = createDingTalkMessageActions();
+
+        expect(
+            actions.describeMessageTool?.({
+                cfg: {
+                    channels: {
+                        dingtalk: {
+                            clientId: "id",
+                            clientSecret: {
+                                source: "env",
+                                provider: "env",
+                                id: "DINGTALK_MISSING_SECRET",
+                            },
+                        },
+                    },
+                },
+            } as any),
+        ).toEqual({
+            actions: [],
+            capabilities: [],
+            schema: null,
+        });
+    });
+
     it("delegates media sends with audioAsVoice derived from action params", async () => {
         const actions = createDingTalkMessageActions();
 

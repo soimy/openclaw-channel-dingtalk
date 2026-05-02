@@ -133,4 +133,8 @@ describe("SecretInput support", () => {
     });
     expect(parseSecretInputString("plain-secret")).toBe("plain-secret");
   });
+
+  it("leaves malformed normalized SecretInput strings as plain secrets", () => {
+    expect(parseSecretInputString("<exec:helper:my>id>")).toBe("<exec:helper:my>id>");
+  });
 });
