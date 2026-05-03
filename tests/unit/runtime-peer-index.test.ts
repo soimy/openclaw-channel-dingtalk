@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 const shared = vi.hoisted(() => ({
   createDocMock: vi.fn(),
   appendToDocMock: vi.fn(),
@@ -58,7 +57,6 @@ const shared = vi.hoisted(() => ({
   ),
   DocCreateAppendErrorMock: class extends Error {
     doc: unknown;
-
     constructor(doc: unknown) {
       super("initial content append failed after document creation");
       this.name = "DocCreateAppendError";
@@ -66,16 +64,13 @@ const shared = vi.hoisted(() => ({
     }
   },
 }));
-
 vi.mock("openclaw/plugin-sdk/core", () => ({
   defineChannelPluginEntry: shared.defineChannelPluginEntryMock,
   emptyPluginConfigSchema: vi.fn(() => ({ schema: {} })),
 }));
-
 vi.mock("openclaw/plugin-sdk/param-readers", () => ({
   readStringParam: shared.readStringParamMock,
 }));
-
 vi.mock("openclaw/plugin-sdk/runtime-store", () => ({
   createPluginRuntimeStore: vi.fn((errorMessage: string) => {
     let runtime: unknown;
@@ -92,18 +87,15 @@ vi.mock("openclaw/plugin-sdk/runtime-store", () => ({
     };
   }),
 }));
-
 vi.mock("openclaw/plugin-sdk/tool-send", () => ({
   extractToolSend: vi.fn((args: Record<string, unknown>) => {
     const to = typeof args.to === "string" ? args.to.trim() : "";
     return to ? { to } : null;
   }),
 }));
-
 vi.mock("../../src/channel", () => ({
   dingtalkPlugin: { id: "dingtalk", meta: { label: "DingTalk" } },
 }));
-
 vi.mock("../../src/docs-service", () => ({
   createDoc: shared.createDocMock,
   appendToDoc: shared.appendToDocMock,
@@ -111,15 +103,12 @@ vi.mock("../../src/docs-service", () => ({
   listDocs: shared.listDocsMock,
   DocCreateAppendError: shared.DocCreateAppendErrorMock,
 }));
-
 vi.mock("../../src/send-service", () => ({
   sendMessage: shared.sendMessageMock,
 }));
-
 vi.mock("../../src/auth", () => ({
   getAccessToken: shared.getAccessTokenMock,
 }));
-
 describe("runtime + peer registry + index plugin", () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -144,26 +133,19 @@ describe("runtime + peer registry + index plugin", () => {
     const peer = await import("../../src/peer-id-registry");
     peer.clearPeerIdRegistry();
   });
-
   it("runtime getter throws before initialization and returns assigned runtime later", async () => {
     const runtime = await import("../../src/runtime");
-
     expect(() => runtime.getDingTalkRuntime()).toThrow("DingTalk runtime not initialized");
-
     const rt = { channel: {} } as any;
     runtime.setDingTalkRuntime(rt);
-
     expect(runtime.getDingTalkRuntime()).toBe(rt);
   });
 
   it("peer id registry preserves original case by lowercased key", async () => {
     const peer = await import("../../src/peer-id-registry");
-
     peer.registerPeerId("CidAbC+123");
-
     expect(peer.resolveOriginalPeerId("cidabc+123")).toBe("CidAbC+123");
     expect(peer.resolveOriginalPeerId("unknown")).toBe("unknown");
-
     peer.clearPeerIdRegistry();
     expect(peer.resolveOriginalPeerId("cidabc+123")).toBe("cidabc+123");
   });
@@ -171,13 +153,10 @@ describe("runtime + peer registry + index plugin", () => {
   it("index plugin defines a channel entry and only registers gateway methods in full mode", async () => {
     const runtimeModule = await import("../../src/runtime");
     const runtimeSpy = vi.spyOn(runtimeModule, "setDingTalkRuntime");
-
     const plugin = (await import("../../index")).default;
-
     const registerChannel = vi.fn();
     const registerGatewayMethod = vi.fn();
     const runtime = { id: "runtime1" } as any;
-
     await plugin.register({
       runtime,
       registrationMode: "full",
@@ -364,6 +343,7 @@ describe("runtime + peer registry + index plugin", () => {
   it("registered connector send/status/probe methods handle fallback content and account status", async () => {
     const plugin = (await import("../../index")).default;
     const registerGatewayMethod = vi.fn();
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
     await plugin.register({
       runtime: {},
@@ -382,7 +362,7 @@ describe("runtime + peer registry + index plugin", () => {
           },
         },
       },
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      logger,
     } as any);
 
     const sendHandler = registerGatewayMethod.mock.calls.find(
@@ -430,6 +410,24 @@ describe("runtime + peer registry + index plugin", () => {
       }),
     );
 
+    shared.sendMessageMock.mockRejectedValueOnce(new Error("send exploded"));
+    const respondSendError = vi.fn();
+    await sendHandler?.({
+      respond: respondSendError,
+      params: { target: "user:staff_3", content: "hi" },
+    });
+    expect(respondSendError).toHaveBeenCalledWith(false, { error: "send exploded" });
+    expect(logger.warn).toHaveBeenCalledWith("[DingTalk][GatewayRPC] send failed: send exploded");
+
+    const respondInvalidTarget = vi.fn();
+    await sendHandler?.({
+      respond: respondInvalidTarget,
+      params: { target: "staff_3", content: "hi" },
+    });
+    expect(respondInvalidTarget).toHaveBeenCalledWith(false, {
+      error: "target must start with user: or group:",
+    });
+
     const respondStatus = vi.fn();
     await statusHandler?.({ respond: respondStatus, params: {} });
     expect(respondStatus).toHaveBeenCalledWith(
@@ -440,9 +438,9 @@ describe("runtime + peer registry + index plugin", () => {
           expect.objectContaining({
             accountId: "default",
             configured: true,
-            clientId: "default-id",
+            clientId: "****t-id",
           }),
-          expect.objectContaining({ accountId: "team", configured: true, clientId: "team-id" }),
+          expect.objectContaining({ accountId: "team", configured: true, clientId: "****m-id" }),
         ]),
       }),
     );
@@ -453,7 +451,7 @@ describe("runtime + peer registry + index plugin", () => {
       expect.objectContaining({ clientId: "team-id", clientSecret: "team-sec" }),
       expect.any(Object),
     );
-    expect(respondProbe).toHaveBeenCalledWith(true, { ok: true, clientId: "team-id" });
+    expect(respondProbe).toHaveBeenCalledWith(true, { ok: true, clientId: "****m-id" });
   });
 
   it("returns partial-success metadata when initial doc append fails after creation", async () => {

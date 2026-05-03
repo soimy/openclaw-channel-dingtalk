@@ -106,6 +106,17 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function maskClientId(clientId: string | undefined): string | null {
+  if (!clientId) {
+    return null;
+  }
+  return clientId.length <= 4 ? "****" : `****${clientId.slice(-4)}`;
+}
+
+function isConnectorSendTarget(target: string): boolean {
+  return /^(user|group):\S+$/.test(target);
+}
+
 async function sendGatewayMessage(params: {
   api: OpenClawPluginApi;
   respond: GatewayMethodContext["respond"];
@@ -120,13 +131,20 @@ async function sendGatewayMessage(params: {
   if (!config.clientId || !config.clientSecret) {
     return params.respond(false, { error: "DingTalk not configured" });
   }
-  const result = await sendMessage(config, params.target, params.content, {
-    log: params.api.logger,
-    accountId,
-    conversationId: params.target,
-    storePath: params.storePath,
-    forceMarkdown: params.useAICard === false,
-  });
+  let result: Awaited<ReturnType<typeof sendMessage>>;
+  try {
+    result = await sendMessage(config, params.target, params.content, {
+      log: params.api.logger,
+      accountId,
+      conversationId: params.target,
+      storePath: params.storePath,
+      forceMarkdown: params.useAICard === false,
+    });
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "send failed");
+    params.api.logger?.warn?.(`[DingTalk][GatewayRPC] send failed: ${message}`);
+    return params.respond(false, { error: message });
+  }
   return params.respond(
     result.ok,
     result.ok
@@ -202,6 +220,9 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
       if (!content) {
         return respond(false, { error: "content or message is required" });
       }
+      if (!isConnectorSendTarget(target)) {
+        return respond(false, { error: "target must start with user: or group:" });
+      }
       return sendGatewayMessage({
         api,
         respond,
@@ -228,7 +249,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
             configured: account.configured,
             enabled: account.enabled !== false,
             name: account.name ?? null,
-            clientId: account.clientId || null,
+            clientId: maskClientId(account.clientId),
           };
         }),
       });
@@ -245,9 +266,11 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
       }
       try {
         await getAccessToken(config, api.logger);
-        return respond(true, { ok: true, clientId: config.clientId });
+        return respond(true, { ok: true, clientId: maskClientId(config.clientId) });
       } catch (error: unknown) {
-        return respond(false, { error: getErrorMessage(error, "probe failed") });
+        const message = getErrorMessage(error, "probe failed");
+        api.logger?.warn?.(`[DingTalk][GatewayRPC] probe failed: ${message}`);
+        return respond(false, { error: message });
       }
     },
   );

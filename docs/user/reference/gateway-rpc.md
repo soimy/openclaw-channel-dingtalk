@@ -1,21 +1,21 @@
-# Gateway RPC compatibility
+# Gateway RPC 兼容层
 
-This plugin exposes DingTalk Gateway RPC methods in two namespaces:
+本插件现在提供两组 DingTalk Gateway RPC 命名空间：
 
-- `dingtalk.*` is the canonical OpenClaw DingTalk plugin namespace.
-- `dingtalk-connector.*` is a compatibility namespace for existing connector-style callers.
+- `dingtalk.*`：本仓库的 canonical OpenClaw DingTalk 插件命名空间。
+- `dingtalk-connector.*`：仅面向已有 connector 风格调用方的兼容命名空间。
 
-The compatibility namespace is a thin adapter over this repository's existing DingTalk implementation. It does not vendor, depend on, or promise feature parity with any separate DingTalk connector project. New callers should prefer the canonical `dingtalk.*` methods when they do not need compatibility with an existing `dingtalk-connector.*` integration.
+`dingtalk-connector.*` 是本仓库现有 DingTalk 能力之上的薄适配层。它不 vendored、不依赖、也不承诺兼容任何独立的 DingTalk connector 项目。新调用方如果没有历史兼容需求，应优先使用 `dingtalk.*`。
 
-## Compatibility boundary
+## 兼容边界
 
-The `dingtalk-connector.*` methods keep the smallest stable surface needed by Gateway callers:
+`dingtalk-connector.*` 只保留 Gateway 调用方需要的最小稳定表面：
 
-- `dingtalk-connector.sendToUser` maps `userId` to `user:<userId>` and accepts `content` or `message`.
-- `dingtalk-connector.sendToGroup` maps `openConversationId` to `group:<openConversationId>` and accepts `content` or `message`.
-- `dingtalk-connector.send` accepts the canonical `target` string directly.
-- `dingtalk-connector.status` reports configured DingTalk accounts.
-- `dingtalk-connector.probe` validates account credentials by requesting an access token.
-- `dingtalk-connector.docs.*` aliases share the same handlers as `dingtalk.docs.*`.
+- `dingtalk-connector.sendToUser`：把 `userId` 映射为 `user:<userId>`，内容参数接受 `content` 或 `message`。
+- `dingtalk-connector.sendToGroup`：把 `openConversationId` 映射为 `group:<openConversationId>`，内容参数接受 `content` 或 `message`。
+- `dingtalk-connector.send`：直接接受 canonical `target` 字符串；当前只接受 `user:*` 或 `group:*`，避免在 RPC 边界透传无法识别的目标格式。
+- `dingtalk-connector.status`：返回已配置账号的配置状态；`clientId` 只返回脱敏尾号，不暴露完整凭证标识。
+- `dingtalk-connector.probe`：通过请求 access token 验证账号凭证；成功响应同样只返回脱敏后的 `clientId`。
+- `dingtalk-connector.docs.*`：与 `dingtalk.docs.*` 共享同一组 handler，只是兼容别名。
 
-The compatibility methods intentionally reuse the canonical auth, send, docs, usage-tracking, and outbound-context persistence paths. If a future compatibility request requires behavior that differs from `dingtalk.*`, document that difference here before expanding the adapter.
+这些兼容方法复用 canonical auth、send、docs、usage-tracking 和 outbound-context persistence 路径。后续如果某个兼容请求需要与 `dingtalk.*` 不同的行为，必须先在这里说明差异，再扩展适配层。
