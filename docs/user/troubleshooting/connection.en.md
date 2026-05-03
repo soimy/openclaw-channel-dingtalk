@@ -165,6 +165,41 @@ If the script cannot produce a real HTTP status, investigate:
 - proxy configuration
 - TLS certificate trust
 
+### Case 4: bare `Send message failed:` with `AggregateError ETIMEDOUT` (IPv6 routing problem)
+
+Symptoms:
+
+- Logs show repeated `[DingTalk] Send message failed:` with an empty error message,
+  immediately followed by `[DingTalk] Reply failed: Reply send failed`.
+- Inbound reception works fine and ack reactions succeed, but outbound replies
+  via `sendBySession` (sessionWebhook URL on `oapi.dingtalk.com`) consistently
+  time out at the 10s axios timeout.
+- Sometimes only the `reply-strategy-markdown` `finalize()` fallback ("✅ Done")
+  appears to reach the user, masking the real reply.
+
+Root cause: on some hosts (notably some Aliyun ECS instances), `oapi.dingtalk.com`
+resolves to both IPv4 (e.g. `161.117.70.119`) and IPv6 (`240b:4000:f20::*`),
+but outbound to the IPv6 range is blocked at the network layer. In a fresh
+Node process, Happy Eyeballs falls back to IPv4 within ~250ms; in long-lived
+gateway processes the fallback can occasionally stall past axios's 10s timeout
+and surface as `AggregateError code=ETIMEDOUT` with empty `err.message`.
+
+Quick check from the affected host:
+
+```bash
+curl -4 -sS -o /dev/null -w "v4 %{http_code} %{time_total}s\n" --max-time 5 https://oapi.dingtalk.com/
+curl -6 -sS -o /dev/null -w "v6 %{http_code} %{time_total}s\n" --max-time 5 https://oapi.dingtalk.com/
+```
+
+If `v4` returns `200` but `v6` fails or hangs, set the opt-in env var before
+starting the gateway / openclaw process to force IPv4 only:
+
+```bash
+export OPENCLAW_DINGTALK_FORCE_IPV4=1
+```
+
+When the variable is unset, behavior is unchanged.
+
 ## What the Plugin Now Logs
 
 Startup failures now try to include more detail when DingTalk returns a structured error response, for example:
