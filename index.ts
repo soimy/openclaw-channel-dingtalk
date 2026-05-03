@@ -19,6 +19,16 @@ type GatewayMethodContext = Pick<
   "context" | "params" | "respond"
 >;
 
+/**
+ * Register the canonical OpenClaw DingTalk docs RPC namespace.
+ *
+ * The `dingtalk-connector.docs.*` names below are compatibility aliases for
+ * existing connector-style Gateway callers that already use the
+ * `dingtalk-connector` prefix. They intentionally share the same handlers as
+ * `dingtalk.docs.*`; this plugin does not vendor or mirror a separate
+ * third-party connector implementation. New OpenClaw callers should prefer the
+ * canonical `dingtalk.docs.*` namespace.
+ */
 function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
   const createHandler = async ({ respond, params }: GatewayMethodContext) => {
     const accountId = readStringParam(params, "accountId");
@@ -134,6 +144,16 @@ async function sendGatewayMessage(params: {
   );
 }
 
+/**
+ * Register compatibility Gateway RPCs for connector-style DingTalk callers.
+ *
+ * Compatibility target: callers that address DingTalk through the historical
+ * `dingtalk-connector.*` Gateway namespace. The maintenance boundary is only
+ * this thin parameter/response adapter; canonical plugin behavior, auth, docs,
+ * sending, and persistence remain implemented by this repository's existing
+ * `dingtalk.*` services. Do not add connector-only behavior here unless it is
+ * also documented as part of this compatibility surface.
+ */
 function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "dingtalk-connector.sendToUser",
