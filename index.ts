@@ -133,11 +133,7 @@ async function sendGatewayMessage(params: {
       ? {
           ok: true,
           target: params.target,
-          messageId:
-            result.messageId ??
-            result.tracking?.processQueryKey ??
-            result.tracking?.cardInstanceId ??
-            null,
+          messageId: result.messageId ?? null,
           tracking: result.tracking ?? null,
         }
       : { error: result.error || "send failed" },

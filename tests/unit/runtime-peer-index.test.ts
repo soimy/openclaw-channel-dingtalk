@@ -395,6 +395,11 @@ describe("runtime + peer registry + index plugin", () => {
       (call: any[]) => call[0] === "dingtalk-connector.probe",
     )?.[1];
 
+    shared.sendMessageMock.mockResolvedValueOnce({
+      ok: true,
+      tracking: { processQueryKey: "process_1", cardInstanceId: "card_1" },
+    });
+
     const respondSend = vi.fn();
     await sendHandler?.({
       context: { cronStorePath: "/tmp/rpc-store.json" },
@@ -418,7 +423,11 @@ describe("runtime + peer registry + index plugin", () => {
     );
     expect(respondSend).toHaveBeenCalledWith(
       true,
-      expect.objectContaining({ target: "user:staff_2" }),
+      expect.objectContaining({
+        target: "user:staff_2",
+        messageId: null,
+        tracking: { processQueryKey: "process_1", cardInstanceId: "card_1" },
+      }),
     );
 
     const respondStatus = vi.fn();
