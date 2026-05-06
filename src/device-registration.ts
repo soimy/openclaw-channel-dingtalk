@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import httpClient from "./http-client.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -211,35 +210,4 @@ export async function beginDeviceRegistration(): Promise<DeviceRegistrationSessi
   };
 
   return { verificationUrl, waitForResult };
-}
-
-// ── Browser helper ─────────────────────────────────────────────────────────
-
-export function openUrlInBrowser(url: string): void {
-  // Validate URL before handing to OS launcher
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".dingtalk.com")) {
-      return;
-    }
-  } catch {
-    return;
-  }
-
-  const platform = process.platform;
-  let bin: string;
-  let args: string[];
-  if (platform === "darwin") {
-    bin = "open";
-    args = [url];
-  } else if (platform === "win32") {
-    bin = "cmd";
-    args = ["/c", "start", "", url];
-  } else {
-    bin = "xdg-open";
-    args = [url];
-  }
-  execFile(bin, args, (err) => {
-    void err;
-  });
 }

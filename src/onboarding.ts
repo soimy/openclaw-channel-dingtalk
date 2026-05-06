@@ -9,7 +9,6 @@ import { DEFAULT_ACCOUNT_ID, formatDocsLink, normalizeAccountId } from "openclaw
 import { listDingTalkAccountIds, resolveDingTalkAccount } from "./config.js";
 import {
   beginDeviceRegistration,
-  openUrlInBrowser,
   RegistrationError,
 } from "./device-registration.js";
 import {
@@ -394,15 +393,12 @@ async function configureDingTalkAccount(params: {
     try {
       const session = await beginDeviceRegistration();
 
-      openUrlInBrowser(session.verificationUrl);
-
       await prompter.note(
         [
-          "Opened the authorization page in your browser.",
-          "Scan the authorization code in DingTalk to finish registration.",
-          "",
-          "If the browser did not open automatically, visit this link manually:",
+          "Open this authorization page in your browser:",
           session.verificationUrl,
+          "",
+          "Scan the authorization code in DingTalk to finish registration.",
         ].join("\n"),
         "DingTalk bot auto-registration",
       );

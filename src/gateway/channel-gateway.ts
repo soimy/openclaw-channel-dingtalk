@@ -173,7 +173,7 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
         debug: config.debug,
         baseLog: ctx.log,
       });
-      // Stream credentials are resolved once per account start. If a file/exec
+      // Stream credentials are resolved once per account start. If a file
       // SecretInput rotates, restart the gateway/account so reconnects use the
       // new secret.
       const runtimeConfig = await resolveRuntimeConfig(config, pluginLog);

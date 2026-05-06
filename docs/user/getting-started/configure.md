@@ -85,24 +85,7 @@ openclaw configure --section channels
 }
 ```
 
-外部 helper 示例：
-
-```json5
-{
-  "channels": {
-    "dingtalk": {
-      "clientId": "dingxxxxxx",
-      "clientSecret": {
-        "source": "exec",
-        "provider": "secret-helper",
-        "id": "dingtalk/client-secret"
-      }
-    }
-  }
-}
-```
-
-`exec` 会执行 `provider` 指定的二进制，并把 `id` 作为唯一参数传入；`file` 会读取 `id` 指定的本地路径。二者都应只用于受信任的本机配置。修改 SecretInput 指向的文件或 helper 输出后，建议重启 gateway，让 Stream 连接使用新的凭据。
+`file` 会读取 `id` 指定的本地路径，应只用于受信任的本机配置。修改 SecretInput 指向的文件后，建议重启 gateway，让 Stream 连接使用新的凭据。
 
 卡片模式示例：
 

@@ -9,11 +9,9 @@ vi.mock("openclaw/plugin-sdk/setup", () => ({
 }));
 
 const mockBeginDeviceRegistration = vi.fn();
-const mockOpenUrlInBrowser = vi.fn();
 
 vi.mock("../../src/device-registration", () => ({
   beginDeviceRegistration: (...args: unknown[]) => mockBeginDeviceRegistration(...args),
-  openUrlInBrowser: (...args: unknown[]) => mockOpenUrlInBrowser(...args),
   RegistrationError: class RegistrationError extends Error {
     constructor(message: string) {
       super(message);
@@ -59,7 +57,6 @@ async function runSetupWizardConfigure(params: {
 describe("dingtalk setup wizard", () => {
     beforeEach(() => {
         mockBeginDeviceRegistration.mockReset();
-        mockOpenUrlInBrowser.mockReset();
     });
 
     it("status returns configured=false for empty config", async () => {
@@ -339,8 +336,9 @@ describe("dingtalk setup wizard", () => {
         expect(dingtalkConfig.clientId).toBe("ding-auto-id");
         expect(dingtalkConfig.clientSecret).toBe("ding-auto-secret-12345");
         expect(text).not.toHaveBeenCalled();
-        expect(mockOpenUrlInBrowser).toHaveBeenCalledWith(
-            "https://oapi.dingtalk.com/verify?code=test",
+        expect(note).toHaveBeenCalledWith(
+            expect.stringContaining("https://oapi.dingtalk.com/verify?code=test"),
+            "DingTalk bot auto-registration",
         );
     });
 

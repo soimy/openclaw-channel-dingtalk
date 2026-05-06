@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import httpClient from "../../src/http-client";
 
@@ -8,14 +7,9 @@ vi.mock("../../src/http-client", () => ({
   },
 }));
 
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-}));
-
 import {
   RegistrationError,
   beginDeviceRegistration,
-  openUrlInBrowser,
 } from "../../src/device-registration";
 
 // Helper: mock a sequence of POST responses
@@ -238,67 +232,5 @@ describe("beginDeviceRegistration", () => {
     expect(state.settled).toBe(true);
     expect(state.error).toBeInstanceOf(RegistrationError);
     expect((state.error as Error).message).toContain("cancelled");
-  });
-});
-
-describe("openUrlInBrowser", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("calls execFile with 'open' on darwin", () => {
-    const original = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
-    try {
-      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
-      expect(execFile).toHaveBeenCalledWith("open", ["https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
-    } finally {
-      Object.defineProperty(process, "platform", { value: original });
-    }
-  });
-
-  it("calls execFile with 'xdg-open' on linux", () => {
-    const original = process.platform;
-    Object.defineProperty(process, "platform", { value: "linux" });
-    try {
-      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
-      expect(execFile).toHaveBeenCalledWith("xdg-open", ["https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
-    } finally {
-      Object.defineProperty(process, "platform", { value: original });
-    }
-  });
-
-  it("calls execFile with 'cmd' on win32", () => {
-    const original = process.platform;
-    Object.defineProperty(process, "platform", { value: "win32" });
-    try {
-      openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test");
-      expect(execFile).toHaveBeenCalledWith("cmd", ["/c", "start", "", "https://oapi.dingtalk.com/verify?code=test"], expect.any(Function));
-    } finally {
-      Object.defineProperty(process, "platform", { value: original });
-    }
-  });
-
-  it("does not throw when execFile fails", () => {
-    vi.mocked(execFile).mockImplementationOnce(((...args: unknown[]) => {
-      const cb = args[args.length - 1] as (err: Error | null) => void;
-      cb(new Error("no browser"));
-    }) as typeof execFile);
-    expect(() => openUrlInBrowser("https://oapi.dingtalk.com/verify?code=test")).not.toThrow();
-  });
-
-  it("does not call execFile for non-https or non-dingtalk URLs", () => {
-    const original = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
-    try {
-      openUrlInBrowser("http://evil.com");
-      expect(execFile).not.toHaveBeenCalled();
-      openUrlInBrowser("https://evil.com");
-      expect(execFile).not.toHaveBeenCalled();
-      openUrlInBrowser("file:///etc/passwd");
-      expect(execFile).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(process, "platform", { value: original });
-    }
   });
 });

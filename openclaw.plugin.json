@@ -43,7 +43,7 @@
                 "additionalProperties": false,
                 "required": ["source", "provider", "id"],
                 "properties": {
-                  "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                  "source": { "type": "string", "enum": ["env", "file"] },
                   "provider": {
                     "type": "string",
                     "minLength": 1,
@@ -59,7 +59,7 @@
                 }
               }
             ],
-            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file/exec. Security boundary: file reads the configured local path, and exec runs the configured provider binary with id as its only argument; use file/exec only with trusted plugin configuration."
+            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file. Security boundary: file reads the configured local path; use file only with trusted plugin configuration."
           },
           "dmPolicy": {
             "type": "string",
@@ -349,7 +349,7 @@
                       "additionalProperties": false,
                       "required": ["source", "provider", "id"],
                       "properties": {
-                        "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                        "source": { "type": "string", "enum": ["env", "file"] },
                         "provider": {
                           "type": "string",
                           "minLength": 1,
@@ -365,7 +365,7 @@
                       }
                     }
                   ],
-                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file/exec. Security boundary: file reads the configured local path, and exec runs the configured provider binary with id as its only argument; use file/exec only with trusted plugin configuration."
+                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file. Security boundary: file reads the configured local path; use file only with trusted plugin configuration."
                 },
                 "dmPolicy": {
                   "type": "string",
@@ -651,7 +651,7 @@
         },
         "clientSecret": {
           "label": "DingTalk Client Secret",
-          "help": "App Secret used to obtain DingTalk access tokens. SecretInput file/exec references are for trusted plugin configuration because file reads a local path and exec runs the configured provider binary.",
+          "help": "App Secret used to obtain DingTalk access tokens. SecretInput file references are for trusted plugin configuration because file reads a local path.",
           "sensitive": true
         },
         "dmPolicy": {

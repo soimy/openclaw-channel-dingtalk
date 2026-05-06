@@ -33,7 +33,7 @@ describe("auth.getAccessToken SecretInput cache path", () => {
 
     const config = {
       clientId: "ding_secret_ref",
-      clientSecret: { source: "exec", provider: "helper", id: "client-secret" },
+      clientSecret: { source: "file", provider: "local", id: "/tmp/client-secret" },
     } as any;
     const token1 = await getAccessToken(config);
     const token2 = await getAccessToken(config);

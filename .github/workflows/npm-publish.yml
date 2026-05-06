@@ -71,6 +71,12 @@ jobs:
             - name: Run tests
               run: pnpm test
 
+            - name: Build runtime package
+              run: pnpm run build
+
+            - name: Verify package runtime output
+              run: pnpm run pack:check
+
             - name: Publish package to npm
               run: |
                   # Force trusted publishing path: remove any legacy token auth context.

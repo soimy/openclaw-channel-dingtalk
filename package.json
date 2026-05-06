@@ -19,19 +19,34 @@
     "url": "git+https://github.com/soimy/openclaw-channel-dingtalk.git"
   },
   "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
     "index.ts",
     "src/**/*.ts",
     "openclaw.plugin.json",
-    "clawbot.plugin.json"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "packageManager": "pnpm@10.33.0",
-  "main": "index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
+    "build": "pnpm run build:runtime && pnpm run build:types",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "build:types": "tsc -p tsconfig.build.json",
     "format": "oxfmt --write package.json tsconfig.json index.ts src/*.ts",
     "format:check": "oxfmt --check package.json tsconfig.json index.ts src/*.ts",
     "lint": "oxlint --type-aware index.ts src",
@@ -41,6 +56,8 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs --host 127.0.0.1 --port 4173",
     "monitor:stream": "node scripts/dingtalk-stream-monitor.mjs",
+    "pack:check": "node scripts/verify-runtime-package.mjs",
+    "prepack": "pnpm run build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "type-check": "tsc -p tsconfig.json"
@@ -56,9 +73,10 @@
   "devDependencies": {
     "@types/node": "^25.2.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "esbuild": "^0.27.3",
     "oxfmt": "0.34.0",
-    "oxlint": "^1.49.0",
-    "oxlint-tsgolint": "^0.18.0",
+    "oxlint": "1.49.0",
+    "oxlint-tsgolint": "0.18.1",
     "typescript": "^5.3.0",
     "vitepress": "1.6.4",
     "vitest": "^3.2.4"
@@ -80,6 +98,9 @@
     },
     "extensions": [
       "./index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
     ],
     "channels": [
       "dingtalk"

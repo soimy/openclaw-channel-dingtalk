@@ -99,6 +99,12 @@ jobs:
             - name: Run tests
               run: pnpm test
 
+            - name: Build runtime package
+              run: pnpm run build
+
+            - name: Verify package runtime output
+              run: pnpm run pack:check
+
             - name: Publish package to ClawHub
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json

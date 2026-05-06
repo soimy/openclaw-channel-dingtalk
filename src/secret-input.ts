@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { resolveRelativePath } from "./path-utils";
 
 export type SecretInputRef = {
-  source: "env" | "file" | "exec";
+  source: "env" | "file";
   provider: string;
   id: string;
 };
@@ -19,13 +17,10 @@ export type SecretInputResolutionFailure = {
   reason: string;
 };
 
-export const SECRET_INPUT_EXEC_TIMEOUT_MS = 5000;
-
 type SecretInputLog = {
   warn?: (message: string, data?: unknown) => void;
 };
 
-const execFileAsync = promisify(execFile);
 const SECRET_INPUT_PROVIDER_PATTERN = /^[^:>]+$/;
 const SECRET_INPUT_ID_PATTERN = /^[^>]+$/;
 
@@ -49,7 +44,7 @@ export function buildSecretInputSchema() {
   return z.union([
     z.string(),
     z.object({
-      source: z.enum(["env", "file", "exec"]),
+      source: z.enum(["env", "file"]),
       provider: z.string().min(1).max(1024).regex(SECRET_INPUT_PROVIDER_PATTERN),
       id: z.string().min(1).max(1024).regex(SECRET_INPUT_ID_PATTERN),
     }),
@@ -62,7 +57,7 @@ export function isSecretInputRef(value: unknown): value is SecretInputRef {
   }
   const ref = value as SecretInputRef;
   return (
-    (ref.source === "env" || ref.source === "file" || ref.source === "exec") &&
+    (ref.source === "env" || ref.source === "file") &&
     typeof ref.provider === "string" &&
     ref.provider.trim().length > 0 &&
     SECRET_INPUT_PROVIDER_PATTERN.test(ref.provider) &&
@@ -82,9 +77,9 @@ export function hasConfiguredSecretInput(value: unknown): boolean {
   if (value.source === "env") {
     return Boolean(process.env[value.id]?.trim());
   }
-  // file/exec references are considered configured when the reference shape is
-  // present. The actual filesystem/process lookup happens at runtime so status
-  // checks can stay side-effect free.
+  // File references are considered configured when the reference shape is
+  // present. The actual filesystem lookup happens at runtime so status checks
+  // can stay side-effect free.
   return true;
 }
 
@@ -107,7 +102,7 @@ export function parseSecretInputString(value: unknown): SecretInput | undefined 
   if (!trimmed) {
     return undefined;
   }
-  const match = trimmed.match(/^<(env|file|exec):([^:>]+):([^>]+)>$/);
+  const match = trimmed.match(/^<(env|file):([^:>]+):([^>]+)>$/);
   if (!match) {
     return trimmed;
   }
@@ -149,50 +144,21 @@ export async function resolveSecretInputStringWithFailure(
     });
     return { failure };
   }
-  if (value.source === "file") {
-    try {
-      // Trust boundary: file SecretInput reads the configured local path. Use it
-      // only with trusted plugin configuration.
-      const filePath = resolveRelativePath(value.id);
-      const secret = (await readFile(filePath, "utf8")).trim();
-      if (secret) {
-        return { value: secret };
-      }
-      return { failure: buildSecretInputFailure(value, "file secret is empty") };
-    } catch (error) {
-      const failure = buildSecretInputFailure(
-        value,
-        error instanceof Error ? error.message : String(error),
-      );
-      log?.warn?.("[DingTalk][SecretInput] Failed to read file secret", {
-        provider: value.provider,
-        id: value.id,
-        error: failure.reason,
-      });
-      return { failure };
-    }
-  }
   try {
-    // Trust boundary: exec SecretInput runs the configured provider binary with
-    // the secret id as its only argument. Use it only with trusted plugin
-    // configuration; execFile avoids shell interpolation but still executes the
-    // selected program.
-    const result = await execFileAsync(value.provider, [value.id], {
-      encoding: "utf8",
-      timeout: SECRET_INPUT_EXEC_TIMEOUT_MS,
-      windowsHide: true,
-    });
-    const secret = String(result.stdout).trim();
+    // Trust boundary: file SecretInput reads the configured local path. Use it
+    // only with trusted plugin configuration.
+    const filePath = resolveRelativePath(value.id);
+    const secret = (await readFile(filePath, "utf8")).trim();
     if (secret) {
       return { value: secret };
     }
-    return { failure: buildSecretInputFailure(value, "exec secret output is empty") };
+    return { failure: buildSecretInputFailure(value, "file secret is empty") };
   } catch (error) {
     const failure = buildSecretInputFailure(
       value,
       error instanceof Error ? error.message : String(error),
     );
-    log?.warn?.("[DingTalk][SecretInput] Failed to resolve exec secret", {
+    log?.warn?.("[DingTalk][SecretInput] Failed to read file secret", {
       provider: value.provider,
       id: value.id,
       error: failure.reason,

@@ -52,6 +52,22 @@ describe("SecretInput support", () => {
     });
   });
 
+  it("rejects exec SecretInput references", () => {
+    expect(
+      DingTalkConfigSchema.safeParse({
+        clientId: "id",
+        clientSecret: {
+          source: "exec",
+          provider: "secret-helper",
+          id: "dingtalk/client-secret",
+        },
+      }).success,
+    ).toBe(false);
+    expect(parseSecretInputString("<exec:secret-helper:dingtalk/client-secret>")).toBe(
+      "<exec:secret-helper:dingtalk/client-secret>",
+    );
+  });
+
   it("treats env SecretInput as configured only when the env value exists", () => {
     process.env.DINGTALK_TEST_SECRET = "sec-from-env";
 
@@ -140,7 +156,7 @@ describe("SecretInput support", () => {
   });
 
   it("rejects SecretInput refs that cannot round-trip through normalized placeholders", () => {
-    const providerWithColon = { source: "exec", provider: "vault:kv", id: "my-secret" } as const;
+    const providerWithColon = { source: "env", provider: "vault:kv", id: "my-secret" } as const;
     const idWithClosingBracket = { source: "file", provider: "local", id: "my>secret" } as const;
 
     expect(

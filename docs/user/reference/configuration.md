@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否启用插件 |
 | `clientId` | string | 必填 | 钉钉 AppKey；同时作为钉钉 API 请求中的 `robotCode` |
-| `clientSecret` | string \| SecretInput | 必填 | 钉钉 AppSecret；可直接填写字符串，也可引用环境变量、文件或外部 helper |
+| `clientSecret` | string \| SecretInput | 必填 | 钉钉 AppSecret；可直接填写字符串，也可引用环境变量或文件 |
 | `dmPolicy` | string | `open` | 私聊策略 |
 | `groupPolicy` | string | `open` | 群聊策略 |
 | `allowFrom` | string[] | `[]` | 私聊白名单 |
@@ -70,30 +70,27 @@ SecretInput 对象字段：
 
 | 字段 | 说明 |
 | --- | --- |
-| `source` | 密钥来源：`env`、`file` 或 `exec` |
-| `provider` | 来源提供者。`env` 通常写 `env`；`file` 可写 `local`；`exec` 写要执行的二进制或命令路径 |
-| `id` | 密钥标识。`env` 为环境变量名；`file` 为本地文件路径；`exec` 为传给 helper 的唯一参数 |
+| `source` | 密钥来源：`env` 或 `file` |
+| `provider` | 来源提供者。`env` 通常写 `env`；`file` 可写 `local` |
+| `id` | 密钥标识。`env` 为环境变量名；`file` 为本地文件路径 |
 
 语法限制：
 
 - `provider` 不能为空，最长 `1024` 字符，不能包含 `:` 或 `>`
 - `id` 不能为空，最长 `1024` 字符，不能包含 `>`
 - `file` 的 `id` 支持 `~` 与相对路径解析
-- `exec` 会读取 helper 的 stdout，并去掉首尾空白；helper 超时时间为 `5s`
 
 解析时机：
 
 - 获取 DingTalk access token 时，如果 token 缓存未命中，会解析 `clientSecret`
 - 启动 Stream 连接时，会为每个账号解析一次运行时凭据
-- 状态展示、配置向导展示等路径只显示规范化引用，不会读取文件或执行 helper
-- `env` 引用会在配置态检查时确认环境变量是否存在；`file` / `exec` 为避免副作用，只在运行时解析
+- 状态展示、配置向导展示等路径只显示规范化引用，不会读取文件
+- `env` 引用会在配置态检查时确认环境变量是否存在；`file` 为避免副作用，只在运行时解析
 
 安全边界：
 
 - `file` 会读取配置中指定的本地路径
-- `exec` 会执行配置中指定的二进制，并把 `id` 作为唯一参数传入
-- `execFile` 不经过 shell 插值，但仍然会执行选中的程序
-- 仅在受信任的插件配置环境中使用 `file` / `exec`
+- 仅在受信任的插件配置环境中使用 `file`
 
 如果 SecretInput 解析失败，插件会在发起 DingTalk API 请求前抛出本地错误，并在日志中带上 `source` / `provider` / `id` / 失败原因，方便定位配置问题。
 
