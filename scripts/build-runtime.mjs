@@ -6,7 +6,6 @@ await rm("dist", { recursive: true, force: true });
 await build({
     bundle: true,
     entryPoints: ["index.ts"],
-    external: ["openclaw", "openclaw/*", "@openclaw/*"],
     format: "esm",
     logLevel: "info",
     outfile: "dist/index.js",

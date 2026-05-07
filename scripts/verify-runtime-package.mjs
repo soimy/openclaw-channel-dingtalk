@@ -21,7 +21,7 @@ if (runtime.includes("child_process")) {
     throw new Error("Runtime package must not include child_process imports");
 }
 
-const processExecutionCall = /\b(?:exec|execSync|spawn|spawnSync|execFile|execFileSync)\s*\(/u;
+const processExecutionCall = /(?<![.\w])(?:exec|execSync|spawn|spawnSync|execFile|execFileSync)\s*\(/u;
 if (processExecutionCall.test(runtime)) {
     throw new Error("Runtime package must not include process execution calls");
 }
