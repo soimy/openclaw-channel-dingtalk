@@ -302,7 +302,7 @@ describe('send-service media branches', () => {
         expect(result).toMatchObject({ ok: true, mediaId: '@media_card_embed_ctx' });
     });
 
-    it('sendBySession uses native image body when upload succeeds', async () => {
+    it('sendBySession embeds uploaded images in markdown when upload succeeds', async () => {
         mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_img_1', buffer: Buffer.from('img') });
         mockedAxios.mockResolvedValueOnce({ data: { ok: true } } as any);
 
@@ -314,7 +314,13 @@ describe('send-service media branches', () => {
         );
 
         const req = mockedAxios.mock.calls[0]?.[0] as any;
-        expect(req.data).toEqual({ msgtype: 'image', image: { media_id: 'media_img_1' } });
+        expect(req.data).toEqual({
+            msgtype: 'markdown',
+            markdown: {
+                title: 'ignored text',
+                text: 'ignored text\n\n![a.png](media_img_1)',
+            },
+        });
     });
 
     it('forwards mediaLocalRoots when sendBySession uploads media', async () => {
@@ -527,12 +533,7 @@ describe('send-service media branches', () => {
         expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
-    it('sendBySession voice media uses upload-time duration without requiring an uploaded temp path', async () => {
-        mockedUploadMedia.mockResolvedValueOnce({
-            mediaId: 'media_voice_session_duration',
-            buffer: Buffer.from('ogg-data'),
-            durationMs: 6400,
-        });
+    it('sendBySession falls back to markdown text for direct voice media requests', async () => {
         mockedAxios.mockResolvedValueOnce({
             data: { success: true, result: true, messageId: 'session_voice_1' },
         } as any);
@@ -546,9 +547,13 @@ describe('send-service media branches', () => {
 
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data).toEqual({
-            msgtype: 'voice',
-            voice: { media_id: 'media_voice_session_duration', duration: '6400' },
+            msgtype: 'markdown',
+            markdown: {
+                title: 'ignored text',
+                text: 'ignored text\n\n📎 媒体发送失败，兜底链接/路径：/tmp/original.wav',
+            },
         });
+        expect(mockedUploadMedia).not.toHaveBeenCalled();
         expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
@@ -640,9 +645,8 @@ describe('send-service media branches', () => {
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.proxy).toBe(false);
     });
-    it('sendBySession warns when media session webhook response has no delivery metadata', async () => {
+    it('sendBySession warns when direct voice media falls back to text', async () => {
         const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-        mockedUploadMedia.mockResolvedValueOnce({ mediaId: 'media_voice_warn', buffer: Buffer.from('data') });
         mockedAxios.mockResolvedValueOnce({
             data: { success: true, result: true },
         } as any);
@@ -655,8 +659,9 @@ describe('send-service media branches', () => {
         );
 
         expect(log.warn).toHaveBeenCalledWith(
-            expect.stringContaining('response missing delivery metadata')
+            expect.stringContaining('does not support native voice replies')
         );
+        expect(mockedUploadMedia).not.toHaveBeenCalled();
     });
 
     it('sendMessage routes session voice replies through proactive media API instead of sendBySession webhook', async () => {
@@ -795,12 +800,7 @@ describe('send-service media branches', () => {
         expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
-    it('sendBySession voice media uses upload-time duration without requiring an uploaded temp path', async () => {
-        mockedUploadMedia.mockResolvedValueOnce({
-            mediaId: 'media_voice_session_duration',
-            buffer: Buffer.from('ogg-data'),
-            durationMs: 6400,
-        });
+    it('sendBySession falls back to markdown text for direct voice media requests', async () => {
         mockedAxios.mockResolvedValueOnce({
             data: { success: true, result: true, messageId: 'session_voice_1' },
         } as any);
@@ -814,9 +814,13 @@ describe('send-service media branches', () => {
 
         const req = mockedAxios.mock.calls[0]?.[0] as any;
         expect(req.data).toEqual({
-            msgtype: 'voice',
-            voice: { media_id: 'media_voice_session_duration', duration: '6400' },
+            msgtype: 'markdown',
+            markdown: {
+                title: 'ignored text',
+                text: 'ignored text\n\n📎 媒体发送失败，兜底链接/路径：/tmp/original.wav',
+            },
         });
+        expect(mockedUploadMedia).not.toHaveBeenCalled();
         expect(mockedGetVoiceDurationMs).not.toHaveBeenCalled();
     });
 
