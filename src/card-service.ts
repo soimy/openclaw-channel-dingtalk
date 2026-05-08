@@ -918,7 +918,9 @@ export async function createAICard(
     // Sends an empty content stream (isFull=true, isFinalize=false) which
     // transitions the card from PROCESSING to INPUTING on the DingTalk side.
     try {
-      await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log);
+      await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log, {
+        suppressDegrade: true,
+      });
       aiCardInstance.state = AICardStatus.INPUTING;
       // Persist the updated streamLifecycleOpened and state so recovery
       // can properly close the streaming lifecycle on DingTalk side.
