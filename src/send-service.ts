@@ -750,7 +750,7 @@ export async function sendBySession(
       }
     } else {
       const mediaHint = options.mediaUrl || options.mediaPath || options.filePath || "(媒体发送失败)";
-      text = `${text}\n\n📎 媒体发送失败，兜底链接/路径：${mediaHint}`.trim();
+      text = `${text}\n\n📎 当前会话无法直接发送 ${options.mediaType}，兜底链接/路径：${mediaHint}`.trim();
       log?.warn?.(
         `[DingTalk] Session webhook does not support native ${options.mediaType} replies; falling back to text description`,
       );

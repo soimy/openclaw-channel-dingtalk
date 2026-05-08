@@ -138,7 +138,7 @@ describe("send-service sessionWebhook media routing", () => {
             msgtype: "markdown",
             markdown: {
                 title: "文件说明",
-                text: "文件说明\n\n📎 媒体发送失败，兜底链接/路径：/tmp/report.pdf",
+                text: "文件说明\n\n📎 当前会话无法直接发送 file，兜底链接/路径：/tmp/report.pdf",
             },
         });
     });

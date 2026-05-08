@@ -550,7 +550,7 @@ describe('send-service media branches', () => {
             msgtype: 'markdown',
             markdown: {
                 title: 'ignored text',
-                text: 'ignored text\n\n📎 媒体发送失败，兜底链接/路径：/tmp/original.wav',
+                text: 'ignored text\n\n📎 当前会话无法直接发送 voice，兜底链接/路径：/tmp/original.wav',
             },
         });
         expect(mockedUploadMedia).not.toHaveBeenCalled();
@@ -817,7 +817,7 @@ describe('send-service media branches', () => {
             msgtype: 'markdown',
             markdown: {
                 title: 'ignored text',
-                text: 'ignored text\n\n📎 媒体发送失败，兜底链接/路径：/tmp/original.wav',
+                text: 'ignored text\n\n📎 当前会话无法直接发送 voice，兜底链接/路径：/tmp/original.wav',
             },
         });
         expect(mockedUploadMedia).not.toHaveBeenCalled();
