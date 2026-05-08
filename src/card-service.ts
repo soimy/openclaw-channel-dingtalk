@@ -920,6 +920,11 @@ export async function createAICard(
     try {
       await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log);
       aiCardInstance.state = AICardStatus.INPUTING;
+      // Persist the updated streamLifecycleOpened and state so recovery
+      // can properly close the streaming lifecycle on DingTalk side.
+      if (shouldPersistPending) {
+        upsertPendingCard(aiCardInstance, options.storePath, log);
+      }
     } catch (kickErr: any) {
       log?.debug?.(
         `[DingTalk][AICard] Non-critical: failed to kick card into streaming mode: ${kickErr.message}`,

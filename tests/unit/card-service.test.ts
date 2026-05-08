@@ -114,6 +114,7 @@ describe('card-service', () => {
 
     it('createAICard includes initial statusLine in createAndDeliver payload when provided', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -132,6 +133,7 @@ describe('card-service', () => {
 
     it('createAICard uses robot deliver payload for direct chat cards', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -149,6 +151,7 @@ describe('card-service', () => {
 
     it('createAICard bypasses proxy when configured', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             {
@@ -169,6 +172,7 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_builtin' }] } },
         });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec' } as any,
@@ -237,6 +241,7 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_2' }] } },
         });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
@@ -918,8 +923,17 @@ describe('card-service', () => {
         );
 
         expect(recovered).toBe(1);
-        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
-        const putBody = mockedAxios.put.mock.calls[0]?.[1];
+        // Recovery now calls two PUTs: 1) finalizeAI streaming lifecycle, 2) updateCardVariables instances API
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        // First call: streaming API to close the streaming lifecycle
+        expect(mockedAxios.put.mock.calls[0]?.[0]).toContain('/v1.0/card/streaming');
+        expect(mockedAxios.put.mock.calls[0]?.[1]).toMatchObject({
+            guid: expect.any(String),
+            outTrackId: 'track_distinct_1',
+            isFinalize: true,
+        });
+        // Second call: instances API with flowStatus=3
+        const putBody = mockedAxios.put.mock.calls[1]?.[1];
         expect(putBody.outTrackId).toBe('track_distinct_1');
         expect(putBody.cardData?.cardParamMap?.flowStatus).toBe('3');
     });
