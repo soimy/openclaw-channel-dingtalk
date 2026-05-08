@@ -83,6 +83,8 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_1' }] } },
         });
+        // Streaming kick PUT
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -90,10 +92,10 @@ describe('card-service', () => {
         );
 
         expect(card).toBeTruthy();
-        expect(card?.state).toBe(AICardStatus.PROCESSING);
+        expect(card?.state).toBe(AICardStatus.INPUTING);
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-        expect(mockedAxios.put).not.toHaveBeenCalled();
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const body = mockedAxios.post.mock.calls[0]?.[1];
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',

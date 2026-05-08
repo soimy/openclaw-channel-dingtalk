@@ -910,6 +910,22 @@ export async function createAICard(
 
     clearAICardDegrade(accountId, log);
 
+    // Kick the card into streaming mode immediately so the card enters the
+    // streaming lifecycle on the DingTalk side. Cards in IM_GROUP spaces may
+    // not accept variable updates (blockList etc.) without the streaming
+    // lifecycle being opened first. The lifecycle is tracked and finalized
+    // in commitAICardBlocks / finalizeStoppedAICard.
+    // Sends an empty content stream (isFull=true, isFinalize=false) which
+    // transitions the card from PROCESSING to INPUTING on the DingTalk side.
+    try {
+      await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log);
+      aiCardInstance.state = AICardStatus.INPUTING;
+    } catch (kickErr: any) {
+      log?.debug?.(
+        `[DingTalk][AICard] Non-critical: failed to kick card into streaming mode: ${kickErr.message}`,
+      );
+    }
+
     return aiCardInstance;
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Create failed: ${err.message}`);
