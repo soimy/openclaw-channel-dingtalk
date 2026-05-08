@@ -362,7 +362,28 @@ describe("reply-strategy-card", () => {
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
-            expect(updateAICardBlockListMock.mock.calls.length).toBeGreaterThan(1);
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+        });
+
+        it("all mode streams active answer through content without duplicating it in blockList", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "all" } as any,
+            }));
+            const opts = strategy.getReplyOptions();
+
+            await opts.onReasoningStream?.({ text: "第一轮推理" });
+            await vi.advanceTimersByTimeAsync(0);
+            updateAICardBlockListMock.mockClear();
+            streamAICardContentMock.mockClear();
+
+            await opts.onPartialReply?.({ text: "阶段性答案" });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
         });
 
         it("legacy fallback maps cardRealTimeStream=true to all mode when cardStreamingMode is omitted", async () => {
@@ -669,6 +690,25 @@ describe("reply-strategy-card", () => {
 
             expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
             expect(updateAICardBlockListMock.mock.calls[0]?.[1]).toContain("最终答案");
+        });
+
+        it("deliver(block) in all mode streams active answer through content without duplicating it in blockList", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                disableBlockStreaming: false,
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "all" } as any,
+            }));
+
+            await strategy.deliver({
+                text: "阶段性答案",
+                mediaUrls: [],
+                kind: "block",
+            });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+            expect(streamAICardContentMock.mock.calls[0]?.[1]).toContain("阶段性答案");
+            expect(updateAICardBlockListMock).not.toHaveBeenCalled();
         });
 
         it("deliver(final) with empty text still falls through for card finalize", async () => {

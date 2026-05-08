@@ -546,6 +546,7 @@ export function createCardDraftController(params: {
                 discardCurrentAnswer();
             } else {
                 sealCurrentAnswer();
+                queueRender();
             }
             await beginBoundaryFlush();
             return;

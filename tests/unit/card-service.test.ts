@@ -737,7 +737,7 @@ describe('card-service', () => {
         expect(mockedAxios.put.mock.calls[0]?.[0]).toContain('/v1.0/card/streaming');
         expect(mockedAxios.put.mock.calls[0]?.[1]).toMatchObject({
             outTrackId: 'track_recover_stream_1',
-            content: expect.stringContaining('流式回答'),
+            content: '',
             isFinalize: true,
         });
         expect(mockedAxios.put.mock.calls[1]?.[0]).toContain('/v1.0/card/instances');
@@ -1093,7 +1093,7 @@ describe('token refresh', () => {
         expect(card.accessToken).toBe('current_token');
     });
 
-    it('finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
+    it('clears and finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
         const card = {
             cardInstanceId: 'card_stream_finalize',
             outTrackId: 'track_stream_finalize',
@@ -1118,7 +1118,7 @@ describe('token refresh', () => {
         expect(mockedAxios.put.mock.calls[0][1]).toMatchObject({
             outTrackId: 'track_stream_finalize',
             key: 'content',
-            content: 'test content',
+            content: '',
             isFull: true,
             isFinalize: true,
             isError: false,

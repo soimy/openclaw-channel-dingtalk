@@ -389,6 +389,51 @@ describe("card-draft-controller", () => {
         expect(updateAICardBlockListMock).not.toHaveBeenCalled();
     });
 
+    it("clears real-time content before committing the active answer at a boundary", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({
+            card,
+            throttleMs: 0,
+            realTimeStreamEnabled: true,
+        });
+
+        await ctrl.updateAnswer("阶段答案", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+        await ctrl.appendTool("工具结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(clearAICardStreamingContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const blocks = parseBlocks(updateAICardBlockListMock.mock.calls[0]?.[1] as string);
+        expect(getBlockText(blocks, 0)).toBe("阶段答案");
+        expect(getBlockText(blocks, 1)).toContain("工具结果");
+    });
+
+    it("clears real-time content before committing the active answer at an assistant turn boundary", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({
+            card,
+            throttleMs: 0,
+            realTimeStreamEnabled: true,
+        });
+
+        await ctrl.updateAnswer("阶段答案", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).not.toHaveBeenCalled();
+
+        await ctrl.notifyNewAssistantTurn();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(clearAICardStreamingContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const blocks = parseBlocks(updateAICardBlockListMock.mock.calls[0]?.[1] as string);
+        expect(getBlockText(blocks, 0)).toBe("阶段答案");
+    });
+
     it("getLastContent returns last successfully sent content", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });
