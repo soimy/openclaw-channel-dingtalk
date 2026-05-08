@@ -674,6 +674,7 @@ export function createCardReplyStrategy(
       try {
         await flushPendingReasoning();
 
+        await controller.clearStreamingContent?.();
         await controller.flush();
         await controller.waitForInFlight();
 

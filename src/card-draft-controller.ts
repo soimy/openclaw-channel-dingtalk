@@ -328,9 +328,9 @@ export function createCardDraftController(params: {
         if (stopped || failed) {
             return;
         }
-        await contentLoop.flush();
-        await contentLoop.waitForInFlight();
-        // Clear streaming content before committing blockList at boundary
+        // Clear the live streaming content before committing blockList at the boundary.
+        // This drops any queued fake-streaming tail so the empty stream update can stop
+        // the animation before the blockList frame lands.
         if (hasStreamingContent) {
             await clearStreamingContentFromCard();
         }

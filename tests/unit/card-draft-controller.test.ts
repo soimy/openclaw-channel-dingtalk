@@ -412,6 +412,35 @@ describe("card-draft-controller", () => {
         expect(getBlockText(blocks, 1)).toContain("工具结果");
     });
 
+    it("drops queued real-time content before a boundary blockList update", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({
+            card,
+            throttleMs: 1000,
+            realTimeStreamEnabled: true,
+        });
+
+        await ctrl.updateAnswer("阶段答案", { stream: true, renderBlocks: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+
+        await ctrl.updateAnswer("阶段答案，后面还有一长段尚未展示的流式内容，需要在边界处直接清空。", {
+            stream: true,
+            renderBlocks: false,
+        });
+        await vi.advanceTimersByTimeAsync(300);
+
+        await ctrl.appendTool("工具结果");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
+        expect(clearAICardStreamingContentMock).toHaveBeenCalledTimes(1);
+        expect(updateAICardBlockListMock).toHaveBeenCalledTimes(1);
+        const blocks = parseBlocks(updateAICardBlockListMock.mock.calls[0]?.[1] as string);
+        expect(getBlockText(blocks, 0)).toBe("阶段答案，后面还有一长段尚未展示的流式内容，需要在边界处直接清空。");
+        expect(getBlockText(blocks, 1)).toContain("工具结果");
+    });
+
     it("clears real-time content before committing the active answer at an assistant turn boundary", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({

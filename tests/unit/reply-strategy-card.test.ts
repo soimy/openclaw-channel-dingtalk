@@ -277,21 +277,32 @@ describe("reply-strategy-card", () => {
             expect(updateAICardBlockListMock).not.toHaveBeenCalled();
         });
 
-        it("answer mode finalize does not clear streaming content before the final card commit", async () => {
+        it("answer mode finalize clears streaming content before the final card commit without flushing queued content", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card, {
-                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode: "answer" } as any,
+                config: {
+                    clientId: "id",
+                    clientSecret: "s",
+                    messageType: "card",
+                    cardStreamingMode: "answer",
+                    cardStreamInterval: 1000,
+                } as any,
             }));
             const opts = strategy.getReplyOptions();
 
             await opts.onPartialReply?.({ text: "阶段性答案" });
             await vi.advanceTimersByTimeAsync(0);
+            await opts.onPartialReply?.({ text: "阶段性答案，追加一段很长的内容，用来模拟钉钉端仍在播放的假流式动画。" });
+            await vi.advanceTimersByTimeAsync(300);
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "final" });
             await strategy.finalize();
 
             expect(streamAICardContentMock).toHaveBeenCalledTimes(1);
-            expect(clearAICardStreamingContentMock).not.toHaveBeenCalled();
+            expect(clearAICardStreamingContentMock).toHaveBeenCalledTimes(1);
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+            expect(clearAICardStreamingContentMock.mock.invocationCallOrder[0]).toBeLessThan(
+                commitAICardBlocksMock.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+            );
         });
 
         it("answer mode rewrites local markdown image snapshots to placeholder text before final upload", async () => {
