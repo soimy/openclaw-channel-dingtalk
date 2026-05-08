@@ -37,6 +37,7 @@ vi.mock("axios", () => {
 
 import { sendBySession, sendMessage } from "../../src/send-service";
 import { uploadMedia as uploadMediaUtil } from "../../src/media-utils";
+import { AICardStatus } from "../../src/types";
 
 const mockedAxios = vi.mocked(axios);
 const mockedUploadMedia = vi.mocked(uploadMediaUtil);
@@ -118,6 +119,47 @@ describe("send-service sessionWebhook media routing", () => {
                 }),
             }),
         );
+    });
+
+    it("routes terminal card session file replies through proactive media", async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: "media_file_terminal_card",
+            buffer: Buffer.from("file"),
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: "q_terminal_card_file" } } as any);
+
+        const result = await sendMessage(
+            { clientId: "id", clientSecret: "sec", messageType: "card" } as any,
+            "user_123",
+            "终态卡片附件",
+            {
+                card: {
+                    cardInstanceId: "card_done",
+                    state: AICardStatus.FINISHED,
+                    lastUpdated: Date.now(),
+                },
+                sessionWebhook: "https://session.webhook",
+                mediaPath: "/tmp/terminal-card-report.pdf",
+                mediaType: "file",
+                accountId: "main",
+                storePath: "/tmp/sessions.json",
+            } as any,
+        );
+
+        expect(result).toMatchObject({
+            ok: true,
+            data: { processQueryKey: "q_terminal_card_file" },
+            messageId: "q_terminal_card_file",
+        });
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.url).toContain("/v1.0/robot/oToMessages/batchSend");
+        expect(req.url).not.toBe("https://session.webhook");
+        expect(req.data.msgKey).toBe("sampleFile");
+        expect(JSON.parse(req.data.msgParam)).toEqual({
+            mediaId: "media_file_terminal_card",
+            fileName: "terminal-card-report.pdf",
+            fileType: "pdf",
+        });
     });
 
     it("falls back to a text description when sessionWebhook receives a non-image media request directly", async () => {

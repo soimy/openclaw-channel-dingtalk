@@ -814,6 +814,28 @@ export async function sendMessage(
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
 
+    if (options.sessionWebhook && options.mediaPath && shouldRouteSessionMediaViaProactive(options.mediaType)) {
+      log?.debug?.(
+        `[DingTalk] Session webhook does not support ${options.mediaType} replies reliably; ` +
+        "using proactive media API instead",
+      );
+      const proactiveMediaResult = await sendProactiveMedia(
+        config,
+        conversationId,
+        options.mediaPath,
+        options.mediaType,
+        options,
+      );
+      if (!proactiveMediaResult.ok) {
+        return { ok: false, error: proactiveMediaResult.error || "Media reply send failed" };
+      }
+      return {
+        ok: true,
+        data: proactiveMediaResult.data,
+        messageId: proactiveMediaResult.messageId,
+      };
+    }
+
     if (messageType === "card" && options.card && !options.forceMarkdown) {
       const card = options.card;
       if (isCardInTerminalState(card.state)) {
@@ -835,28 +857,6 @@ export async function sendMessage(
           },
         };
       }
-    }
-
-    if (options.sessionWebhook && options.mediaPath && shouldRouteSessionMediaViaProactive(options.mediaType)) {
-      log?.debug?.(
-        `[DingTalk] Session webhook does not support ${options.mediaType} replies reliably; ` +
-        "using proactive media API instead",
-      );
-      const proactiveMediaResult = await sendProactiveMedia(
-        config,
-        conversationId,
-        options.mediaPath,
-        options.mediaType,
-        options,
-      );
-      if (!proactiveMediaResult.ok) {
-        return { ok: false, error: proactiveMediaResult.error || "Media reply send failed" };
-      }
-      return {
-        ok: true,
-        data: proactiveMediaResult.data,
-        messageId: proactiveMediaResult.messageId,
-      };
     }
 
     if (options.sessionWebhook) {
