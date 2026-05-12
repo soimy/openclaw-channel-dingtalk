@@ -102,7 +102,6 @@ export function createCardReplyStrategy(
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
   const streamAnswerLive = mode === "answer" || mode === "all";
-  const renderAnswerBlocksLive = mode === "all";
   const streamThinkingLive = mode === "all";
   let lifecycleState: CardReplyLifecycleState = "open";
   const shouldAcceptAnswerSnapshot = () => lifecycleState === "open";
@@ -261,7 +260,10 @@ export function createCardReplyStrategy(
         finalTextForFallback = normalized.answerText;
         return;
       }
-      await controller.updateAnswer(normalized.answerText);
+      await controller.updateAnswer(normalized.answerText, {
+        stream: streamAnswerLive,
+        renderBlocks: !streamAnswerLive,
+      });
     }
   };
 
@@ -304,7 +306,8 @@ export function createCardReplyStrategy(
 
     await controller.updateAnswer(answerSnapshot, {
       stream: streamAnswerLive,
-      renderBlocks: renderAnswerBlocksLive,
+      // Active answer previews live in the content field; blockList is committed at boundaries/finalize.
+      renderBlocks: false,
     });
   };
 
@@ -671,6 +674,7 @@ export function createCardReplyStrategy(
       try {
         await flushPendingReasoning();
 
+        await controller.clearStreamingContent?.();
         await controller.flush();
         await controller.waitForInFlight();
 
