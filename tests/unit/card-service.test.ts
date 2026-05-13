@@ -1033,6 +1033,7 @@ describe('token refresh', () => {
         const paramMap = payload.cardData.cardParamMap;
         expect(paramMap.blockList).toBeDefined();
         expect(paramMap.statusLine).toBe('claude-sonnet | high');
+        expect(payload.cardUpdateOptions).toEqual({ updateCardDataByKey: true });
     });
 
     it('omits statusLine from updateCardVariables when not provided', async () => {
@@ -1056,6 +1057,7 @@ describe('token refresh', () => {
         const paramMap = payload.cardData.cardParamMap;
         expect(paramMap.blockList).toBeDefined();
         expect(paramMap.statusLine).toBeUndefined();
+        expect(payload.cardUpdateOptions).toEqual({ updateCardDataByKey: true });
     });
 
     it('refreshes token before commitAICardBlocks when token is older than 90 minutes', async () => {

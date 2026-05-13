@@ -391,6 +391,11 @@ export function createCardReplyStrategy(
         // Card mode keeps runtime block streaming disabled, but still consumes
         // reasoning blocks through explicit callbacks and delivery metadata.
         disableBlockStreaming: ctx.disableBlockStreaming ?? true,
+        // DingTalk card mode owns the visible reply surface. In group chats,
+        // OpenClaw defaults source replies to message-tool-only; override that
+        // so final replies are delivered into this card instead of spawning a
+        // separate visible message/card via the message tool.
+        sourceReplyDeliveryMode: "automatic",
 
         onAssistantMessageStart: async () => {
           if (isLifecycleSealed() || isStopRequested?.()) {

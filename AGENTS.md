@@ -279,6 +279,9 @@ npm run lint
 # Lint + fix
 npm run lint:fix
 
+# Runtime build
+pnpm run build:runtime
+
 # Unit + integration tests
 pnpm test
 
@@ -286,7 +289,9 @@ pnpm test
 pnpm test:coverage
 ```
 
-**Note:** No build script; plugin runs directly via OpenClaw runtime.
+**Important:** OpenClaw real-device debugging loads the runtime extension from `dist/index.js`.
+After applying code changes, always run `pnpm run build:runtime` before `openclaw gateway restart`
+or any DingTalk real-device validation; otherwise the gateway may keep running stale built code.
 
 ## NOTES
 
@@ -312,4 +317,5 @@ pnpm test:coverage
 - Network calls are mocked in tests (`vi.mock`), no real DingTalk API requests are made
 - CI should run `pnpm test` on every push and pull request
 - Coverage can be generated with `pnpm test:coverage`
+- Before applying code changes to a live DingTalk debugging session, run `pnpm run build:runtime` and then restart the gateway so `dist/index.js` matches the source.
 - When the task involves DingTalk real-device validation, PR-scoped test checklists, `验证 TODO` drafting, or contributor-workflow updates for that process, read and follow `skills/dingtalk-real-device-testing/SKILL.md` first.

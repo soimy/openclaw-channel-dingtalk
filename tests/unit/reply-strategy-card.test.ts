@@ -139,6 +139,13 @@ describe("reply-strategy-card", () => {
             expect(strategy.getReplyOptions().disableBlockStreaming).toBe(false);
         });
 
+        it("requests automatic source delivery so runtime final replies reach the card", () => {
+            const card = makeCard();
+            const opts = createCardReplyStrategy(buildCtx(card)).getReplyOptions();
+
+            expect((opts as { sourceReplyDeliveryMode?: string }).sourceReplyDeliveryMode).toBe("automatic");
+        });
+
         it("always registers onPartialReply (for all streaming modes)", () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
