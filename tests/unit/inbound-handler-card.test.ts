@@ -330,6 +330,7 @@ describe("inbound-handler card lifecycle", () => {
       .fn()
       .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
         replyOptions?.onPartialReply?.({ text: "partial content" });
+        await dispatcherOptions.deliver({ text: "tool output before failure" }, { kind: "tool" });
         await new Promise((r) => setTimeout(r, 350));
         await dispatcherOptions.deliver({ text: "complete final answer" }, { kind: "final" });
         return { queuedFinal: "complete final answer" };

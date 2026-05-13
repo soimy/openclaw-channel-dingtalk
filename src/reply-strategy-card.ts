@@ -102,7 +102,6 @@ export function createCardReplyStrategy(
   };
   const { mode, usedDeprecatedCardRealTimeStream } = resolveCardStreamingMode(config);
   const streamAnswerLive = mode === "answer" || mode === "all";
-  const renderAnswerBlocksLive = mode === "all";
   const streamThinkingLive = mode === "all";
   let lifecycleState: CardReplyLifecycleState = "open";
   const shouldAcceptAnswerSnapshot = () => lifecycleState === "open";
@@ -261,7 +260,10 @@ export function createCardReplyStrategy(
         finalTextForFallback = normalized.answerText;
         return;
       }
-      await controller.updateAnswer(normalized.answerText);
+      await controller.updateAnswer(normalized.answerText, {
+        stream: streamAnswerLive,
+        renderBlocks: !streamAnswerLive,
+      });
     }
   };
 
@@ -304,7 +306,8 @@ export function createCardReplyStrategy(
 
     await controller.updateAnswer(answerSnapshot, {
       stream: streamAnswerLive,
-      renderBlocks: renderAnswerBlocksLive,
+      // Active answer previews live in the content field; blockList is committed at boundaries/finalize.
+      renderBlocks: false,
     });
   };
 
@@ -388,6 +391,11 @@ export function createCardReplyStrategy(
         // Card mode keeps runtime block streaming disabled, but still consumes
         // reasoning blocks through explicit callbacks and delivery metadata.
         disableBlockStreaming: ctx.disableBlockStreaming ?? true,
+        // DingTalk card mode owns the visible reply surface. In group chats,
+        // OpenClaw defaults source replies to message-tool-only; override that
+        // so final replies are delivered into this card instead of spawning a
+        // separate visible message/card via the message tool.
+        sourceReplyDeliveryMode: "automatic",
 
         onAssistantMessageStart: async () => {
           if (isLifecycleSealed() || isStopRequested?.()) {
@@ -671,6 +679,7 @@ export function createCardReplyStrategy(
       try {
         await flushPendingReasoning();
 
+        await controller.clearStreamingContent?.();
         await controller.flush();
         await controller.waitForInFlight();
 

@@ -16,6 +16,8 @@ export type InternalReplyStrategyConfig = DingTalkConfig & {
   cardStreamReasoning?: boolean;
 };
 
+export type SourceReplyDeliveryMode = "automatic" | "message_tool_only";
+
 // ---- Public interfaces ----
 
 export interface DeliverPayload {
@@ -33,6 +35,7 @@ export interface DeliverPayload {
 
 export interface ReplyOptions {
   disableBlockStreaming: boolean;
+  sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   onPartialReply?: (payload: { text?: string }) => void | Promise<void>;
   onReasoningStream?: (payload: { text?: string }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;

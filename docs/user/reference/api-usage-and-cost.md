@@ -24,21 +24,22 @@
 | --- | --- | --- |
 | 创建卡片 | 1 | `createAndDeliver` |
 | 流式更新 | M | 次数取决于流式节奏 |
-| 最终完成 | 包含在最后一次流更新中 | `isFinalize=true` |
+| 关闭 content 流式生命周期 | 0-1 | 仅在打开过 content 实时流式时发送一次空 `content` + `isFinalize=true` |
+| 最终完成 | 1 | 通过 instances API 一次性写入 `blockList`、`content`、`flowStatus=3` |
 
-总成本约为 `1 + M`。
+总成本通常约为 `2 + M`；如果打开过 content 实时流式，额外增加一次生命周期关闭调用。
 
 ## 三种卡片流式策略对比
 
 以一次约 10 秒的 AI 回复为例：
 
-| 模式 | `streamAICard` 调用数 | 首 token 延迟 | 体验 |
+| 模式 | 卡片更新调用数 | 首 token 延迟 | 体验 |
 | --- | --- | --- | --- |
 | `off` | 约 10-15 次 | 约 1-1.5 秒 | 更新更少、成本更稳 |
 | `answer` | 约 15-25 次 | 约 300-800ms | 答案更流畅，成本中等 |
-| `all` | 约 25-35 次 | 约 300ms | 答案+思考都更实时，成本最高 |
+| `all` | 约 25-35 次 | 约 300ms | 答案片段实时预览，思考/工具块也更实时，成本最高 |
 
-`cardStreamInterval` 会影响 `answer` / `all` 下的调用频率：间隔越小，`streamAICard` 调用通常越多。
+`cardStreamInterval` 会影响 `answer` / `all` 下的调用频率：间隔越小，卡片更新调用通常越多。
 
 ## 推荐策略
 
