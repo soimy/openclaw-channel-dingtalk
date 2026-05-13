@@ -398,7 +398,10 @@ function isMarkdownTableSeparator(line: string): boolean {
     .replace(/\|$/, "")
     .split("|")
     .map((cell) => cell.trim());
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+  // DingTalk markdown requires :-: separator format (1 dash minimum).
+  // Note: single `-` cells in data rows would also match; this is an accepted trade-off
+  // for compatibility with DingTalk's recommended :-: separator format.
+  return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
 }
 
 function isMarkdownTableRow(line: string): boolean {
@@ -415,11 +418,96 @@ function parseMarkdownTableRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-function renderMarkdownTable(lines: string[]): string {
-  const rows = lines.map(parseMarkdownTableRow).filter((cells) => cells.length > 0);
-  return rows.map((cells) => cells.join(" | ")).join("  \n");
+/**
+ * Parse alignment from a separator cell.
+ * Returns 'left', 'center', 'right', or 'center' (default).
+ */
+function parseSeparatorAlignment(cell: string): "left" | "center" | "right" {
+  const trimmed = cell.trim();
+  const hasLeftColon = trimmed.startsWith(":");
+  const hasRightColon = trimmed.endsWith(":");
+  if (hasLeftColon && hasRightColon) {
+    return "center";
+  }
+  if (hasRightColon) {
+    return "right";
+  }
+  if (hasLeftColon) {
+    return "left";
+  }
+  // Default to center for bare dashes (standard markdown)
+  return "center";
 }
 
+/**
+ * Build separator row from alignment array.
+ */
+function buildSeparatorRow(alignments: ("left" | "center" | "right")[]): string {
+  const cells = alignments.map((align) => {
+    if (align === "left") {
+      return ":---";
+    }
+    if (align === "right") {
+      return "---:";
+    }
+    return ":---:";
+  });
+  return "|" + cells.join("|") + "|";
+}
+
+/**
+ * Render markdown table rows preserving original alignment.
+ * Extracts alignment from the separator row and applies it to output.
+ */
+function renderMarkdownTable(headerLine: string, separatorLine: string, dataLines: string[]): string {
+  const headerCells = parseMarkdownTableRow(headerLine);
+  const separatorCells = parseMarkdownTableRow(separatorLine);
+  const dataRows = dataLines.map(parseMarkdownTableRow).filter((cells) => cells.length > 0);
+
+  if (headerCells.length === 0) {
+    return "";
+  }
+
+  const colCount = Math.max(
+    headerCells.length,
+    separatorCells.length,
+    ...dataRows.map((cells) => cells.length),
+  );
+
+  // Extract alignments from separator
+  const alignments: ("left" | "center" | "right")[] = [];
+  for (let i = 0; i < colCount; i++) {
+    const sepCell = separatorCells[i] || "";
+    alignments.push(parseSeparatorAlignment(sepCell));
+  }
+
+  const separator = buildSeparatorRow(alignments);
+
+  const allRows = [headerCells, ...dataRows];
+  const rendered = allRows
+    .map((cells) => {
+      const padded = cells.length < colCount
+        ? [...cells, ...Array(colCount - cells.length).fill("")]
+        : cells;
+      return "|" + padded.join("|") + "|";
+    });
+
+  // Insert separator after header row (works for header-only tables too)
+  rendered.splice(1, 0, separator);
+
+  return rendered.join("\n");
+}
+
+/**
+ * Convert markdown tables to DingTalk-compatible format.
+ * DingTalk's markdown renderer supports left/center/right alignment (:---, :---:, ---:).
+ * This function preserves the original alignment from the separator row.
+ * Tables inside code fences are preserved unchanged.
+ *
+ * Note: Despite the function name, this now produces DingTalk-compatible
+ * markdown tables rather than plain text. The name is preserved for API
+ * compatibility with the `convertMarkdownTables` config option.
+ */
 export function convertMarkdownTablesToPlainText(text: string): string {
   const lines = text.split("\n");
   const output: string[] = [];
@@ -441,13 +529,21 @@ export function convertMarkdownTablesToPlainText(text: string): string {
       isMarkdownTableRow(line) &&
       isMarkdownTableSeparator(lines[index + 1] || "")
     ) {
-      const tableLines = [line];
+      const headerLine = line;
+      const separatorLine = lines[index + 1] || "";
+      const dataLines: string[] = [];
       index += 2;
       while (index < lines.length && isMarkdownTableRow(lines[index] || "")) {
-        tableLines.push(lines[index] || "");
+        dataLines.push(lines[index] || "");
         index += 1;
       }
-      output.push(renderMarkdownTable(tableLines));
+      const renderedTable = renderMarkdownTable(headerLine, separatorLine, dataLines);
+      // Ensure blank line before table for DingTalk markdown rendering
+      const lastOutput = output[output.length - 1];
+      if (lastOutput !== undefined && lastOutput.trim() !== "") {
+        output.push("");
+      }
+      output.push(renderedTable);
       continue;
     }
 
