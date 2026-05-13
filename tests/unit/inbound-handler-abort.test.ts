@@ -53,6 +53,17 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
+vi.mock("openclaw/plugin-sdk/command-auth", () => ({
+  maybeResolveTextAlias: (raw: string) => {
+    const token = raw.trim().toLowerCase().match(/^\/([^\s:]+)(?:\s|$)/);
+    if (!token) {
+      return null;
+    }
+    const alias = `/${token[1]}`;
+    return new Set(["/new", "/stop"]).has(alias) ? alias : null;
+  },
+}));
+
 vi.mock("../../src/message-context-store", async () => {
   const actual = await vi.importActual<typeof import("../../src/message-context-store")>(
     "../../src/message-context-store",
@@ -78,7 +89,8 @@ vi.mock("../../src/messaging/attachment-text-extractor", () => ({
 }));
 
 vi.mock("../../src/media-utils", async () => {
-  const actual = await vi.importActual<typeof import("../../src/media-utils")>("../../src/media-utils");
+  const actual =
+    await vi.importActual<typeof import("../../src/media-utils")>("../../src/media-utils");
   return {
     ...actual,
     prepareMediaInput: vi.fn(),
@@ -92,7 +104,9 @@ function buildRuntime() {
   return {
     channel: {
       routing: {
-        resolveAgentRoute: vi.fn().mockReturnValue({ agentId: "main", sessionKey: "s1", mainSessionKey: "s1" }),
+        resolveAgentRoute: vi
+          .fn()
+          .mockReturnValue({ agentId: "main", sessionKey: "s1", mainSessionKey: "s1" }),
         buildAgentSessionKey: vi.fn().mockReturnValue("agent-session-key"),
       },
       media: {
@@ -110,14 +124,14 @@ function buildRuntime() {
         resolveEnvelopeFormatOptions: vi.fn().mockReturnValue({}),
         formatInboundEnvelope: vi.fn().mockReturnValue("body"),
         finalizeInboundContext: vi.fn().mockReturnValue({ SessionKey: "s1" }),
-        dispatchReplyWithBufferedBlockDispatcher: vi.fn().mockImplementation(
-          async ({ dispatcherOptions, replyOptions }) => {
+        dispatchReplyWithBufferedBlockDispatcher: vi
+          .fn()
+          .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
             await replyOptions?.onReasoningStream?.({ text: "thinking" });
             await dispatcherOptions.deliver({ text: "tool output" }, { kind: "tool" });
             await dispatcherOptions.deliver({ text: "final output" }, { kind: "final" });
             return { queuedFinal: "queued final" };
-          },
-        ),
+          }),
       },
     },
   };
@@ -139,10 +153,13 @@ describe("inbound-handler abort pre-lock bypass", () => {
   beforeEach(() => {
     shared.sendBySessionMock.mockReset();
     shared.sendMessageMock.mockReset();
+    shared.sendMessageMock.mockResolvedValue({ ok: true });
     shared.sendMessageMock.mockImplementation(
       async (_config: unknown, _to: unknown, text: unknown, options: unknown) => {
         // Simulate real sendMessage behavior: update lastStreamedContent when appending to card
-        const opts = options as { card?: { lastStreamedContent: unknown }; cardUpdateMode?: string } | undefined;
+        const opts = options as
+          | { card?: { lastStreamedContent: unknown }; cardUpdateMode?: string }
+          | undefined;
         if (opts?.card && opts?.cardUpdateMode === "append") {
           opts.card.lastStreamedContent = text;
         }
@@ -321,17 +338,20 @@ describe("inbound-handler abort pre-lock bypass", () => {
     // DingTalk does not strip @BotName from text.content, so isAbortRequestText must match bare command
 
     // Group message test
-    shared.extractMessageContentMock.mockReturnValueOnce({ text: "@Bot 停止", messageType: "text" });
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "@Bot 停止",
+      messageType: "text",
+    });
     shared.isAbortRequestTextMock.mockImplementationOnce((text: string) => text === "停止");
     shared.sendBySessionMock.mockResolvedValueOnce({ data: {} });
 
     const rtGroup = buildRuntime();
-    vi.mocked(rtGroup.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
-      async ({ dispatcherOptions }: any) => {
-        await dispatcherOptions.deliver({ text: "已停止响应" });
-        return { queuedFinal: true, counts: { final: 1 } };
-      },
-    );
+    vi.mocked(
+      rtGroup.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
+    ).mockImplementationOnce(async ({ dispatcherOptions }: any) => {
+      await dispatcherOptions.deliver({ text: "已停止响应" });
+      return { queuedFinal: true, counts: { final: 1 } };
+    });
     shared.getRuntimeMock.mockReturnValueOnce(rtGroup);
 
     await handleDingTalkMessage({
@@ -393,5 +413,165 @@ describe("inbound-handler abort pre-lock bypass", () => {
     // @mention stripped in DM -> "/stop" matches -> session lock should NOT be acquired
     expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
     expect(rtDM.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("inbound-handler targeted sub-agent slash commands", () => {
+  const baseData = {
+    msgId: "command_m1",
+    msgtype: "text",
+    text: { content: "@work /new" },
+    conversationType: "1",
+    conversationId: "cid_command",
+    senderId: "user_1",
+    chatbotUserId: "bot_1",
+    sessionWebhook: "https://session.webhook/command",
+    createAt: Date.now(),
+  };
+
+  beforeEach(() => {
+    shared.sendBySessionMock.mockReset();
+    shared.sendMessageMock.mockReset();
+    shared.sendMessageMock.mockResolvedValue({ ok: true });
+    shared.extractMessageContentMock.mockReset();
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "@work /new",
+      messageType: "text",
+      atMentions: [{ name: "work" }],
+    });
+    shared.acquireSessionLockMock.mockReset();
+    shared.acquireSessionLockMock.mockResolvedValue(vi.fn());
+    shared.isAbortRequestTextMock.mockReset();
+    shared.isAbortRequestTextMock.mockReturnValue(false);
+    shared.getRuntimeMock.mockReturnValue(buildRuntime());
+  });
+
+  it("routes @agent slash commands to the mentioned agent session with a stripped CommandBody", async () => {
+    const rt = buildRuntime();
+    vi.mocked(rt.channel.routing.buildAgentSessionKey).mockReturnValue("agent-session-key");
+    vi.mocked(rt.channel.reply.finalizeInboundContext).mockImplementation((ctx: any) => ctx);
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {
+        agents: {
+          list: [
+            { id: "main", name: "马里奥", default: true },
+            { id: "work", name: "工作助手" },
+          ],
+        },
+      },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook/command",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as DingTalkConfig,
+      data: baseData as unknown as DingTalkInboundMessage,
+    } as any);
+
+    expect(rt.channel.routing.buildAgentSessionKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        peer: { kind: "direct", id: "user_1" },
+      }),
+    );
+    expect(shared.acquireSessionLockMock).toHaveBeenCalledWith("agent-session-key");
+    expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: expect.objectContaining({
+          SessionKey: "agent-session-key",
+          CommandBody: "/new",
+          RawBody: "@work /new",
+        }),
+      }),
+    );
+  });
+
+  it("notifies when @agent slash commands require a missing host session helper", async () => {
+    const rt = buildRuntime();
+    (rt.channel.routing as any).buildAgentSessionKey = undefined;
+    shared.sendBySessionMock.mockResolvedValueOnce({ data: {} });
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await expect(
+      handleDingTalkMessage({
+        cfg: {
+          agents: {
+            list: [
+              { id: "main", name: "马里奥", default: true },
+              { id: "work", name: "工作助手" },
+            ],
+          },
+        },
+        accountId: "main",
+        sessionWebhook: "https://session.webhook/command",
+        log: undefined,
+        dingtalkConfig: { dmPolicy: "open" } as DingTalkConfig,
+        data: baseData as unknown as DingTalkInboundMessage,
+      } as any),
+    ).resolves.toBeUndefined();
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "https://session.webhook/command",
+      "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
+      { log: undefined },
+    );
+    expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+    expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("routes group @agent slash commands to the mentioned agent group session", async () => {
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "/new",
+      messageType: "text",
+      atMentions: [{ name: "work" }],
+      atUserDingtalkIds: [],
+    });
+
+    const rt = buildRuntime();
+    vi.mocked(rt.channel.routing.buildAgentSessionKey).mockReturnValue("agent-group-session-key");
+    vi.mocked(rt.channel.reply.finalizeInboundContext).mockImplementation((ctx: any) => ctx);
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {
+        agents: {
+          list: [
+            { id: "main", name: "马里奥", default: true },
+            { id: "work", name: "工作助手" },
+          ],
+        },
+      },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook/command",
+      log: undefined,
+      dingtalkConfig: { groupPolicy: "open" } as DingTalkConfig,
+      data: {
+        ...baseData,
+        msgId: "command_group_m1",
+        text: { content: "/new" },
+        conversationType: "2",
+        conversationId: "cid_group_command",
+        conversationTitle: "测试群",
+      } as unknown as DingTalkInboundMessage,
+    } as any);
+
+    expect(rt.channel.routing.buildAgentSessionKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        peer: { kind: "group", id: "cid_group_command" },
+      }),
+    );
+    expect(shared.acquireSessionLockMock).toHaveBeenCalledWith("agent-group-session-key");
+    expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: expect.objectContaining({
+          SessionKey: "agent-group-session-key",
+          CommandBody: "/new",
+          RawBody: "/new",
+          ChatType: "group",
+        }),
+      }),
+    );
   });
 });

@@ -7,18 +7,27 @@
  * (channel + accountId + peer), not content-based dynamic routing.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { maybeResolveTextAlias } from "openclaw/plugin-sdk/command-auth";
-import { resolveAtAgents } from "./agent-name-matcher";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { resolveRobotCode } from "../config";
 import { parseLearnCommand } from "../learning-command-service";
 import { getDingTalkRuntime } from "../runtime";
 import { sendBySession } from "../send-service";
+import type {
+  AgentNameMatch,
+  DingTalkConfig,
+  DingTalkInboundMessage,
+  HandleDingTalkMessageParams,
+  Logger,
+  MessageContent,
+} from "../types";
 import { getErrorMessage } from "../utils";
-import type { AgentNameMatch, DingTalkConfig, DingTalkInboundMessage, HandleDingTalkMessageParams, Logger, MessageContent } from "../types";
+import { resolveAtAgents } from "./agent-name-matcher";
 
 export class HostRoutingHelperUnavailableError extends Error {
-  constructor(message = "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.") {
+  constructor(
+    message = "DingTalk sub-agent routing requires runtime.channel.routing.buildAgentSessionKey from the host runtime.",
+  ) {
     super(message);
     this.name = "HostRoutingHelperUnavailableError";
   }
@@ -42,16 +51,49 @@ export function buildAgentSessionKey(params: {
   if (typeof routing.buildAgentSessionKey !== "function") {
     throw new HostRoutingHelperUnavailableError();
   }
-  return (
-    (routing.buildAgentSessionKey as (p: unknown) => string)({
-      agentId,
-      channel: "dingtalk",
-      accountId,
-      peer: { kind: peerKind, id: peerId },
-      dmScope: cfg.session?.dmScope,
-      identityLinks: cfg.session?.identityLinks,
-    })
-  ).toLowerCase();
+  return (routing.buildAgentSessionKey as (p: unknown) => string)({
+    agentId,
+    channel: "dingtalk",
+    accountId,
+    peer: { kind: peerKind, id: peerId },
+    dmScope: cfg.session?.dmScope,
+    identityLinks: cfg.session?.identityLinks,
+  }).toLowerCase();
+}
+
+type MentionedSlashCommandTarget = {
+  agentId: string;
+  commandText: string;
+};
+
+export function resolveMentionedSlashCommandTarget(params: {
+  extractedContent: MessageContent;
+  cfg: OpenClawConfig;
+  isGroup: boolean;
+}): MentionedSlashCommandTarget | null {
+  const { extractedContent, cfg, isGroup } = params;
+  const atMentions = extractedContent.atMentions || [];
+  if (atMentions.length === 0 || !cfg.agents?.list || cfg.agents.list.length === 0) {
+    return null;
+  }
+
+  const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
+  const commandText = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
+  if (maybeResolveTextAlias(commandText, cfg) === null) {
+    return null;
+  }
+
+  const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
+  const { matchedAgents } = resolveAtAgents(atMentions, cfg, atUserDingtalkIds);
+  const firstMatch = matchedAgents[0];
+  if (!firstMatch) {
+    return null;
+  }
+
+  return {
+    agentId: firstMatch.agentId,
+    commandText,
+  };
 }
 
 /**
@@ -81,12 +123,26 @@ export async function resolveSubAgentRoute(params: {
   dingtalkConfig: DingTalkConfig;
   sessionWebhook: string;
   senderId: string;
+  mentionedSlashCommandTarget?: MentionedSlashCommandTarget | null;
   log?: Logger;
 }): Promise<{
   matchedAgents: AgentNameMatch[];
   preDownloadedMedia?: { mediaPath?: string; mediaType?: string };
 } | null> {
-  const { extractedContent, cfg, isGroup, dingtalkConfig, sessionWebhook, senderId, log } = params;
+  const {
+    extractedContent,
+    cfg,
+    isGroup,
+    dingtalkConfig,
+    sessionWebhook,
+    senderId,
+    mentionedSlashCommandTarget = resolveMentionedSlashCommandTarget({
+      extractedContent,
+      cfg,
+      isGroup,
+    }),
+    log,
+  } = params;
 
   const atMentions = extractedContent.atMentions || [];
   // DM has no @picker list from DingTalk; only group chats provide atUsers for real-user hints.
@@ -97,16 +153,12 @@ export async function resolveSubAgentRoute(params: {
   const isLearnCommand = parseLearnCommand(textForCommandCheck).scope !== "unknown";
   // Slash commands like /new, /stop, /reasoning etc. must bypass sub-agent
   // routing so they reach the framework's own command handling layer.
-  // Strip leading @mention tokens first since DM text may look like "@Agent /new".
-  const textWithoutMentions = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
-  const isSlashCommand = maybeResolveTextAlias(textWithoutMentions, cfg) !== null;
-
   if (
     atMentions.length === 0 ||
     !cfg.agents?.list ||
     cfg.agents.list.length === 0 ||
     isLearnCommand ||
-    isSlashCommand
+    mentionedSlashCommandTarget !== null
   ) {
     return null;
   }
@@ -152,18 +204,35 @@ export async function dispatchSubAgents(params: {
   sessionWebhook: string;
   extractedContent: MessageContent;
   handleMessage: (params: HandleDingTalkMessageParams) => Promise<void>;
-  downloadMedia: (config: DingTalkConfig, mediaPath: string, log?: Logger) => Promise<{ path: string; mimeType: string } | null>;
+  downloadMedia: (
+    config: DingTalkConfig,
+    mediaPath: string,
+    log?: Logger,
+  ) => Promise<{ path: string; mimeType: string } | null>;
   log?: Logger;
 }): Promise<void> {
-  const { matchedAgents, cfg, accountId, data, dingtalkConfig, sessionWebhook, extractedContent, handleMessage, downloadMedia: download, log } = params;
+  const {
+    matchedAgents,
+    cfg,
+    accountId,
+    data,
+    dingtalkConfig,
+    sessionWebhook,
+    extractedContent,
+    handleMessage,
+    downloadMedia: download,
+    log,
+  } = params;
 
   // Pre-download media once to avoid duplication across sub-agents
-  let preDownloadedMedia: {
-    mediaPath?: string;
-    mediaType?: string;
-    mediaPaths?: string[];
-    mediaTypes?: string[];
-  } | undefined;
+  let preDownloadedMedia:
+    | {
+        mediaPath?: string;
+        mediaType?: string;
+        mediaPaths?: string[];
+        mediaTypes?: string[];
+      }
+    | undefined;
   const robotCode = resolveRobotCode(dingtalkConfig);
   if (robotCode) {
     const downloadCodes =
@@ -210,9 +279,7 @@ export async function dispatchSubAgents(params: {
       });
     } catch (error) {
       const message = getErrorMessage(error);
-      log?.error?.(
-        `[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`,
-      );
+      log?.error?.(`[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`);
       if (error instanceof HostRoutingHelperUnavailableError && !helperMissingWarningSent) {
         helperMissingWarningSent = true;
         try {

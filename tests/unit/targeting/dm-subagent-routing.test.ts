@@ -7,28 +7,52 @@
  * enable sub-agent routing in DMs without duplicating the extraction logic.
  */
 
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { extractMessageContent } from "../../../src/message-utils";
+import { sendBySession } from "../../../src/send-service";
 import { resolveAtAgents } from "../../../src/targeting/agent-name-matcher";
 import {
   buildAgentSessionKey,
   dispatchSubAgents,
   HostRoutingHelperUnavailableError,
+  resolveMentionedSlashCommandTarget,
   resolveSubAgentRoute,
 } from "../../../src/targeting/agent-routing";
-import { extractMessageContent } from "../../../src/message-utils";
-import { sendBySession } from "../../../src/send-service";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import type { DingTalkConfig, DingTalkInboundMessage, Logger, MessageContent } from "../../../src/types";
+import type {
+  DingTalkConfig,
+  DingTalkInboundMessage,
+  Logger,
+  MessageContent,
+} from "../../../src/types";
 
 vi.mock("../../../src/send-service", () => ({
   sendBySession: vi.fn(),
 }));
 
 const KNOWN_COMMANDS = new Set([
-  "/new", "/stop", "/clear", "/compact", "/reasoning", "/model",
-  "/config", "/session", "/session-alias", "/whoami", "/whereami",
-  "/help", "/status", "/tools", "/reset", "/think", "/verbose",
-  "/bash", "/activation", "/agents", "/restart", "/usage",
+  "/new",
+  "/stop",
+  "/clear",
+  "/compact",
+  "/reasoning",
+  "/model",
+  "/config",
+  "/session",
+  "/session-alias",
+  "/whoami",
+  "/whereami",
+  "/help",
+  "/status",
+  "/tools",
+  "/reset",
+  "/think",
+  "/verbose",
+  "/bash",
+  "/activation",
+  "/agents",
+  "/restart",
+  "/usage",
 ]);
 
 vi.mock("openclaw/plugin-sdk/command-auth", () => ({
@@ -198,29 +222,40 @@ describe("resolveSubAgentRoute in DM", () => {
     expect(mockedSendBySession).not.toHaveBeenCalled();
   });
 
-  it.each(["/new", "/stop", "/clear", "/compact", "/reasoning stream", "/reasoning on", "/model", "/config", "/session", "/whoami", "/whereami", "/session-alias show", "/session-alias clear"])(
-    "skips sub-agent routing for slash command '%s' with @mention",
-    async (command) => {
-      const extractedContent: MessageContent = {
-        text: `@agent-alpha ${command}`,
-        messageType: "text",
-        atMentions: [{ name: "agent-alpha" }],
-      };
+  it.each([
+    "/new",
+    "/stop",
+    "/clear",
+    "/compact",
+    "/reasoning stream",
+    "/reasoning on",
+    "/model",
+    "/config",
+    "/session",
+    "/whoami",
+    "/whereami",
+    "/session-alias show",
+    "/session-alias clear",
+  ])("skips sub-agent routing for slash command '%s' with @mention", async (command) => {
+    const extractedContent: MessageContent = {
+      text: `@agent-alpha ${command}`,
+      messageType: "text",
+      atMentions: [{ name: "agent-alpha" }],
+    };
 
-      const result = await resolveSubAgentRoute({
-        extractedContent,
-        cfg,
-        isGroup: false,
-        dingtalkConfig,
-        sessionWebhook: "https://session.webhook",
-        senderId: "user-001",
-        log,
-      });
+    const result = await resolveSubAgentRoute({
+      extractedContent,
+      cfg,
+      isGroup: false,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      senderId: "user-001",
+      log,
+    });
 
-      expect(result).toBeNull();
-      expect(mockedSendBySession).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toBeNull();
+    expect(mockedSendBySession).not.toHaveBeenCalled();
+  });
 
   it("skips sub-agent routing for slash commands in group chat", async () => {
     const extractedContent: MessageContent = {
@@ -263,6 +298,43 @@ describe("resolveSubAgentRoute in DM", () => {
 
     expect(result).not.toBeNull();
     expect(result?.matchedAgents[0]?.agentId).toBe("agent-alpha");
+  });
+});
+
+describe("resolveMentionedSlashCommandTarget", () => {
+  it("returns the mentioned agent and stripped command text in DM", () => {
+    const result = resolveMentionedSlashCommandTarget({
+      extractedContent: {
+        text: "@agent-alpha /new",
+        messageType: "text",
+        atMentions: [{ name: "agent-alpha" }],
+      },
+      cfg,
+      isGroup: false,
+    });
+
+    expect(result).toEqual({
+      agentId: "agent-alpha",
+      commandText: "/new",
+    });
+  });
+
+  it("returns the mentioned group agent when DingTalk strips the @ token from text", () => {
+    const result = resolveMentionedSlashCommandTarget({
+      extractedContent: {
+        text: "/new",
+        messageType: "text",
+        atMentions: [{ name: "agent-alpha" }],
+        atUserDingtalkIds: [],
+      },
+      cfg,
+      isGroup: true,
+    });
+
+    expect(result).toEqual({
+      agentId: "agent-alpha",
+      commandText: "/new",
+    });
   });
 });
 
@@ -349,9 +421,13 @@ describe("dispatchSubAgents", () => {
         text: "@Alpha助手 你好",
         messageType: "text",
       },
-      handleMessage: vi.fn().mockRejectedValue(
-        new HostRoutingHelperUnavailableError("host helper unavailable without mentioning the old symbol"),
-      ),
+      handleMessage: vi
+        .fn()
+        .mockRejectedValue(
+          new HostRoutingHelperUnavailableError(
+            "host helper unavailable without mentioning the old symbol",
+          ),
+        ),
       downloadMedia: vi.fn().mockResolvedValue(null),
       log,
     });
@@ -391,9 +467,13 @@ describe("dispatchSubAgents", () => {
         text: "@Alpha助手 @Beta助手 你好",
         messageType: "text",
       },
-      handleMessage: vi.fn().mockRejectedValue(
-        new HostRoutingHelperUnavailableError("host helper unavailable without mentioning the old symbol"),
-      ),
+      handleMessage: vi
+        .fn()
+        .mockRejectedValue(
+          new HostRoutingHelperUnavailableError(
+            "host helper unavailable without mentioning the old symbol",
+          ),
+        ),
       downloadMedia: vi.fn().mockResolvedValue(null),
       log,
     });

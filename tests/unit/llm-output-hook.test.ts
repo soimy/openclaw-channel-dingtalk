@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { clearAllForTest, getUsageByRunId, recordRunStart } from "../../src/run-usage-store";
 
+const INDEX_IMPORT_TIMEOUT_MS = 15_000;
+
 vi.mock("../../src/channel", () => ({
   dingtalkPlugin: {},
 }));
@@ -52,7 +54,7 @@ describe("llm_output hook registration", () => {
       "llm_output",
       expect.any(Function),
     );
-  });
+  }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("accumulates usage from llm_output events", async () => {
     const mod = await import("../../index");
@@ -81,7 +83,7 @@ describe("llm_output hook registration", () => {
       output: 50,
       total: 150,
     });
-  });
+  }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("skips events without usage data", async () => {
     const mod = await import("../../index");
@@ -104,5 +106,5 @@ describe("llm_output hook registration", () => {
     );
 
     expect(getUsageByRunId("run-skip")).toEqual({});
-  });
+  }, INDEX_IMPORT_TIMEOUT_MS);
 });

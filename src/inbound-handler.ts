@@ -60,8 +60,10 @@ import { getSessionState, initSessionState } from "./session-state";
 import { getAgentDisplayName } from "./targeting/agent-name-matcher";
 import {
   buildAgentSessionKey,
-  resolveSubAgentRoute,
   dispatchSubAgents,
+  HostRoutingHelperUnavailableError,
+  resolveMentionedSlashCommandTarget,
+  resolveSubAgentRoute,
 } from "./targeting/agent-routing";
 import { formatGroupMembers, noteGroupMember } from "./targeting/group-members-store";
 import {
@@ -772,25 +774,69 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     config: dingtalkConfig,
   });
 
-  const route = subAgentOptions
-    ? {
+  const mentionedSlashCommandTarget = !subAgentOptions
+    ? resolveMentionedSlashCommandTarget({
+        extractedContent,
+        cfg,
+        isGroup,
+      })
+    : null;
+
+  let route: { agentId: string; sessionKey: string; mainSessionKey: string };
+  if (subAgentOptions) {
+    route = {
+      agentId: subAgentOptions.agentId,
+      sessionKey: buildAgentSessionKey({
+        rt,
+        cfg,
+        accountId,
         agentId: subAgentOptions.agentId,
+        peerKind: sessionPeer.kind,
+        peerId: sessionPeer.peerId,
+      }),
+      mainSessionKey: "",
+    };
+  } else if (mentionedSlashCommandTarget) {
+    try {
+      route = {
+        agentId: mentionedSlashCommandTarget.agentId,
         sessionKey: buildAgentSessionKey({
           rt,
           cfg,
           accountId,
-          agentId: subAgentOptions.agentId,
+          agentId: mentionedSlashCommandTarget.agentId,
           peerKind: sessionPeer.kind,
           peerId: sessionPeer.peerId,
         }),
         mainSessionKey: "",
+      };
+    } catch (error) {
+      if (!(error instanceof HostRoutingHelperUnavailableError)) {
+        throw error;
       }
-    : rt.channel.routing.resolveAgentRoute({
-        cfg,
-        channel: "dingtalk",
-        accountId,
-        peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
-      });
+      log?.error?.(`[DingTalk] Mentioned slash command routing failed: ${getErrorMessage(error)}`);
+      try {
+        await sendBySession(
+          dingtalkConfig,
+          sessionWebhook,
+          "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
+          isGroup ? { atUserId: senderId, log } : { log },
+        );
+      } catch (notifyError: unknown) {
+        log?.debug?.(
+          `[DingTalk] Failed to send sub-agent helper-missing notice: ${getErrorMessage(notifyError)}`,
+        );
+      }
+      return;
+    }
+  } else {
+    route = rt.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "dingtalk",
+      accountId,
+      peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
+    });
+  }
 
   // @Sub-Agent routing: resolve @mentions to agents (skip in recursive sub-agent calls)
   if (!subAgentOptions) {
@@ -801,6 +847,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       dingtalkConfig,
       sessionWebhook,
       senderId,
+      mentionedSlashCommandTarget,
       log,
     });
     if (subAgentRoute) {
@@ -832,7 +879,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     dingtalkConfig,
     senderId,
     isDirect,
-    extractedText: extractedContent.text,
+    extractedText: mentionedSlashCommandTarget?.commandText ?? extractedContent.text,
     messageType: extractedContent.messageType,
     data: {
       conversationId: data.conversationId,
@@ -1497,6 +1544,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const inboundText = attachmentExtractedText
       ? `${inboundBody.trimEnd()}\n\n${attachmentExtractedText}`
       : inboundBody;
+    const commandBody = mentionedSlashCommandTarget?.commandText ?? inboundText;
     const learningEnabled = isLearningEnabled(dingtalkConfig);
     const learningContextBlock = buildLearningContextBlock({
       enabled: learningEnabled,
@@ -1546,7 +1594,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
     const ctx = rt.channel.reply.finalizeInboundContext({
       Body: body,
       RawBody: inboundText,
-      CommandBody: inboundText,
+      CommandBody: commandBody,
       QuotedRef: quotedRef,
       QuotedRefJson: quotedRef ? JSON.stringify(quotedRef) : undefined,
       ReplyToId: quotedRuntimeContext?.replyToId,
