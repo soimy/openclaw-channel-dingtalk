@@ -94,7 +94,7 @@ describe('message payload transform', () => {
         expect(request.data.userIds).toBeUndefined();
     });
 
-    it('converts markdown tables to plain text before session send', async () => {
+    it('converts markdown tables to DingTalk-compatible format before session send', async () => {
         mockedAxios.mockResolvedValue({ data: { success: true } });
 
         await sendBySession(config, 'https://example-session-webhook', '# 报表\n| 姓名 | 分数 |\n| --- | --- |\n| 张三 | 90 |', {
@@ -109,11 +109,11 @@ describe('message payload transform', () => {
 
         expect(request.data.markdown).toEqual({
             title: '报表',
-            text: '# 报表\n姓名 | 分数  \n张三 | 90',
+            text: '# 报表\n|姓名|分数|\n|:-:|:-:|\n|张三|90|',
         });
     });
 
-    it('converts markdown tables to plain text before proactive markdown send', async () => {
+    it('converts markdown tables to DingTalk-compatible format before proactive markdown send', async () => {
         mockedAxios.mockResolvedValue({ data: { processQueryKey: 'q_table' } });
 
         await sendProactiveTextOrMarkdown(config, 'cidA1B2C3', '# 周报\n| 项目 | 状态 |\n| --- | --- |\n| PR-295 | 处理中 |');
@@ -128,7 +128,7 @@ describe('message payload transform', () => {
         expect(request.data.msgKey).toBe('sampleMarkdown');
         expect(JSON.parse(request.data.msgParam)).toEqual({
             title: '周报',
-            text: '# 周报\n项目 | 状态  \nPR-295 | 处理中',
+            text: '# 周报\n|项目|状态|\n|:-:|:-:|\n|PR-295|处理中|',
         });
     });
 
@@ -153,6 +153,30 @@ describe('message payload transform', () => {
 
     it('keeps markdown tables inside code fences untouched', () => {
         const input = '```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```';
+
+        expect(convertMarkdownTablesToPlainText(input)).toBe(input);
+    });
+
+    it('recognizes DingTalk :-: separator format and normalizes to DingTalk-compatible table', () => {
+        const input = '| 姓名 | 分数 |\n|:-:|:-:|\n| 张三 | 90 |';
+
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|姓名|分数|\n|:-:|:-:|\n|张三|90|');
+    });
+
+    it('normalizes mixed-alignment separators to DingTalk :-: format', () => {
+        const input = '| A | B | C |\n|:---|:---:|---:|\n| 1 | 2 | 3 |';
+
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|A|B|C|\n|:-:|:-:|:-:|\n|1|2|3|');
+    });
+
+    it('handles tables with multiple data rows', () => {
+        const input = '| 项目 | 状态 |\n| --- | --- |\n| PR-295 | 处理中 |\n| PR-296 | 已完成 |';
+
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|项目|状态|\n|:-:|:-:|\n|PR-295|处理中|\n|PR-296|已完成|');
+    });
+
+    it('does not convert pipe-delimited lines without a separator row', () => {
+        const input = '| 姓名 | 分数 |\n| 张三 | 90 |';
 
         expect(convertMarkdownTablesToPlainText(input)).toBe(input);
     });

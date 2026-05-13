@@ -398,7 +398,8 @@ function isMarkdownTableSeparator(line: string): boolean {
     .replace(/\|$/, "")
     .split("|")
     .map((cell) => cell.trim());
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+  // DingTalk markdown requires :-: separator format (1 dash minimum)
+  return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
 }
 
 function isMarkdownTableRow(line: string): boolean {
@@ -415,11 +416,39 @@ function parseMarkdownTableRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
+/**
+ * Render markdown table rows to DingTalk-compatible format.
+ * DingTalk markdown requires :-: separator format for table rendering.
+ * All alignment variants are normalized to center-align (:-:).
+ */
 function renderMarkdownTable(lines: string[]): string {
   const rows = lines.map(parseMarkdownTableRow).filter((cells) => cells.length > 0);
-  return rows.map((cells) => cells.join(" | ")).join("  \n");
+  if (rows.length === 0) {
+    return "";
+  }
+  const colCount = Math.max(...rows.map((cells) => cells.length));
+  const separator = "|" + ":-:|".repeat(colCount);
+  return rows
+    .map((cells) => {
+      const padded = cells.length < colCount
+        ? [...cells, ...Array(colCount - cells.length).fill("")]
+        : cells;
+      return "|" + padded.join("|") + "|";
+    })
+    .join("\n")
+    .replace("\n", "\n" + separator + "\n");
 }
 
+/**
+ * Convert markdown tables to DingTalk-compatible format.
+ * DingTalk's markdown renderer requires :-: separator format for tables.
+ * This function normalizes all table separator variants to :-: (center-align).
+ * Tables inside code fences are preserved unchanged.
+ *
+ * Note: Despite the function name, this now produces DingTalk-compatible
+ * markdown tables rather than plain text. The name is preserved for API
+ * compatibility with the `convertMarkdownTables` config option.
+ */
 export function convertMarkdownTablesToPlainText(text: string): string {
   const lines = text.split("\n");
   const output: string[] = [];
