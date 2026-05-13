@@ -107,9 +107,10 @@ describe('message payload transform', () => {
             };
         };
 
+        // Standard separator (---) defaults to center alignment
         expect(request.data.markdown).toEqual({
             title: '报表',
-            text: '# 报表\n|姓名|分数|\n|:-:|:-:|\n|张三|90|',
+            text: '# 报表\n|姓名|分数|\n|:---:|:---:|\n|张三|90|',
         });
     });
 
@@ -128,7 +129,7 @@ describe('message payload transform', () => {
         expect(request.data.msgKey).toBe('sampleMarkdown');
         expect(JSON.parse(request.data.msgParam)).toEqual({
             title: '周报',
-            text: '# 周报\n|项目|状态|\n|:-:|:-:|\n|PR-295|处理中|',
+            text: '# 周报\n|项目|状态|\n|:---:|:---:|\n|PR-295|处理中|',
         });
     });
 
@@ -157,22 +158,22 @@ describe('message payload transform', () => {
         expect(convertMarkdownTablesToPlainText(input)).toBe(input);
     });
 
-    it('recognizes DingTalk :-: separator format and normalizes to DingTalk-compatible table', () => {
+    it('recognizes DingTalk :-: separator format and preserves center alignment', () => {
         const input = '| 姓名 | 分数 |\n|:-:|:-:|\n| 张三 | 90 |';
 
-        expect(convertMarkdownTablesToPlainText(input)).toBe('|姓名|分数|\n|:-:|:-:|\n|张三|90|');
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|姓名|分数|\n|:---:|:---:|\n|张三|90|');
     });
 
-    it('normalizes mixed-alignment separators to DingTalk :-: format', () => {
+    it('preserves original alignment from mixed-alignment separators', () => {
         const input = '| A | B | C |\n|:---|:---:|---:|\n| 1 | 2 | 3 |';
 
-        expect(convertMarkdownTablesToPlainText(input)).toBe('|A|B|C|\n|:-:|:-:|:-:|\n|1|2|3|');
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|A|B|C|\n|:---|:---:|---:|\n|1|2|3|');
     });
 
     it('handles tables with multiple data rows', () => {
         const input = '| 项目 | 状态 |\n| --- | --- |\n| PR-295 | 处理中 |\n| PR-296 | 已完成 |';
 
-        expect(convertMarkdownTablesToPlainText(input)).toBe('|项目|状态|\n|:-:|:-:|\n|PR-295|处理中|\n|PR-296|已完成|');
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|项目|状态|\n|:---:|:---:|\n|PR-295|处理中|\n|PR-296|已完成|');
     });
 
     it('does not convert pipe-delimited lines without a separator row', () => {
