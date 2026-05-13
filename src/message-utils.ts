@@ -532,7 +532,13 @@ export function convertMarkdownTablesToPlainText(text: string): string {
         dataLines.push(lines[index] || "");
         index += 1;
       }
-      output.push(renderMarkdownTable(headerLine, separatorLine, dataLines));
+      const renderedTable = renderMarkdownTable(headerLine, separatorLine, dataLines);
+      // Ensure blank line before table for DingTalk markdown rendering
+      const lastOutput = output[output.length - 1];
+      if (lastOutput !== undefined && lastOutput.trim() !== "") {
+        output.push("");
+      }
+      output.push(renderedTable);
       continue;
     }
 
