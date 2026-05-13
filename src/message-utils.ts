@@ -398,7 +398,9 @@ function isMarkdownTableSeparator(line: string): boolean {
     .replace(/\|$/, "")
     .split("|")
     .map((cell) => cell.trim());
-  // DingTalk markdown requires :-: separator format (1 dash minimum)
+  // DingTalk markdown requires :-: separator format (1 dash minimum).
+  // Note: single `-` cells in data rows would also match; this is an accepted trade-off
+  // for compatibility with DingTalk's recommended :-: separator format.
   return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
 }
 
@@ -482,15 +484,18 @@ function renderMarkdownTable(headerLine: string, separatorLine: string, dataLine
   const separator = buildSeparatorRow(alignments);
 
   const allRows = [headerCells, ...dataRows];
-  return allRows
+  const rendered = allRows
     .map((cells) => {
       const padded = cells.length < colCount
         ? [...cells, ...Array(colCount - cells.length).fill("")]
         : cells;
       return "|" + padded.join("|") + "|";
-    })
-    .join("\n")
-    .replace("\n", "\n" + separator + "\n");
+    });
+
+  // Insert separator after header row (works for header-only tables too)
+  rendered.splice(1, 0, separator);
+
+  return rendered.join("\n");
 }
 
 /**

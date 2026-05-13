@@ -190,6 +190,12 @@ describe('message payload transform', () => {
         expect(convertMarkdownTablesToPlainText(input)).toBe('|姓名|分数|\n|:---:|:---:|\n|张三|90|');
     });
 
+    it('handles header-only table with no data rows', () => {
+        const input = '| 列A | 列B |\n| --- | --- |';
+
+        expect(convertMarkdownTablesToPlainText(input)).toBe('|列A|列B|\n|:---:|:---:|');
+    });
+
     it('does not convert pipe-delimited lines without a separator row', () => {
         const input = '| 姓名 | 分数 |\n| 张三 | 90 |';
 
