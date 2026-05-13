@@ -142,6 +142,7 @@ export default defineConfig({
             { text: '反馈学习', link: '/user/features/feedback-learning' },
             { text: '多 Agent 与多机器人绑定', link: '/user/features/multi-agent-bindings' },
             { text: '@多助手路由', link: '/user/features/at-agent-routing' },
+            { text: 'X/Twitter 伴随工作流', link: '/user/features/x-twitter-workflows' },
           ],
         },
         {

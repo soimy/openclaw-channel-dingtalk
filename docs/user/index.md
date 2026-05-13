@@ -35,6 +35,7 @@
 - [/btw 旁路问答](features/btw.md)
 - [多 Agent 与多机器人绑定](features/multi-agent-bindings.md)
 - [@多助手路由](features/at-agent-routing.md)
+- [X/Twitter 伴随工作流](features/x-twitter-workflows.md)
 
 ## 参考
 

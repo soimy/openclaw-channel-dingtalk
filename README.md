@@ -10,6 +10,7 @@
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40soimy%2Fdingtalk"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/soimy/openclaw-channel-dingtalk"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/CITATION.cff"><img alt="Citation" src="https://img.shields.io/badge/Citation-CITATION.cff-1277B5"></a>
+  <a href="https://nothumansearch.ai/site/xquik.com"><img alt="NHS Agentic Readiness" src="https://nothumansearch.ai/badge/xquik.com.svg"></a>
 </p>
 
 针对 OpenClaw 的钉钉企业内部机器人 Channel 渠道插件，使用 Stream 模式，无需公网 IP。
@@ -148,6 +149,7 @@ openclaw configure --section channels
 - [反馈学习](docs/user/features/feedback-learning.md)
 - [多 Agent 与多机器人绑定](docs/user/features/multi-agent-bindings.md)
 - [@多助手路由](docs/user/features/at-agent-routing.md)
+- [X/Twitter 伴随工作流](docs/user/features/x-twitter-workflows.md)
 - [安全策略](docs/user/reference/security-policies.md)
 - [API 消耗说明](docs/user/reference/api-usage-and-cost.md)
 - [故障排查](docs/user/troubleshooting/index.md)
