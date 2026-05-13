@@ -121,6 +121,51 @@ describe("send-service sessionWebhook media routing", () => {
         );
     });
 
+    it("routes session video replies through proactive media instead of native session video body", async () => {
+        mockedUploadMedia.mockResolvedValueOnce({
+            mediaId: "media_video_session",
+            buffer: Buffer.from("video"),
+        });
+        mockedAxios.mockResolvedValueOnce({ data: { processQueryKey: "q_video_session" } } as any);
+
+        const result = await sendMessage(
+            { clientId: "id", clientSecret: "sec" } as any,
+            "cidA1B2C3",
+            "",
+            {
+                sessionWebhook: "https://session.webhook",
+                mediaPath: "/tmp/demo.mp4",
+                mediaType: "video",
+                accountId: "main",
+                storePath: "/tmp/sessions.json",
+            } as any,
+        );
+
+        expect(result).toMatchObject({
+            ok: true,
+            data: { processQueryKey: "q_video_session" },
+            messageId: "q_video_session",
+        });
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.url).toContain("/v1.0/robot/groupMessages/send");
+        expect(req.url).not.toBe("https://session.webhook");
+        expect(req.data.msgKey).toBe("sampleFile");
+        expect(JSON.parse(req.data.msgParam)).toEqual({
+            mediaId: "media_video_session",
+            fileName: "demo.mp4",
+            fileType: "mp4",
+        });
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                messageType: "outbound-proactive-media",
+                delivery: expect.objectContaining({
+                    processQueryKey: "q_video_session",
+                    kind: "proactive-media",
+                }),
+            }),
+        );
+    });
+
     it("routes terminal card session file replies through proactive media", async () => {
         mockedUploadMedia.mockResolvedValueOnce({
             mediaId: "media_file_terminal_card",
@@ -160,6 +205,51 @@ describe("send-service sessionWebhook media routing", () => {
             fileName: "terminal-card-report.pdf",
             fileType: "pdf",
         });
+    });
+
+    it("falls back to session markdown when proactive session file upload fails", async () => {
+        mockedUploadMedia.mockResolvedValueOnce(null);
+        mockedAxios.mockResolvedValueOnce({
+            data: { success: true, result: true, messageId: "session_file_fallback" },
+        } as any);
+
+        const result = await sendMessage(
+            { clientId: "id", clientSecret: "sec" } as any,
+            "user_123",
+            "文件说明",
+            {
+                sessionWebhook: "https://session.webhook",
+                mediaPath: "/tmp/report.pdf",
+                mediaType: "file",
+                accountId: "main",
+                storePath: "/tmp/sessions.json",
+            } as any,
+        );
+
+        expect(result).toMatchObject({
+            ok: true,
+            data: { success: true, result: true, messageId: "session_file_fallback" },
+            messageId: "session_file_fallback",
+        });
+        expect(mockedAxios).toHaveBeenCalledTimes(1);
+        const req = mockedAxios.mock.calls[0]?.[0] as any;
+        expect(req.url).toBe("https://session.webhook");
+        expect(req.data).toEqual({
+            msgtype: "markdown",
+            markdown: {
+                title: "文件说明",
+                text: "文件说明\n\n📎 当前会话无法直接发送 file，兜底链接/路径：/tmp/report.pdf",
+            },
+        });
+        expect(messageContextMocks.upsertOutboundMessageContextMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                messageType: "outbound-media",
+                delivery: expect.objectContaining({
+                    messageId: "session_file_fallback",
+                    kind: "session",
+                }),
+            }),
+        );
     });
 
     it("falls back to a text description when sessionWebhook receives a non-image media request directly", async () => {

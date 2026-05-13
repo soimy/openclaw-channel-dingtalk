@@ -827,7 +827,30 @@ export async function sendMessage(
         options,
       );
       if (!proactiveMediaResult.ok) {
-        return { ok: false, error: proactiveMediaResult.error || "Media reply send failed" };
+        log?.warn?.(
+          `[DingTalk] Proactive ${options.mediaType} reply failed; falling back to session markdown: ` +
+          (proactiveMediaResult.error || "unknown"),
+        );
+        const data = await sendBySession(config, options.sessionWebhook, text, options);
+        const delivery = extractOutboundDeliveryMetadata(data);
+        const messageId = delivery.messageId || delivery.processQueryKey || delivery.outTrackId;
+        const persistedText = buildPersistedOutboundText(text, options);
+        persistOutboundMessageContext({
+          storePath: options.storePath,
+          accountId: options.accountId,
+          conversationId: options.conversationId || conversationId,
+          text: persistedText,
+          messageType: "outbound-media",
+          quotedRef: options.quotedRef,
+          log,
+          ...DEFAULT_OUTBOUND_SENDER,
+          chatType: inferConversationChatType(options.conversationId || conversationId),
+          delivery: {
+            ...delivery,
+            kind: "session",
+          },
+        });
+        return { ok: true, data, messageId };
       }
       return {
         ok: true,
