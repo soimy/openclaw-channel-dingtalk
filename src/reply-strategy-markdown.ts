@@ -6,7 +6,15 @@
  * Reasoning display is intentionally unsupported on DingTalk markdown.
  */
 
-import type { DeliverPayload, ReplyOptions, ReplyStrategy, ReplyStrategyContext } from "./reply-strategy-types";
+import path from "node:path";
+import { resolveRelativePath } from "./config";
+import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
+import type {
+  DeliverPayload,
+  ReplyOptions,
+  ReplyStrategy,
+  ReplyStrategyContext,
+} from "./reply-strategy-types";
 import { sendMessage } from "./send-service";
 
 const EMPTY_FINAL_FALLBACK_TEXT = "✅ Done";
@@ -14,7 +22,7 @@ const EMPTY_FINAL_FALLBACK_TEXT = "✅ Done";
 function renderQuotedSegment(text: string): string {
   return text
     .split("\n")
-    .map((line) => line.length > 0 ? `> ${line}` : ">")
+    .map((line) => (line.length > 0 ? `> ${line}` : ">"))
     .join("\n");
 }
 
@@ -52,9 +60,12 @@ function computeSharedPrefixTail(previous: string, next: string): string {
   return suffix.trim() ? suffix : "";
 }
 
-export function createMarkdownReplyStrategy(
-  ctx: ReplyStrategyContext,
-): ReplyStrategy {
+function renderMarkdownImage(mediaPath: string): string {
+  const filename = path.basename(mediaPath) || "image";
+  return `![${filename}](${mediaPath})`;
+}
+
+export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStrategy {
   let finalText: string | undefined;
   let activeAnswerText = "";
   let lastSentAnswerText = "";
@@ -79,7 +90,7 @@ export function createMarkdownReplyStrategy(
     sentVisibleContent = true;
   };
 
-  const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
+  const takeAnswerSuffix = (text: string | undefined): string => {
     const current = typeof text === "string" ? text : "";
     if (current.length > 0) {
       activeAnswerText = current;
@@ -88,26 +99,72 @@ export function createMarkdownReplyStrategy(
 
     const suffix = computeIncrementalSuffix(lastSentAnswerText, current);
     if (suffix) {
-      await sendMarkdownSegment(suffix);
       lastSentAnswerText = current;
-      return;
+      return suffix;
     }
 
     if (current.trim() && lastSentAnswerText && !current.startsWith(lastSentAnswerText)) {
       const suffix = computeSharedPrefixTail(lastSentAnswerText, current);
       ctx.log?.warn?.(
         `[DingTalk][Markdown] answer prefix drift detected; falling back to shared-prefix tail ` +
-        `prevLen=${lastSentAnswerText.length} currentLen=${current.length}`,
+          `prevLen=${lastSentAnswerText.length} currentLen=${current.length}`,
       );
       lastSentAnswerText = "";
       if (suffix) {
-        await sendMarkdownSegment(suffix);
         lastSentAnswerText = current;
-        return;
+        return suffix;
       }
-      await sendMarkdownSegment(current);
       lastSentAnswerText = current;
+      return current;
     }
+
+    return "";
+  };
+
+  const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
+    const suffix = takeAnswerSuffix(text);
+    if (suffix) {
+      await sendMarkdownSegment(suffix);
+    }
+  };
+
+  const prepareMarkdownImageAttachments = async (
+    mediaUrls: string[],
+  ): Promise<{
+    imageMarkdown: string[];
+    passthroughMediaUrls: string[];
+    cleanups: Array<() => Promise<void>>;
+  }> => {
+    const imageMarkdown: string[] = [];
+    const passthroughMediaUrls: string[] = [];
+    const cleanups: Array<() => Promise<void>> = [];
+
+    for (const rawMediaUrl of mediaUrls) {
+      const preparedMedia = await prepareMediaInput(
+        rawMediaUrl,
+        ctx.log,
+        ctx.config.mediaUrlAllowlist,
+      );
+      const actualMediaPath = preparedMedia.cleanup
+        ? preparedMedia.path
+        : resolveRelativePath(preparedMedia.path);
+      const mediaType = resolveOutboundMediaType({
+        mediaPath: actualMediaPath,
+        asVoice: false,
+      });
+
+      if (mediaType === "image") {
+        imageMarkdown.push(renderMarkdownImage(actualMediaPath));
+        if (preparedMedia.cleanup) {
+          cleanups.push(preparedMedia.cleanup);
+        }
+      } else {
+        await preparedMedia.cleanup?.();
+        passthroughMediaUrls.push(rawMediaUrl);
+      }
+    }
+
+    return { imageMarkdown, passthroughMediaUrls, cleanups };
   };
 
   return {
@@ -122,12 +179,53 @@ export function createMarkdownReplyStrategy(
     },
 
     async deliver(payload: DeliverPayload): Promise<void> {
+      let answerTextSentWithImages = false;
+      let toolTextSentWithImages = false;
+
       if (payload.mediaUrls.length > 0) {
-        await ctx.deliverMedia(payload.mediaUrls, { audioAsVoice: payload.audioAsVoice });
-        sentVisibleContent = true;
+        const prepared =
+          payload.audioAsVoice === true
+            ? {
+                imageMarkdown: [],
+                passthroughMediaUrls: payload.mediaUrls,
+                cleanups: [],
+              }
+            : await prepareMarkdownImageAttachments(payload.mediaUrls);
+        try {
+          if (prepared.passthroughMediaUrls.length > 0) {
+            await ctx.deliverMedia(prepared.passthroughMediaUrls, {
+              audioAsVoice: payload.audioAsVoice,
+            });
+            sentVisibleContent = true;
+          }
+
+          if (prepared.imageMarkdown.length > 0) {
+            const answerSuffix =
+              payload.kind === "block" || payload.kind === "final"
+                ? takeAnswerSuffix(payload.text)
+                : typeof payload.text === "string"
+                  ? renderQuotedSegment(payload.text)
+                  : "";
+            const markdownParts = [answerSuffix, ...prepared.imageMarkdown].filter(
+              (part) => part.trim().length > 0,
+            );
+            if (markdownParts.length > 0) {
+              await sendMarkdownSegment(markdownParts.join("\n\n"));
+            }
+            answerTextSentWithImages = payload.kind === "block" || payload.kind === "final";
+            toolTextSentWithImages = payload.kind === "tool";
+          }
+        } finally {
+          for (const cleanup of prepared.cleanups) {
+            await cleanup();
+          }
+        }
       }
 
       if (payload.kind === "tool") {
+        if (toolTextSentWithImages) {
+          return;
+        }
         const text = typeof payload.text === "string" ? payload.text : "";
         if (!text.trim()) {
           return;
@@ -137,8 +235,9 @@ export function createMarkdownReplyStrategy(
       }
 
       if (
-        (payload.kind === "block" || payload.kind === "final")
-        && typeof payload.text === "string"
+        (payload.kind === "block" || payload.kind === "final") &&
+        typeof payload.text === "string" &&
+        !answerTextSentWithImages
       ) {
         await emitAnswerSuffix(payload.text);
       }
