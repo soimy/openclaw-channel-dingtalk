@@ -90,7 +90,10 @@ export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStr
     sentVisibleContent = true;
   };
 
-  const takeAnswerSuffix = (text: string | undefined): string => {
+  const prepareAnswerSuffix = (text: string | undefined): {
+    text: string;
+    markSent: () => void;
+  } | null => {
     const current = typeof text === "string" ? text : "";
     if (current.length > 0) {
       activeAnswerText = current;
@@ -99,8 +102,12 @@ export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStr
 
     const suffix = computeIncrementalSuffix(lastSentAnswerText, current);
     if (suffix) {
-      lastSentAnswerText = current;
-      return suffix;
+      return {
+        text: suffix,
+        markSent: () => {
+          lastSentAnswerText = current;
+        },
+      };
     }
 
     if (current.trim() && lastSentAnswerText && !current.startsWith(lastSentAnswerText)) {
@@ -109,22 +116,30 @@ export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStr
         `[DingTalk][Markdown] answer prefix drift detected; falling back to shared-prefix tail ` +
           `prevLen=${lastSentAnswerText.length} currentLen=${current.length}`,
       );
-      lastSentAnswerText = "";
       if (suffix) {
-        lastSentAnswerText = current;
-        return suffix;
+        return {
+          text: suffix,
+          markSent: () => {
+            lastSentAnswerText = current;
+          },
+        };
       }
-      lastSentAnswerText = current;
-      return current;
+      return {
+        text: current,
+        markSent: () => {
+          lastSentAnswerText = current;
+        },
+      };
     }
 
-    return "";
+    return null;
   };
 
   const emitAnswerSuffix = async (text: string | undefined): Promise<void> => {
-    const suffix = takeAnswerSuffix(text);
+    const suffix = prepareAnswerSuffix(text);
     if (suffix) {
-      await sendMarkdownSegment(suffix);
+      await sendMarkdownSegment(suffix.text);
+      suffix.markSent();
     }
   };
 
@@ -202,15 +217,16 @@ export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStr
           if (prepared.imageMarkdown.length > 0) {
             const answerSuffix =
               payload.kind === "block" || payload.kind === "final"
-                ? takeAnswerSuffix(payload.text)
+                ? prepareAnswerSuffix(payload.text)
                 : typeof payload.text === "string"
-                  ? renderQuotedSegment(payload.text)
-                  : "";
-            const markdownParts = [answerSuffix, ...prepared.imageMarkdown].filter(
+                  ? { text: renderQuotedSegment(payload.text), markSent: () => {} }
+                  : null;
+            const markdownParts = [answerSuffix?.text || "", ...prepared.imageMarkdown].filter(
               (part) => part.trim().length > 0,
             );
             if (markdownParts.length > 0) {
               await sendMarkdownSegment(markdownParts.join("\n\n"));
+              answerSuffix?.markSent();
             }
             answerTextSentWithImages = payload.kind === "block" || payload.kind === "final";
             toolTextSentWithImages = payload.kind === "tool";

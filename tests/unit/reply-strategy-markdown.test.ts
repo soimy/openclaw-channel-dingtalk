@@ -270,6 +270,27 @@ describe("reply-strategy-markdown", () => {
         ).rejects.toThrow("send failed");
     });
 
+    it("does not advance the answer cursor when a segment send fails", async () => {
+        sendMessageMock
+            .mockResolvedValueOnce({ ok: false, error: "send failed" })
+            .mockResolvedValueOnce({ ok: true });
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+
+        await expect(
+            strategy.deliver({ text: "partial answer", mediaUrls: [], kind: "block" }),
+        ).rejects.toThrow("send failed");
+        await strategy.deliver({
+            text: "partial answer with final details",
+            mediaUrls: [],
+            kind: "final",
+        });
+
+        expect(sentTexts()).toEqual([
+            "partial answer",
+            "partial answer with final details",
+        ]);
+    });
+
     it("deliver(block) is silently ignored when it has no text or media", async () => {
         const strategy = createMarkdownReplyStrategy(buildCtx());
 
