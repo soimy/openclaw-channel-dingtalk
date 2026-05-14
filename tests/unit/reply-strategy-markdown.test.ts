@@ -42,6 +42,7 @@ describe("reply-strategy-markdown", () => {
         const opts = strategy.getReplyOptions();
 
         expect(opts.disableBlockStreaming).toBe(false);
+        expect(opts.sourceReplyDeliveryMode).toBe("automatic");
         expect("onBlockReply" in opts).toBe(false);
         expect(opts.onPartialReply).toBeUndefined();
         expect(opts.onReasoningStream).toBeUndefined();
