@@ -114,6 +114,10 @@ export function createMarkdownReplyStrategy(
     getReplyOptions(): ReplyOptions {
       return {
         disableBlockStreaming: ctx.disableBlockStreaming === true,
+        // DingTalk markdown/sessionWebhook mode owns the visible reply surface.
+        // Keep runtime final replies on this strategy even when group chats
+        // default source replies to message-tool-only.
+        sourceReplyDeliveryMode: "automatic",
       };
     },
 
