@@ -61,39 +61,88 @@ export function buildAgentSessionKey(params: {
   }).toLowerCase();
 }
 
-type MentionedSlashCommandTarget = {
-  agentId: string;
-  commandText: string;
-};
+/**
+ * The single routing decision for an inbound message.
+ *
+ * - `default` — route to the peer's default agent via `resolveAgentRoute`.
+ *   Covers messages with no @mention, learn/session commands, and slash
+ *   commands that mention only real users.
+ * - `subagent-content` — `@agent <message>` targeting one or more configured
+ *   agents; each is dispatched recursively. `unmatchedNames` /
+ *   `hasInvalidAgentNames` drive the "agent not found" notice.
+ * - `subagent-command` — `@agent /command` targeting a configured agent. The
+ *   command is dispatched to that agent's session with the @mention prefix
+ *   stripped from `commandText`.
+ */
+export type MessageTarget =
+  | { kind: "default" }
+  | {
+      kind: "subagent-content";
+      matchedAgents: AgentNameMatch[];
+      unmatchedNames: string[];
+      hasInvalidAgentNames: boolean;
+    }
+  | { kind: "subagent-command"; agent: AgentNameMatch; commandText: string };
 
-export function resolveMentionedSlashCommandTarget(params: {
+/**
+ * Resolve how an inbound message should be routed.
+ *
+ * This is the single source of truth for "who does this message target": both
+ * content sub-agent routing and targeted slash commands are decided here, so
+ * the @mention/alias parsing happens exactly once. The function is pure — the
+ * caller is responsible for any side effects (dispatch, fallback notices).
+ *
+ * In group chats @mentions come from the DingTalk SDK (`atMentions`); in DMs
+ * `extractMessageContent` populates the same field for text messages, so the
+ * same logic enables sub-agent routing in DMs without an `isGroup` guard.
+ */
+export function resolveMessageTarget(params: {
   extractedContent: MessageContent;
   cfg: OpenClawConfig;
   isGroup: boolean;
-}): MentionedSlashCommandTarget | null {
+}): MessageTarget {
   const { extractedContent, cfg, isGroup } = params;
   const atMentions = extractedContent.atMentions || [];
+  // No @mentions or no configured agents → nothing to route dynamically.
   if (atMentions.length === 0 || !cfg.agents?.list || cfg.agents.list.length === 0) {
-    return null;
+    return { kind: "default" };
   }
 
+  // Strip quoted prefix before inspecting commands to avoid false positives
+  // when the quoted message itself contains a command.
   const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
-  const commandText = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
-  if (maybeResolveTextAlias(commandText, cfg) === null) {
-    return null;
+  // Learn/session commands are handled by the plugin command layer on the
+  // default route, so they must bypass sub-agent routing entirely.
+  if (parseLearnCommand(textForCommandCheck).scope !== "unknown") {
+    return { kind: "default" };
   }
 
+  // DM has no @picker list from DingTalk; only group chats provide atUsers for real-user hints.
   const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
-  const { matchedAgents } = resolveAtAgents(atMentions, cfg, atUserDingtalkIds);
-  const firstMatch = matchedAgents[0];
-  if (!firstMatch) {
-    return null;
+  const { matchedAgents, unmatchedNames, hasInvalidAgentNames } = resolveAtAgents(
+    atMentions,
+    cfg,
+    atUserDingtalkIds,
+  );
+
+  // Slash commands like /new, /stop, /reasoning must reach the framework's own
+  // command layer. When one targets a configured agent, route it to that
+  // agent's session with the leading @mention tokens stripped. When no agent
+  // matched, fall through: an unmatched agent name still produces the "not
+  // found" notice, while a slash command that only @mentions real users (or no
+  // agent at all) goes to the default route.
+  const commandText = textForCommandCheck.replace(/^(?:@\S+\s+)*/u, "").trim();
+  if (maybeResolveTextAlias(commandText, cfg) !== null) {
+    const firstMatch = matchedAgents[0];
+    if (firstMatch) {
+      return { kind: "subagent-command", agent: firstMatch, commandText };
+    }
   }
 
-  return {
-    agentId: firstMatch.agentId,
-    commandText,
-  };
+  if (matchedAgents.length === 0 && !hasInvalidAgentNames) {
+    return { kind: "default" };
+  }
+  return { kind: "subagent-content", matchedAgents, unmatchedNames, hasInvalidAgentNames };
 }
 
 /**
@@ -106,97 +155,43 @@ function sanitizeAgentName(name: string): string {
 }
 
 /**
- * Resolve @mention-based sub-agent routing for a group or direct message.
+ * Send the "agent not found" fallback notice for unmatched @mention names.
  *
- * In group chats, @mentions are populated by the DingTalk SDK (atMentions field).
- * In direct messages (DM), the SDK also populates atMentions for text-type messages
- * via extractMessageContent in message-utils.ts, so the same field is reused here.
- * The !isGroup guard is removed to enable sub-agent routing in DM as well.
- *
- * Returns matched agents if any @mentions resolve to configured agents,
- * or null if the message should be handled by the default agent.
+ * In group chats the notice @s the sender back; in DMs it is a plain reply.
+ * Failures are swallowed — the notice is best-effort and must not abort the
+ * inbound pipeline.
  */
-export async function resolveSubAgentRoute(params: {
-  extractedContent: MessageContent;
-  cfg: OpenClawConfig;
+export async function sendUnmatchedAgentNotice(params: {
+  unmatchedNames: string[];
   isGroup: boolean;
+  senderId: string;
   dingtalkConfig: DingTalkConfig;
   sessionWebhook: string;
-  senderId: string;
-  mentionedSlashCommandTarget?: MentionedSlashCommandTarget | null;
   log?: Logger;
-}): Promise<{
-  matchedAgents: AgentNameMatch[];
-  preDownloadedMedia?: { mediaPath?: string; mediaType?: string };
-} | null> {
-  const {
-    extractedContent,
-    cfg,
-    isGroup,
-    dingtalkConfig,
-    sessionWebhook,
-    senderId,
-    mentionedSlashCommandTarget = resolveMentionedSlashCommandTarget({
-      extractedContent,
-      cfg,
-      isGroup,
-    }),
-    log,
-  } = params;
-
-  const atMentions = extractedContent.atMentions || [];
-  // DM has no @picker list from DingTalk; only group chats provide atUsers for real-user hints.
-  const atUserDingtalkIds = isGroup ? extractedContent.atUserDingtalkIds : undefined;
-  // Strip quoted prefix before checking commands to avoid false positives
-  // when the quoted message itself contains a command.
-  const textForCommandCheck = extractedContent.text.replace(/^\[引用[^\]]*\]\s*/, "");
-  const isLearnCommand = parseLearnCommand(textForCommandCheck).scope !== "unknown";
-  // Slash commands like /new, /stop, /reasoning etc. must bypass sub-agent
-  // routing so they reach the framework's own command handling layer.
-  if (
-    atMentions.length === 0 ||
-    !cfg.agents?.list ||
-    cfg.agents.list.length === 0 ||
-    isLearnCommand ||
-    mentionedSlashCommandTarget !== null
-  ) {
-    return null;
+}): Promise<void> {
+  const { unmatchedNames, isGroup, senderId, dingtalkConfig, sessionWebhook, log } = params;
+  const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
+  try {
+    const sendOptions = isGroup ? { atUserId: senderId, log } : { log };
+    await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, sendOptions);
+  } catch (err: unknown) {
+    log?.debug?.(`[DingTalk] Failed to send fallback notice: ${getErrorMessage(err)}`);
   }
-
-  const { matchedAgents, unmatchedNames, realUserCount, hasInvalidAgentNames } = resolveAtAgents(
-    atMentions,
-    cfg,
-    atUserDingtalkIds,
-  );
-  log?.info?.(
-    `[DingTalk] Sub-agent resolve: matched=${matchedAgents.map((a) => a.agentId).join(",")} unmatched=${unmatchedNames.join(",")} realUsers=${realUserCount}`,
-  );
-
-  // Send fallback notice for unmatched agent names
-  if (hasInvalidAgentNames) {
-    const fallbackReason = `未找到名为"${unmatchedNames.join("、")}"的助手`;
-    try {
-      const sendOptions = isGroup ? { atUserId: senderId, log } : { log };
-      await sendBySession(dingtalkConfig, sessionWebhook, `⚠️ ${fallbackReason}`, {
-        ...sendOptions,
-      });
-    } catch (err: unknown) {
-      log?.debug?.(`[DingTalk] Failed to send fallback notice: ${getErrorMessage(err)}`);
-    }
-  }
-
-  if (matchedAgents.length === 0) {
-    return null;
-  }
-
-  return { matchedAgents };
 }
 
 /**
  * Process matched sub-agents by dispatching each to handleDingTalkMessage.
+ *
+ * When `commandText` is set, this is a targeted slash command (`@agent /new`):
+ * `matchedAgents` holds the single resolved agent, the command is threaded
+ * through `subAgentOptions.commandText`, and no response prefix is added.
+ * Otherwise it is content routing — each matched agent is dispatched with a
+ * `> 🤖 **agent**:` prefix. Both modes share the same recursive dispatch path,
+ * so the host-helper-missing fallback below is the only copy.
  */
 export async function dispatchSubAgents(params: {
   matchedAgents: AgentNameMatch[];
+  commandText?: string;
   cfg: OpenClawConfig;
   accountId: string;
   data: DingTalkInboundMessage;
@@ -213,6 +208,7 @@ export async function dispatchSubAgents(params: {
 }): Promise<void> {
   const {
     matchedAgents,
+    commandText,
     cfg,
     accountId,
     data,
@@ -272,8 +268,11 @@ export async function dispatchSubAgents(params: {
         dingtalkConfig,
         subAgentOptions: {
           agentId: agentMatch.agentId,
-          responsePrefix: `> 🤖 **${sanitizeAgentName(agentMatch.matchedName)}**:\n\n`,
+          responsePrefix: commandText
+            ? ""
+            : `> 🤖 **${sanitizeAgentName(agentMatch.matchedName)}**:\n\n`,
           matchedName: agentMatch.matchedName,
+          commandText,
         },
         preDownloadedMedia,
       });

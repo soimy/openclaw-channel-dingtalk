@@ -1,10 +1,11 @@
 /**
- * Tests for DM (direct message) @mention-based sub-agent routing.
+ * Tests for @mention-based message routing (resolveMessageTarget) and the
+ * helpers that act on its decision: dispatchSubAgents, sendUnmatchedAgentNotice,
+ * and buildAgentSessionKey.
  *
- * extractMessageContent already parses @name tokens from text-type messages
- * and populates atMentions — this applies to both group and DM messages.
- * Removing the !isGroup guard in resolveSubAgentRoute is sufficient to
- * enable sub-agent routing in DMs without duplicating the extraction logic.
+ * extractMessageContent parses @name tokens from text-type messages and
+ * populates atMentions for both group and DM messages, so resolveMessageTarget
+ * needs no isGroup guard to enable sub-agent routing in DMs.
  */
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
@@ -16,15 +17,10 @@ import {
   buildAgentSessionKey,
   dispatchSubAgents,
   HostRoutingHelperUnavailableError,
-  resolveMentionedSlashCommandTarget,
-  resolveSubAgentRoute,
+  resolveMessageTarget,
+  sendUnmatchedAgentNotice,
 } from "../../../src/targeting/agent-routing";
-import type {
-  DingTalkConfig,
-  DingTalkInboundMessage,
-  Logger,
-  MessageContent,
-} from "../../../src/types";
+import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "../../../src/types";
 
 vi.mock("../../../src/send-service", () => ({
   sendBySession: vi.fn(),
@@ -148,164 +144,77 @@ describe("DM sub-agent @mention routing", () => {
   });
 });
 
-describe("resolveSubAgentRoute in DM", () => {
-  const mockedSendBySession = vi.mocked(sendBySession);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("does not include atUserId in DM fallback notice", async () => {
-    const extractedContent: MessageContent = {
-      text: "@nonexistent 你好",
-      messageType: "text",
-      atMentions: [{ name: "nonexistent" }],
-    };
-
-    const result = await resolveSubAgentRoute({
-      extractedContent,
+describe("resolveMessageTarget", () => {
+  it("returns 'default' for messages without @mentions", () => {
+    const result = resolveMessageTarget({
+      extractedContent: { text: "你好", messageType: "text" },
       cfg,
       isGroup: false,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
     });
 
-    expect(result).toBeNull();
-    expect(mockedSendBySession).toHaveBeenCalledTimes(1);
-    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
-    expect(options).toMatchObject({ log });
-    expect(options).not.toHaveProperty("atUserId");
+    expect(result).toEqual({ kind: "default" });
   });
 
-  it("keeps atUserId in group fallback notice", async () => {
-    const extractedContent: MessageContent = {
-      text: "@nonexistent 你好",
-      messageType: "text",
-      atMentions: [{ name: "nonexistent" }],
-      atUserDingtalkIds: [],
-    };
-
-    await resolveSubAgentRoute({
-      extractedContent,
-      cfg,
-      isGroup: true,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
-    });
-
-    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
-    expect(options).toMatchObject({ log, atUserId: "user-001" });
-  });
-
-  it("skips sub-agent routing for /learn commands in DM", async () => {
-    const extractedContent: MessageContent = {
-      text: "/learn list",
-      messageType: "text",
-      atMentions: [{ name: "agent-alpha" }],
-    };
-
-    const result = await resolveSubAgentRoute({
-      extractedContent,
+  it("returns 'default' for /learn commands even with an @mention", () => {
+    const result = resolveMessageTarget({
+      extractedContent: {
+        text: "/learn list",
+        messageType: "text",
+        atMentions: [{ name: "agent-alpha" }],
+      },
       cfg,
       isGroup: false,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
     });
 
-    expect(result).toBeNull();
-    expect(mockedSendBySession).not.toHaveBeenCalled();
+    expect(result).toEqual({ kind: "default" });
+  });
+
+  it("routes normal @mention messages to subagent-content", () => {
+    const result = resolveMessageTarget({
+      extractedContent: {
+        text: "@agent-alpha 你好",
+        messageType: "text",
+        atMentions: [{ name: "agent-alpha" }],
+      },
+      cfg,
+      isGroup: false,
+    });
+
+    expect(result.kind).toBe("subagent-content");
+    if (result.kind === "subagent-content") {
+      expect(result.matchedAgents.map((a) => a.agentId)).toEqual(["agent-alpha"]);
+      expect(result.hasInvalidAgentNames).toBe(false);
+    }
+  });
+
+  it("reports an unmatched agent name as subagent-content with no matches", () => {
+    const result = resolveMessageTarget({
+      extractedContent: {
+        text: "@nonexistent 你好",
+        messageType: "text",
+        atMentions: [{ name: "nonexistent" }],
+      },
+      cfg,
+      isGroup: false,
+    });
+
+    expect(result).toEqual({
+      kind: "subagent-content",
+      matchedAgents: [],
+      unmatchedNames: ["nonexistent"],
+      hasInvalidAgentNames: true,
+    });
   });
 
   it.each([
-    "/new",
-    "/stop",
-    "/clear",
-    "/compact",
-    "/reasoning stream",
-    "/reasoning on",
-    "/model",
-    "/config",
-    "/session",
-    "/whoami",
-    "/whereami",
-    "/session-alias show",
-    "/session-alias clear",
-  ])("skips sub-agent routing for slash command '%s' with @mention", async (command) => {
-    const extractedContent: MessageContent = {
-      text: `@agent-alpha ${command}`,
-      messageType: "text",
-      atMentions: [{ name: "agent-alpha" }],
-    };
-
-    const result = await resolveSubAgentRoute({
-      extractedContent,
-      cfg,
-      isGroup: false,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
-    });
-
-    expect(result).toBeNull();
-    expect(mockedSendBySession).not.toHaveBeenCalled();
-  });
-
-  it("skips sub-agent routing for slash commands in group chat", async () => {
-    const extractedContent: MessageContent = {
-      text: "/new",
-      messageType: "text",
-      atMentions: [{ name: "agent-alpha" }],
-      atUserDingtalkIds: [],
-    };
-
-    const result = await resolveSubAgentRoute({
-      extractedContent,
-      cfg,
-      isGroup: true,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
-    });
-
-    expect(result).toBeNull();
-    expect(mockedSendBySession).not.toHaveBeenCalled();
-  });
-
-  it("still routes to sub-agent for normal @mention messages", async () => {
-    const extractedContent: MessageContent = {
-      text: "@agent-alpha 你好",
-      messageType: "text",
-      atMentions: [{ name: "agent-alpha" }],
-    };
-
-    const result = await resolveSubAgentRoute({
-      extractedContent,
-      cfg,
-      isGroup: false,
-      dingtalkConfig,
-      sessionWebhook: "https://session.webhook",
-      senderId: "user-001",
-      log,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result?.matchedAgents[0]?.agentId).toBe("agent-alpha");
-  });
-});
-
-describe("resolveMentionedSlashCommandTarget", () => {
-  it("returns the mentioned agent and stripped command text in DM", () => {
-    const result = resolveMentionedSlashCommandTarget({
+    ["/new", "/new"],
+    ["/stop", "/stop"],
+    ["/reasoning stream", "/reasoning stream"],
+    ["/session-alias show", "/session-alias show"],
+  ])("routes '@agent %s' to subagent-command with the @mention stripped", (input, expected) => {
+    const result = resolveMessageTarget({
       extractedContent: {
-        text: "@agent-alpha /new",
+        text: `@agent-alpha ${input}`,
         messageType: "text",
         atMentions: [{ name: "agent-alpha" }],
       },
@@ -314,15 +223,16 @@ describe("resolveMentionedSlashCommandTarget", () => {
     });
 
     expect(result).toEqual({
-      agentId: "agent-alpha",
-      commandText: "/new",
+      kind: "subagent-command",
+      agent: expect.objectContaining({ agentId: "agent-alpha" }),
+      commandText: expected,
     });
   });
 
-  it("returns the mentioned group agent when DingTalk strips the @ token from text", () => {
-    const result = resolveMentionedSlashCommandTarget({
+  it("routes group @agent slash commands to subagent-command", () => {
+    const result = resolveMessageTarget({
       extractedContent: {
-        text: "/new",
+        text: "@agent-alpha /new",
         messageType: "text",
         atMentions: [{ name: "agent-alpha" }],
         atUserDingtalkIds: [],
@@ -332,9 +242,82 @@ describe("resolveMentionedSlashCommandTarget", () => {
     });
 
     expect(result).toEqual({
-      agentId: "agent-alpha",
+      kind: "subagent-command",
+      agent: expect.objectContaining({ agentId: "agent-alpha" }),
       commandText: "/new",
     });
+  });
+
+  it("falls back to a subagent-content notice when a slash command @mentions an unknown agent", () => {
+    const result = resolveMessageTarget({
+      extractedContent: {
+        text: "@nonexistent /new",
+        messageType: "text",
+        atMentions: [{ name: "nonexistent" }],
+      },
+      cfg,
+      isGroup: false,
+    });
+
+    expect(result).toEqual({
+      kind: "subagent-content",
+      matchedAgents: [],
+      unmatchedNames: ["nonexistent"],
+      hasInvalidAgentNames: true,
+    });
+  });
+});
+
+describe("sendUnmatchedAgentNotice", () => {
+  const mockedSendBySession = vi.mocked(sendBySession);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not include atUserId in the DM fallback notice", async () => {
+    await sendUnmatchedAgentNotice({
+      unmatchedNames: ["nonexistent"],
+      isGroup: false,
+      senderId: "user-001",
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      log,
+    });
+
+    expect(mockedSendBySession).toHaveBeenCalledTimes(1);
+    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(options).toMatchObject({ log });
+    expect(options).not.toHaveProperty("atUserId");
+  });
+
+  it("@s the sender back in the group fallback notice", async () => {
+    await sendUnmatchedAgentNotice({
+      unmatchedNames: ["nonexistent"],
+      isGroup: true,
+      senderId: "user-001",
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      log,
+    });
+
+    const options = mockedSendBySession.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(options).toMatchObject({ log, atUserId: "user-001" });
+  });
+
+  it("swallows sendBySession failures", async () => {
+    mockedSendBySession.mockRejectedValueOnce(new Error("network error"));
+
+    await expect(
+      sendUnmatchedAgentNotice({
+        unmatchedNames: ["nonexistent"],
+        isGroup: false,
+        senderId: "user-001",
+        dingtalkConfig,
+        sessionWebhook: "https://session.webhook",
+        log,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -486,6 +469,48 @@ describe("dispatchSubAgents", () => {
       expect.objectContaining({
         atUserId: "user-001",
         log,
+      }),
+    );
+  });
+
+  it("threads commandText into subAgentOptions and drops the response prefix for targeted commands", async () => {
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+
+    await dispatchSubAgents({
+      matchedAgents: [{ agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" }],
+      commandText: "/new",
+      cfg,
+      accountId: "main",
+      data: {
+        msgtype: "text",
+        text: { content: "@Alpha助手 /new" },
+        conversationType: "1",
+        conversationId: "cid_dm_1",
+        senderId: "user-001",
+        chatbotUserId: "bot-001",
+        msgId: "msg-cmd",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      extractedContent: {
+        text: "@Alpha助手 /new",
+        messageType: "text",
+      },
+      handleMessage,
+      downloadMedia: vi.fn().mockResolvedValue(null),
+      log,
+    });
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subAgentOptions: {
+          agentId: "agent-alpha",
+          responsePrefix: "",
+          matchedName: "Alpha助手",
+          commandText: "/new",
+        },
       }),
     );
   });

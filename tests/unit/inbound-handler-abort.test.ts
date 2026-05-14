@@ -521,8 +521,10 @@ describe("inbound-handler targeted sub-agent slash commands", () => {
   });
 
   it("routes group @agent slash commands to the mentioned agent group session", async () => {
-    shared.extractMessageContentMock.mockReturnValueOnce({
-      text: "/new",
+    // Real DingTalk group payload: the bot @mention is stripped by the protocol,
+    // but the @agent token survives in text.content and is parsed into atMentions.
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "@work /new",
       messageType: "text",
       atMentions: [{ name: "work" }],
       atUserDingtalkIds: [],
@@ -549,7 +551,7 @@ describe("inbound-handler targeted sub-agent slash commands", () => {
       data: {
         ...baseData,
         msgId: "command_group_m1",
-        text: { content: "/new" },
+        text: { content: "@work /new" },
         conversationType: "2",
         conversationId: "cid_group_command",
         conversationTitle: "测试群",
@@ -568,7 +570,7 @@ describe("inbound-handler targeted sub-agent slash commands", () => {
         ctx: expect.objectContaining({
           SessionKey: "agent-group-session-key",
           CommandBody: "/new",
-          RawBody: "/new",
+          RawBody: "@work /new",
           ChatType: "group",
         }),
       }),

@@ -453,6 +453,13 @@ export interface SubAgentOptions {
   responsePrefix: string;
   /** The matched agent name */
   matchedName: string;
+  /**
+   * When set, this dispatch is a targeted slash command (`@agent /new`).
+   * The value is the command text with the leading `@mention` stripped, used
+   * as `CommandBody` so the framework command layer can recognize it. Content
+   * sub-agent dispatches leave this undefined.
+   */
+  commandText?: string;
 }
 
 /**
