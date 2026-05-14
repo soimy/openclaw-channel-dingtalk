@@ -182,6 +182,10 @@ function buildPersistedOutboundText(text: string, options: SendMessageOptions): 
   return text;
 }
 
+function shouldRouteSessionMediaViaProactive(mediaType?: string | null): mediaType is "voice" | "video" | "file" {
+  return mediaType === "voice" || mediaType === "video" || mediaType === "file";
+}
+
 const DINGTALK_TEXT_CHUNK_LIMIT = 3800;
 const CARD_MEDIA_CONTROLLER_ATTACH_WAIT_MS = 150;
 const CARD_MEDIA_CONTROLLER_ATTACH_POLL_MS = 25;
@@ -726,55 +730,30 @@ export async function sendBySession(
   const token = await getAccessToken(config, options.log);
   const log = options.log || getLogger();
 
-  // Session webhook supports native media messages; prefer that when media info is available.
+  // Keep session webhooks on text/markdown. Images can render through markdown
+  // media references; other media types are routed by sendMessage via OpenAPI.
   if (options.mediaPath && options.mediaType) {
-    const uploadResult = await uploadMedia(config, options.mediaPath, options.mediaType, log, {
-      mediaLocalRoots: options.mediaLocalRoots,
-    });
-    if (uploadResult) {
-      const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
-      let body: any;
-
-      if (options.mediaType === "image") {
-        body = { msgtype: "image", image: { media_id: mediaId } };
-      } else if (options.mediaType === "voice") {
-        const durationMs = uploadedDurationMs
-          ?? await getVoiceDurationMs(options.mediaPath, options.mediaType, log, { preReadBuffer: buffer });
-        body = { msgtype: "voice", voice: { media_id: mediaId, duration: String(durationMs) } };
+    if (options.mediaType === "image") {
+      const uploadResult = await uploadMedia(config, options.mediaPath, options.mediaType, log, {
+        mediaLocalRoots: options.mediaLocalRoots,
+      });
+      if (uploadResult) {
+        const imageMarkdown = `![${path.basename(options.mediaPath)}](${uploadResult.mediaId})`;
+        text = text ? `${text}\n\n${imageMarkdown}` : imageMarkdown;
         log?.debug?.(
-          `[DingTalk] Sending session voice message mediaId=${mediaId} durationMs=${durationMs}`,
+          `[DingTalk] Session webhook image will be delivered as markdown media reference mediaId=${uploadResult.mediaId}`,
         );
-      } else if (options.mediaType === "video") {
-        body = { msgtype: "video", video: { media_id: mediaId } };
-      } else if (options.mediaType === "file") {
-        body = { msgtype: "file", file: { media_id: mediaId } };
-      }
-
-      if (body) {
-        const result = await axios({
-          url: sessionWebhook,
-          method: "POST",
-          data: body,
-          headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-          ...getProxyBypassOption(config),
-        });
-        log?.debug?.(
-          `[DingTalk] Session webhook response msgtype=${body.msgtype} ${summarizeSessionWebhookResponse(result.data)}`,
-        );
-        ensureSessionWebhookBusinessSuccess(result.data, { msgtype: body.msgtype });
-        const delivery = extractOutboundDeliveryMetadata(result.data);
-        if (!delivery.messageId && !delivery.processQueryKey && !delivery.outTrackId) {
-          log?.warn?.(
-            `[DingTalk] Session webhook ${body.msgtype} response missing delivery metadata; ` +
-            summarizeSessionWebhookResponse(result.data),
-          );
-        }
-        return result.data;
+      } else {
+        const mediaHint = options.mediaUrl || options.mediaPath || options.filePath || "(媒体发送失败)";
+        text = `${text}\n\n📎 媒体发送失败，兜底链接/路径：${mediaHint}`.trim();
+        log?.warn?.("[DingTalk] Media upload failed, falling back to text description");
       }
     } else {
       const mediaHint = options.mediaUrl || options.mediaPath || options.filePath || "(媒体发送失败)";
-      text = `${text}\n\n📎 媒体发送失败，兜底链接/路径：${mediaHint}`.trim();
-      log?.warn?.("[DingTalk] Media upload failed, falling back to text description");
+      text = `${text}\n\n📎 当前会话无法直接发送 ${options.mediaType}，兜底链接/路径：${mediaHint}`.trim();
+      log?.warn?.(
+        `[DingTalk] Session webhook does not support native ${options.mediaType} replies; falling back to text description`,
+      );
     }
   }
 
@@ -835,6 +814,51 @@ export async function sendMessage(
     const messageType = config.messageType || "markdown";
     const log = options.log || getLogger();
 
+    if (options.sessionWebhook && options.mediaPath && shouldRouteSessionMediaViaProactive(options.mediaType)) {
+      log?.debug?.(
+        `[DingTalk] Session webhook does not support ${options.mediaType} replies reliably; ` +
+        "using proactive media API instead",
+      );
+      const proactiveMediaResult = await sendProactiveMedia(
+        config,
+        conversationId,
+        options.mediaPath,
+        options.mediaType,
+        options,
+      );
+      if (!proactiveMediaResult.ok) {
+        log?.warn?.(
+          `[DingTalk] Proactive ${options.mediaType} reply failed; falling back to session markdown: ` +
+          (proactiveMediaResult.error || "unknown"),
+        );
+        const data = await sendBySession(config, options.sessionWebhook, text, options);
+        const delivery = extractOutboundDeliveryMetadata(data);
+        const messageId = delivery.messageId || delivery.processQueryKey || delivery.outTrackId;
+        const persistedText = buildPersistedOutboundText(text, options);
+        persistOutboundMessageContext({
+          storePath: options.storePath,
+          accountId: options.accountId,
+          conversationId: options.conversationId || conversationId,
+          text: persistedText,
+          messageType: "outbound-media",
+          quotedRef: options.quotedRef,
+          log,
+          ...DEFAULT_OUTBOUND_SENDER,
+          chatType: inferConversationChatType(options.conversationId || conversationId),
+          delivery: {
+            ...delivery,
+            kind: "session",
+          },
+        });
+        return { ok: true, data, messageId };
+      }
+      return {
+        ok: true,
+        data: proactiveMediaResult.data,
+        messageId: proactiveMediaResult.messageId,
+      };
+    }
+
     if (messageType === "card" && options.card && !options.forceMarkdown) {
       const card = options.card;
       if (isCardInTerminalState(card.state)) {
@@ -856,28 +880,6 @@ export async function sendMessage(
           },
         };
       }
-    }
-
-    if (options.sessionWebhook && options.mediaPath && options.mediaType === "voice") {
-      log?.debug?.(
-        "[DingTalk] Session webhook does not support voice replies reliably; " +
-        "using proactive media API for this voice response",
-      );
-      const proactiveVoiceResult = await sendProactiveMedia(
-        config,
-        conversationId,
-        options.mediaPath,
-        options.mediaType,
-        options,
-      );
-      if (!proactiveVoiceResult.ok) {
-        return { ok: false, error: proactiveVoiceResult.error || "Voice reply send failed" };
-      }
-      return {
-        ok: true,
-        data: proactiveVoiceResult.data,
-        messageId: proactiveVoiceResult.messageId,
-      };
     }
 
     if (options.sessionWebhook) {

@@ -385,7 +385,7 @@ describe("inbound-handler media handling", () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it("deliver callback sends multiple media payloads sequentially", async () => {
+  it("deliver callback embeds multiple image media payloads in one markdown reply", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
       .fn()
@@ -424,31 +424,13 @@ describe("inbound-handler media handling", () => {
       },
     } as any);
 
-    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
-      1,
+    expect(shared.sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
       expect.anything(),
       "user_1",
-      "",
+      "![a.png](/tmp/prepared/a.png)\n\n![b.png](/tmp/prepared/b.png)",
       expect.objectContaining({
         sessionWebhook: "https://session.webhook",
-        mediaPath: "/tmp/prepared/a.png",
-        mediaType: "image",
-        quotedRef: {
-          targetDirection: "inbound",
-          key: "msgId",
-          value: "m_media_multi",
-        },
-      }),
-    );
-    expect(shared.sendMessageMock).toHaveBeenNthCalledWith(
-      2,
-      expect.anything(),
-      "user_1",
-      "",
-      expect.objectContaining({
-        sessionWebhook: "https://session.webhook",
-        mediaPath: "/tmp/prepared/b.png",
-        mediaType: "image",
         quotedRef: {
           targetDirection: "inbound",
           key: "msgId",
