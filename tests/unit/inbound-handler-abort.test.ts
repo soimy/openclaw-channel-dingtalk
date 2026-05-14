@@ -576,4 +576,66 @@ describe("inbound-handler targeted sub-agent slash commands", () => {
       }),
     );
   });
+
+  it("routes @agent /stop to the mentioned agent session via the lock-bypassing abort path", async () => {
+    // /stop reaches the abort fast-path (isAbortRequestText) rather than the
+    // CommandBody dispatch, but the ctx it dispatches with must still carry the
+    // mentioned agent's SessionKey so the abort targets that agent's run.
+    shared.extractMessageContentMock.mockReturnValue({
+      text: "@work /stop",
+      messageType: "text",
+      atMentions: [{ name: "work" }],
+    });
+    shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "/stop");
+    shared.sendBySessionMock.mockResolvedValue({ data: {} });
+
+    const rt = buildRuntime();
+    vi.mocked(rt.channel.routing.buildAgentSessionKey).mockReturnValue("work-session-key");
+    vi.mocked(rt.channel.reply.finalizeInboundContext).mockImplementation((ctx: any) => ctx);
+    vi.mocked(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).mockImplementationOnce(
+      async ({ dispatcherOptions }: any) => {
+        await dispatcherOptions.deliver({ text: "已停止响应" });
+        return { queuedFinal: true, counts: { final: 1 } };
+      },
+    );
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {
+        agents: {
+          list: [
+            { id: "main", name: "马里奥", default: true },
+            { id: "work", name: "工作助手" },
+          ],
+        },
+      },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook/command",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open" } as DingTalkConfig,
+      data: {
+        ...baseData,
+        msgId: "command_stop_m1",
+        text: { content: "@work /stop" },
+      } as unknown as DingTalkInboundMessage,
+    } as any);
+
+    expect(rt.channel.routing.buildAgentSessionKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        peer: { kind: "direct", id: "user_1" },
+      }),
+    );
+    // abort fast-path must not acquire the session lock
+    expect(shared.acquireSessionLockMock).not.toHaveBeenCalled();
+    expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: expect.objectContaining({
+          SessionKey: "work-session-key",
+          CommandBody: "/stop",
+          RawBody: "@work /stop",
+        }),
+      }),
+    );
+  });
 });
