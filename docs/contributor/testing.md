@@ -63,10 +63,11 @@ npm run lint
 ### 标准执行清单
 
 1. 先完成与改动范围匹配的本地验证，通常至少包括 `pnpm test`、`npm run type-check`、`npm run lint`；如果改动涉及文档站或 workflow，再补 `npm run docs:build`。
-2. 明确本 PR 实际影响的真机场景，只测试相关链路，不额外追加无关基线。例如私聊回复、群聊展示、卡片交互、引用恢复、媒体处理等。
-3. 在钉钉里逐项跑通这些场景，确保每个场景都真实走完一遍用户侧闭环，而不是只看日志或只依赖本地测试结果。
-4. 如结果不符合预期，再按需观察 `~/.openclaw/logs/gateway.log`、`openclaw logs`，必要时查看对应 session transcript：`~/.openclaw/agents/main/sessions/*.jsonl`。
-5. 在 PR 描述的 `验证 TODO` 中写清本次实际执行的真机场景、结果是否符合预期，以及是否存在已知限制或未覆盖项。
+2. **执行 `pnpm run build` 编译 runtime 产物**（v3.6.2 起，OpenClaw 2026.5.x 需要编译后的 `dist/index.js` 才能加载插件）。
+3. 明确本 PR 实际影响的真机场景，只测试相关链路，不额外追加无关基线。例如私聊回复、群聊展示、卡片交互、引用恢复、媒体处理等。
+4. 在钉钉里逐项跑通这些场景，确保每个场景都真实走完一遍用户侧闭环，而不是只看日志或只依赖本地测试结果。
+5. 如结果不符合预期，再按需观察 `~/.openclaw/logs/gateway.log`、`openclaw logs`，必要时查看对应 session transcript：`~/.openclaw/agents/main/sessions/*.jsonl`。
+6. 在 PR 描述的 `验证 TODO` 中写清本次实际执行的真机场景、结果是否符合预期，以及是否存在已知限制或未覆盖项。
 
 ### 通用判定与排查
 
@@ -90,6 +91,7 @@ npm run lint
 
 ```text
 验证 TODO
+- 已执行 pnpm run build 编译 runtime 产物
 - 已按当前 worktree 切换插件目录，按需更新 ~/.openclaw/openclaw.json，并执行 openclaw gateway restart
 - 已真机验证：群聊 markdown 回复、引用恢复
 - 结果：与本 PR 目标一致，未发现新增异常

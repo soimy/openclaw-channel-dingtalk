@@ -25,9 +25,12 @@ openclaw plugins install @soimy/dingtalk
 ```bash
 git clone https://github.com/soimy/openclaw-channel-dingtalk.git
 cd openclaw-channel-dingtalk
-npm install
+pnpm install
+pnpm run build
 openclaw plugins install -l .
 ```
+
+> **注意**：v3.6.2 起，本地安装前必须执行 `pnpm run build` 编译 runtime 产物。OpenClaw 2026.5.x 需要编译后的 `dist/index.js` 才能加载插件。
 
 推荐的本地布局：
 

@@ -210,6 +210,21 @@ If you open an issue, include:
 - the output of one of the connection-check scripts
 - whether you are using default account config or a named `accountId`
 
+## Plugin Not Loading After Install
+
+If `openclaw plugins list` shows `dingtalk` but the plugin fails to load or gateway logs show a missing runtime entry error, check:
+
+- For ClawHub/npm installs: the published package should include compiled `dist/index.js` (v3.6.2+). If you see `expected ./dist/index.js`, report an issue — the package may be from an older release.
+- For local source installs: you must run `pnpm run build` before `openclaw plugins install -l .`. OpenClaw 2026.5.x requires the compiled runtime entry; source-only installs will fail.
+- For local development: after pulling code changes, always run `pnpm run build` then `openclaw gateway restart` before real-device testing.
+
+## Group Chat Replies Not Reaching Users
+
+If group chat replies appear as empty cards or fallback markdown messages instead of the expected reply:
+
+- Confirm plugin version is v3.6.2 or later. OpenClaw 2026.5.7+ defaults group chat `visibleReplies=message_tool`, which can redirect DingTalk card/markdown finals to the message tool path. The plugin overrides this in v3.6.2+ (PR #557, PR #565).
+- No additional configuration is needed — the override is automatic.
+
 ## Related Files
 
 - `scripts/dingtalk-connection-check.sh`
