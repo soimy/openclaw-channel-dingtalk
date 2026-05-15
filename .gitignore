@@ -48,3 +48,4 @@ credentials.json
 output/
 .vercel
 .env*.local
+.gitnexus
