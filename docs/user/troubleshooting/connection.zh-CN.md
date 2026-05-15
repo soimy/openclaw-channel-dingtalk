@@ -12,5 +12,5 @@
 
 如果群聊回复表现为空卡片或 fallback markdown 消息，而非预期回复：
 
-- 确认插件版本不低于 v3.6.2。OpenClaw 2026.5.7+ 群聊默认 `visibleReplies=message_tool`，会将 DingTalk card/markdown final 导向 message tool 路径。v3.6.2+ 已自动覆盖此行为（PR #557、PR #565）。
+- 确认插件版本不低于 v3.6.2。OpenClaw 2026.5.7+ 群聊默认 `visibleReplies=message_tool`，会将 DingTalk card/markdown final 导向 message tool 路径。v3.6.2+ 已自动覆盖此行为（PR #553、PR #565）。
 - 无需额外配置 — 覆盖是自动生效的。

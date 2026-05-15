@@ -157,7 +157,7 @@ SecretInput 对象字段：
 
 OpenClaw 2026.5.7 之后，群聊默认 `messages.groupChat.visibleReplies=message_tool` 会将 source reply delivery 解析为 `message_tool_only`。这对普通群聊消息是合理默认，但 DingTalk 插件的 card / markdown / sessionWebhook strategy 本身就是可见回复承载面。
 
-插件已从 v3.6.2 起在 card 和 markdown/sessionWebhook reply strategy 中显式声明 `sourceReplyDeliveryMode: "automatic"`（PR #557、PR #565），确保 final answer 回到正确的回复策略路径，不会被上游默认值误导向 message tool。
+插件已从 v3.6.2 起在 card 和 markdown/sessionWebhook reply strategy 中显式声明 `sourceReplyDeliveryMode: "automatic"`（PR #553、PR #565），确保 final answer 回到正确的回复策略路径，不会被上游默认值误导向 message tool。
 
 **用户无需额外配置**。如果你在群聊中观察到回复丢失或出现空卡片 + 额外 fallback 消息，请确认插件版本不低于 v3.6.2。
 

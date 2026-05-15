@@ -222,7 +222,7 @@ If `openclaw plugins list` shows `dingtalk` but the plugin fails to load or gate
 
 If group chat replies appear as empty cards or fallback markdown messages instead of the expected reply:
 
-- Confirm plugin version is v3.6.2 or later. OpenClaw 2026.5.7+ defaults group chat `visibleReplies=message_tool`, which can redirect DingTalk card/markdown finals to the message tool path. The plugin overrides this in v3.6.2+ (PR #557, PR #565).
+- Confirm plugin version is v3.6.2 or later. OpenClaw 2026.5.7+ defaults group chat `visibleReplies=message_tool`, which can redirect DingTalk card/markdown finals to the message tool path. The plugin overrides this in v3.6.2+ (PR #553, PR #565).
 - No additional configuration is needed — the override is automatic.
 
 ## Related Files
