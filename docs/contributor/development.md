@@ -2,22 +2,24 @@
 
 本页面向插件贡献者，说明本地开发的推荐工作流。
 
+> 本仓库使用 pnpm 作为包管理器。如未安装，可执行 `npm install -g pnpm` 或 `corepack enable`。
+
 ## 首次设置
 
 ```bash
 git clone https://github.com/soimy/openclaw-channel-dingtalk.git
 cd openclaw-channel-dingtalk
-npm install
+pnpm install
 ```
 
 ## 常用命令
 
 ```bash
-npm run type-check
-npm run lint
-npm run lint:fix
+pnpm run type-check
+pnpm run lint
+pnpm run lint:fix
 pnpm run docs:dev
-npm run docs:build
+pnpm run docs:build
 pnpm run docs:preview
 pnpm test
 pnpm test:coverage

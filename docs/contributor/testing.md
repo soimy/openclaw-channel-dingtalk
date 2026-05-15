@@ -17,20 +17,20 @@ pnpm test:coverage
 类型检查：
 
 ```bash
-npm run type-check
+pnpm run type-check
 ```
 
 Lint：
 
 ```bash
-npm run lint
+pnpm run lint
 ```
 
 ## 当前测试约束
 
 - 网络请求通过 mock 拦截，不访问真实钉钉 API
 - 集成测试会隔离外部依赖
-- 文档与 workflow 变更应额外通过 `npm run docs:build` 做站点级验证
+- 文档与 workflow 变更应额外通过 `pnpm run docs:build` 做站点级验证
 
 ## 真机测试指引
 
@@ -63,7 +63,7 @@ npm run lint
 
 ### 标准执行清单
 
-1. 先完成与改动范围匹配的本地验证，通常至少包括 `pnpm test`、`npm run type-check`、`npm run lint`；如果改动涉及文档站或 workflow，再补 `npm run docs:build`。
+1. 先完成与改动范围匹配的本地验证，通常至少包括 `pnpm test`、`pnpm run type-check`、`pnpm run lint`；如果改动涉及文档站或 workflow，再补 `pnpm run docs:build`。
 2. 如需将源码改动带入真机环境，先运行 `pnpm run build:runtime`，再执行 `openclaw gateway restart`。
 3. 明确本 PR 实际影响的真机场景，只测试相关链路，不额外追加无关基线。例如私聊回复、群聊展示、卡片交互、引用恢复、媒体处理等。
 4. 在钉钉里逐项跑通这些场景，确保每个场景都真实走完一遍用户侧闭环，而不是只看日志或只依赖本地测试结果。

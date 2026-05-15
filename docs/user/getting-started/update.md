@@ -20,8 +20,8 @@ NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins update dingt
 
 ```bash
 cd ~/.openclaw/extensions/dingtalk
-rm -rf node_modules package-lock.json
-NPM_CONFIG_REGISTRY=https://registry.npmmirror.com npm install
+rm -rf node_modules pnpm-lock.yaml
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com pnpm install
 ```
 
 ## 本地源码 / 链接安装来源

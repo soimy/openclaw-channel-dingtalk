@@ -177,7 +177,7 @@ openclaw plugins install @soimy/dingtalk
 # 如需验证本地开发/联调链路，可额外检查源码链接安装
 git clone https://github.com/soimy/openclaw-channel-dingtalk.git
 cd openclaw-channel-dingtalk
-npm install
+pnpm install
 openclaw plugins install -l .
 ```
 
@@ -187,8 +187,8 @@ openclaw plugins install -l .
 
 - [ ] 代码已合并到 main 分支
 - [ ] 所有测试通过
-- [ ] `npm run type-check` 无错误
-- [ ] `npm run lint` 无错误
+- [ ] `pnpm run type-check` 无错误
+- [ ] `pnpm run lint` 无错误
 - [ ] README.md 文档已更新
 - [ ] `docs/releases/` 已记录新版本变更
 - [ ] 版本号已更新（`npm version`）

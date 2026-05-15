@@ -1,5 +1,7 @@
 # 安装
 
+> 本仓库使用 pnpm 作为包管理器。如未安装，可执行 `npm install -g pnpm` 或 `corepack enable`。
+
 本文覆盖插件的主要安装方式，以及安装后最容易遗漏的信任白名单配置。
 
 ## 推荐方式
@@ -69,8 +71,8 @@ NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @soi
 
 ```bash
 cd ~/.openclaw/extensions/dingtalk
-rm -rf node_modules package-lock.json
-NPM_CONFIG_REGISTRY=https://registry.npmmirror.com npm install
+rm -rf node_modules pnpm-lock.yaml
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com pnpm install
 ```
 
 如果希望长期使用镜像：
