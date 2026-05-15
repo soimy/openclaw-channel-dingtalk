@@ -187,7 +187,7 @@ export async function updateCardVariables(
     {
       outTrackId,
       cardData: { cardParamMap: stringMap },
-      cardUpdateOptions: { updateCardDataByKey: true, updatePrivateDataByKey: true },
+      cardUpdateOptions: { updateCardDataByKey: true },
     },
     {
       headers: {

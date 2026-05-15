@@ -27,6 +27,7 @@ Do not use this skill for pure unit-test work, docs-only edits unrelated to Ding
    - use the globally running `openclaw`
    - ensure the plugin directory points at the current repo or worktree
    - update `~/.openclaw/openclaw.json` only as needed for the target path
+   - after applying code changes, run `pnpm run build:runtime` before restarting; OpenClaw loads `dist/index.js`, so source edits alone are not live
    - run `openclaw gateway restart` so the latest code and config are live
    - immediately verify the restart with `openclaw channels status --probe --json`
    - if the first probe lands during restart and shows `1006 abnormal closure`, wait a few seconds and probe again instead of misdiagnosing a channel bug
@@ -58,6 +59,7 @@ Do not use this skill for pure unit-test work, docs-only edits unrelated to Ding
 
 - Testing unrelated scenarios just to “look thorough”
 - Treating logs alone as success without confirming the DingTalk-side result
+- Forgetting `pnpm run build:runtime` after source edits, then debugging stale `dist/index.js`
 - Forgetting `openclaw gateway restart` after switching code or config
 - Treating one failed `channels status --probe` during restart as evidence that DingTalk is broken
 - Using `openclaw message send` to “verify” reply-path behavior that only happens after a real DingTalk inbound callback

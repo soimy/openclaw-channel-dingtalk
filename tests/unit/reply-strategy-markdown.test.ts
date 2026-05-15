@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as mediaUtils from "../../src/media-utils";
 import { createMarkdownReplyStrategy } from "../../src/reply-strategy-markdown";
 import * as sendService from "../../src/send-service";
 import type { ReplyStrategyContext } from "../../src/reply-strategy";
@@ -11,7 +12,26 @@ vi.mock("../../src/send-service", async (importOriginal) => {
     };
 });
 
+vi.mock("../../src/media-utils", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../src/media-utils")>();
+    return {
+        ...actual,
+        prepareMediaInput: vi.fn().mockImplementation(async (input: string) => ({ path: input })),
+        resolveOutboundMediaType: vi.fn().mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".jpeg")) {
+                return "image";
+            }
+            if (mediaPath.endsWith(".mp4")) {
+                return "video";
+            }
+            return "file";
+        }),
+    };
+});
+
 const sendMessageMock = vi.mocked(sendService.sendMessage);
+const prepareMediaInputMock = vi.mocked(mediaUtils.prepareMediaInput);
+const resolveOutboundMediaTypeMock = vi.mocked(mediaUtils.resolveOutboundMediaType);
 
 function buildCtx(overrides: Partial<ReplyStrategyContext> = {}): ReplyStrategyContext {
     return {
@@ -35,6 +55,16 @@ function sentTexts(): string[] {
 describe("reply-strategy-markdown", () => {
     beforeEach(() => {
         sendMessageMock.mockReset().mockResolvedValue({ ok: true });
+        prepareMediaInputMock.mockReset().mockImplementation(async (input: string) => ({ path: input }));
+        resolveOutboundMediaTypeMock.mockReset().mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+            if (mediaPath.endsWith(".png") || mediaPath.endsWith(".jpg") || mediaPath.endsWith(".jpeg")) {
+                return "image";
+            }
+            if (mediaPath.endsWith(".mp4")) {
+                return "video";
+            }
+            return "file";
+        });
     });
 
     it("getReplyOptions enables block streaming and keeps markdown callbacks disabled", () => {
@@ -42,6 +72,7 @@ describe("reply-strategy-markdown", () => {
         const opts = strategy.getReplyOptions();
 
         expect(opts.disableBlockStreaming).toBe(false);
+        expect(opts.sourceReplyDeliveryMode).toBe("automatic");
         expect("onBlockReply" in opts).toBe(false);
         expect(opts.onPartialReply).toBeUndefined();
         expect(opts.onReasoningStream).toBeUndefined();
@@ -205,6 +236,31 @@ describe("reply-strategy-markdown", () => {
         ]);
     });
 
+    it("deliver(final) embeds image media in the same markdown message as the final text", async () => {
+        const deliverMedia = vi.fn();
+        const strategy = createMarkdownReplyStrategy(buildCtx({ deliverMedia }));
+
+        await strategy.deliver({
+            text: "已收到PR558测试消息",
+            mediaUrls: ["/Users/sym/clawd/techreq-page1.png"],
+            kind: "final",
+        });
+
+        expect(deliverMedia).not.toHaveBeenCalled();
+        expect(sendMessageMock).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.anything(),
+            "user_1",
+            "已收到PR558测试消息\n\n![techreq-page1.png](/Users/sym/clawd/techreq-page1.png)",
+            expect.objectContaining({
+                sessionWebhook: "https://session.webhook",
+                accountId: "main",
+                storePath: "/tmp/store.json",
+            }),
+        );
+        expect(strategy.getFinalText()).toBe("已收到PR558测试消息");
+    });
+
     it("deliver(final) throws when sendMessage returns not ok", async () => {
         sendMessageMock.mockResolvedValueOnce({ ok: false, error: "send failed" });
         const strategy = createMarkdownReplyStrategy(buildCtx());
@@ -212,6 +268,27 @@ describe("reply-strategy-markdown", () => {
         await expect(
             strategy.deliver({ text: "hello", mediaUrls: [], kind: "block" }),
         ).rejects.toThrow("send failed");
+    });
+
+    it("does not advance the answer cursor when a segment send fails", async () => {
+        sendMessageMock
+            .mockResolvedValueOnce({ ok: false, error: "send failed" })
+            .mockResolvedValueOnce({ ok: true });
+        const strategy = createMarkdownReplyStrategy(buildCtx());
+
+        await expect(
+            strategy.deliver({ text: "partial answer", mediaUrls: [], kind: "block" }),
+        ).rejects.toThrow("send failed");
+        await strategy.deliver({
+            text: "partial answer with final details",
+            mediaUrls: [],
+            kind: "final",
+        });
+
+        expect(sentTexts()).toEqual([
+            "partial answer",
+            "partial answer with final details",
+        ]);
     });
 
     it("deliver(block) is silently ignored when it has no text or media", async () => {
@@ -222,16 +299,14 @@ describe("reply-strategy-markdown", () => {
         expect(sendMessageMock).not.toHaveBeenCalled();
     });
 
-    it("deliver with mediaUrls calls deliverMedia regardless of kind", async () => {
+    it("deliver with image mediaUrls embeds the image as markdown", async () => {
         const deliverMedia = vi.fn();
         const strategy = createMarkdownReplyStrategy(buildCtx({ deliverMedia }));
 
         await strategy.deliver({ text: undefined, mediaUrls: ["/tmp/img.png"], kind: "block" });
 
-        expect(deliverMedia).toHaveBeenCalledWith(["/tmp/img.png"], {
-            audioAsVoice: undefined,
-        });
-        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(deliverMedia).not.toHaveBeenCalled();
+        expect(sentTexts()).toEqual(["![img.png](/tmp/img.png)"]);
     });
 
     it("finalize and abort are no-ops", async () => {

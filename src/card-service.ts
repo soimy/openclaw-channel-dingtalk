@@ -910,6 +910,29 @@ export async function createAICard(
 
     clearAICardDegrade(accountId, log);
 
+    // Kick the card into streaming mode immediately so the card enters the
+    // streaming lifecycle on the DingTalk side. Cards in IM_GROUP spaces may
+    // not accept variable updates (blockList etc.) without the streaming
+    // lifecycle being opened first. The lifecycle is tracked and finalized
+    // in commitAICardBlocks / finalizeStoppedAICard.
+    // Sends an empty content stream (isFull=true, isFinalize=false) which
+    // transitions the card from PROCESSING to INPUTING on the DingTalk side.
+    try {
+      await putAICardStreamingField(aiCardInstance, template.contentKey, "", false, log, {
+        suppressDegrade: true,
+      });
+      aiCardInstance.state = AICardStatus.INPUTING;
+      // Persist the updated streamLifecycleOpened and state so recovery
+      // can properly close the streaming lifecycle on DingTalk side.
+      if (shouldPersistPending) {
+        upsertPendingCard(aiCardInstance, options.storePath, log);
+      }
+    } catch (kickErr: any) {
+      log?.debug?.(
+        `[DingTalk][AICard] Non-critical: failed to kick card into streaming mode: ${kickErr.message}`,
+      );
+    }
+
     return aiCardInstance;
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Create failed: ${err.message}`);
@@ -1049,7 +1072,6 @@ export async function clearAICardStreamingContent(
 
 async function finalizeAICardStreamingLifecycleIfNeeded(
   card: AICardInstance,
-  content: string,
   log?: Logger,
 ): Promise<void> {
   if (!card.streamLifecycleOpened) {
@@ -1057,7 +1079,9 @@ async function finalizeAICardStreamingLifecycleIfNeeded(
   }
   const template = DINGTALK_CARD_TEMPLATE;
   try {
-    await putAICardStreamingField(card, template.streamingKey, content, true, log, {
+    // Close DingTalk's opened streaming lifecycle without re-rendering the final
+    // answer in the live content area; the instances API below commits it once.
+    await putAICardStreamingField(card, template.streamingKey, "", true, log, {
       suppressDegrade: true,
     });
   } catch (err: unknown) {
@@ -1101,7 +1125,7 @@ export async function commitAICardBlocks(
   }
 
   await ensureFreshToken(card, log);
-  await finalizeAICardStreamingLifecycleIfNeeded(card, options.content, log);
+  await finalizeAICardStreamingLifecycleIfNeeded(card, log);
 
   const template = DINGTALK_CARD_TEMPLATE;
   const updates: Record<string, unknown> = {
@@ -1395,7 +1419,7 @@ export async function finalizeStoppedAICard(
   await ensureFreshToken(card, log);
   const template = DINGTALK_CARD_TEMPLATE;
   const payload = buildStoppedCardFinalizePayload(options);
-  await finalizeAICardStreamingLifecycleIfNeeded(card, payload.content, log);
+  await finalizeAICardStreamingLifecycleIfNeeded(card, log);
   try {
     await updateCardVariables(
       card.outTrackId || card.cardInstanceId,

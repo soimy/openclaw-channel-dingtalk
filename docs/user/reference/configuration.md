@@ -138,7 +138,7 @@ SecretInput 对象字段：
 
 - `cardStreamingMode=off`：关闭答案实时流式，增量更新最少。
 - `cardStreamingMode=answer`：只实时推送答案内容。
-- `cardStreamingMode=all`：实时推送答案与思考内容。
+- `cardStreamingMode=all`：答案片段实时推送到 content key；思考/工具内容实时更新 block 列表，答案在边界或结束时固化到 block 列表。
 - `cardRealTimeStream` 已弃用，仅保留兼容：
 - 未设置 `cardStreamingMode` 且 `cardRealTimeStream=true` 时，生效为 `all`。
 - 同时设置时，以 `cardStreamingMode` 为准。

@@ -83,6 +83,8 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_1' }] } },
         });
+        // Streaming kick PUT
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -90,10 +92,10 @@ describe('card-service', () => {
         );
 
         expect(card).toBeTruthy();
-        expect(card?.state).toBe(AICardStatus.PROCESSING);
+        expect(card?.state).toBe(AICardStatus.INPUTING);
         expect(card?.processQueryKey).toBe('carrier_1');
         expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-        expect(mockedAxios.put).not.toHaveBeenCalled();
+        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
         const body = mockedAxios.post.mock.calls[0]?.[1];
         expect(body.cardData?.cardParamMap).toEqual({
             config: '{"autoLayout":true,"enableForward":true}',
@@ -112,6 +114,7 @@ describe('card-service', () => {
 
     it('createAICard includes initial statusLine in createAndDeliver payload when provided', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -130,6 +133,7 @@ describe('card-service', () => {
 
     it('createAICard uses robot deliver payload for direct chat cards', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
@@ -147,6 +151,7 @@ describe('card-service', () => {
 
     it('createAICard bypasses proxy when configured', async () => {
         mockedAxios.post.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         await createAICard(
             {
@@ -167,6 +172,7 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_builtin' }] } },
         });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec' } as any,
@@ -235,6 +241,7 @@ describe('card-service', () => {
             status: 200,
             data: { result: { deliverResults: [{ carrierId: 'carrier_2' }] } },
         });
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
 
         const card = await createAICard(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema', aicardDegradeMs: 120000 } as any,
@@ -737,7 +744,7 @@ describe('card-service', () => {
         expect(mockedAxios.put.mock.calls[0]?.[0]).toContain('/v1.0/card/streaming');
         expect(mockedAxios.put.mock.calls[0]?.[1]).toMatchObject({
             outTrackId: 'track_recover_stream_1',
-            content: expect.stringContaining('流式回答'),
+            content: '',
             isFinalize: true,
         });
         expect(mockedAxios.put.mock.calls[1]?.[0]).toContain('/v1.0/card/instances');
@@ -916,8 +923,17 @@ describe('card-service', () => {
         );
 
         expect(recovered).toBe(1);
-        expect(mockedAxios.put).toHaveBeenCalledTimes(1);
-        const putBody = mockedAxios.put.mock.calls[0]?.[1];
+        // Recovery now calls two PUTs: 1) finalizeAI streaming lifecycle, 2) updateCardVariables instances API
+        expect(mockedAxios.put).toHaveBeenCalledTimes(2);
+        // First call: streaming API to close the streaming lifecycle
+        expect(mockedAxios.put.mock.calls[0]?.[0]).toContain('/v1.0/card/streaming');
+        expect(mockedAxios.put.mock.calls[0]?.[1]).toMatchObject({
+            guid: expect.any(String),
+            outTrackId: 'track_distinct_1',
+            isFinalize: true,
+        });
+        // Second call: instances API with flowStatus=3
+        const putBody = mockedAxios.put.mock.calls[1]?.[1];
         expect(putBody.outTrackId).toBe('track_distinct_1');
         expect(putBody.cardData?.cardParamMap?.flowStatus).toBe('3');
     });
@@ -1017,6 +1033,7 @@ describe('token refresh', () => {
         const paramMap = payload.cardData.cardParamMap;
         expect(paramMap.blockList).toBeDefined();
         expect(paramMap.statusLine).toBe('claude-sonnet | high');
+        expect(payload.cardUpdateOptions).toEqual({ updateCardDataByKey: true });
     });
 
     it('omits statusLine from updateCardVariables when not provided', async () => {
@@ -1040,6 +1057,7 @@ describe('token refresh', () => {
         const paramMap = payload.cardData.cardParamMap;
         expect(paramMap.blockList).toBeDefined();
         expect(paramMap.statusLine).toBeUndefined();
+        expect(payload.cardUpdateOptions).toEqual({ updateCardDataByKey: true });
     });
 
     it('refreshes token before commitAICardBlocks when token is older than 90 minutes', async () => {
@@ -1093,7 +1111,7 @@ describe('token refresh', () => {
         expect(card.accessToken).toBe('current_token');
     });
 
-    it('finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
+    it('clears and finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
         const card = {
             cardInstanceId: 'card_stream_finalize',
             outTrackId: 'track_stream_finalize',
@@ -1118,7 +1136,7 @@ describe('token refresh', () => {
         expect(mockedAxios.put.mock.calls[0][1]).toMatchObject({
             outTrackId: 'track_stream_finalize',
             key: 'content',
-            content: 'test content',
+            content: '',
             isFull: true,
             isFinalize: true,
             isError: false,
