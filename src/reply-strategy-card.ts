@@ -133,6 +133,8 @@ export function createCardReplyStrategy(
   let latestReasoningSnapshot = "";
   /** Non-image media attachments deferred for out-of-card delivery. */
   let pendingNonImageMedia: DeferredMedia[] = [];
+  /** URLs already uploaded as image blocks — prevents duplicate upload when the same mediaUrl appears in both a non-final and final deliver. */
+  const uploadedMediaUrls = new Set<string>();
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
     const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
@@ -477,6 +479,9 @@ export function createCardReplyStrategy(
         // Inline media upload → image blocks in card; defer non-image attachments
         if (payload.mediaUrls.length > 0) {
           for (const url of payload.mediaUrls) {
+            if (uploadedMediaUrls.has(url)) {
+              continue;
+            }
             try {
               const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
               const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
@@ -492,6 +497,7 @@ export function createCardReplyStrategy(
               const result = await uploadMedia(config, prepared.path, "image", log);
               await prepared.cleanup?.();
               if (result?.mediaId) {
+                uploadedMediaUrls.add(url);
                 await controller.appendImageBlock(result.mediaId);
               }
             } catch (err: unknown) {
@@ -555,6 +561,9 @@ export function createCardReplyStrategy(
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
         for (const url of payload.mediaUrls) {
+          if (uploadedMediaUrls.has(url)) {
+            continue;
+          }
           try {
             const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
             const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
@@ -567,6 +576,7 @@ export function createCardReplyStrategy(
             const result = await uploadMedia(config, prepared.path, "image", log);
             await prepared.cleanup?.();
             if (result?.mediaId) {
+              uploadedMediaUrls.add(url);
               await controller.appendImageBlock(result.mediaId);
             }
           } catch (err: unknown) {
