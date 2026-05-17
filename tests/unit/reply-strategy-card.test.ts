@@ -1490,4 +1490,49 @@ describe("reply-strategy-card", () => {
             expect(getUsageByRunId("run-b")).toBeUndefined();
         });
     });
+
+    describe("media dedup", () => {
+        it("dedupes same mediaUrl across non-final and final deliver", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Non-final deliver with image URL
+            await strategy.deliver({
+                text: "",
+                mediaUrls: ["file:///test/image.png"],
+                kind: "block",
+            });
+
+            // Final deliver with same URL
+            await strategy.deliver({
+                text: "",
+                mediaUrls: ["file:///test/image.png"],
+                kind: "final",
+            });
+
+            await strategy.finalize();
+
+            // uploadMedia should be called only once (deduped)
+            expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+        });
+
+        it("dedupes same mediaUrl in rerouteMarkdownImagesFromAnswer", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Final deliver with both mediaUrls and markdown image referencing same URL
+            await strategy.deliver({
+                text: "Here is the image: ![test](file:///test/image.png)",
+                mediaUrls: ["file:///test/image.png"],
+                kind: "final",
+            });
+
+            await strategy.finalize();
+
+            // uploadMedia should be called only once (deduped across both paths)
+            expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+        });
+    });
 });
