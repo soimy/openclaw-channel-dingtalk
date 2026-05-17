@@ -1,0 +1,2203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DingTalk Channel · 功能 Gap 综合提案</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <style>
+    body main { max-width: none; padding: 0; }
+    .doc-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 40px;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .doc-toc {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+      font-size: 13px;
+      padding-right: 12px;
+      border-right: 1px solid var(--color-border);
+    }
+    .doc-toc h4 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-text-faint);
+      margin: 16px 0 6px;
+      padding: 0;
+    }
+    .doc-toc a {
+      display: block;
+      padding: 5px 8px;
+      color: var(--color-text-muted);
+      text-decoration: none;
+      border-radius: 4px;
+      line-height: 1.4;
+      margin-bottom: 1px;
+    }
+    .doc-toc a:hover { background: var(--color-card-bg); color: var(--color-text); }
+    .doc-toc a.section-top { font-weight: 600; color: var(--color-text); }
+    .doc-content > section { scroll-margin-top: 24px; }
+    .gap-section {
+      border-top: 2px solid var(--color-border);
+      padding-top: 48px;
+      margin-top: 60px;
+    }
+    .gap-section .gap-title {
+      font-size: 22px;
+      font-weight: 600;
+      margin: 0 0 8px;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .gap-section h3 {
+      font-size: 15px;
+      color: var(--color-text-muted);
+      margin: 24px 0 10px;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed var(--color-border);
+    }
+    h4 { font-size: 14px; margin: 16px 0 8px; color: var(--color-text); }
+
+    /* evidence badges */
+    .ev {
+      display: inline-block;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-right: 4px;
+      vertical-align: middle;
+      font-weight: 500;
+    }
+    .ev.confirmed { background: #d1fae5; color: #065f46; }
+    .ev.documented { background: #dbeafe; color: #1e40af; }
+    .ev.community { background: #fef3c7; color: #92400e; }
+    .ev.unverified { background: #f3f4f6; color: #5b626d; border: 1px dashed #d0d4d9; }
+    .ev.wrong { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+    .ev.corrected { background: #fef3c7; color: #92400e; }
+
+    .src-link {
+      font-size: 11px;
+      color: var(--color-text-faint);
+      margin-left: 4px;
+    }
+    .src-link a { color: var(--color-accent); text-decoration: none; }
+    .src-link a:hover { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      .doc-layout { grid-template-columns: 1fr; }
+      .doc-toc {
+        position: static;
+        max-height: none;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+        padding-right: 0;
+        padding-bottom: 16px;
+        margin-bottom: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-layout">
+
+    <!-- ============================ TOC ============================ -->
+    <aside class="doc-toc">
+      <h4>导航</h4>
+      <a class="section-top" href="#overview">总览</a>
+      <a class="section-top" href="#evidence">证据等级说明</a>
+      <a class="section-top" href="#matrix">能力对照矩阵</a>
+
+      <h4>P0 · 核心缺口</h4>
+      <a href="#gap-01">01 · Interactive &amp; Approval</a>
+      <a href="#gap-02">02 · Doctor &amp; Audit</a>
+
+      <h4>P1 · 体验与运维</h4>
+      <a href="#gap-03">03 · Edit / Recall Message</a>
+      <a href="#gap-04">04 · Throttling</a>
+
+      <h4>P1 · Agent UX 新增主 gap</h4>
+      <a href="#gap-12">12 · Message Tool Actions</a>
+      <a href="#gap-13">13 · Conversation Binding</a>
+      <a href="#gap-14">14 · Live Directory</a>
+
+      <h4>P2 · 健壮性与观测</h4>
+      <a href="#gap-06">06 · 持久化 Dedup</a>
+      <a href="#gap-07">07 · Snapshot 发布</a>
+      <a href="#gap-11">11 · 入站事件探查</a>
+
+      <h4>P3 · 生态扩展 / 按需研究</h4>
+      <a href="#gap-08">08 · 启动 Stagger</a>
+      <a href="#gap-09">09 · SaaS 工具集</a>
+      <a href="#gap-10">10 · 机器人菜单</a>
+      <a href="#gap-16">16 · TTS Capability</a>
+
+      <h4>补充 Gap（待验证 / 建议不做）</h4>
+      <a href="#gap-05">05 · Edit-based Draft Stream（建议不做）</a>
+      <a href="#gap-15">15 · Pairing Adapter（待验证）</a>
+
+      <h4>结尾</h4>
+      <a href="#priorities">行动优先级</a>
+      <a href="#refs">参考来源</a>
+    </aside>
+
+    <!-- ========================== CONTENT ========================== -->
+    <div class="doc-content">
+
+      <header class="page-header">
+        <p class="breadcrumb">openclaw-channel-dingtalk / docs / features-gap</p>
+        <h1 class="page-title">DingTalk Channel 功能 Gap 综合提案</h1>
+        <p class="page-subtitle">
+          基于与 Discord / Telegram / Feishu / Slack 4 个成熟插件的横向对标，整理出 DingTalk Channel 尚未实现的能力差距：<strong>14 项主 gap（#01-#14）+ 2 项补充 gap（#15-#16）</strong>。每条钉钉平台 API claim 都做了<strong>真实证据核验</strong>——钉钉 Stream SDK 源码、本仓库已落地代码、apifox 镜像、官方 developerpedia、官方 CLI README；每条 claim 按证据等级标注，未核实的不写死端点 / 错误码 / QPS 数字。
+        </p>
+        <div class="meta-row">
+          <span class="badge">基线：openclaw-channel-dingtalk@v3.6.3</span>
+          <span class="badge">对标：openclaw/extensions @ origin/main</span>
+          <span class="badge">SDK：dingtalk-stream@^2.1.4</span>
+          <span class="badge">核验日期：2026-05-17</span>
+        </div>
+      </header>
+
+      <!-- ============================ OVERVIEW ============================ -->
+      <section id="overview">
+        <h2>总览</h2>
+        <p>
+          在对 Discord / Telegram / Feishu / Slack 4 个 channel 插件做完整盘点后，定位出 DingTalk Channel 与其它成熟实现之间的差距。每个差距均按 <strong>P0 / P1 / P2 / P3</strong> 标注严重性，并按 <strong>证据等级</strong> 标注 claim 的可信度（见下一节）。
+        </p>
+        <ul>
+          <li><strong>P0</strong>：4 个对标插件全部具备，且证据表明 DingTalk 平台支持，缺失直接影响核心使用场景</li>
+          <li><strong>P1</strong>：多数对标插件具备，能显著改善体验或运维能力</li>
+          <li><strong>P2</strong>：少数对标插件具备，对企业级部署有帮助</li>
+          <li><strong>P3</strong>：生态扩展或研究性任务</li>
+        </ul>
+      </section>
+
+      <!-- ============================ EVIDENCE LEGEND ============================ -->
+      <section id="evidence">
+        <h2>证据等级说明</h2>
+        <p>本文档对每条钉钉平台 API claim 按以下等级标注，避免靠经验/推测做决策：</p>
+        <table>
+          <thead><tr><th>标记</th><th>含义</th><th>使用准则</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ev confirmed">CONFIRMED</span></td><td>本仓库代码已经在调用 / SDK 源码明示</td><td>最高可信度。直接锚定到 file:line 或 SDK 文件</td></tr>
+            <tr><td><span class="ev documented">DOCUMENTED</span></td><td>官方 developerpedia / apifox 镜像 / GitHub README 明文记载</td><td>需带可点击 URL</td></tr>
+            <tr><td><span class="ev community">COMMUNITY</span></td><td>社区共识（阿里云开发者社区、博客）但官方未明示</td><td>标注"待官方确认"，不写死</td></tr>
+            <tr><td><span class="ev unverified">UNVERIFIED</span></td><td>open.dingtalk.com 主文档站是 SPA 抓不到正文；找不到独立来源</td><td>不写死数字 / 端点；需要登录开放平台后台或人工二次核验</td></tr>
+            <tr><td><span class="ev corrected">CORRECTED</span></td><td>纠正过的常见误解 / 常见错误归因</td><td>正面陈述事实，不保留错误论据原文</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <strong>核验范围说明</strong>：钉钉主文档站 <code>open.dingtalk.com/document/</code> 是 SPA，本次 WebFetch / WebSearch 无法读取正文。标 <code>UNVERIFIED</code> 的 claim **可能在登录后台的官方文档里存在**，但本次以"不在公开可抓页面证实"为准，避免伪造引文。下一轮可由人工登录开放平台后台二次核验。
+        </div>
+      </section>
+
+      <!-- ============================ MATRIX ============================ -->
+      <section id="matrix">
+        <h2>能力对照矩阵</h2>
+        <table>
+          <thead><tr><th>维度</th><th>Discord</th><th>Telegram</th><th>Feishu</th><th>Slack</th><th>DingTalk</th></tr></thead>
+          <tbody>
+            <tr><td>多账号 + token 刷新</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+            <tr><td>入站 edit / delete</td><td>—</td><td>✓</td><td>—</td><td>✓</td><td>✗</td></tr>
+            <tr><td>入站 reaction</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✗</td></tr>
+            <tr><td>入站 sticker</td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>✗ 平台无原生类型</td></tr>
+            <tr><td>出站 markdown / card</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+            <tr><td>出站消息编辑（普通消息）</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✗（平台无 edit API）</td></tr>
+            <tr><td>出站消息撤回</td><td>✓</td><td>✓ 48h</td><td>✓</td><td>✓</td><td>~ 端点已实现（AI Card 路径），markdown/text 待补 ref 存储</td></tr>
+            <tr><td><strong>通用 interactive 组件</strong></td><td>✓ Components v2</td><td>✓ inline keyboard</td><td>✓ card action</td><td>✓ Block Kit</td><td>~ <strong>已能解析任意 actionId，缺 dispatcher/registry</strong></td></tr>
+            <tr><td><strong>通用 approval 框架</strong></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td><strong>✗</strong></td></tr>
+            <tr><td>Edit-based 流式兜底（markdown 路径）</td><td>✓</td><td>✓</td><td>✓ card</td><td>✓</td><td>~ 仅 AI Card 流式</td></tr>
+            <tr><td>Thread / topic</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>n/a 平台无概念</td></tr>
+            <tr><td>Slash command 平台注册</td><td>✓</td><td>✓ BotFather</td><td>✓ bot menu</td><td>✓</td><td>~ 文本命令丰富，缺平台原生注册</td></tr>
+            <tr><td><strong>Doctor 综合诊断</strong></td><td>✓ auditAccount</td><td>✓ auditAccount</td><td>~ 仅 probeAccount</td><td>✓ <code>slackDoctor</code></td><td><strong>~ 仅 probe</strong></td></tr>
+            <tr><td><strong>Security audit（配置体检）</strong></td><td>✓ audit-core</td><td>✓ <code>collectAuditFindings</code></td><td>~ findings</td><td>✓ <code>collectAuditFindings</code></td><td><strong>✗</strong></td></tr>
+            <tr><td><strong>Audit log（操作留痕）</strong></td><td>~ 部分</td><td>~ 拒绝原因</td><td>—</td><td>—</td><td><strong>✗</strong></td></tr>
+            <tr><td><strong>Throttling / rate-limit</strong></td><td>~ 按 surface</td><td>~ 按 surface</td><td>~ 按 surface</td><td>~ 按 surface</td><td><strong>✗ 局部 retry/backoff，无统一调度</strong></td></tr>
+            <tr><td>Dedup 持久化</td><td>✓ <code>createClaimableDedupe</code></td><td>~ 内存 update dedup（message-cache.ts 是上下文持久化非 update dedup）</td><td>✓ 24h 持久 <code>createPersistentDedupe</code></td><td>~ 内存</td><td>~ 60s 内存</td></tr>
+            <tr><td>Status snapshot publish</td><td>✓</td><td>✓ polling-*</td><td>✓ <code>createComputedAccountStatusAdapter</code></td><td>✓ <code>createComputedAccountStatusAdapter</code></td><td>~ 14 字段已有，缺细粒度指标</td></tr>
+            <tr><td>启动 stagger</td><td>✓ 10s</td><td>—</td><td>—</td><td>—</td><td>✗</td></tr>
+            <tr><td>SaaS 工具集成</td><td>~ guild admin</td><td>—</td><td>✓ 6 件套</td><td>~ Canvas</td><td>~ <strong>仅文档基础 4 接口已落地</strong></td></tr>
+            <tr><td><strong>Message tool action surface</strong></td><td>✓ ~12 个</td><td>✓ ~7 个</td><td>✓ ~10 个</td><td>✓</td><td>~ <strong>仅 send</strong></td></tr>
+            <tr><td><strong>Current conversation binding</strong></td><td>✓</td><td>✓</td><td>✓ omit target</td><td>✓</td><td><strong>✗ 强制要求 to</strong></td></tr>
+            <tr><td><strong>Live directory / target lookup</strong></td><td>✓ runtime live</td><td>~</td><td>✓ live peers/groups</td><td>✓ runtime live</td><td><strong>~ learned-only，self() 返 null</strong></td></tr>
+            <tr><td>Pairing adapter</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>~ dmPolicy 已支持，adapter 未声明</td></tr>
+            <tr><td>TTS voice-note capability</td><td>✓</td><td>✓</td><td>✓ + transcodes</td><td>—</td><td>~ 已能发 voice，capability 未声明</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top:24px">Gap 状态总览</h3>
+        <p style="font-size:13px;color:var(--color-text-faint)">把"看起来像 gap" / "平台支持吗" / "现在该不该做"分成 3 列独立判断，避免"低收益 / 未确认"项被排到太前面。</p>
+        <table>
+          <thead><tr><th>#</th><th>名称</th><th>Gap 确认</th><th>平台确认</th><th>立项建议</th></tr></thead>
+          <tbody>
+            <tr><td>01</td><td>Interactive &amp; Approval</td><td>Confirmed</td><td>Code-proven</td><td>Now</td></tr>
+            <tr><td>02</td><td>Doctor &amp; Audit</td><td>Confirmed</td><td>Code-proven</td><td>Now</td></tr>
+            <tr><td>03</td><td>出站 edit / recall</td><td>Confirmed</td><td>Documented + Code-proven</td><td>Now</td></tr>
+            <tr><td>04</td><td>Throttling</td><td>Confirmed</td><td>Code-proven（局部）</td><td>Now</td></tr>
+            <tr><td>05</td><td>Markdown edit-based fallback</td><td>Partial（现有兜底可接受）</td><td>Documented（无原生 edit）</td><td><strong>Do not implement by default</strong></td></tr>
+            <tr><td>06</td><td>持久化 Dedup</td><td>Confirmed</td><td>Code-proven（peer 已实现）</td><td>Now（standalone）</td></tr>
+            <tr><td>07</td><td>Status snapshot 增强</td><td>Confirmed（增强非从无到有）</td><td>Code-proven</td><td>Later（在 #02 / #04 / #06 后）</td></tr>
+            <tr><td>08</td><td>启动 stagger</td><td>Confirmed</td><td>Code-proven（peer Discord 10s）</td><td>Later（按需开，默认关）</td></tr>
+            <tr><td>09</td><td>SaaS 工具集</td><td>Confirmed</td><td>Documented + Login-required</td><td>Later（按业务排期）</td></tr>
+            <tr><td>10</td><td>机器人菜单</td><td>Needs verification</td><td>Login-required（"快捷指令酷应用"模型，非简单 slash 注册）</td><td><strong>Research only</strong></td></tr>
+            <tr><td>11</td><td>入站事件探查 + recall/read</td><td>Confirmed（recall/read 已有线索）</td><td>Documented</td><td>Now（recall/read）+ Later（其它）</td></tr>
+            <tr><td>12</td><td>Message Tool Actions</td><td>Confirmed</td><td>Code-proven（peer）</td><td>Now（与 #03 同步推进）</td></tr>
+            <tr><td>13</td><td>Conversation Binding</td><td>Confirmed</td><td>Code-proven（peer + SDK 类型）</td><td>Now</td></tr>
+            <tr><td>14</td><td>Live Directory</td><td>Confirmed</td><td>Login-required（端点未核实）</td><td>Later（依赖 #02 / #09 核实）</td></tr>
+            <tr><td>15</td><td>Pairing Adapter</td><td><strong>Needs verification</strong></td><td>Code-proven（peer adapter 模式）</td><td><strong>Research first</strong>（先跑 pairing 流程）</td></tr>
+            <tr><td>16</td><td>TTS Capability</td><td>Confirmed（小）</td><td>Code-proven</td><td>Now（低风险小改）</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout warn" style="margin-top:12px">
+          <strong>钉钉机器人公开 API 消息类型清单（权威锚点）</strong>
+          矩阵里 DingTalk 的几处 ✗（sticker / 入站 reaction / 入站 edit）<strong>不是"功能未做"，而是"平台无原生类型 / 无对应事件"</strong>。机器人公开 API 实际支持的类型：
+          <ul style="margin:4px 0 0">
+            <li><strong>出站消息类型</strong>：文本 <code>sampleText</code> / Markdown <code>sampleMarkdown</code> / 图片 <code>sampleImageMsg</code> / 链接 <code>sampleLink</code> / ActionCard / 语音 <code>sampleAudio</code> / 文件 <code>sampleFile</code>（<a href="https://dingtalk.apifox.cn/doc-3550110">apifox · 机器人发送消息的类型</a>）</li>
+            <li><strong>入站消息类型</strong>：文本、语音、图片、文件、视频、富文本（<a href="https://dingtalk.apifox.cn/doc-3559835">apifox · 接收消息</a> + <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/bot/message/">developerpedia · 机器人消息</a>），不支持的类型走 <code>unknownMsgType</code></li>
+          </ul>
+          <strong>关于 sticker</strong>：用户当然可以在客户端发表情包，但<strong>机器人 OpenAPI 既无独立 sticker 出站类型、入站也无独立 sticker 事件</strong>。要做"类似 sticker"的视觉效果只能近似替代：(1) 发图片消息把表情包当图片发；(2) Markdown 内嵌图片；(3) 互动卡片里带图片；(4) 钉钉 emotion 接口做"思考中"反馈（前文已说明只是 thinking reaction，非通用 sticker）。所以矩阵 ✗ 的准确含义是<strong>"不等价于 Telegram/Discord/Feishu 的原生 sticker 能力"</strong>。
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 01                                -->
+      <!-- =================================================================== -->
+      <section id="gap-01" class="gap-section">
+        <h2 class="gap-title">01 · 通用 Interactive Components &amp; Approval Native</h2>
+        <div class="meta-row">
+          <span class="badge p0">P0 · 核心缺口</span>
+          <span class="ev confirmed">回调链路 CONFIRMED</span>
+          <span class="ev unverified">具体组件名 UNVERIFIED</span>
+        </div>
+
+        <h3>现状（精确版）</h3>
+        <p>解析层已经能处理<strong>任意 actionId</strong>：<span class="file-ref">src/card-callback-service.ts:76-78</span> 的 <code>extractCardActionId</code> 从 <code>cardPrivateData.actionIds[0]</code> 取出 string，没有任何 whitelist。<span class="file-ref">src/gateway/channel-gateway.ts:347-395</span> 把 callback 路由到三个出口：</p>
+        <ul>
+          <li><code>feedback_up</code> / <code>feedback_down</code> → feedback ack 文本生成（<span class="file-ref">src/card-callback-service.ts:132,153</span>）；真正写入 learning service 的是 <span class="file-ref">src/gateway/channel-gateway.ts:353-363</span> 的 <code>recordExplicitFeedbackLearning</code></li>
+          <li><code>btn_stop</code> → <code>handleCardAction</code>，owner-only（<span class="file-ref">src/card/card-action-handler.ts:18,30-41</span>）</li>
+          <li>其它 actionId → <code>else</code> 分支被 ack 但<strong>无 handler</strong>（<span class="file-ref">src/gateway/channel-gateway.ts:392-395</span>）</li>
+        </ul>
+        <div class="callout warn" style="margin-top:8px">
+          <strong>关键限制：显式反馈学习只由 AI Card 按钮点击触发</strong>
+          <code>recordExplicitFeedbackLearning</code>（<span class="file-ref">src/gateway/channel-gateway.ts:353</span>）的<strong>唯一入口</strong>是 AI Card 上 <code>feedback_up</code> / <code>feedback_down</code> 按钮的回调（TOPIC_CARD）。<span class="file-ref">src/feedback-learning-service.ts</span> 内部<strong>没有任何 reaction / 入站事件相关代码</strong>——它是一条 button-callback 直连 learning store 的闭环。markdown / text 回复路径上<strong>没有可承载这些按钮的组件</strong>，所以非 Card 回复完全不参与显式反馈学习；隐式学习走 inbound 文本 pattern 匹配（<code>NEGATIVE_SIGNAL_PATTERNS</code> 等）是另一条独立路径。
+        </div>
+        <p>按钮模板也不只在 <span class="file-ref">src/card/card-template.ts</span> 的字符串里——<span class="file-ref">docs/assets/card-template-v2.json</span> 有动态 ButtonGroup 模板源，配合 <code>cardData</code> 的 variable 渲染。</p>
+        <h4>已有能力</h4>
+        <ul style="margin:6px 0">
+          <li>能发 AI Card（<span class="file-ref">src/card-service.ts:845</span> <code>createAndDeliver</code>）</li>
+          <li>Card 模板里能放按钮（<span class="file-ref">src/card/card-template.ts</span> + <span class="file-ref">docs/assets/card-template-v2.json</span> 动态 ButtonGroup 模板源）</li>
+          <li>Stream 能收到卡片点击回调（TOPIC_CARD <code>/v1.0/card/instances/callback</code>）</li>
+          <li>能解析任意 actionId（<span class="file-ref">src/card-callback-service.ts:76-78</span> 无 whitelist）</li>
+          <li>已硬编码处理 3 个 actionId：<code>feedback_up</code> / <code>feedback_down</code>（写 learning service）+ <code>btn_stop</code>（owner-only stop）</li>
+        </ul>
+
+        <h4>真正缺的 6 件事</h4>
+        <ol style="margin:6px 0">
+          <li><strong>通用 action registry</strong>：当前没有一张注册表把 actionId → handler 关联起来（"approve 交给谁处理 / retry 交给谁处理 / select_model 交给谁处理"）；当前是代码里硬判断几个 actionId。</li>
+          <li><strong>统一 dispatcher</strong>：收到 callback 后没有统一分发层。当前路径是"先特殊处理 feedback，再丢给 <code>handleCardAction()</code>，而 <code>handleCardAction()</code> 只认 <code>btn_stop</code>"（<span class="file-ref">src/gateway/channel-gateway.ts:347-395</span>）。</li>
+          <li><strong>OpenClaw 通用 interactive / approval 接入</strong>：其它 channel 通过 plugin 级 <code>approvalCapability</code> 字段（<span class="file-ref">openclaw/src/channels/plugins/types.plugin.ts:86</span> <code>approvalCapability?: ChannelApprovalCapability</code>，类型在 <span class="file-ref">openclaw/src/channels/plugins/types.adapters.ts:640</span>）把 approval / 按钮 / 选择器接到通用交互运行时；Discord 实例参考 <span class="file-ref">openclaw/extensions/discord/src/channel.ts:354</span> <code>approvalCapability: getDiscordApprovalCapability()</code> + 工厂在 <span class="file-ref">openclaw/extensions/discord/src/approval-native.ts</span>。<span class="file-ref">src/channel.ts:40</span>的 <code>dingtalkPlugin</code> 没声明这个字段，agent 没法自然发"批准 / 拒绝 / 继续 / 取消"等通用交互。</li>
+          <li><strong>通用组件渲染</strong>：agent / runtime 如果给一个抽象 interactive payload，钉钉这边<strong>不能</strong>自动渲染成 AI Card 按钮 / 组件。当前按钮更像是卡片模板里写死的固定能力，<strong>不是通用输出能力</strong>。</li>
+          <li><strong>权限与上下文绑定</strong>：通用交互需要知道（a）这个按钮属于哪次 agent run；（b）谁可以点；（c）点的人是不是原发起人；（d）过期了怎么办；（e）重复点击怎么办。<code>btn_stop</code> 有局部的 owner 校验（<span class="file-ref">src/card/card-action-handler.ts:30-41</span>），<strong>没有普适化</strong>。</li>
+          <li><strong>统一交互状态模型</strong>：用户点按钮后，通用框架应能更新原卡片状态（"已批准 / 已拒绝 / 已过期 / 已超时"）。当前 <code>feedback</code> 是发确认消息、<code>btn_stop</code> 是停止任务，<strong>没有统一的交互状态模型</strong>可复用。</li>
+        </ol>
+
+        <div class="callout success" style="margin-top:10px">
+          <strong>一句话总结</strong>：钉钉平台支持 card callback，但本仓库还缺"把 callback 变成 OpenClaw 通用交互事件"的那一层。当前是"<strong>能收到点按钮</strong>"，但还不是"<strong>任何 OpenClaw 交互都能在钉钉里自然工作</strong>"。
+        </div>
+
+        <h3>平台能力评估</h3>
+
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> 卡片回调链路真实可用</strong>
+          代码已经在用：card 实例创建端点 <code>POST /v1.0/card/instances/createAndDeliver</code>（<span class="file-ref">src/card-service.ts:845</span>），变量更新 <code>PUT /v1.0/card/instances</code>（<span class="file-ref">src/card-callback-service.ts:186</span>），回调 topic <code>/v1.0/card/instances/callback</code>（dingtalk-stream SDK 源码 <a href="https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs/blob/main/src/constants.ts">constants.ts</a> 中的 <code>TOPIC_CARD</code>）。<code>cardData.cardParamMap</code> 是任意 KV 透传，已被 <code>btn_stop</code> 验证可用。
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 具体交互组件清单</strong>
+          可抓的官方资料（<a href="https://dingtalk.apifox.cn/doc-3595317">apifox AI 卡片模板</a>、<a href="https://github.com/open-dingtalk/dingtalk-card-examples">card-examples 仓库</a>）只描述 AI Card 5 个状态（处理中 / 输入中 / 完成 / 执行中 / 失败），<strong>未列出任何交互组件枚举</strong>。常见的 <code>select_static / multi_select_static / input / multi_line_input / date_picker / time_picker / checker</code> 等组件名是经验推测，未在公开文档证实；组件实际清单要登录 <code>open-dev.dingtalk.com/fe/card</code> 卡片搭建平台才能确认。
+        </div>
+
+        <h3>修订后的设计草案（与上面 6 件缺失逐条对齐）</h3>
+        <ul>
+          <li><strong>(1)+(2) Action Registry + 统一 Dispatcher</strong>：把硬编码 if/else 抽成 <code>actionId → handler</code> 注册表（支持 global / card 两种 scope）；统一 dispatcher 在收到 callback 后查表分发。<code>feedback_up</code> / <code>feedback_down</code> / <code>btn_stop</code> 保留为内建 handler，保持向后兼容</li>
+          <li><strong>(3) Approval / Interactive 接入</strong>：在 plugin 上声明 <code>approvalCapability: ChannelApprovalCapability</code>（注：这是 plugin 级字段，<strong>不</strong>是 <code>capabilities.approvalNative</code>）。底层 native delivery 适配可用 <code>ChannelApprovalNativeAdapter</code>（<span class="file-ref">openclaw/src/channels/plugins/approval-native.types.ts:25</span>）。让 OpenClaw approval-runtime 能把"批准 / 拒绝 / 继续 / 取消"路由到 dingtalk channel</li>
+          <li><strong>(4) 抽象 payload → AI Card 渲染</strong>：runtime 给出抽象 interactive payload 时，自动渲染成 AI Card 的按钮组。<strong>先只承诺 button</strong>（已确认可用）；select / input / datepicker 等高级组件待人工登录卡片平台核验后逐项添加，先做的版本里这些写"待启用"</li>
+          <li><strong>(5) 权限与上下文绑定</strong>：每个 handler 注册时携带 metadata —— <code>runId</code>、<code>owner</code>（可点击的 userId）、<code>ttl</code>、<code>idempotencyKey</code>；dispatcher 统一执行 owner-check / 过期 / 重复点击校验（把 btn_stop 的 owner 逻辑抽出来普适化）</li>
+          <li><strong>(6) 统一交互状态模型</strong>：dispatcher 暴露 <code>updateInteractionState(state: "approved" | "rejected" | "expired" | "timeout" | "completed")</code>，通过 <code>PUT /v1.0/card/instances</code>（字段级 patch）把卡片上的按钮区域切到终态。<code>feedback</code> 与 <code>btn_stop</code> 后续迁移到这条状态线</li>
+        </ul>
+
+        <h3>效果 Mockup（仅 button 场景，已确认平台支持）</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>#OpenClaw 工作群</span></div>
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar">U</div>
+              <div><div class="chat-sender">小赵</div><div class="chat-bubble">@OpenClaw 帮我清理旧的 docker 容器</div></div>
+            </div>
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header"><span class="ai-card-status">⏳ 等待确认</span><span style="margin-left:auto">claude-opus-4.7</span></div>
+                  <div class="ai-card-body">
+                    即将执行：
+                    <pre style="margin:6px 0 0;background:#f4f5f7"><code>docker container prune -f
+docker image prune -a -f --filter "until=720h"</code></pre>
+                  </div>
+                  <div class="ai-card-actions">
+                    <button class="btn primary">允许</button>
+                    <button class="btn danger">拒绝</button>
+                    <button class="btn ghost">总是允许</button>
+                  </div>
+                  <div class="ai-card-footer"><span>仅 @小赵 可操作</span><span>30 秒后超时</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--color-text-faint)">注：之前的 select / form mockup 已删除——具体组件类型未在公开文档证实，避免画一份"假能力"的图。</p>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>新增</strong> <span class="file-ref">src/card/card-action-dispatcher.ts</span>（registry 抽象，不绑死组件类型）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/approval/approval-native.ts</span>（仅基于 button）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/card/card-template.ts</span>：button 列表参数化（avoid 硬编码 STOP_ACTION_*）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/gateway/channel-gateway.ts:330-407</span>：<code>handleCardAction</code> 调 dispatcher</li>
+          <li><strong>前置研究</strong>：登录 open-dev 卡片平台导出组件清单，决定 select/input/datepicker 是否可纳入 v2</li>
+        </ul>
+
+        <h3>验收标准（对应 6 件缺失）</h3>
+        <ol>
+          <li>Built-in 三个 actionId（<code>feedback_up</code> / <code>feedback_down</code> / <code>btn_stop</code>）行为不变（向后兼容）</li>
+          <li>Agent 可通过 registry 注册自定义 button，点击后 dispatcher 路由到对应 handler，收到 <code>actionId</code> + <code>actionParam</code></li>
+          <li>Owner-only：非发起人点击返回 <code>permission_denied</code>（btn_stop 当前的 owner 逻辑被抽出来普适化）</li>
+          <li>按钮 TTL 过期 / 重复点击 → dispatcher 返回明确状态（<code>expired</code> / <code>already_handled</code>），不再 dispatch</li>
+          <li>暴露 plugin 级 <code>approvalCapability</code>（注：openclaw 当前入口是 <span class="file-ref">openclaw/src/channels/plugins/types.plugin.ts:86</span> <code>approvalCapability?: ChannelApprovalCapability</code>，<strong>不</strong>是 <code>capabilities.approvalNative</code>）后，openclaw approval-runtime 能路由进来，agent 能发"批准 / 拒绝 / 继续 / 取消"</li>
+          <li>runtime 给抽象 interactive payload 时，dingtalk 自动渲染成 AI Card 按钮组（仅 button；高级组件待启用）</li>
+          <li>用户点击后，原卡片按钮区域更新为终态展示（"已批准" / "已拒绝" / "已过期"），通过 <code>PUT /v1.0/card/instances</code> 字段级 patch 完成</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 02                                -->
+      <!-- =================================================================== -->
+      <section id="gap-02" class="gap-section">
+        <h2 class="gap-title">02 · Doctor 综合诊断 &amp; Audit 日志</h2>
+        <div class="meta-row">
+          <span class="badge p0">P0 · 核心缺口</span>
+          <span class="ev confirmed">probe / token / send 端点 CONFIRMED</span>
+          <span class="ev unverified">chat/get 具体 errcode UNVERIFIED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>概念分层：Doctor / Security audit / Audit log 是三件不同的事</strong>
+          <table style="margin:6px 0 0">
+            <thead><tr><th>名称</th><th>看的是</th><th>作用</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Doctor 综合诊断</strong></td><td>当前运行时健康（token / 连接 / 权限 / 发送链路）</td><td><strong>排障</strong>：为什么收不到 / 发不出 / 卡片失败</td></tr>
+              <tr><td><strong>Security audit</strong></td><td>当前配置 / 权限状态（静态扫描）</td><td><strong>体检</strong>：发现安全风险（dmPolicy / allowFrom 过宽等）</td></tr>
+              <tr><td><strong>Audit log</strong></td><td>已发生的操作记录（持续累积）</td><td><strong>留痕</strong>：追踪责任、排查问题、合规留痕</td></tr>
+            </tbody>
+          </table>
+          本 gap 涵盖三件事；Security audit 可以作为 Doctor 的一类 check（按需触发），<strong>Audit log 是独立的事件流</strong>（持续运行，由各业务模块在关键操作点 emit）。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：轻量探活，不是综合诊断</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>dingtalk-connector.probe</code>（<span class="file-ref">index.ts:260-276</span>）：基本只测 <code>getAccessToken</code> 能不能拿到</li>
+            <li><code>dingtalk-connector.status</code>（<span class="file-ref">index.ts:239-258</span>）：列账号配置状态（configured / enabled / clientId 掩码）</li>
+            <li><code>probeAccount</code>（<span class="file-ref">src/platform/channel-status.ts:40-58</span>）：用 <code>getAccessToken</code> 探活；源码<strong>创建了 AbortController</strong>但<strong>没有传给</strong> <code>getAccessToken</code>，实际<strong>不会 abort 请求</strong>——是个 timeout 噪点，不是真 timeout 中断（需要 fix）</li>
+            <li><code>buildAccountSnapshot</code>（<span class="file-ref">src/platform/channel-status.ts:59</span>）：14 字段的 account snapshot 已发布（accountId / name / enabled / configured / clientId / running / connected / lastEventAt / lastConnectedAt / lastInboundAt / lastStartAt / lastStopAt / lastError / probe）</li>
+          </ul>
+          这些<strong>只能回答"token 大概能拿到吗"</strong>，<strong>不能</strong>回答"为什么收不到消息 / 为什么发不出去 / 为什么卡片失败 / 为什么主动发送失败 / 为什么权限不够"。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：完整 Doctor 体检工具</strong>
+          用户在 <code>openclaw doctor</code> 类命令下，应能系统性看到：token 拿不拿得到、clientId/clientSecret 是否配错、bot 有没有发送权限、Stream 连接配置是否合理、多账号是否重复 clientId、storePath 是否可写、必要权限是否缺失、老配置项是否过期、是否有安全风险。当前能力<strong>不到这层</strong>，也没有 audit log。
+        </div>
+
+        <h3>平台能力评估</h3>
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> Doctor 可基于的已知端点</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>POST /v1.0/oauth2/accessToken</code>（<span class="file-ref">src/auth.ts:32</span>）—— token 探活</li>
+            <li><code>POST /v1.0/robot/groupMessages/send</code> + <code>oToMessages/batchSend</code>（<span class="file-ref">src/send-service.ts:397-398</span>）—— 发送探活</li>
+            <li><code>POST /v1.0/robot/messageFiles/download</code>（<span class="file-ref">src/inbound-handler.ts:485</span>）—— 文件下载</li>
+            <li><code>POST /v1.0/robot/emotion/{reply,recall}</code>（<span class="file-ref">src/ack-reaction-service.ts:78</span>）—— 钉钉<strong>原生 thinking reaction</strong>（不是通用 emoji reaction）</li>
+          </ul>
+          这些足以构造 token / transport / send / reaction 4 维探活。
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev corrected">CORRECTED</span> 之前"OpenAPI 全面支持"表述过度</strong>
+          Doctor 设计只承诺<strong>已知可调端点</strong>能做的诊断。<code>chat/get</code> / <code>user/getbyunionid</code> 未在公开文档核实新版路径，<code>robot/groupMessages/query</code> / <code>gettoken</code> 本仓库代码<strong>未调用过</strong>——以上四项不作为"已证实方案"。
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev corrected">CORRECTED</span> 之前 emotion 端点写错</strong>
+          emotion 端点是 <code>emotion/{reply,recall}</code>（<span class="file-ref">src/ack-reaction-service.ts:78</span>），<strong>不是</strong>常见误称的 <code>emotion/{add,remove}</code>。而且这只是钉钉"原生 thinking reaction"接口：源码 <code>emotionType: 2</code> 写死、<code>THINKING_EMOTION_ID = "2659900"</code> 常量定义在 <span class="file-ref">src/ack-reaction-service.ts:9</span>，<strong>不是通用 emoji reaction API</strong>。设计上不能拿这个端点做任意表情。
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> Audit-membership 需要的 chat 信息查询</strong>
+          要查 "bot 是否还在群"，需要类似 <code>chat/get</code> 的接口。新版 API 入口可能在 <code>v1.0/im/chat/*</code>，错误码值（之前写的 <code>400003</code>）未在公开搜索证实。<strong>必须先核实端点 + 错误码</strong>，再决定 audit-membership 怎么做。
+        </div>
+
+        <h3>修订后的设计草案（7 类 check + 可修复建议）</h3>
+        <p>Doctor 命令暴露 <code>dingtalk-connector.doctor</code> RPC，按以下 7 个维度跑 check：</p>
+        <ol>
+          <li><strong>(1) 配置结构</strong>：<code>channels.dingtalk</code> 是否存在；多账号配置是否规范；必填项是否缺失；旧字段是否还在用（无需平台 API）</li>
+          <li><strong>(2) 凭证</strong>：<code>clientId</code> / <code>clientSecret</code> 能否换 token；token API 报错时给明确原因（区分网络错误 / 鉴权失败 / IP 白名单未通过）</li>
+          <li><strong>(3) 权限</strong>：机器人发送权限 / 文件下载权限 / AI Card 权限 / 主动发送权限（通过对应端点做最小调用，按错误码区分"未授权" vs "未开通"）</li>
+          <li><strong>(4) Stream</strong>：Stream mode 能否连接 / ticket 能否拿 / 是否重复启动同一 clientId（这是官方硬约束，参见 #08） / callback topic 是否覆盖 robot+card（+ 未来的 event 订阅）</li>
+          <li><strong>(5) 发送链路</strong>：能否发普通文本 / Markdown / 卡片；能否撤回（参见 #03 generalized recall）；能否上传 / 下载媒体（向 system test target 发探针消息，可关闭）</li>
+          <li><strong>(6) Security audit (配置体检)</strong>：扫描 8 类静态风险——
+            <ul style="margin:4px 0">
+              <li>DM 是否对所有人开放（<code>dmPolicy</code>）</li>
+              <li>群聊是否对所有群开放（<code>groupPolicy</code>）</li>
+              <li><code>allowFrom</code> 是否配成 <code>"*"</code> 通配</li>
+              <li><code>commands.ownerAllowFrom</code> 是否配置（否则 owner 命令不可控或不可用）</li>
+              <li>是否允许危险的 displayName 匹配（同名用户误授权风险）</li>
+              <li>多账号配置是否混乱（重复 clientId、name 冲突）</li>
+              <li>bot 是否仍可访问已撤销权限的群 / 频道（依赖 chat/get 端点核实，<strong>暂缓</strong>）</li>
+              <li><code>token</code> / <code>secret</code> 是否可能被明文暴露（明文配置 vs SecretRef）</li>
+            </ul>
+          </li>
+          <li><strong>(7) 可修复建议</strong>：每条失败不只输出 "failed"，而是告诉用户应该改哪个配置 / 申请哪个权限 / 跑哪个命令 / 看哪个文档（带 fix ID + 锚点）</li>
+        </ol>
+
+        <h4>Audit log (操作留痕) — 独立事件流，持续运行</h4>
+        <p>记录"<strong>过去发生了什么 / 谁做的 / 什么时候 / 影响了哪个会话 / 规则 / 消息</strong>"。完整事件类型清单：</p>
+        <ul style="margin:4px 0">
+          <li><strong>学习命令</strong>：<code>learn.global.create / session.create / target.create / disable / delete</code>（谁执行了 /learn global）</li>
+          <li><strong>交互回调</strong>：<code>card.action.approve / reject / cancel</code>（谁点了 approve / reject）</li>
+          <li><strong>会话控制</strong>：<code>session.stop</code>（谁触发了 /stop）、<code>proactive.sent</code>（谁让机器人主动发送消息）</li>
+          <li><strong>消息生命周期</strong>：<code>message.recalled</code>（哪条消息被撤回）、<code>card.delivery_failed</code></li>
+          <li><strong>访问控制</strong>：<code>access_control.denied</code>（哪个用户被拒绝、哪个群被 allowlist 拦截）、<code>auth.permission_check_failed</code></li>
+          <li><strong>连接 / 凭证</strong>：<code>account.connected / disconnected / reconnected</code>、<code>token.refresh_failed</code></li>
+          <li><strong>未来事件订阅</strong>（依赖 #11）：<code>event.robot_msg_recall</code>、<code>event.robot_msg_read</code>，先标 TODO</li>
+        </ul>
+        <p>结构化事件 schema 示例：</p>
+        <pre><code>{
+  "time": "2026-05-17T10:00:00Z",
+  "actor": "dingtalk:user123",
+  "action": "learn.global.create",
+  "target": "account:main",
+  "result": "denied",
+  "reason": "not_owner"
+}</code></pre>
+        <p><strong>Membership 相关事件先标 TODO</strong>，等 chat 端点核实后再加（参见上方 UNVERIFIED 条目）。</p>
+
+        <div class="callout">
+          <strong>对标定位</strong>
+          Discord / Telegram / Slack 都已有较明确的 doctor adapter（<span class="file-ref">openclaw/extensions/discord/src/channel.ts:598</span> <code>auditAccount</code>、Telegram 同名 @ <span class="file-ref">openclaw/extensions/telegram/src/channel.ts:870</span>、Slack <code>doctor: slackDoctor</code> @ <span class="file-ref">openclaw/extensions/slack/src/shared.ts:94</span> + 专属 <span class="file-ref">extensions/slack/src/doctor.ts</span>）；同时 Slack / Telegram 都有独立的 security audit（<code>collectAuditFindings</code>，<span class="file-ref">openclaw/extensions/slack/src/security.ts:52</span> 与 <span class="file-ref">openclaw/extensions/telegram/src/security.ts:39</span>）。Feishu 更接近 probe/status/security-audit，<strong>不是完整 doctor</strong>（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:1320</span>）；DingTalk 目前只有 probe/status，属于"<strong>轻量探活</strong>"档位。
+        </div>
+
+        <h3>效果 Mockup（7 类 check + 修复建议）</h3>
+        <div class="terminal">
+          <div class="terminal-header"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span><span style="margin-left:8px">openclaw doctor dingtalk</span></div>
+          <div class="terminal-body"><span class="prompt">$</span> openclaw doctor dingtalk
+
+DingTalk Channel · doctor report · 2026-05-17 12:34:56
+
+<span class="ok">✓ (1) config            </span>  3 accounts loaded; 0 deprecated fields; storePath writable
+<span class="ok">✓ (2) credentials[main] </span>  token cached, expires in 5532s; clientId xxxx****1234
+<span class="err">✗ (2) credentials[archived]</span> token refresh failed: 401 Unauthorized
+                                <span class="muted">→ fix#cred-rotated: 检查 archived 账号在 open-dev.dingtalk.com 的 clientSecret 是否轮换过</span>
+<span class="warn">⚠ (3) permissions[main] </span>  send: ok | file download: ok | AI Card: ok | 主动发送: <span class="warn">untested</span>
+                                <span class="muted">→ fix#proactive-untested: 在配置里加 system test target，下次 doctor 会做完整探针</span>
+<span class="ok">✓ (4) stream[main]      </span>  connected; ticket 90s ok; 0 重复 clientId; topics: robot+card
+<span class="ok">✓ (5) send[main]        </span>  text ✓ markdown ✓ card ✓ recall ✓ media ✓ (probe to #test-group)
+<span class="warn">⚠ (6) security          </span>  groupAllowFrom contains wildcard "*"
+                                <span class="muted">→ fix#allowfrom-wildcard: 收窄到具体 conversationId 列表，避免任意群可触发</span>
+<span class="muted">— (7) membership        </span>  skipped (chat 端点 pending 核实，参见 #02 UNVERIFIED 条目)
+
+<span class="ok">5 ok, </span><span class="warn">2 warnings, </span><span class="err">1 error</span>  ·  <span class="muted">用户视角：能回答 "为什么 archived 拿不到 token" + "为什么主动发送没测" + "groupAllowFrom 风险"</span></div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>新增</strong> <span class="file-ref">src/platform/doctor.ts</span>（orchestrator）+ <span class="file-ref">src/platform/doctor-checks/</span>（按 7 类拆文件：<code>config.ts</code> / <code>credentials.ts</code> / <code>permissions.ts</code> / <code>stream.ts</code> / <code>send.ts</code> / <code>security.ts</code> / <code>membership.ts</code>）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/platform/audit.ts</span>（<strong>Audit log</strong>：事件 schema + ndjson 落盘 + 限速；<strong>与 Doctor 解耦</strong>，由各业务模块在关键操作点直接 emit）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/platform/doctor-fixes.md</span>：每类失败对应的"修复建议清单"（fix#xxx），doctor 输出引用条目 ID 给用户</li>
+          <li><strong>改造</strong> <span class="file-ref">index.ts:239-276</span> 注册 <code>dingtalk-connector.doctor</code>，<strong>同时保留</strong> probe/status 不变（向后兼容）</li>
+          <li><strong>暂缓</strong> audit-membership：先核实 <code>chat/get</code> 端点路径（标 TODO，不阻塞其它 6 类落地）</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>Doctor</strong>：输出 7 类 check 中至少 6 类（membership 暂缓不阻塞验收）</li>
+          <li>每条失败带可修复建议 ID + 文档锚点（不止"failed"）</li>
+          <li><strong>用户场景验收</strong>：能回答这 5 类常见问题——"为什么收不到 / 发不出 / 卡片失败 / 主动发送失败 / 权限不够"</li>
+          <li><strong>Security audit</strong>：8 类静态风险至少覆盖 7 类（bot 群成员访问检查 = 第 7 项依赖 chat/get，暂缓）；通配 <code>"*"</code> 与未配 <code>ownerAllowFrom</code> 等典型坏配能被告警</li>
+          <li><strong>Audit log</strong>：上面 7 大类事件至少覆盖前 6 类（事件订阅类暂缓）；每条事件输出结构化 JSON（含 <code>time / actor / action / target / result / reason</code> 字段）</li>
+          <li>JSON 模式可被监控系统消费</li>
+          <li>所有 check 带 5s timeout；发送链路 check 可关闭（避免污染线上群）</li>
+          <li><code>--fix</code> 仅幂等可修复项（不动 config）</li>
+          <li>多账号场景：失败账号不阻塞其它账号的 check</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 03                                -->
+      <!-- =================================================================== -->
+      <section id="gap-03" class="gap-section">
+        <h2 class="gap-title">03 · 出站 editMessage / recallMessage 封装</h2>
+        <div class="meta-row">
+          <span class="badge p1">P1 · 强需求</span>
+          <span class="ev confirmed">Recall 端点 CONFIRMED</span>
+          <span class="ev documented">Recall API 官方文档 DOCUMENTED</span>
+          <span class="ev confirmed">Card 编辑 CONFIRMED</span>
+          <span class="ev community">Markdown 无 edit COMMUNITY</span>
+        </div>
+
+        <h3>平台能力评估</h3>
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> + <span class="ev documented">DOCUMENTED</span> 撤回端点（代码已用 + 官方文档核实）</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>POST /v1.0/robot/groupMessages/recall</code>（<span class="file-ref">src/card-service.ts:1315</span> + 官方 <a href="https://dingtalk.apifox.cn/api-140612777">apifox 文档</a>）—— 必需 <code>openConversationId</code> / <code>robotCode</code> / <code>processQueryKeys</code>，单次最多 20 条</li>
+            <li><code>POST /v1.0/robot/otoMessages/batchRecall</code>（<span class="file-ref">src/card-service.ts:1316</span> + 官方 <a href="https://dingtalk.apifox.cn/api-140609762">apifox 文档</a>）—— <strong>只需 <code>robotCode</code> + <code>processQueryKeys</code>，不需要 <code>openConversationId</code></strong>（1on1 场景，apifox 明示，<code>OutboundMessageRef</code> 设计要分开建模）</li>
+          </ul>
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev corrected">CORRECTED</span> 端点路径</strong>
+          撤回端点是新版 <code>/v1.0/robot/{groupMessages,otoMessages}/{recall,batchRecall}</code>，<strong>不是</strong>常见误用的旧 topapi 命名空间 <code>v1.0/topapi/message/recall</code>。
+        </div>
+
+        <div class="callout success">
+          <strong>关键认知：撤回 API 按会话类型分，不按消息类型分</strong>
+          钉钉撤回接口只按<strong>群聊 vs 单聊</strong>选端点，<strong>不区分</strong> markdown / text / image / card / actionCard 等 <code>msgKey</code>。任何机器人发出的消息——只要插件保存了发送回执里的 <code>processQueryKey</code>——都可走同一套 <code>/v1.0/robot/{groupMessages,otoMessages}/recall</code> 撤回（文档要求核心参数 <code>robotCode</code> + <code>processQueryKeys</code>，群聊额外加 <code>openConversationId</code>）。
+          <ul style="margin:6px 0 0">
+            <li><strong>AI Card 路径</strong>：已实现 <code>recallAICardMessage</code>（<span class="file-ref">src/card-service.ts:1289</span>），用 <code>card.processQueryKey</code>；并从 <code>createAndDeliver</code> 返回的 <code>deliverResults[].carrierId</code> 兜底提取撤回 key（<span class="file-ref">src/card-service.ts:223</span> <code>extractCardProcessQueryKey</code>）</li>
+            <li><strong>Markdown / text 路径</strong>：<span class="file-ref">src/send-service.ts:416</span> 发送时已经传 <code>msgKey = sampleMarkdown / sampleText</code>，钉钉返回 <code>processQueryKey</code>，<strong>send-service 已经通过 <code>extractOutboundDeliveryMetadata</code>（<span class="file-ref">src/send-service.ts:109</span>）抽取 <code>messageId / processQueryKey / outTrackId / cardInstanceId</code> 并落到 <code>message-context-store</code></strong>（<span class="file-ref">:887-905</span> session 路径、<span class="file-ref">:908-925</span> proactive 路径，还有 <code>:288 / :561 / :620 / :835</code> 等多个 send 入口都接入）。所以本仓库<strong>不缺保存 ref</strong>。</li>
+          </ul>
+          <strong>含义</strong>：#03 真正缺的是<strong>从 <code>message-context-store</code> resolve <code>OutboundMessageRef</code> 后调用 recall 的统一封装</strong> + <strong>把它接到 message tool action 上（#12 的 delete/edit）</strong>。工作量比想象的还小——存 ref 完成，recall 端点完成（recallAICardMessage），缺的就是中间这层"按 conversationId 查最近 ref → 选端点 → 调 API"的适配器，以及向 agent 暴露的 action 入口。
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev corrected">CORRECTED</span> "24h 时间窗"归因</strong>
+          <ul style="margin:4px 0 0">
+            <li><strong>群聊 <code>groupMessages/recall</code></strong>：apifox 页面对时间窗<strong>只字未提</strong></li>
+            <li><strong>单聊 <code>otoMessages/batchRecall</code></strong>：apifox 页面<strong>明确写了 24h</strong>——原文 "在发送消息24小时内可以通过 processQueryKey 撤回消息，超过24小时则无法撤回消息"（<a href="https://dingtalk.apifox.cn/api-140609762">apifox</a>）</li>
+          </ul>
+          所以 24h 是<strong>单聊有官方文档明示、群聊未明示</strong>，不是"完全无官方依据的社区传言"。但代码仍<strong>不应写死 24h</strong>：群聊端口窗口未声明、单聊未来也可能调整，让 API 返回错误来识别"超出时间窗"仍是更稳妥的策略。
+        </div>
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> AI Card 流式更新（代码已用）</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>PUT /v1.0/card/streaming</code>（<span class="file-ref">src/card-service.ts:285</span>）—— 流式 token 更新</li>
+            <li><code>PUT /v1.0/card/instances</code>（<span class="file-ref">src/card-callback-service.ts:186</span>）—— 变量更新；apifox 明示是"主动更新卡片数据"，通过 <code>cardUpdateOptions.updateCardDataByKey</code> / <code>updatePrivateDataByKey</code> 做<strong>字段级</strong> patch，<strong>不是 whole-instance replace</strong></li>
+          </ul>
+          AI Card 是**唯一**的原地编辑路径；普通 markdown / text 消息没有公开 edit API。
+        </div>
+
+        <h3>设计草案</h3>
+        <pre><code>// src/send-service.ts（新增）
+export interface OutboundMessageRef {
+  accountId: string; conversationId: string; messageId: string;
+  kind: "card" | "markdown" | "text" | "media"; sentAt: number;
+}
+
+export async function editOutboundMessage(config, ref, next, options?):
+  Promise&lt;{ ok; error?; fallback?: "recreate" | "recall_only" }&gt;;
+export async function recallOutboundMessage(config, ref, options?):
+  Promise&lt;{ ok; error?; reason?: "time_window_exceeded" | "rate_limited" | "api" }&gt;;</code></pre>
+        <h4>降级</h4>
+        <ul>
+          <li><strong>Edit</strong>
+            <ul>
+              <li>Card：优先调 <code>PUT /v1.0/card/instances</code> 做字段级 patch（in-place 已落地）</li>
+              <li>Markdown / text：钉钉无 in-place edit API，<code>edit = recall + 新 send</code>；recall 失败返回 <code>fallback: "recreate"</code></li>
+            </ul>
+          </li>
+          <li><strong>Recall</strong>（两类共用同一套端点，按会话类型选）
+            <ul>
+              <li>群聊：<code>POST /v1.0/robot/groupMessages/recall</code>（params: <code>robotCode</code> + <code>openConversationId</code> + <code>processQueryKeys</code>）</li>
+              <li>单聊：<code>POST /v1.0/robot/otoMessages/batchRecall</code>（params: <code>robotCode</code> + <code>processQueryKeys</code>）</li>
+              <li>消息类型（markdown / text / image / card / actionCard ...）<strong>不参与端点选择</strong></li>
+            </ul>
+          </li>
+          <li>超过钉钉时间窗：返回 <code>reason: "time_window_exceeded"</code>（<strong>不写死 24h 数字</strong>）</li>
+        </ul>
+
+        <h3>效果 Mockup</h3>
+        <div class="callout warn">
+          <strong>真实表现 ≠ Telegram/Slack 的"已编辑"</strong>
+          钉钉机器人对 markdown / text 消息<strong>没有真正的 edit API</strong>，所谓 editMessage 在实现层是 "recall 旧 + 发新"。在钉钉客户端的可见效果是：原消息变成"该消息已撤回"提示（或直接消失，取决于客户端版本），紧接着出现新消息。<strong>不会显示"已编辑"标记</strong>——不要套用 Telegram 的心智模型。
+        </div>
+        <div class="compare">
+          <div class="compare-col before">
+            <h4>当前（再发新消息覆盖）</h4>
+            <div class="chat-frame" style="margin:0;max-width:100%">
+              <div class="chat-body">
+                <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble">CPU 使用率是 <strong>23%</strong>。</div></div></div>
+                <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble" style="background:#fff7e6">⚠ 修正：上一条读错列了，实际是 <strong>74%</strong>。</div></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="compare-col after">
+            <h4>有 editMessage（实际效果：撤回 + 重发）</h4>
+            <div class="chat-frame" style="margin:0;max-width:100%">
+              <div class="chat-body">
+                <div style="text-align:center;font-size:11px;color:#8a929d;padding:4px">OpenClaw 已撤回一条消息</div>
+                <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble">CPU 使用率是 <strong>74%</strong>。</div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--color-text-faint)">对于 AI Card 类型则不同：Card 走 <code>PUT /v1.0/card/instances</code> 真正原地更新 block，是钉钉<strong>唯一</strong>支持原地编辑的消息类型。这条已经在 card-service 内部走通。</p>
+
+        <h3>实现建议（复用已落地的两侧基础设施）</h3>
+        <ul>
+          <li><strong>抽出</strong> <span class="file-ref">src/messaging/outbound-recall.ts</span>：把 <span class="file-ref">src/card-service.ts:1289</span> <code>recallAICardMessage</code> 里的"端点按 isGroup 选 + 调 processQueryKeys"逻辑泛化，让 card / markdown / text 共用（不要从头新建逻辑，复用已验证过的实现）</li>
+          <li><strong>不要新建</strong> <code>sent-message-store</code>——本仓库 <span class="file-ref">src/message-context-store.ts</span> 已经在用，<code>send-service</code> 已经写入 <code>delivery.{messageId, processQueryKey, outTrackId, cardInstanceId, kind}</code>（参见 <span class="file-ref">src/send-service.ts:887,909</span>），直接从这里 resolve <code>OutboundMessageRef</code> 即可</li>
+          <li><strong>新增</strong> 公共 API <code>editOutboundMessage</code> / <code>recallOutboundMessage</code>（外露的统一入口）：参数是 <code>{ accountId, conversationId, messageId? }</code>，内部去 <code>message-context-store</code> 查最近一条 outbound delivery → 选端点 → 调 recall</li>
+          <li><strong>接入 #12</strong>：在 <code>channel-actions</code> 上暴露 <code>delete</code>（recall）/ <code>edit</code>（recall + send new）action，handler 走上面同一抽象</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li>Card 类型 edit 行为与现有 <code>commitAICardBlocks</code> 等价（向后兼容）</li>
+          <li>Markdown / text：recall + 重发；recall 失败 fallback 重发</li>
+          <li>钉钉返回时间窗超出：标 <code>reason: "time_window_exceeded"</code> 不假设具体数字</li>
+          <li>Recall 限速：返回 <code>reason: "rate_limited"</code>，自动 backoff 重试 1 次</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 04                                -->
+      <!-- =================================================================== -->
+      <section id="gap-04" class="gap-section">
+        <h2 class="gap-title">04 · 统一 API 调用调度器（Throttling）</h2>
+        <div class="meta-row">
+          <span class="badge p1">P1 · 健壮性</span>
+          <span class="ev unverified">单接口 40/s/appkey UNCONFIRMED</span>
+          <span class="ev unverified">errcode 90018 UNCONFIRMED</span>
+          <span class="ev wrong">errcode 88 ≠ 限流（已纠正）</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>概念分层：throttling vs rate-limit 是两件不同的事</strong>
+          <table style="margin:6px 0 0">
+            <thead><tr><th>名称</th><th>谁踩刹车</th><th>说什么</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Rate-limit</strong></td><td>平台</td><td>"你一分钟最多调用这么多次，超过我就报错"（HTTP 429 / 含 "rate" 关键字 errcode）</td></tr>
+              <tr><td><strong>Throttling</strong></td><td>我们自己</td><td>"我知道平台有限制，所以排队、降速、合并请求，别一口气全打出去"</td></tr>
+            </tbody>
+          </table>
+          本 gap 关注的是 <strong>throttling——主动踩刹车</strong>。当 rate-limit 已经触发时，throttler 还要负责识别 429 / <code>Retry-After</code> 并做退避。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：局部节流（卡片流式场景）</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>cardStreamInterval</code> 默认 <strong>1000ms</strong>（<span class="file-ref">src/config-schema.ts:139</span>，使用在 <span class="file-ref">src/reply-strategy-card.ts:123</span>）：AI Card 流式更新最小间隔</li>
+            <li><code>card-draft-controller</code> 自有 throttle，默认 <strong>300ms</strong>（verbose 模式 50ms，<span class="file-ref">src/card-draft-controller.ts:126</span>）：card draft 提交节流</li>
+            <li><code>draft-stream-loop</code> 内部 <code>throttleMs</code>（<span class="file-ref">src/draft-stream-loop.ts:26,73,89</span>）：dispatcher 派发节流</li>
+          </ul>
+          这些都是<strong>卡片流式场景的局部节流</strong>，不是统一的 API 调用调度器。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：统一 API 调度器</strong>
+          <span class="file-ref">src/send-service.ts</span> / <span class="file-ref">src/card-service.ts</span> / <span class="file-ref">src/auth.ts</span> / <span class="file-ref">src/inbound-handler.ts</span>（媒体下载）/ <span class="file-ref">src/ack-reaction-service.ts</span> 等所有 OpenAPI 调用都是"即发即走"，没有统一节流层；429 识别与 <code>Retry-After</code> 处理、按 account/endpoint 排队、连续失败短暂熔断、限流指标进入 status/doctor/audit——这些都还没有。
+        </div>
+        <div class="callout warn">
+          <strong>典型受影响场景</strong>
+          机器人同时在 20 个群里回复，或一条 AI Card 正在流式更新——例如：第 1 秒更新卡片 10 次、第 2 秒发送 30 条消息、第 3 秒上传 20 个文件。没有 throttling 时可能：钉钉返回 429 / too many requests → 卡片更新失败 → 消息发送失败 → 失败后继续疯狂重试雪上加霜 → 多账号或多会话一起跑时互相拖垮。
+        </div>
+
+        <h3>平台能力评估</h3>
+
+        <div class="callout danger">
+          <strong><span class="ev wrong">WRONG</span> errcode=88 不是限流码</strong>
+          <code>errcode=88</code> 是 <strong>"ISV 权限 / access_token 不合法"</strong>，不能作为限流信号。已从设计中删除。
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 限流相关线索</strong>
+          <ul style="margin:4px 0 0">
+            <li><strong>"每个接口每企业每 appkey 40/s"</strong>：open.dingtalk.com 限流公告页是 SPA 抓不到，公开聚合站也没有这条具体数字。从 COMMUNITY 降为 <strong>UNCONFIRMED</strong>。<strong>不要写死任何默认 QPS</strong>。</li>
+            <li><strong>"errcode 90018"</strong>：社区错误码表（mabiji.com）只列到 90017，无 90018 条目；阿里云开发者社区也无明示。从 COMMUNITY 降为 <strong>UNCONFIRMED</strong>。</li>
+            <li><strong>不应</strong>把任意单一 errcode 写死作为限流识别器</li>
+          </ul>
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 其它具体数字</strong>
+          Card 50 QPS / gettoken 100/min / 单 webhook 5/s 都未在可抓资料证实，从设计中删除。
+        </div>
+
+        <div class="callout success">
+          <strong>现有错误归一化可复用</strong>
+          <span class="file-ref">src/card-service.ts:143-152</span> 已在做错误关键字归一化（<code>ipnotinwhitelist</code> / <code>forbiddenaccessdenied</code> / <code>timeout</code> / <code>econnreset</code> / <code>badgateway</code> 等），throttler 的"识别 HTTP 429 + 关键字 errcode"逻辑可以复用同一抽象，无需另起一套。
+        </div>
+
+        <h3>修订后的设计草案（6 类标准实现模式 + 9 项缺口清单）</h3>
+
+        <h4>6 类标准实现模式</h4>
+        <ol>
+          <li><strong>按接口限速</strong>：发消息 / 更新卡片 / 上传文件 / 撤回消息 分别控制速率（每个端点一个独立桶）</li>
+          <li><strong>按账号限速</strong>：每个 DingTalk account 单独一个队列；A 账号被限不影响 B 账号</li>
+          <li><strong>合并更新</strong>：AI Card 流式更新不应每个 token 都调 API；多个小更新合并成一次（<strong>现有 cardStreamInterval / card-draft-controller / draft-stream-loop 三处局部 throttle 已是这一类的雏形</strong>，但只覆盖 card 场景）</li>
+          <li><strong>遇到 429 后退避</strong>：平台说"太快了"就等几秒再试；若响应 header 有 <code>Retry-After</code>，<strong>优先按它等</strong>，不是固定 5s</li>
+          <li><strong>短暂熔断</strong>：连续失败时暂停某类 API 一段时间，防止一直打失败请求；连续成功后逐步恢复</li>
+          <li><strong>日志 / 指标</strong>：记录"哪个接口被限流、排队多少、延迟多少、丢了多少"，进入 status snapshot（#07）、doctor 报告（#02）、audit log（#02 <code>throttle.suspended</code> / <code>throttle.recovered</code>）</li>
+        </ol>
+
+        <h4>9 项具体缺口（按端点拆）</h4>
+        <ul>
+          <li>① <code>oauth2/accessToken</code> token API 限速</li>
+          <li>② <code>robot/{groupMessages,oToMessages}/{send,batchSend}</code> send API 限速</li>
+          <li>③ <code>card/instances/createAndDeliver</code> + <code>card/streaming</code> + <code>card/instances</code>（PUT）限速</li>
+          <li>④ <code>robot/messageFiles/download</code> + 媒体 upload 限速</li>
+          <li>⑤ <code>robot/{groupMessages,otoMessages}/{recall,batchRecall}</code> 限速</li>
+          <li>⑥ <code>robot/emotion/{reply,recall}</code> reaction 限速</li>
+          <li>⑦ HTTP 429 识别 + <code>Retry-After</code> header 处理（不写死 5s）</li>
+          <li>⑧ 按 (account, endpoint) 二维分桶 / 队列</li>
+          <li>⑨ 限流状态进入 status snapshot / doctor 报告 / audit log</li>
+        </ul>
+
+        <h4>限流识别（不依赖具体单一 errcode）</h4>
+        <ul>
+          <li>HTTP 429 → 限流，按 <code>Retry-After</code> 等待（无则保守 5s）</li>
+          <li>errcode 含 <code>"rate"</code> / <code>"limit"</code> / <code>"frequency"</code> 关键字 → 限流</li>
+          <li>具体码值：旧 topapi 是 <code>90018</code>（UNCONFIRMED），新版码值待核实；<strong>不写死</strong></li>
+          <li><strong>不</strong>特判 <code>errcode=88</code>（已确认是权限码）</li>
+        </ul>
+
+        <h4>退避策略</h4>
+        <ul>
+          <li>桶空：<code>await</code> 直到下一 token，超时 2s 失败回退</li>
+          <li>触发限流：该桶 suspend 按 <code>Retry-After</code>（或保守 5s）+ 日志</li>
+          <li>5s 内连续 3 次：suspend 升 30s + audit</li>
+          <li>连续成功 N 次后熔断逐步恢复</li>
+        </ul>
+
+        <h3>效果 Mockup</h3>
+        <div class="terminal">
+          <div class="terminal-header"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span></div>
+          <div class="terminal-body"><span class="muted"># 场景：机器人同时在 20 个群回复 + 一条 AI Card 流式更新</span>
+<span class="ok">[DingTalk][main] card/streaming.update ok</span> latency=98ms     queued=0  bucket=card_stream
+<span class="ok">[DingTalk][main] groupMessages/send ok</span> latency=120ms     queued=2  bucket=send_group
+<span class="ok">[DingTalk][main] groupMessages/send ok</span> latency=140ms     queued=1  bucket=send_group
+<span class="err">[DingTalk][API] card/instances.update HTTP 429</span> retry-after=2  bucket=card_update
+<span class="warn">[DingTalk][Throttle] account=main bucket=card_update</span> reason=rate_limited action=suspend duration=2000ms (Retry-After)
+<span class="muted">[DingTalk][main] card/instances.update suspended</span> queued=4 (其它桶不受影响)
+<span class="ok">[DingTalk][main] groupMessages/send ok</span> latency=110ms     queued=0  bucket=send_group <span class="muted">← send 桶不受 card 桶影响</span>
+<span class="ok">[DingTalk][main] card/instances.update ok</span> (after 2018ms)
+<span class="warn">[DingTalk][Audit] throttle.suspended bucket=card_update duration=2018ms</span></div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>新增</strong> <span class="file-ref">src/platform/throttler.ts</span>（token-bucket，按 (account, endpoint) 二维分桶，无外部依赖）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/platform/throttle-buckets.ts</span>：按 ①-⑥ 端点分类预定义 6 个桶（token / send / card / media / recall / reaction）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/send-service.ts</span> / <span class="file-ref">src/card-service.ts</span> / <span class="file-ref">src/auth.ts</span> / <span class="file-ref">src/inbound-handler.ts</span>（媒体）/ <span class="file-ref">src/ack-reaction-service.ts</span>：API 入口 <code>await throttler.acquire(bucket)</code></li>
+          <li><strong>改造</strong> <span class="file-ref">src/utils.ts</span> <code>formatDingTalkErrorPayloadLog</code>：识别 HTTP 429 + errcode 关键字 → <code>throttler.reportRateLimited(bucket, retryAfter)</code></li>
+          <li><strong>复用</strong> <span class="file-ref">src/card-service.ts:143-152</span> 已有的错误关键字归一化（无需另写一套）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/config.ts</span>：新增 <code>throttle: { perEndpointQps?: number, perAccountQps?: number }</code>，<strong>默认不限速</strong>（数字 UNCONFIRMED），按需在配置里启用</li>
+          <li><strong>对接 #07</strong>：throttle 桶状态进入 snapshot；<strong>对接 #02</strong>：throttle 事件进入 audit log（<code>throttle.suspended</code> / <code>throttle.recovered</code>）</li>
+          <li><strong>对齐既有局部 throttle</strong>：<code>cardStreamInterval</code> / <code>card-draft-controller</code> / <code>draft-stream-loop</code> 保留为"合并更新"层（设计模式 3）；<strong>不要被新 throttler 替换</strong>，而是放在它<strong>上游</strong>（先合并 → 再过 throttler）</li>
+        </ul>
+
+        <h3>验收标准（对齐 6 类实现模式）</h3>
+        <ol>
+          <li><strong>模式 1（按接口限速）</strong>：6 类桶（token / send / card / media / recall / reaction）独立排队，互不挤兑</li>
+          <li><strong>模式 2（按账号限速）</strong>：多账号 A/B 测试，A 被限流时 B 完全不受影响</li>
+          <li><strong>模式 3（合并更新）</strong>：保留现有 cardStreamInterval / card-draft-controller，新 throttler 不重复节流 card 流</li>
+          <li><strong>模式 4（429 退避）</strong>：模拟 HTTP 429 with <code>Retry-After: N</code> → throttler 按 N 等而非固定 5s；无 Retry-After 时保守 5s</li>
+          <li><strong>模式 5（短暂熔断）</strong>：模拟某桶连续 3 次 429 → suspend 升至 30s + audit log</li>
+          <li><strong>模式 6（日志/指标）</strong>：throttle 状态进入 #07 snapshot；事件进入 #02 audit log</li>
+          <li>正常流量（QPS 低于配置阈值）<code>acquire</code> 平均阻塞 &lt; 5ms；同端点突发 100 条全部排队成功</li>
+          <li><strong>用户场景验收</strong>：20 群同时回复 + AI Card 流式更新 + 媒体上传，throttler 介入后 0 请求被丢、0 雪崩重试</li>
+          <li><strong>不</strong>把 errcode=88 作为限流信号（已纠正）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 05                                -->
+      <!-- =================================================================== -->
+      <section id="gap-05" class="gap-section">
+        <h2 class="gap-title">05 · Markdown Incremental / Recall-based Draft Fallback 可行性</h2>
+        <div class="meta-row">
+          <span class="badge p3">P3 · Do not implement by default</span>
+          <span class="ev confirmed">现有 markdown 已经是增量发送 CONFIRMED</span>
+          <span class="ev community">真正 edit 不存在 COMMUNITY</span>
+        </div>
+        <div class="callout danger" style="margin-top:8px">
+          <strong>结论：建议不做（"Do not implement by default"）</strong>
+          现有增量发送已是可接受兜底；recall-based 会闪烁、扰动通知、消耗 2 倍 API、引入限速风险。文档保留这一节是为了把"为什么不做"讲清，便于后续被问到时引用，<strong>不</strong>作为待实现工作项。
+        </div>
+
+        <h3>现状（精确版）</h3>
+        <p>Markdown 路径<strong>已经是增量发送</strong>（不是等 LLM 结束后一次性发）。<span class="file-ref">src/reply-strategy-markdown.ts:29-43</span> 的 <code>computeIncrementalSuffix</code> 按 runtime delivery 拼出增量 suffix，调 <code>sendMarkdownSegment</code> 把新增内容作为<strong>独立新消息</strong>发出。文件头部注释明确说：</p>
+        <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+          DingTalk cannot edit prior messages in place, so markdown mode emits incremental answer tails from dispatcher-delivered block/final payloads.
+        </blockquote>
+        <p>所以现状是"<strong>多条增量消息</strong>"，不是"一次性甩出"。真正缺的是 "看起来像一条消息持续在长"的视觉效果。</p>
+
+        <h3>平台能力评估</h3>
+        <div class="callout warn">
+          <strong><span class="ev community">COMMUNITY</span> 真正 edit 不可行</strong>
+          钉钉机器人对 markdown / text 没有 edit API。要让"多条新消息"看起来像"一条在长"，只能 <strong>recall 上一条 + 发更长的新一条</strong>，每次循环。
+        </div>
+        <div class="callout">
+          <strong>对标实证</strong>
+          openclaw Telegram 的 <code>editStreamMessage</code>（<span class="file-ref">openclaw/extensions/telegram/src/lane-delivery-text-deliverer.ts:305-355</span>）与 Slack 的 <code>draftPreview / progressUpdates / finalEdit</code> 声明（<span class="file-ref">openclaw/extensions/slack/src/channel.ts:524-531</span>）都依赖<strong>平台原生 edit API</strong>实现"一条消息持续刷新"。DingTalk 平台机制本身不支持，不是产品决策问题。
+        </div>
+        <div class="callout danger">
+          <strong>体验权衡：recall-based 并不优于现有增量</strong>
+          <ul style="margin:4px 0 0">
+            <li><strong>recall+resend 方案</strong>：用户看到的是"一条消息持续生长"，但每次更新触发"该消息已撤回"提示（视客户端版本可能可见可不见），且<strong>消耗 2 倍 API 请求</strong>（recall + send）</li>
+            <li><strong>现有增量方案</strong>：用户看到的是"机器人分段说话"，无撤回提示噪声，<strong>API 请求次数减半</strong></li>
+            <li>钉钉客户端的"该消息已撤回"提示是<strong>不可隐藏的灰色系统行</strong>，循环 recall 会让对话变成"机器人说一段→撤回→说更长一段→撤回→..."的噪声流</li>
+          </ul>
+        </div>
+
+        <h3>修订后的建议（结论可能是不做）</h3>
+        <p>这一项<strong>建议降级或撤回</strong>：</p>
+        <ol>
+          <li>当前增量方案已经在工作，用户感知不是"等 35s 然后一次性"，而是"分段实时显示"</li>
+          <li>recall-based 改造收益不明（视觉略好，体验代价大：撤回提示噪声 + 2x API）</li>
+          <li>更合理的工程方向可能是：<strong>优化增量段的分句质量</strong>（按句号/段落自然边界切，而不是按 token 流），让分段读起来更顺；<strong>不</strong>引入 recall-based 方案</li>
+        </ol>
+        <p>如要继续做 recall-based 方案，建议先在测试群做用户研究：让真实用户对比"分段增量" vs "撤回重发"哪种体验更接受。</p>
+
+        <h3>实际现状 Mockup</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>OpenClaw（私聊）</span></div>
+          <div class="chat-body">
+            <div class="chat-msg"><div class="chat-avatar">U</div><div><div class="chat-bubble">@OpenClaw 分析性能 regression</div></div></div>
+            <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble" style="font-size:13px"><strong>分析报告</strong><br />1. 根因：commit 1234abc 引入了不必要的 join...</div></div></div>
+            <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble" style="font-size:13px">2. 影响范围：query latency p95 从 12ms → 87ms...</div></div></div>
+            <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble" style="font-size:13px">3. 建议方案：回滚 commit + 加索引...</div></div></div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--color-text-faint)">每条增量是独立新消息（来自 <code>computeIncrementalSuffix</code> + <code>sendMarkdownSegment</code>）。recall-based 改造会让对话夹杂多条"该消息已撤回"提示。</p>
+
+        <h3>如果一定要做 recall-based（设计草案，备用）</h3>
+        <ul>
+          <li><strong>初始延迟</strong>：累计 50 字符或 800ms 后发首条</li>
+          <li><strong>更新间隔</strong>：≥ 1500ms（防撤回提示密集）</li>
+          <li><strong>切块</strong>：单消息超 3000 字符 finalize 当前块开新流</li>
+          <li><strong>降级</strong>：recall 失败保留旧消息不动，新内容追加新消息（即退化到现状）</li>
+          <li><strong>config 开关</strong>：默认关闭，需用户显式启用</li>
+        </ul>
+
+        <h3>验收标准（如果做）</h3>
+        <ol>
+          <li>首条在累计 50 字或 800ms 内发出</li>
+          <li>关闭 <code>markdownRecallStreaming</code>（默认）时行为完全等同当前增量方案</li>
+          <li>启用时：撤回提示行 ≤ 总消息数的 N 倍（具体上限待测）</li>
+          <li>用户研究证据：A/B 测试至少一周，确认 recall-based 体验确实优于增量段</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 06                                -->
+      <!-- =================================================================== -->
+      <section id="gap-06" class="gap-section">
+        <h2 class="gap-title">06 · 持久化 Dedup（跨重启 / 长 TTL / 多实例）</h2>
+        <div class="meta-row">
+          <span class="badge p2">P2 · 健壮性</span>
+          <span class="ev documented">事件订阅不 ACK 会重投 DOCUMENTED（protocol 原文）</span>
+          <span class="ev documented">机器人 robot fire-forgot DOCUMENTED（protocol 原文）</span>
+          <span class="ev confirmed">SDK 通用 60s 重试注释 CONFIRMED（client.d.ts:97）</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 dedup？为什么要做？</strong>
+          插件可能在两种场景下重复看到同一条入站：(a) 钉钉把<strong>事件订阅</strong>推给插件 → 插件处理慢了 / ACK 异常 / 连接断了 → 钉钉按 protocol "不回复 ACK 触发服务端超时重新推送"语义重推同一事件；(b) <strong>多实例 / 重启窗口</strong>里同一消息被多个进程或新旧进程看到。如果插件不去重，机器人可能重复处理。所以插件要记住"<code>robotKey + msgId</code> / <code>eventType + eventId</code> 这条已经处理过"，下次同样的来就跳过。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：内存 60 秒 dedup（<span class="file-ref">src/dedup.ts:1-67</span>）</strong>
+          <pre><code>const processedMessages = new Map&lt;string, number&gt;();
+const MESSAGE_DEDUP_TTL = 60000;
+const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
+          第 1 行 <code>DEDUP_NAMESPACE_POLICY = "memory-only"</code> 显式声明策略。能挡住同进程 60 秒内的重复推送。
+        </div>
+        <div class="callout warn">
+          <strong>4 种当前挡不住的场景</strong>
+          <ol style="margin:4px 0">
+            <li><strong>进程重启</strong>：记录全没了；重启前后窗口内的重推会被当成新消息</li>
+            <li><strong>60 秒外的延迟重推</strong>：平台延迟超过 TTL 后再推同一条，会被再次处理</li>
+            <li><strong>多实例 / 多 worker 部署</strong>：A 实例处理过，B 实例不知道（HA / 蓝绿 / 灰度都会触发）</li>
+            <li><strong>跨进程的灰度升级</strong>：旧 process 没 ack、新 process 收同事件</li>
+          </ol>
+        </div>
+
+        <h3>平台能力评估</h3>
+        <div class="callout success">
+          <strong><span class="ev documented">DOCUMENTED</span> 事件订阅：不 ACK 会重投，需要 dedup</strong>
+          钉钉 <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对事件订阅 ACK 语义的<strong>原文</strong>：
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            如果不回复 ACK，会触发服务端的超时重新推送，以及客户端对相同事件的重复处理。
+          </blockquote>
+          这是<strong>事件订阅必须 dedup 的官方依据</strong>——服务端会重推，客户端必须自身识别重复事件。
+        </div>
+        <div class="callout success">
+          <strong><span class="ev documented">DOCUMENTED</span> 机器人消息：当前是 fire-forgot，不因超时重推</strong>
+          同一 <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对 robot callback 的<strong>原文备注</strong>：
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            备注：机器人消息当前是 fire-forgot 模式，不会因为网络超时而重复推送。
+          </blockquote>
+          以及对 ACK 用途的分层说明：
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            ACK 主要用途…2. "事件订阅"之外的推送，ACK 仅用于问题诊断和分析。
+          </blockquote>
+          所以"<strong>事件订阅</strong>"与"<strong>事件订阅之外（robot callback / card callback）</strong>"的可靠性语义是<strong>官方文档明确区分的</strong>，不是社区猜测。
+        </div>
+        <div class="callout">
+          <strong><span class="ev confirmed">CONFIRMED</span> SDK 通用 60s 重试注释（与 protocol 分层语义并行存在）</strong>
+          本地 <code>dingtalk-stream@2.1.4</code> 的 <span class="file-ref">node_modules/dingtalk-stream/dist/client.d.ts:97-108</span> 对 <code>socketCallBackResponse</code> 的 JSDoc：
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            stream 模式下，服务端推送消息到 client 后，会监听 client 响应，如果消息长时间未响应会在一定时间内 (60s) 重试推消息，可以通过此方法返回消息响应，避免多次接收服务端消息。
+          </blockquote>
+          这是 SDK 通用层的描述（**不区分** robot / event / card）。<strong>SDK 提供了统一的 ACK/response 通道，但官方 protocol 对 event subscription 与 robot callback 的可靠性语义做了区分</strong>——event 是真的会重推，robot 当前不重推。两个证据并不矛盾，是不同层次。
+        </div>
+        <div class="callout success">
+          <strong>对标实证</strong>
+          openclaw 内对标修正：<strong>Feishu</strong> 用 <code>createPersistentDedupe</code>（<span class="file-ref">openclaw/extensions/feishu/src/dedup.ts:27-30</span>），磁盘 JSON 落盘——这是真正的持久化 dedup。<strong>Discord</strong> 用 <code>createClaimableDedupe</code>（<span class="file-ref">openclaw/extensions/discord/src/monitor/inbound-dedupe.ts:1,9</span>），不是纯内存。<strong>Telegram</strong> 的<strong>入站 update dedup 是 <code>createDedupeCache</code> 内存 5 分钟</strong>（<span class="file-ref">openclaw/extensions/telegram/src/bot-updates.ts:71</span>）；之前误引的 <code>message-cache.ts</code> 是消息<strong>上下文</strong>持久化，<strong>不是 update dedup</strong>。Feishu / Discord 的实现可作 #06 / #11 落地参考。
+        </div>
+        <div class="callout">
+          <strong>持久化 dedup 的 standalone 价值</strong>
+          持久化 dedup 应作为<strong>独立可立项</strong>的能力，而<strong>不</strong>条件性绑定 #11，理由：
+          <ul style="margin:4px 0">
+            <li><strong>事件订阅按 protocol 原文必定会重投</strong>（"不回复 ACK，会触发服务端的超时重新推送"）—— 这是 dedup 的<strong>第一硬需求</strong></li>
+            <li>"机器人 robot callback 当前 fire-forgot 不重推"也是 protocol 原文，<strong>但仅指网络超时层</strong>——多实例 / HA / 灰度部署、客户端进程重启窗口、平台未来策略变更，都不在这条 fire-forgot 承诺的覆盖面内</li>
+            <li><strong>多实例 / HA / 灰度部署</strong>场景下，持久化 dedup 是必需的（与 robot ack 是否重推无关，是分布式一致性问题）</li>
+            <li>事件订阅类（recall / read）确实会重投，<strong>且 #11 已确认要做</strong>，那一层也需要 dedup（共用同一抽象即可）</li>
+          </ul>
+          核心受益面是<strong>事件订阅 dedup（DOCUMENTED 重投）+ 多实例部署 + 重启窗口</strong>三个场景。
+        </div>
+
+        <h3>持久化 dedup 长什么样</h3>
+        <p>把"已处理消息"的记录写到文件 / 数据库 / 共享存储里。最小化结构：</p>
+        <pre><code>{
+  "dingtalk:robotA:msg123": {
+    "processedAt": 1710000000000,
+    "expiresAt": 1710086400000
+  }
+}</code></pre>
+        <p>带来的能力：</p>
+        <ul style="margin:4px 0">
+          <li>重启后仍能去重</li>
+          <li>平台延迟重试也能挡住（超过当前 60s TTL）</li>
+          <li>多实例可以共享状态</li>
+          <li>可以设置更长 TTL（例如 24 小时）</li>
+        </ul>
+
+        <h3>权衡 / 约束（不是越长越好）</h3>
+        <ul>
+          <li><strong>有 TTL</strong>：长 TTL 会让存储膨胀；推荐 24h 起步，<strong>可配置</strong></li>
+          <li><strong>定期清理</strong>：到期记录自动 GC，避免无界增长</li>
+          <li><strong>key 稳定</strong>：必须用平台保证唯一且稳定的字段（如 <code>robotCode + msgId</code>），<strong>不要</strong>混入时间戳 / 内容 hash</li>
+          <li><strong>不保存敏感正文</strong>：只保存消息 ID / 状态 / 时间戳，<strong>不存内容</strong></li>
+          <li><strong>失败处理</strong>：处理失败时<strong>不能</strong>误标"已完成"——只有处理成功才写 dedup；失败的允许重试</li>
+          <li><strong>跨实例存储</strong>：单实例可用文件 ndjson；多实例需要共享存储（filesystem 挂载 / Redis / 等），按部署形态选</li>
+        </ul>
+
+        <h3>设计草案</h3>
+        <ul>
+          <li><strong>存储格式</strong>：<code>storePath</code> 下 <code>dedup/{accountId}-messages.ndjson</code>（机器人消息）+ <code>dedup/{accountId}-events.ndjson</code>（事件订阅，#11 同步落地）；append-only ndjson，启动时全量加载到内存 Map</li>
+          <li><strong>层级</strong>：内存 Map（hot path）→ ndjson 落盘（cold / restart recovery）；写操作 fire-and-forget，<strong>不阻塞</strong>主线程</li>
+          <li><strong>TTL</strong>：默认 24h，可在配置里调；启动时跳过已过期条目</li>
+          <li><strong>清理</strong>：定时 GC（默认 1h 一次）+ 启动时压缩 ndjson</li>
+          <li><strong>key 选取</strong>：消息用 <code>{robotCode}:{msgId}</code>；事件订阅用 <code>{eventType}:{eventId}</code></li>
+          <li><strong>写入时机</strong>：仅在<strong>处理成功</strong>后写；失败的不写（允许下次重试）</li>
+          <li><strong>多实例</strong>：v1 单实例（文件 ndjson）；v2 多实例（按部署形态加入 shared store，例如挂载同一卷或接入 Redis）</li>
+        </ul>
+
+        <h3>效果 Mockup（3 个失败模式被挡住）</h3>
+        <div class="timeline">
+          <div class="timeline-row"><span class="time">15:00:00</span><span class="dot success"></span><span class="content"><strong>场景 1：跨重启</strong>　收到 robotA:msg123，处理成功 + 写 ndjson</span></div>
+          <div class="timeline-row"><span class="time">15:00:05</span><span class="dot warn"></span><span class="content">gateway 重启（ndjson 已落盘）</span></div>
+          <div class="timeline-row"><span class="time">15:00:18</span><span class="dot success"></span><span class="content">新进程 warmup → 1247 entries 从 ndjson 加载</span></div>
+          <div class="timeline-row"><span class="time">15:00:19</span><span class="dot success"></span><span class="content">钉钉重推 robotA:msg123 → dedup 命中，跳过</span></div>
+          <div class="timeline-row"><span class="time">15:01:30</span><span class="dot success"></span><span class="content"><strong>场景 2：超 60s 延迟重推</strong>　robotA:msg456 距首次推送已 90s（旧内存 dedup 失效）→ ndjson 仍在，命中</span></div>
+          <div class="timeline-row"><span class="time">16:00:00</span><span class="dot success"></span><span class="content"><strong>场景 3：多实例</strong>　instance-B 收到 robotA:msg789，instance-A 已处理过 → 共享存储命中，跳过</span></div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>新增</strong> <span class="file-ref">src/shared/persistent-dedup.ts</span>：通用持久化 dedup 抽象（内存 Map + ndjson 落盘 + TTL + GC），messages 与 events 共用</li>
+          <li><strong>改造</strong> <span class="file-ref">src/dedup.ts</span>：把当前内存实现包成 persistent-dedup 的 <code>"memory-only"</code> 模式（向后兼容）；配置开启时升级为持久化模式，<strong>不破坏</strong> <code>DEDUP_NAMESPACE_POLICY</code> 语义</li>
+          <li><strong>新增</strong> <span class="file-ref">src/config.ts</span>：<code>dedup: { mode: "memory" | "persistent", ttlMs?: number, storeKind?: "ndjson" | "shared" }</code>，默认 <code>memory</code>（向后兼容）</li>
+          <li><strong>对接 #11</strong>：事件订阅落地时复用 persistent-dedup，<code>{eventType}:{eventId}</code> key 与消息 dedup 共用同一抽象</li>
+          <li><strong>对接 #02</strong>：dedup 命中 / 加载 / 清理事件进入 audit log（<code>dedup.hit</code> / <code>dedup.gc</code> / <code>dedup.loaded</code>）</li>
+          <li><strong>对接 #07</strong>：dedup 命中数 / 当前 entry 数 / 最后清理时间进入 snapshot</li>
+          <li><strong>对标参考</strong>：Feishu <code>createPersistentDedupe</code>（<span class="file-ref">openclaw/extensions/feishu/src/dedup.ts:27-30</span>，磁盘 JSON）+ Discord <code>createClaimableDedupe</code>（<span class="file-ref">openclaw/extensions/discord/src/monitor/inbound-dedupe.ts:1,9</span>）是真正持久化的对标；Telegram <code>createDedupeCache</code>（<span class="file-ref">openclaw/extensions/telegram/src/bot-updates.ts:71</span>）是<strong>内存 5 分钟 update dedup</strong>，<strong>不是</strong>持久化（前面误引的 message-cache.ts 是 context 持久化非 dedup）</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>场景 1（跨重启）</strong>：消息处理后重启 gateway，重推同一 msgId 被挡</li>
+          <li><strong>场景 2（超 60s 延迟）</strong>：距首次推送 90s 后再推，dedup 命中（旧内存方案会漏）</li>
+          <li><strong>场景 3（多实例）</strong>：共享存储模式下，instance-B 收到 instance-A 已处理过的消息被挡（v1 可标 TODO，v2 验证）</li>
+          <li><strong>失败不误标</strong>：处理失败的消息<strong>不</strong>写 dedup，下次相同消息能继续重试</li>
+          <li><strong>TTL</strong>：超期条目被 GC，存储不无界增长；启动时跳过过期</li>
+          <li><strong>不存内容</strong>：dedup 文件只含 ID + 时间戳，<strong>不含</strong>消息正文</li>
+          <li><strong>向后兼容</strong>：默认 <code>mode: "memory"</code> 行为与现状一致</li>
+          <li><strong>对接 #11</strong>：事件订阅 event_id 在重启窗口内重投 → dedup 命中（同一抽象）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 07                                -->
+      <!-- =================================================================== -->
+      <section id="gap-07" class="gap-section">
+        <h2 class="gap-title">07 · ChannelAccountSnapshot 指标增强（不是从无到有）</h2>
+        <div class="meta-row">
+          <span class="badge p2">P2 · 可观测性</span>
+          <span class="ev confirmed">snapshot 基础已存在 CONFIRMED（14 字段）</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 Status snapshot publish？</strong>
+          每个 channel 定期把自己的健康状态整理成一份快照，交给 OpenClaw 管理层 / doctor / status 页面 / 日志排查统一使用。本质上是让 channel 能回答 5 个核心问题：
+          <ul style="margin:4px 0">
+            <li>我现在<strong>活着</strong>吗？</li>
+            <li><strong>连上</strong>了吗？</li>
+            <li><strong>配置</strong>对吗？</li>
+            <li>最近有没有<strong>收到消息</strong>？</li>
+            <li>最近<strong>出错</strong>是什么？</li>
+          </ul>
+          这份快照<strong>不发给用户聊天看</strong>，是给 doctor / status / 日志排查用的。能解决的问题：为什么机器人不回？是没启动、没连上、还是权限失败？多账号里哪个账号挂了？Stream 最近有没有事件？最近一次错误是什么？probe 结果怎么样？有没有限流、重连、队列积压？
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：基础 snapshot 14 字段（不是从无到有）</strong>
+          Snapshot <strong>已经存在并发布</strong>——<span class="file-ref">src/platform/channel-status.ts:59</span> 的 <code>buildAccountSnapshot</code> 已经返回 14 个字段：
+          <pre><code>{
+  "accountId":       "main",
+  "name":            "主账号",
+  "enabled":         true,
+  "configured":      true,
+  "clientId":        "ding***",
+  "running":         true,
+  "connected":       true,
+  "lastEventAt":     "2026-05-17T10:03:12Z",
+  "lastConnectedAt": "2026-05-17T10:00:00Z",
+  "lastInboundAt":   "2026-05-17T10:03:12Z",
+  "lastStartAt":     "2026-05-17T09:58:30Z",
+  "lastStopAt":      null,
+  "lastError":       null,
+  "probe":           { "ok": true }
+}</code></pre>
+          Release notes 也写过 connected / inbound snapshot 改进。<strong>已经能回答上面 5 个核心问题</strong>。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：更细粒度的运行指标（10 项清单）</strong>
+          当前 snapshot 是<strong>账号级粗粒度</strong>，缺细粒度的运行指标：
+          <ul style="margin:4px 0">
+            <li>① Stream <strong>ticket 获取</strong>状态（成功 / 失败 / 重试次数）</li>
+            <li>② callback <strong>topic 注册</strong>状态（已订阅哪些 topic / 注册失败原因）</li>
+            <li>③ card create/update <strong>成功率</strong>（分 streaming / instances / createAndDeliver）</li>
+            <li>④ send API <strong>最近错误</strong>（按端点 / 按错误码归类）</li>
+            <li>⑤ media <strong>download / upload</strong> 状态（成功率、平均延迟）</li>
+            <li>⑥ <strong>rate-limit 状态</strong>（来自 #04 throttler：哪些桶被 suspend、queued 多少）</li>
+            <li>⑦ <strong>dedup 丢弃计数</strong>（来自 #06：1m / 1h 命中数、当前 entry 数）</li>
+            <li>⑧ <strong>pending queue</strong>（in-flight 调用、未处理消息）</li>
+            <li>⑨ <strong>doctor / audit 结果</strong>（来自 #02：最近一次 doctor 报告 ok/warn/err 计数；最近 audit 事件数）</li>
+            <li>⑩ <strong>每账号 API 调用统计</strong>（按端点 1m / 1h 计数）</li>
+          </ul>
+        </div>
+
+        <h3>平台能力评估</h3>
+        <div class="callout">
+          纯 openclaw SDK 与本插件之间的工程接口问题，<strong>与钉钉平台无关</strong>。
+        </div>
+
+        <h3>设计草案（就地扩展 + 跨 gap 接口）</h3>
+        <ul>
+          <li><strong>就地扩展</strong> <span class="file-ref">src/platform/channel-status.ts</span> 的 <code>buildAccountSnapshot</code>，<strong>不</strong>新建并行 publisher——避免双套发布路径，遵循"channel.ts 是 assembly layer，业务逻辑去 service 模块"的项目约定</li>
+          <li><strong>各模块提供 record API</strong>：ConnectionManager / send-service / dedup / auth / card-service 各自维护 rolling-window 计数（1m / 1h），snapshot 构建时<strong>读取</strong>这些 record</li>
+          <li><strong>对接 #04 throttler</strong>：throttle 桶状态（suspended / queued）通过 throttler 的 <code>getStatus()</code> 注入（指标 ⑥）</li>
+          <li><strong>对接 #06 persistent-dedup</strong>：dedup 命中数 / entry 数 / 最后 GC 时间通过 dedup 模块的 <code>getStatus()</code> 注入（指标 ⑦）</li>
+          <li><strong>对接 #02 doctor + audit</strong>：snapshot 含最近一次 doctor 报告摘要 + 最近 N 条 audit 事件计数（指标 ⑨）</li>
+          <li><strong>对标参考</strong>：openclaw 扩展目标接口在 <span class="file-ref">openclaw/src/channels/account-snapshot-fields.ts</span>；Discord 的 <code>resolveAccountSnapshot</code>（<span class="file-ref">openclaw/extensions/discord/src/channel.ts:627</span>）已经把 audit / probe 字段合并发布</li>
+        </ul>
+
+        <h3>效果 Mockup（含新增运行指标）</h3>
+        <div style="background:white;border:1px solid #e6e8eb;border-radius:8px;padding:20px;margin:16px 0">
+          <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;margin-bottom:16px">
+            <span style="width:10px;height:10px;border-radius:50%;background:#10a37f"></span>
+            DingTalk · main
+            <span style="margin-left:auto;font-size:12px;color:#5b626d;font-weight:400">last event 1.2s ago · uptime 3h 12m</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">收到消息 (1m)</div><div style="font-size:22px;font-weight:600">47</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Dedup 命中 (1m)</div><div style="font-size:22px;font-weight:600;color:#d97706">3</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">In-flight</div><div style="font-size:22px;font-weight:600">2</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Errors (1m)</div><div style="font-size:22px;font-weight:600;color:#10a37f">0</div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Card 成功率 (1h)</div><div style="font-size:22px;font-weight:600;color:#10a37f">98.7%</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Send API (1h)</div><div style="font-size:22px;font-weight:600">2148</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Throttle suspended</div><div style="font-size:22px;font-weight:600;color:#d97706">1 桶</div></div>
+            <div style="padding:10px;background:#f8f9fb;border-radius:6px"><div style="font-size:11px;color:#5b626d">Audit (1h)</div><div style="font-size:22px;font-weight:600">12 件</div></div>
+          </div>
+          <div style="font-size:12px;color:#5b626d;border-top:1px solid #f0f1f3;padding-top:8px">
+            Stream: connected, ticket ok · Topics: robot+card · Doctor 上次报告: <span style="color:#d97706">2 warnings</span> · 最后错误: —
+          </div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>不新建</strong> publisher 文件——直接扩展 <span class="file-ref">src/platform/channel-status.ts</span> 的 <code>buildAccountSnapshot</code>，在 14 字段基础上叠加新指标</li>
+          <li><strong>新增</strong> <span class="file-ref">src/shared/rolling-window-counter.ts</span>：通用 1m / 1h 滑动窗口计数器，各模块复用</li>
+          <li><strong>改造</strong> <span class="file-ref">src/connection-manager.ts</span>：暴露 ticket / topic 注册 / 重连统计 <code>getStatus()</code>（指标 ①②）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/send-service.ts</span> / <span class="file-ref">src/card-service.ts</span> / <span class="file-ref">src/auth.ts</span> / <span class="file-ref">src/inbound-handler.ts</span>：暴露 1m / 1h 调用次数 + 错误码归类（指标 ③④⑤⑩）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/dedup.ts</span>（与 #06 共同推进）：暴露命中数 / entry 数（指标 ⑦）</li>
+          <li><strong>从 #04 取</strong>：<code>throttler.getStatus()</code> 注入 throttle 桶状态（指标 ⑥）</li>
+          <li><strong>从 #02 取</strong>：doctor 最近报告摘要 + audit 1m / 1h 事件数（指标 ⑨）</li>
+          <li><strong>对标</strong>：Discord <span class="file-ref">openclaw/extensions/discord/src/channel.ts:627-649</span> 的 <code>resolveAccountSnapshot</code></li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>向后兼容</strong>：现有 14 字段输出格式不变（OpenClaw 已有消费方不受影响）</li>
+          <li><strong>10 类新指标至少覆盖 8 类</strong>（doctor / audit 接入可在 #02 落地后补，不阻塞）</li>
+          <li><strong>用户场景验收</strong>：从 snapshot 单独一份输出，运维能回答"机器人不回的原因可能是 X"，而不是只看到 <code>running:true</code></li>
+          <li><strong>性能</strong>：snapshot 构建 &lt; 5ms（rolling window 是 O(1) 读取，不引入定时 publisher）</li>
+          <li><strong>多账号</strong>：每账号独立 snapshot，A 账号故障不影响 B 账号 snapshot 输出</li>
+          <li><strong>跨 gap 协作</strong>：#04 / #06 / #02 各自的 <code>getStatus()</code> / 报告摘要能被本节点正确读取（缺哪个 gap 就降级展示，不报错）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 08                                -->
+      <!-- =================================================================== -->
+      <section id="gap-08" class="gap-section">
+        <h2 class="gap-title">08 · 启动 Stagger（工程防风暴，不是平台硬要求）</h2>
+        <div class="meta-row">
+          <span class="badge p3">P3 · 按需开（默认关）</span>
+          <span class="ev wrong">"钉钉网关连接频率限制" WRONG（已纠正）</span>
+          <span class="ev confirmed">现有 reconnect jitter 已实现 CONFIRMED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是启动 stagger？</strong>
+          多个账号 / 连接启动时<strong>不要同时冲出去</strong>，而是错开几秒一个个启动。例子：10 个钉钉账号一起启动时——
+          <pre style="margin:6px 0"><code>// 无 stagger（同时冲）
+10:00:00  acc1  连 Stream
+10:00:00  acc2  连 Stream
+10:00:00  acc3  连 Stream
+...
+
+// 启用 stagger（错开 5s）
+10:00:00  acc1  启动
+10:00:05  acc2  启动
+10:00:10  acc3  启动
+...</code></pre>
+          同时启动容易<strong>瞬间打爆 5 类资源</strong>：① 获取 access token；② 获取 Stream ticket；③ 建 WebSocket；④ 注册 callback；⑤ 各种初始化探活。
+        </div>
+        <div class="callout">
+          <strong>启动 stagger 主要防什么</strong>
+          <ul style="margin:4px 0">
+            <li>服务重启时多个账号一起抢 API</li>
+            <li>多实例同时部署时形成启动风暴</li>
+            <li>钉钉 Stream ticket 这类短时凭证被并发消耗（ticket 90s 单次有效）</li>
+            <li>同一个 clientId 被重复启动（这是官方硬约束的违反风险）</li>
+            <li>瞬时 429 / 连接失败</li>
+          </ul>
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：reconnect jitter（单账号场景）</strong>
+          <span class="file-ref">src/connection-manager.ts:243-259</span> 的 <code>calculateNextDelay</code> 已实现指数退避 + jitter（断线重连场景），<strong>但没有覆盖多账号启动场景</strong>。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：多账号启动错峰</strong>
+          钉钉插件当前没有多账号启动错峰机制。<strong>单账号问题不大</strong>；<strong>多账号 / 多实例部署</strong>时可能出现启动风暴或重复连接风险（5 类资源争抢见上方）。
+        </div>
+
+        <h3>平台能力评估</h3>
+
+        <div class="callout danger">
+          <strong><span class="ev wrong">WRONG</span> "钉钉网关有连接频率限制" / "单 IP 30s 封禁" —— 找不到任何官方依据</strong>
+          官方 Stream 协议文档<strong>没有提"网关连接频率限制"</strong>。之前写"多 Stream client 可以做负载均衡"也<strong>不准确</strong>——card-examples README 实际给的是"线上线下可用不同 client-id 隔离"（隔离/调试用途，非负载均衡）。准确表述应为"官方允许跨 client-id 多连接（用于隔离/调试），但每个 client-id 仍是单连接约束"。"启动 stagger 是平台硬要求"这个定位仍然是错的。
+        </div>
+
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> 钉钉官方<strong>唯一</strong>真实的 stream 约束</strong>
+          <a href="https://github.com/open-dingtalk/dingtalk-card-examples">dingtalk-card-examples README</a>:
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            请务必保证一个 client-id 同一时间只启动一个 Stream 服务。
+          </blockquote>
+          <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">官方 Stream 协议</a>:
+          <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
+            ticket 的有效期为 90 秒，且只能用来建立一条连接。
+          </blockquote>
+          这两条都不是"频率限制"，是"同 client-id 唯一性约束"。
+        </div>
+
+        <h3>修订后的定位：工程防风暴措施</h3>
+        <p>stagger 应被定位为<strong>工程预防措施 / 稳定性工程</strong>，不是平台硬要求也不是用户功能：</p>
+        <ul>
+          <li><strong>① 防 token 接口共享配额</strong>：同 process 内多 account 同时拉 token 可能挤兑 OpenAPI 配额（与 #04 throttler 互补）</li>
+          <li><strong>② 防 Stream ticket 并发消耗</strong>：ticket 有效期 90s 且只能用一次（官方明示），并发启动可能让某些 account 拿到过期 ticket</li>
+          <li><strong>③ 防进程内瞬时资源占用</strong>：多 account 同时建 WS handshake 占瞬时 CPU / network</li>
+          <li><strong>④ 防 callback 注册风暴</strong>：同时注册多个 TOPIC_ROBOT + TOPIC_CARD 监听</li>
+          <li><strong>⑤ 多实例部署时降低同时启动概率</strong>：部署形态外的并发由 stagger 内部错峰缓冲</li>
+          <li><strong>不是必需</strong>：如果只有 1-3 个账号，stagger 收益微小，可以不做（<strong>默认关闭</strong>）</li>
+        </ul>
+        <p style="font-size:12px;color:var(--color-text-faint)">对标实证：openclaw Discord 用 <code>DISCORD_ACCOUNT_STARTUP_STAGGER_MS = 10_000</code>（<span class="file-ref">openclaw/extensions/discord/src/channel.ts:85</span>）做账号启动错峰；Telegram / Feishu / Slack 未实现 stagger。</p>
+
+        <h4>设计草案（保留但降级）</h4>
+        <ol>
+          <li><strong>账号级 stagger</strong>：账号之间 <strong>500ms 错峰 + jitter ±200ms</strong>，<strong>默认关闭</strong>，配置开启</li>
+          <li><strong>Reconnect jitter</strong>：单账号已有；继续保留</li>
+          <li><strong>同 client-id 检测</strong>：这是平台硬约束的真正应对——检测同 client-id 在同 process 启动多次，拒绝</li>
+        </ol>
+
+        <h3>效果 Mockup</h3>
+        <div class="compare">
+          <div class="compare-col before">
+            <h4>当前（无 stagger）</h4>
+            <div class="timeline" style="margin:0">
+              <div class="timeline-row"><span class="time">+0ms</span><span class="dot"></span><span class="content">acc1-5: getToken 同时</span></div>
+              <div class="timeline-row"><span class="time">+45ms</span><span class="dot warn"></span><span class="content">5 个 WS handshake 同时</span></div>
+              <div class="timeline-row"><span class="time">+88ms</span><span class="dot warn"></span><span class="content">某账号 token 接口被限速</span></div>
+            </div>
+          </div>
+          <div class="compare-col after">
+            <h4>启用 stagger</h4>
+            <div class="timeline" style="margin:0">
+              <div class="timeline-row"><span class="time">+0ms</span><span class="dot success"></span><span class="content">acc1: getToken → WS</span></div>
+              <div class="timeline-row"><span class="time">+412ms</span><span class="dot success"></span><span class="content">acc2</span></div>
+              <div class="timeline-row"><span class="time">+893ms</span><span class="dot success"></span><span class="content">acc3</span></div>
+              <div class="timeline-row"><span class="time">+1564ms</span><span class="dot success"></span><span class="content">acc4</span></div>
+              <div class="timeline-row"><span class="time">+2103ms</span><span class="dot success"></span><span class="content">acc5</span></div>
+              <div class="timeline-row"><span class="time">+2230ms</span><span class="dot success"></span><span class="content">所有 connected</span></div>
+            </div>
+          </div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>改造</strong> <span class="file-ref">src/gateway/channel-gateway.ts</span>：账号启动循环可选 stagger + jitter（<strong>默认关闭</strong>）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/config.ts</span>：<code>startupStaggerMs?</code>（默认 0）+ <code>startupStaggerJitterMs?</code>（默认 200）</li>
+          <li><strong>不动</strong> <span class="file-ref">src/connection-manager.ts</span>：已有 reconnect jitter，保留</li>
+          <li><strong>加 audit</strong>：检测同 client-id 在同 process 内重复启动——这是平台硬要求</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>默认行为不变</strong>（stagger 关闭 → 等同当前实现）</li>
+          <li><strong>启用 stagger 时</strong>：5 账号 [1.5s, 3.5s]、10 账号 [3.5s, 7s]，分布在 [基准, 基准 + jitter] 区间</li>
+          <li><strong>单账号失败不阻塞后续</strong>：某个 account token 失败不影响其它 account 启动</li>
+          <li><strong>同 client-id 重复启动检测</strong>：拒绝并给明确错误（这是官方硬约束的真正应对，<strong>无论 stagger 开关都生效</strong>）</li>
+          <li><strong>资源争抢观测</strong>：启用 stagger 后，token / ticket / WS handshake 三类指标的瞬时峰值 ≤ 单账号启动开销 × stagger 槽位数（应该平滑而非脉冲；可通过 #07 snapshot 观测）</li>
+          <li><strong>不引入用户感知延迟</strong>：单账号场景启动时间 = 不开 stagger（额外开销仅在多账号场景才出现）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 09                                -->
+      <!-- =================================================================== -->
+      <section id="gap-09" class="gap-section">
+        <h2 class="gap-title">09 · 钉钉 SaaS 工具集（已部分落地，需扩展）</h2>
+        <div class="meta-row">
+          <span class="badge p3">P3 · 生态扩展</span>
+          <span class="ev confirmed">文档 4 接口已落地</span>
+          <span class="ev documented">Doc / Drive 是两套 API DOCUMENTED</span>
+          <span class="ev unverified">Yida 端点路径 UNVERIFIED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 SaaS 工具集成？</strong>
+          机器人<strong>不只会聊天，还能直接操作聊天平台背后的办公应用</strong>。钉钉的办公面：钉钉文档、钉钉云盘、宜搭、审批、日程、组织通讯录、待办、项目协作（8 类）。Agent 接入后能做的事：
+          <pre style="margin:6px 0;background:#f8f9fb;padding:8px;border-radius:6px"><code>用户：把这段会议纪要写到钉钉文档里
+机器人：好的，已创建文档《项目复盘会议纪要》
+
+用户：去云盘里找一下"合同模板"
+机器人：找到了 3 个相关文件
+
+用户：帮我查这个宜搭表单里本周提交的数据
+机器人：本周共有 18 条提交，其中 5 条待处理</code></pre>
+          <strong>普通 channel 能力</strong> vs <strong>SaaS 工具集成</strong>：
+          <table style="margin:6px 0 0">
+            <thead><tr><th>普通 channel 能力</th><th>SaaS 工具集成</th></tr></thead>
+            <tbody>
+              <tr><td>收消息</td><td>读写文档</td></tr>
+              <tr><td>发消息</td><td>查云盘文件</td></tr>
+              <tr><td>发图片 / 文件</td><td>操作表格 / 多维表</td></tr>
+              <tr><td>发卡片</td><td>查组织 / 用户</td></tr>
+              <tr><td>—</td><td>发起审批 / 查审批状态</td></tr>
+              <tr><td>—</td><td>写业务系统数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout success">
+          <strong><span class="ev corrected">CORRECTED</span> 之前写"完全没有 SaaS 工具集成" —— 错的</strong>
+          实际上 <span class="file-ref">src/docs-service.ts</span> 已经实现并注册了 4 个钉钉文档 API gateway methods：
+          <ul style="margin:6px 0 0">
+            <li><code>dingtalk.docs.create</code> → <code>POST /v1.0/doc/spaces/{spaceId}/docs</code>（<span class="file-ref">src/docs-service.ts:97</span>，<span class="file-ref">index.ts:91</span>）</li>
+            <li><code>dingtalk.docs.append</code> → <code>POST /v1.0/doc/documents/{docId}/blocks/root/children</code>（<span class="file-ref">src/docs-service.ts:136</span>）</li>
+            <li><code>dingtalk.docs.search</code> → <code>POST /v1.0/doc/docs/search</code>（<span class="file-ref">src/docs-service.ts:162</span>）</li>
+            <li><code>dingtalk.docs.list</code> → <code>GET /v1.0/doc/spaces/{spaceId}/dentries</code>（<span class="file-ref">src/docs-service.ts:186</span>）</li>
+          </ul>
+          以及 <code>dingtalk-connector.docs.*</code> 兼容别名（<span class="file-ref">index.ts:95-98</span>）。
+        </div>
+
+        <h3>平台能力评估</h3>
+
+        <div class="callout success">
+          <strong><span class="ev documented">DOCUMENTED</span> 钉钉文档（doc）能力面比已落地的 4 接口更广</strong>
+          <a href="https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli">官方 CLI <code>dingtalk-workspace-cli</code> README</a> 列出 <code>dws doc</code> 21 个子命令：
+          <code>search / list / info / read / create / update / upload / download / copy / move / rename / file / folder / block / comment</code>
+          （描述："Search / read / write docs, file &amp; folder create, block-level editing, comments (list / create / reply / create-inline), upload / download"）。我们目前只覆盖了 search / list / create / append（基础 4 个），缺：read、update（替换/删除 block）、upload、download、copy、move、rename、comment 这 7-8 个能力。
+        </div>
+
+        <div class="callout success">
+          <strong><span class="ev documented">DOCUMENTED</span> 钉钉云盘（drive）是独立 API 命名空间</strong>
+          同一 CLI 的 <code>dws drive</code> 6 个子命令：<code>list / info / download / mkdir / upload-info / commit</code>（描述："DingTalk drive file ops: list, info, download, create folders, two-phase upload"）。
+          <strong>云盘和文档是两套独立 API</strong>，目前 channel 完全未覆盖 drive。
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev corrected">CORRECTED</span> drive 端点形状</strong>
+          常见的 <code>v1.0/drive/spaces/{spaceId}/dentries</code> 端点是<strong>从 doc API 误推</strong>来的（doc 用 dentries 是文档树节点的概念，drive 不是）。workspace-cli 的 6 个子命令（<code>list / info / download / mkdir / upload-info / commit</code>）已 confirmed 是<strong>文件级</strong>操作语义，但 <strong>OpenAPI 端点的实际 URL 模板（例如是否真为 <code>/v1.0/drive/spaces/{spaceId}/files/{fileId}</code>）仍未在 apifox / 公开页面直接验证</strong>——实现前需登录 apifox 核实路径，<strong>不要按 CLI 命令名硬推 OpenAPI 路径</strong>。
+        </div>
+        <div class="callout">
+          <strong>对标实证</strong>
+          openclaw Feishu 已实现 drive / 文档工具集：<span class="file-ref">openclaw/extensions/feishu/src/drive.ts</span> 含 docx / doc / sheet / bitable 的文件 API；<span class="file-ref">openclaw/extensions/feishu/src/comment-handler.ts</span> 处理文档评论。可作为 #09 SaaS 扩展的实现参考。
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 宜搭（Yida）OpenAPI 路径</strong>
+          <a href="https://open.dingtalk.com/document/orgapp-server/yida-overview">钉钉宜搭文档入口</a> 与 <a href="https://docs.aliwork.com/en/docs/developer/api/openAPI">docs.aliwork.com</a> 都证实 Yida OpenAPI 存在，提供表单 list / search / create / update / delete 能力。但**具体端点路径有两套并存**：
+          <ul style="margin:4px 0 0">
+            <li>钉钉开放平台：<code>v1.0/yida/...</code>（具体子路径需登录后查 apifox）</li>
+            <li>aliwork 老路径：<code>/dingtalk/web/{appCode}/v1/form/searchFormDatas.json</code></li>
+          </ul>
+          常见的 <code>v1.0/yida/forms/instances/*</code> 端点形式是推测，未直接核实，可能不准。
+        </div>
+
+        <div class="callout warn">
+          <strong>完整 9 类缺口（8 个 SaaS + 1 项统一基础设施）</strong>
+          对照"钉钉办公套件 8 个 SaaS + 统一工具基础设施"，已落地的只有钉钉文档 4 个基础接口：
+          <ol style="margin:4px 0">
+            <li><strong>钉钉文档（doc）</strong>：已有 search / list / create / append 4 个；缺 read / block-level update / upload / download / copy / move / rename / comment 等 7+ 项（workspace-cli 共 21 个）</li>
+            <li><strong>钉钉云盘（drive）</strong>：完全未覆盖；6 接口 list / info / download / mkdir / upload-info / commit（端点 URL 待 apifox 核实）</li>
+            <li><strong>宜搭（Yida）</strong>：完全未覆盖；form list / search / create / update / delete 等（端点路径 UNVERIFIED）</li>
+            <li><strong>审批</strong>：完全未覆盖；发起审批 / 查状态 / 同意 / 拒绝</li>
+            <li><strong>待办</strong>：完全未覆盖；创建 / 完成 / 查询</li>
+            <li><strong>日程</strong>：完全未覆盖；创建会议 / 查日程 / 邀请人</li>
+            <li><strong>通讯录 / 组织架构</strong>：完全未覆盖（同时阻塞 #02 audit-membership 的 chat 端点核实）</li>
+            <li><strong>项目协作</strong>：完全未覆盖</li>
+            <li><strong>统一基础设施</strong>：统一 tool schema / 权限检查 / 错误归一化 / throttle 接入（#04）/ 审计事件（#02）/ 文档源溯（<code>src/saas/dingtalk-openapi-client.ts</code>）</li>
+          </ol>
+        </div>
+
+        <div class="callout">
+          <strong>一句话</strong>：钉钉插件现在能做一点钉钉文档操作，<strong>但还没有形成完整的钉钉办公套件工具集</strong>。对标 Feishu 已有文档 / 云盘 / 多维表 / Wiki / 权限 / 评论等较丰富工具（<span class="file-ref">openclaw/extensions/feishu/src/drive.ts</span> + <span class="file-ref">openclaw/extensions/feishu/src/comment-handler.ts</span>），钉钉这块还比较薄。
+        </div>
+
+        <h3>修订后的 milestone 规划（覆盖 9 类缺口，按价值排序）</h3>
+        <ol>
+          <li><strong>M0（贯穿所有 milestone）· 统一基础设施</strong>（对应缺口 ⑨）：抽出 <span class="file-ref">src/saas/dingtalk-openapi-client.ts</span>，统一 auth / throttle (#04) / errcode 归一化 / 审计事件 (#02)，让 M1-M5 共用同一抽象</li>
+          <li><strong>M1 · 扩展现有 docs-service</strong>（中等工时，对应缺口 ①）：补 read / block-level update / comment 三个高价值能力。基础设施（auth + http client）已就位</li>
+          <li><strong>M2 · 新建 drive-service</strong>（1 周，对应缺口 ②）：list / info / download / mkdir / upload / commit，复用 docs-service 的 auth + http 抽象；端点 URL 实现前需 apifox 核实</li>
+          <li><strong>M3 · Yida 工具</strong>（2 周，对应缺口 ③）：先调研登录 apifox 把端点确认下来；然后实现 list_apps / list_forms / search_records / create_record / update_record</li>
+          <li><strong>M4 · 群管理</strong>（1 周，对应缺口 ⑦ 的子集）：chat info / member list / group announcement（依赖 #02 中先核实 chat 端点路径）</li>
+          <li><strong>M5 · 审批 / 待办 / 日程</strong>（按需，对应缺口 ④⑤⑥）：根据实际业务需求排期；端点也需登录 apifox 核实</li>
+        </ol>
+
+        <h3>效果 Mockup（M1 read + comment）</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>#技术支持群</span></div>
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar">U</div>
+              <div><div class="chat-sender">客户经理</div><div class="chat-bubble">@OpenClaw 客户问 SLA 是多少？</div></div>
+            </div>
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div><div class="chat-bubble" style="font-size:13px">
+                <div style="color:#5b626d;font-size:11px;margin-bottom:4px">🔍 dingtalk.docs.search · 找到 1 条匹配</div>
+                按《SLA 服务承诺 v3》第 2 节：
+                <ul style="margin:4px 0 4px 16px"><li>P0 故障：30 分钟响应，4 小时恢复</li><li>月度可用性：≥ 99.9%</li></ul>
+                <div style="color:#1677ff;font-size:12px;margin-top:4px">📄 来源：钉钉文档 / SLA 服务承诺 v3</div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>扩展</strong> <span class="file-ref">src/docs-service.ts</span>：补 read / block ops / comment</li>
+          <li><strong>新增</strong> <span class="file-ref">src/saas/drive-service.ts</span>（complete drive 6 接口）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/saas/yida-service.ts</span>（核实端点后实现）</li>
+          <li><strong>新增</strong> <span class="file-ref">src/saas/dingtalk-openapi-client.ts</span>：共享 OpenAPI helper（接入 #04 throttling、统一 errcode 处理）</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>向后兼容</strong>：现有 4 个 docs API 的行为 / 路径 / 注册名都不变（已有调用方不受影响）</li>
+          <li><strong>M0 验收</strong>：所有新 SaaS 调用都通过统一 client，接入 #04 throttling、统一错误归一化、统一审计事件（#02 audit log）</li>
+          <li><strong>M1 验收</strong>：文档新增 read / block-level update / comment 工具可被 agent 调</li>
+          <li><strong>M2 验收</strong>：drive 6 接口完整；大文件 two-phase upload 正确；端点 URL 来自 apifox 核实<strong>非推测</strong></li>
+          <li><strong>M3 验收</strong>：Yida 端点登录 apifox 核实后实现，<strong>不写死</strong>推测路径</li>
+          <li><strong>用户场景验收</strong>：能跑通"写会议纪要到文档"、"搜云盘合同模板"、"查宜搭表单本周数据"三类常见对话（这是 SaaS gap 的实际意义）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 10                                -->
+      <!-- =================================================================== -->
+      <section id="gap-10" class="gap-section">
+        <h2 class="gap-title">10 · 机器人菜单注册（先调研三种菜单模型）</h2>
+        <div class="meta-row">
+          <span class="badge p3">P3 · 上手体验</span>
+          <span class="ev unverified">具体菜单 API 路径 UNVERIFIED</span>
+          <span class="ev corrected">"平台 OK" 标记已撤销</span>
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout success">
+          <strong>文本命令解析：已有，而且不少</strong>
+          本插件已经实现了三类文本命令的解析与分发，<strong>用户手打都能用</strong>：
+          <ol style="margin:6px 0">
+            <li><strong>/learn ... 学习命令</strong>（<span class="file-ref">src/learning-command-service.ts:30</span> <code>parseLearnCommand</code>；帮助文本 <span class="file-ref">src/learning-command-service.ts:210</span> <code>formatLearnCommandHelp</code>）
+              <ul style="margin:4px 0">
+                <li><code>/learn help</code> / <code>/learn whoami</code> / <code>/whoami</code> / <code>/learn whereami</code></li>
+                <li><code>/learn owner status</code> / <code>/owner status</code> / <code>/owner-status</code></li>
+                <li><code>/learn list</code></li>
+                <li><code>/learn global &lt;规则&gt;</code> / <code>/learn session &lt;规则&gt;</code></li>
+                <li><code>/learn here #@# &lt;规则&gt;</code> / <code>/learn target &lt;cid&gt; #@# &lt;规则&gt;</code> / <code>/learn targets &lt;id1,id2&gt; #@# &lt;规则&gt;</code></li>
+                <li><code>/learn target-set create &lt;名称&gt; #@# &lt;id1,id2&gt;</code> / <code>/learn target-set apply &lt;名称&gt; #@# &lt;规则&gt;</code></li>
+                <li><code>/learn disable &lt;ruleId&gt;</code> / <code>/learn delete &lt;ruleId&gt;</code></li>
+              </ul>
+            </li>
+            <li><strong>/session-alias ... 会话别名命令</strong>（<span class="file-ref">src/session-command-service.ts:16</span> <code>parseSessionCommand</code>）
+              <ul style="margin:4px 0">
+                <li><code>/session-alias show</code> / <code>set &lt;alias&gt;</code> / <code>clear</code></li>
+                <li><code>/session-alias bind direct|group &lt;id&gt; &lt;alias&gt;</code> / <code>unbind direct|group &lt;id&gt;</code></li>
+              </ul>
+            </li>
+            <li><strong>OpenClaw 框架级命令穿透</strong>（不在本插件定义，但本插件做了路由）：<code>/stop</code> / <code>/new</code> / <code>/btw</code> / <code>/reasoning</code> 等
+              <ul style="margin:4px 0">
+                <li>Targeted slash（<code>@agent /new</code> 形态）把 @mention 去掉后放进 <code>CommandBody</code> 让 openclaw 框架识别（<span class="file-ref">src/inbound-handler.ts:1545</span>）</li>
+                <li><code>/stop</code> 有锁外快速中止路径，绕开 session lock 立即终止 in-flight generation（<span class="file-ref">src/inbound-handler.ts:1667</span>）</li>
+                <li><code>/btw</code> 有独立旁路，在 openclaw 内跑无工具 side query 不污染主 transcript（<span class="file-ref">src/inbound-handler.ts:1756</span>）</li>
+              </ul>
+            </li>
+          </ol>
+          以上三类统一由 <span class="file-ref">src/command/inbound-command-dispatch-service.ts:77</span> <code>handleInboundCommandDispatch</code> 分发。
+        </div>
+
+        <div class="callout warn">
+          <strong>真正缺的：钉钉平台原生命令注册</strong>
+          上面这些命令<strong>用户必须手打才能用</strong>，钉钉客户端里没有可点击的快捷入口 / 菜单 / 原生 slash 提示。<code>capabilities.nativeCommands: false</code>（<span class="file-ref">src/channel.ts:40</span>）显式声明了这一点。Gap 不在"命令能力"，而在"把这些命令同步/注册成钉钉客户端可见的原生快捷入口或菜单"。
+        </div>
+
+        <h3>平台能力评估</h3>
+        <div class="callout danger">
+          <strong><span class="ev corrected">CORRECTED</span> 这一项不能标"平台 OK"</strong>
+          钉钉文档里有"快捷入口管理"目录入口，但<strong>没核到 <code>v1.0/robot/plus/menus</code> 这个具体端点</strong>。在端点未核实前，不能标"平台支持"。
+        </div>
+        <div class="callout warn">
+          <strong>钉钉至少有 3 种"菜单"模型，不能套 Telegram 心智</strong>
+          <ul style="margin:4px 0 0">
+            <li><strong>应用机器人快捷入口</strong>：机器人侧设置的入口图标，进入后展开菜单</li>
+            <li><strong>群机器人快捷入口</strong>：仅在群聊场景生效的菜单</li>
+            <li><strong>服务号菜单</strong>：服务号 / 工作通知场景的菜单</li>
+          </ul>
+          三者的 API 端点、配置 schema、限制（菜单层级 / 数量 / 类型）<strong>都不一样</strong>，需要先调研清楚 OpenClaw 这个机器人到底属于哪种类型，再决定接哪套 API。不要直接套 Telegram setMyCommands / 微信菜单的模型。
+        </div>
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 之前所有具体细节</strong>
+          端点路径 <code>v1.0/robot/plus/menus</code>、"3 一级 × 5 二级菜单"、"text/link 类型"、"6.0+ 客户端覆盖"——全部未核实，从设计中删除。
+        </div>
+        <div class="callout">
+          <strong>对标参考</strong>
+          openclaw Feishu 的 <span class="file-ref">openclaw/extensions/feishu/src/monitor.bot-menu-handler.ts:59</span> + <span class="file-ref">monitor.account.ts:393</span> 注册了 <code>application.bot.menu_v6</code> 事件 handler，把菜单点击转换成 synthetic <code>/menu xxx</code> 文本消息走主消息流（<span class="file-ref">monitor.bot-menu-handler.ts:101</span>）。这是<strong>菜单事件处理 handler，不是菜单注册 API</strong>——飞书菜单结构本身在飞书开放平台后台配置。可参考的是<strong>事件 handler → 转 synthetic 命令的模式</strong>；钉钉若开启菜单事件订阅，也可走同样模式。但钉钉的<strong>菜单结构注册端点</strong>仍需独立核实（参见上方 UNVERIFIED 条目）。
+        </div>
+
+        <h3>修订后的设计草案 — 三阶段</h3>
+        <ol>
+          <li><strong>阶段 1：定位机器人类型</strong>（半天）—— 确认 OpenClaw 注册的是应用机器人 / 群机器人 / 服务号哪一种</li>
+          <li><strong>阶段 2：研究对应 API</strong>（1 天）—— 登录 open-dev / apifox 核实菜单端点、参数 schema、菜单层级 / 数量 / 类型限制</li>
+          <li><strong>阶段 3：实现</strong>（如果验证可行）—— 把 openclaw 命令推送到对应菜单</li>
+        </ol>
+        <p>菜单结构（<strong>示意，待核实，可能是错的</strong>）：</p>
+        <pre><code>{
+  "menus": [
+    { "name": "常用", "subMenus": [
+        { "type": "text", "name": "暂停回复", "text": "/stop" },
+        { "type": "text", "name": "清空上下文", "text": "/clear" } ] },
+    { "name": "帮助", "subMenus": [
+        { "type": "link", "name": "使用文档", "url": "https://openclaw.dev/dingtalk" } ] }
+  ]
+}</code></pre>
+
+        <h3>效果 Mockup（待 API 核实后才能确认）</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>OpenClaw（私聊）</span></div>
+          <div class="chat-body">
+            <div class="chat-msg"><div class="chat-avatar" style="background:#7b6cff">O</div><div><div class="chat-bubble" style="font-size:13px">点击下方菜单使用快捷功能</div></div></div>
+          </div>
+          <div style="background:white;padding:8px 12px;border-top:1px solid #e6e8eb">
+            <div style="display:flex;border-top:1px solid #e6e8eb;padding-top:8px">
+              <div style="flex:1;text-align:center;padding:6px;font-size:12px;color:#1677ff;border-right:1px solid #e6e8eb">≡ 常用</div>
+              <div style="flex:1;text-align:center;padding:6px;font-size:12px;color:#5b626d;border-right:1px solid #e6e8eb">⚙ 配置</div>
+              <div style="flex:1;text-align:center;padding:6px;font-size:12px;color:#5b626d">? 帮助</div>
+            </div>
+          </div>
+        </div>
+
+        <h3>实现建议（待研究阶段完成后细化）</h3>
+        <ul>
+          <li><strong>研究产出</strong>：<span class="file-ref">docs/spec/dingtalk-bot-menu.md</span> 含确认的端点、参数 schema、限制</li>
+          <li>若可行：<strong>新增</strong> <span class="file-ref">src/platform/bot-menu.ts</span>（content hash + setBotMenu + 失败降级）</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li>研究产出明确 "是 / 否 / 部分支持"</li>
+          <li>实现阶段：菜单点击发出的命令与手动 /stop 走同一 dispatch 路径</li>
+          <li>菜单同步 hash 缓存：内容不变不重复 API 调用</li>
+          <li>setBotMenu 失败不阻塞 channel 启动</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 11                                -->
+      <!-- =================================================================== -->
+      <section id="gap-11" class="gap-section">
+        <h2 class="gap-title">11 · 入站事件探查（recall/read 已 DOCUMENTED，可立即立项）</h2>
+        <div class="meta-row">
+          <span class="badge p2">P2 · 部分可立项</span>
+          <span class="ev confirmed">SDK topic 清单 CONFIRMED</span>
+          <span class="ev documented">robot_msg_recall / robot_msg_read 官方文档 DOCUMENTED</span>
+        </div>
+
+        <h3>关键发现</h3>
+        <div class="callout success">
+          <strong><span class="ev confirmed">CONFIRMED</span> dingtalk-stream SDK 内置 topic 清单</strong>
+          从 <a href="https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs/blob/main/src/constants.ts">dingtalk-stream-sdk-nodejs · constants.ts</a>：
+          <ul style="margin:4px 0 0">
+            <li><code>TOPIC_ROBOT = '/v1.0/im/bot/messages/get'</code> —— 本仓库已订阅</li>
+            <li><code>TOPIC_CARD = '/v1.0/card/instances/callback'</code> —— 本仓库已订阅</li>
+            <li><code>TOPIC_AI_GRAPH_API = '/v1.0/graph/api/invoke'</code> —— <strong>本仓库未订阅</strong>，用于 AI 流程 / graph 调用，可作为未来扩展点</li>
+          </ul>
+          <p style="margin-top:6px;font-size:12px;color:var(--color-text-faint)">Node SDK <code>src/constants.ts</code> + Python SDK <code>card_callback.py</code> / <code>graph.py</code> 经实抓只确认上述 <strong>3 个 TOPIC</strong>（Python SDK 别名 <code>Card_Callback_Router_Topic</code> / <code>graph.TOPIC</code>）。某些 review 提到 <code>TOPIC_GRAPH_CARD = '/v1.0/card/instances/graphCallback'</code> 在公开 SDK 源码里<strong>未找到</strong>，标 <span class="ev unverified">UNVERIFIED</span>（可能在内部分支 / 文档草案 / 不同 SDK，需进一步核实再加）。<br>
+          另外社区/经验流传 callback 回调有 <strong>3 秒 / 5 秒超时</strong>语义（handler 实现要快返回 / 异步处理重活），但 <span class="ev unverified">UNVERIFIED</span>：WebFetch <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">stream/protocol</a> 页正文<strong>未找到</strong>具体的 3s/5s 数字；可能在 FAQ / overview 或后台文档里有，待人工核实。本仓库 SDK 实现以 <code>socketCallBackResponse</code> 立即 ack 为准。</p>
+          <p><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">官方 developerpedia</a> 描述 stream 三大类：<strong>机器人收消息 / 事件订阅 / 互动卡片回调</strong>。<span class="ev community">COMMUNITY</span> 按通常流程，"事件订阅"需在开放平台后台先开通对应事件 → 才能通过 stream topic 下发；具体激活路径以后台文档为准（overview 页本身未明文写这一步要求，是经验流程）。</p>
+        </div>
+
+        <div class="callout success">
+          <strong><span class="ev documented">DOCUMENTED</span> recall / read 事件 Stream 支持已官方核实</strong>
+          <ul style="margin:4px 0 0">
+            <li><code>robot_msg_recall</code>（机器人消息撤回事件）—— <a href="https://dingtalk.apifox.cn/doc-3661036">apifox 文档</a>：apifox 页面"支持应用类型"表格明示<strong>"企业内部应用 · Stream 模式推送 · 支持"</strong>。事件体含 <code>OperatTime</code> / <code>UserId</code> / <code>UnionId</code> / <code>RobotCode</code></li>
+            <li><code>robot_msg_read</code>（机器人消息已读事件）—— <a href="https://dingtalk.apifox.cn/doc-3661045">apifox 文档</a>：同样标注 Stream 支持。事件体含已读人 UnionId/UserId、已读时间戳、RobotCode</li>
+          </ul>
+          这两条之前 SDK 常量没列出，但都是 stream 通道下发的"事件订阅"，订阅后即可收到。
+        </div>
+
+        <div class="callout warn">
+          <strong><span class="ev unverified">UNVERIFIED</span> 其它候选事件结论（更新版）</strong>
+          <table style="margin-top:6px">
+            <thead><tr><th>事件</th><th>结论</th><th>证据</th></tr></thead>
+            <tbody>
+              <tr><td>消息撤回 <code>robot_msg_recall</code></td><td>✓ Stream 支持</td><td><a href="https://dingtalk.apifox.cn/doc-3661036">apifox</a></td></tr>
+              <tr><td>消息已读 <code>robot_msg_read</code></td><td>✓ Stream 支持</td><td><a href="https://dingtalk.apifox.cn/doc-3661045">apifox</a></td></tr>
+              <tr><td>消息表情回应</td><td>❓ 钉钉端未找到机器人入站事件证据</td><td>对标 4 插件均已实现（见下方"对标实证"）</td></tr>
+              <tr><td>消息编辑</td><td>❓ 未找到（钉钉用户消息是否能编辑也存疑）</td><td>—</td></tr>
+              <tr><td>Sticker</td><td>✗ 平台无原生 sticker 消息类型（出站&入站均无）</td><td><a href="https://dingtalk.apifox.cn/doc-3550110">apifox 出站</a> + <a href="https://dingtalk.apifox.cn/doc-3559835">apifox 入站</a></td></tr>
+              <tr><td>群成员变更</td><td>❓ "通讯录变更"目录需单独确认</td><td>—</td></tr>
+              <tr><td>群信息变更</td><td>❓ 同上</td><td>—</td></tr>
+              <tr><td>文档评论</td><td>❓ 需调研钉钉文档事件订阅</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout danger">
+          <strong><span class="ev confirmed">CONFIRMED</span> 当前隐藏风险：默认订阅 EVENT * + 默认 SUCCESS ack 静默丢弃</strong>
+          这一项<strong>不是"未订阅事件"，而是"事件可能已被默认订阅并被静默 ACK"</strong>。证据：
+          <ul style="margin:4px 0">
+            <li>本地 <code>dingtalk-stream@2.1.4</code> 的 <code>DWClient</code> <span class="file-ref">node_modules/dingtalk-stream/dist/client.mjs:11-21</span> 默认 <code>defaultConfig.subscriptions = [{ type: "EVENT", topic: "*" }]</code></li>
+            <li>同文件 <code>:36-38</code> 默认 <code>onEventReceived = (msg) => ({ status: "SUCCESS" })</code></li>
+            <li>本仓库 <span class="file-ref">src/gateway/channel-gateway.ts:1</span> 只 import <code>TOPIC_ROBOT</code> / <code>TOPIC_CARD</code>，<span class="file-ref">:230</span> + <span class="file-ref">:330</span> 只 <code>registerCallbackListener</code> 这两个 topic，<strong>没有</strong> <code>registerAllEventListener</code>，也<strong>没有</strong>覆盖 <code>onEventReceived</code> 或自定义 subscriptions</li>
+          </ul>
+          <strong>含义</strong>：如果开放平台后台已经为 robotCode 勾选了任何事件订阅（如 robot_msg_recall / robot_msg_read），DWClient 会收到事件 → 默认 handler 直接回 SUCCESS → 本插件没有 handler 处理 → 事件被<strong>静默 ack 后丢弃</strong>，业务层永远观察不到。所以 #11 的现状不是"完全不接事件"，而是<strong>"已接但全部静默丢弃"</strong>。
+          <p style="margin-top:6px"><strong>修复方向</strong>：除立项 recall/read handler 外，还要选一边走——(a) 改 <code>subscriptions</code> 关闭 EVENT *，让平台明确推不到来；或 (b) 注册全 event listener 把未识别事件写 audit 而不是 SUCCESS 静默吃掉。两者都需要 #06 持久化 dedup 配合。</p>
+        </div>
+
+        <div class="callout success">
+          <strong>已有正面证据可立刻立项 (P2)</strong>
+          recall + read 两条事件已有线索，可以先做这两条入站：
+          <ul style="margin:4px 0 0">
+            <li><strong>recall</strong>：用户撤回原消息时，agent 能感知到事件本身（可用于会话上下文清理 / 行为审计）。<strong>注意</strong>：recall 与本仓库的反馈学习系统<strong>没有任何关联</strong>——<span class="file-ref">src/feedback-learning-service.ts</span> 唯一的显式入口是 AI Card 按钮回调，<strong>不接收任何入站事件</strong>作为反馈信号</li>
+            <li><strong>read</strong>：消息已读回执，可用于精准的"无人查看"判定（避免向无人会读的群发消息）</li>
+          </ul>
+        </div>
+
+        <div class="callout">
+          <strong>对标实证：reaction 入站模式</strong>
+          假若钉钉未来曝光 reaction 入站事件，4 个对标插件的接线模式都已成熟，<strong>统一是把 reaction 当成 inbound 事件投给 agent / session，不进入反馈学习系统</strong>：
+          <ul style="margin:4px 0 0">
+            <li><strong>Discord</strong>：监听 <code>MessageReactionAdd / Remove</code>，<code>reactionNotifications</code> 配置控制是否处理（off / own / all / allowlist）→ <code>enqueueSystemEvent("Discord reaction added: 👍 by user on guild #channel msg xxx", { sessionKey, contextKey, trusted:false, ... })</code>（<span class="file-ref">openclaw/extensions/discord/src/monitor/listeners.reactions.ts:56,482,501</span>）</li>
+            <li><strong>Telegram</strong>：监听 <code>message_reaction</code>，default <code>own</code>，<strong>只处理新增</strong>（不处理 removal）→ <code>enqueueSystemEvent("Telegram reaction added: ${emoji} ...", ...)</code>（<span class="file-ref">openclaw/extensions/telegram/src/bot-handlers.runtime.ts:1372,1444,1487</span>）</li>
+            <li><strong>Slack</strong>：监听 <code>reaction_added / reaction_removed</code>，default <code>own</code> → <code>enqueueSystemEvent("Slack reaction added: :thumbsup: by user in #channel msg xxx", ...)</code>（<span class="file-ref">openclaw/extensions/slack/src/monitor/events/reactions.ts:43,86,88</span>）</li>
+            <li><strong>Feishu</strong>：处理 <code>im.message.reaction.created_v1 / deleted_v1</code>，模式不同——<strong>把 reaction 伪造成一条 <code>message_type: "text"</code> 的 Feishu message</strong>（<code>[reacted with THUMBSUP to message xxx]</code>）直接走 <code>handleFeishuMessage(...)</code>，等于让 agent 像收到一条普通消息一样处理（<span class="file-ref">openclaw/extensions/feishu/src/monitor.account.ts:78,143,334</span>）</li>
+          </ul>
+          <strong>关键结论</strong>：reaction 与本仓库 <code>feedback-learning-service.ts</code> 是<strong>完全不同的两件事</strong>——前者是 inbound 事件通道（让 agent 感知用户反应），后者是 AI Card 按钮独占的本地学习闭环。未来若接入钉钉 reaction（如果有的话），设计上必然在 <code>inbound-handler</code> 的 dispatch 层接入（投递给 session / agent），<strong>不要错接到 learning service</strong>。
+        </div>
+
+        <h3>修订后的探查方法</h3>
+        <ol>
+          <li><strong>先做 recall / read</strong>（已有线索）：直接在开放平台开通对应事件订阅，抓包确认 payload，立项接入</li>
+          <li><strong>登录开放平台事件订阅清单</strong>：列全所有可订阅事件 + 它们用什么 stream topic 投递</li>
+          <li><strong>抓包验证</strong>：测试环境订阅候选事件（reaction / 群成员变更 / 群信息 / 文档评论），用 <span class="file-ref">scripts/dingtalk-stream-monitor.mjs</span> 监控</li>
+          <li><strong>能力矩阵</strong>：剩余 5 类事件分别标 YES/NO + 对应 topic / event_type</li>
+        </ol>
+
+        <h3>预期成果 — recall 已有线索可立项</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>OpenClaw（私聊）</span></div>
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar">U</div>
+              <div><div class="chat-bubble">这个方案先按 A 走</div></div>
+            </div>
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div><div class="chat-bubble" style="font-size:13px">收到，已按方案 A 启动工具调用…</div></div>
+            </div>
+            <div style="text-align:center;font-size:11px;color:#8a929d;padding:4px">用户已撤回上一条消息（"这个方案先按 A 走"）</div>
+            <div style="text-align:center;font-size:11px;color:#5b626d;padding:4px;background:#f0f8ff">📊 OpenClaw 收到 robot_msg_recall → 从会话上下文移除该指令 / 终止已发起的工具调用 / 写入行为日志</div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--color-text-faint)"><strong>recall 事件的真实价值</strong>：上下文清理 + 撤销已发起的副作用动作 + 审计。<strong>与反馈学习系统无关</strong>——本仓库 <code>feedback-learning-service.ts</code> 的唯一显式入口是 AI Card 按钮回调，<strong>不接收 recall 或任何其它入站事件</strong>作为反馈信号。</p>
+
+        <h3>工作量与产出</h3>
+        <ul>
+          <li><strong>研究工时</strong>：1-2 天</li>
+          <li><strong>产出</strong>：<span class="file-ref">docs/spec/dingtalk-event-subscription.md</span> — 可订阅事件清单 + 对应 topic + payload 样本</li>
+          <li><strong>触发条件</strong>：测试环境（独立 appKey），避免污染线上 dedup</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li>开放平台"事件订阅"清单完整记录</li>
+          <li>每个候选事件有抓包样本（脱敏）</li>
+          <li>对支持的事件产出 follow-up tickets</li>
+          <li>对不支持的事件，更新 CLAUDE.md "Anti-Patterns"</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 12                                -->
+      <!-- =================================================================== -->
+      <section id="gap-12" class="gap-section">
+        <h2 class="gap-title">12 · Message Tool Action Surface 完整化</h2>
+        <div class="meta-row">
+          <span class="badge p1">P1 · agent 工具面</span>
+          <span class="ev confirmed">dingtalk 只暴露 send CONFIRMED</span>
+          <span class="ev confirmed">对标 7-11 个 action CONFIRMED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 message tool action surface？</strong>
+          OpenClaw 框架定义了 channel message tool 可以暴露的 action 集合（<code>send / read / edit / delete / react / pin / member-info / channel-info / channel-list / thread-reply / sticker</code> 等）。Agent 通过 message tool 调用这些 action 时，channel 负责把它们映射到平台 API。<strong>钉钉目前只支持 <code>send</code></strong>。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：只支持 send 一个 action</strong>
+          <ul style="margin:4px 0">
+            <li><code>describeDingTalkMessageTool</code> 返回 <code>actions: ["send"] as const</code>（<span class="file-ref">src/messaging/channel-actions.ts:52</span>）</li>
+            <li><code>supportsAction</code> 只认 <code>send</code>（<span class="file-ref">src/messaging/channel-actions.ts:71</span>）</li>
+            <li><code>handleAction</code> 收到非 send 直接抛 <code>"Action ${action} is not supported"</code></li>
+          </ul>
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：agent 工具面上缺 6-10 个通用 action</strong>
+          对比对标插件：
+          <ul style="margin:4px 0">
+            <li><strong>Discord</strong>：<code>send / poll / react / reactions / emoji-list / upload-file / read / edit / delete / pin / unpin / list-pins</code> 等（<span class="file-ref">openclaw/extensions/discord/src/channel-actions.ts:81</span>）</li>
+            <li><strong>Telegram</strong>：<code>send / poll / react / delete / edit / sticker / sticker-search</code>（<span class="file-ref">openclaw/extensions/telegram/src/channel-actions.ts:124</span>）</li>
+            <li><strong>Feishu</strong>：<code>send / read / edit / thread-reply / pin / list-pins / unpin / member-info / channel-info / channel-list</code> + reactions（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:266</span>）</li>
+          </ul>
+          钉钉只暴露 <code>send</code>，agent 在钉钉里无法用 message tool 做 <code>read / edit / delete / pin / member-info / channel-info</code> 等通用动作。
+        </div>
+
+        <h3>设计草案（与已有 gap 协调）</h3>
+        <div class="callout warn" style="margin-top:8px">
+          <strong>原则：声明即可实现，不暴露未实现 action</strong>
+          <strong>actions 数组只列实际能 handle 的；未实现就不在数组里</strong>。<strong>不要</strong>"先暴露 schema，handleAction 阶段再实现"——agent 调用未实现 action 会拿到 "Action ${action} is not supported" 异常，体验更差。
+        </div>
+        <ul>
+          <li><code>delete</code>：复用 #03 generalized recall（不重新实现，走同一抽象）—— 实现就上 actions</li>
+          <li><code>edit</code>：card 走 #03 PUT <code>/v1.0/card/instances</code>；markdown / text 等同 "delete + send"（钉钉无原生 edit API）—— 实现就上 actions</li>
+          <li><code>react</code>：<strong>不</strong>把 thinking-emotion 端点伪装成通用 reaction。钉钉公开 API 无通用消息 reaction 入口，本 action 应<strong>暂不暴露</strong>；如果未来钉钉曝光通用 reaction 端点（参见 #11），再实现</li>
+          <li><code>read</code>：依赖 #09 doc / message 端点核实，<strong>未核实前不在 actions 里</strong>；核实后实现并加入</li>
+          <li><code>pin / list-pins / unpin</code>：钉钉是否支持需登录 apifox 核实（UNVERIFIED），<strong>未核实前不暴露</strong></li>
+          <li><code>member-info / channel-info / channel-list</code>：依赖 #02 audit-membership chat 端点核实 + #09 M4 群管理；端点核实并实现后加入</li>
+          <li><code>sticker</code>：标 <strong>不做</strong>，矩阵已确认钉钉无原生 sticker 类型</li>
+          <li><code>thread-reply</code>：标 <strong>n/a</strong>，钉钉无 thread / topic 概念</li>
+        </ul>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>改造</strong> <span class="file-ref">src/messaging/channel-actions.ts</span>：扩展 <code>describeDingTalkMessageTool</code> 返回的 actions 集合 + 扩展 <code>supportsAction</code> 白名单 + 扩展 <code>handleAction</code> dispatch</li>
+          <li><strong>分阶段</strong>：M1 <code>delete</code> + <code>edit</code>（与 #03 同步）；M2 <code>member-info / channel-info / channel-list</code>（与 #02 / #09 同步）；M3 其它</li>
+          <li><strong>能力声明同步</strong>：每个新增 action 都要在 <code>describeMessageTool</code> 的 <code>capabilities</code> / <code>schema</code> 里登记，让 agent prompt 知道</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>向后兼容</strong>：<code>send</code> 行为不变</li>
+          <li><strong>新 action 实现</strong>：每个声明的 action 都有 handleAction 处理，不止 schema 声明</li>
+          <li><strong>未支持的 action 返回明确错误</strong>（不抛 unhandled exception）</li>
+          <li><strong>未实现 / 不支持的 action 不在 actions 里出现</strong>（不暴露 sticker / thread-reply / react / pin / read / member-info 等未实现项；声明即必须 handle）</li>
+          <li><strong>跨 gap 协作</strong>：<code>delete</code> 路径与 #03 recall 走同一抽象；<code>edit</code> 卡片走 #03 PUT instances</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 13                                -->
+      <!-- =================================================================== -->
+      <section id="gap-13" class="gap-section">
+        <h2 class="gap-title">13 · Current Conversation Binding（省略目标发送）</h2>
+        <div class="meta-row">
+          <span class="badge p1">P1 · agent UX</span>
+          <span class="ev confirmed">dingtalk 强制要求 to CONFIRMED</span>
+          <span class="ev confirmed">Feishu 已支持省略目标 CONFIRMED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 current conversation binding？</strong>
+          Agent 在某会话中被触发后，调 message tool 想"回复当前会话"——<strong>不需要</strong>显式知道并填 <code>conversationId</code>。OpenClaw 提供 <code>conversationBindings</code> 抽象 + agent prompt hint，让 channel 自动从 inbound context 推断目标。当前钉钉缺这层。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：inbound 上下文里有 conversationId / sessionKey</strong>
+          入站消息处理时 <code>conversationId</code> / <code>sessionKey</code> 已经在上下文里（参见 <span class="file-ref">src/inbound-handler.ts</span>），但<strong>没有暴露给 message tool 做默认目标推断</strong>。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：conversationBindings adapter + agentPrompt hint</strong>
+          <ul style="margin:4px 0">
+            <li><span class="file-ref">src/messaging/channel-actions.ts:78</span> 强制 <code>to: { required: true }</code>，agent 必须显式传 conversationId</li>
+            <li><span class="file-ref">src/channel.ts:108-126</span> 未声明 <code>conversationBindings</code>（SDK 类型在 <span class="file-ref">openclaw/src/channels/plugins/types.plugin.ts:94</span>）</li>
+            <li>没有 <code>agentPrompt.messageToolHints()</code> 告诉 agent "省略 target = 当前会话"</li>
+          </ul>
+        </div>
+
+        <h3>对标实证</h3>
+        <div class="callout">
+          <strong>Feishu 完整接入了这层</strong>
+          <ul style="margin:4px 0">
+            <li>agentPrompt hint：<code>"Feishu targeting: omit target to reply to the current conversation (auto-inferred). Explicit targets: user:open_id or chat:chat_id."</code>（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:697</span>）</li>
+            <li><code>conversationBindings</code> 块 + <code>defaultTopLevelPlacement: "current"</code> + <code>buildModelOverrideParentCandidates</code>（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:706</span>）</li>
+          </ul>
+          Discord / Slack / Telegram 各自也有对应绑定入口。
+        </div>
+
+        <h3>设计草案</h3>
+        <ul>
+          <li><strong>实现 conversationBindings adapter</strong>：参考 plugin-sdk <span class="file-ref">openclaw/src/channels/plugins/conversation-bindings.ts</span> 与 Feishu 实现</li>
+          <li><strong>handleAction 允许 to 为空</strong>：当 <code>to</code> 缺失时从 <code>sessionKey</code> / 当前会话上下文推断；<strong>跨会话场景</strong>显式 to 仍然必填</li>
+          <li><strong>agentPrompt messageToolHints</strong>：声明 "DingTalk targeting: omit target to reply to current conversation"</li>
+          <li><strong>不破坏现有调用方</strong>：显式 to 仍然按字面发送</li>
+        </ul>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>改造</strong> <span class="file-ref">src/messaging/channel-actions.ts:78</span>：<code>to</code> 改为 <code>required: false</code>；handleAction 内部回退到 sessionKey-derived conversationId</li>
+          <li><strong>新增</strong> <span class="file-ref">src/channel.ts</span> <code>conversationBindings</code> 字段：<code>createManager</code> / <code>buildModelOverrideParentCandidates</code> / <code>defaultTopLevelPlacement</code></li>
+          <li><strong>新增</strong> <span class="file-ref">src/channel.ts</span> <code>agentPrompt.messageToolHints</code></li>
+          <li><strong>对标</strong>：<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:697,706</span></li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>当前会话场景</strong>：agent 调 send 不带 to，能发到当前会话</li>
+          <li><strong>跨会话场景</strong>：agent 调 send 带 to=xxx，仍按字面发送</li>
+          <li><strong>无上下文时</strong>：缺 to 且无 inbound context → 返回明确错误（不是静默成功）</li>
+          <li><strong>agentPrompt 提示生效</strong>：prompt 里能看到 "omit target = current conversation" 的说明</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 14                                -->
+      <!-- =================================================================== -->
+      <section id="gap-14" class="gap-section">
+        <h2 class="gap-title">14 · Live Directory / Target Lookup（不只 learned，也要 live）</h2>
+        <div class="meta-row">
+          <span class="badge p1">P1 · 目标解析</span>
+          <span class="ev confirmed">learned-only CONFIRMED</span>
+          <span class="ev unverified">live API 端点未核实 UNVERIFIED</span>
+        </div>
+
+        <div class="callout warn" style="margin-top:8px">
+          <strong>什么是 directory / target lookup？</strong>
+          Agent 调"列出群成员 / 列出我能发的群 / 搜索某用户"等动作时，需要 channel 暴露 directory adapter。<strong>learned</strong>（本地学习的 displayName 反查）与 <strong>live</strong>（实时调平台 API）是两种来源。当前钉钉<strong>没有 live</strong>，learned 也默认关闭。
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：learned directory（默认关闭）</strong>
+          <ul style="margin:4px 0">
+            <li><span class="file-ref">src/channel.ts:116-122</span> directory adapter 暴露：<code>self</code> / <code>listGroups</code> / <code>listGroupsLive</code> / <code>listPeers</code> / <code>listPeersLive</code></li>
+            <li><strong>但 <code>self</code> 直接返回 <code>null</code></strong>；<code>listGroupsLive</code> / <code>listPeersLive</code> 只是调本地 learned directory（不调真 API）</li>
+            <li>learned directory 默认<strong>不返回结果</strong>：<span class="file-ref">src/targeting/target-directory-adapter.ts:64</span> 只有 <code>displayNameResolution === "all"</code> 才启用</li>
+          </ul>
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：live directory 接 API + SDK upstream 修复</strong>
+          <ul style="margin:4px 0">
+            <li><strong>无 live API 接入</strong>：<code>listGroupsLive</code> / <code>listPeersLive</code> 应调钉钉 chat / user 接口，但当前完全是 learned 转发</li>
+            <li><strong><code>self()</code> 没接</strong>：应该通过 token / clientId 查 bot 自身身份</li>
+            <li><strong>SDK 阻塞</strong>：<span class="file-ref">src/targeting/target-directory-adapter.ts:69</span> 注释明示——upstream resolver 没传 requester / authz context，owner-only displayName resolution <strong>不安全，暂不能做</strong>（已有 TODO 等 upstream 修复）</li>
+          </ul>
+        </div>
+
+        <h3>对标实证</h3>
+        <div class="callout">
+          <strong>3 个对标插件都接了 live adapter</strong>
+          <ul style="margin:4px 0">
+            <li><strong>Discord</strong>：<code>createRuntimeDirectoryLiveAdapter</code>（<span class="file-ref">openclaw/extensions/discord/src/channel.ts:360</span>，<code>createChannelDirectoryAdapter</code> 在 :355）</li>
+            <li><strong>Slack</strong>：同上抽象（<span class="file-ref">openclaw/extensions/slack/src/channel.ts:619</span>）</li>
+            <li><strong>Feishu</strong>：<code>createChannelDirectoryAdapter</code> + <code>listFeishuDirectoryPeers</code> / <code>listFeishuDirectoryGroups</code>（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:1277</span>）</li>
+          </ul>
+        </div>
+
+        <h3>设计草案</h3>
+        <ul>
+          <li><strong><code>self()</code></strong>：通过 token 调钉钉 user info API 查 bot 自身身份（端点路径需 apifox 核实）</li>
+          <li><strong><code>listGroupsLive</code></strong>：调钉钉 group / chat 接口（依赖 #02 audit-membership 端点核实 + #09 M4 群管理）</li>
+          <li><strong><code>listPeersLive</code></strong>：调钉钉 user / contact 接口（端点路径需核实）</li>
+          <li><strong>learned + live 共存</strong>：先查 live，回退 learned；显式标注来源（<code>source: "live" | "learned"</code>）</li>
+          <li><strong>SDK upstream 协调</strong>：跟 OpenClaw 推动 requester / authz context plumbing，解锁 owner-only safe resolution</li>
+          <li><strong>throttle 接入</strong>：directory 调用进 #04 throttler（避免风暴）</li>
+        </ul>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>改造</strong> <span class="file-ref">src/channel.ts:116</span> directory adapter：<code>self</code> 实现 bot identity；live methods 接真 API</li>
+          <li><strong>新增</strong> <span class="file-ref">src/targeting/live-directory-adapter.ts</span>：封装 user / chat / group 端点调用（依赖 #02 / #09）</li>
+          <li><strong>改造</strong> <span class="file-ref">src/targeting/target-directory-adapter.ts:64,69</span>：等 SDK upstream 修复 requester context 后启用 owner-only 模式</li>
+          <li><strong>对标</strong>：<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:1277</span> 的 <code>createChannelDirectoryAdapter</code> 模式</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong><code>self()</code></strong>：返回 bot 身份（不再 <code>null</code>）</li>
+          <li><strong><code>listGroupsLive</code> / <code>listPeersLive</code></strong>：调真实接口（不再是 learned 转发）</li>
+          <li><strong>learned + live 共存</strong>：先 live 后 learned 回退，每条结果标 <code>source</code></li>
+          <li><strong>依赖明确</strong>：在 #02 / #09 端点核实后才能完整实现（先 ship <code>self()</code> + 已有 learned，不阻塞）</li>
+          <li><strong>对接 #04 throttler</strong>：directory 调用接入限流，避免风暴</li>
+          <li><strong>upstream 协调</strong>：SDK 提供 requester context 后启用 owner-only displayName resolution</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                     SUPPLEMENTARY GAPS                    -->
+      <!-- =================================================================== -->
+      <section id="supplementary-intro" class="gap-section">
+        <h2 class="gap-title">补充 Gap（未充分验证）</h2>
+        <p style="font-size:13px;color:var(--color-text-faint)">以下两项是横向核验中发现的"缺 capability 声明 / 缺 adapter 接入"，但需要跑一遍真实流程验证当前是否有可见影响，再决定是否升 P1 / P2。</p>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 15                                -->
+      <!-- =================================================================== -->
+      <section id="gap-15" class="gap-section">
+        <h2 class="gap-title">15 · Pairing Adapter（dmPolicy=pairing 完整闭环）</h2>
+        <div class="meta-row">
+          <span class="badge p2">P2 / P3 · 待验证</span>
+          <span class="ev confirmed">dmPolicy=pairing 配置入口存在 CONFIRMED</span>
+          <span class="ev unverified">pairing 闭环 + adapter 缺失 NEEDS VERIFICATION</span>
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：配置入口 + 授权委托代码注释（不等于闭环 confirmed）</strong>
+          <ul style="margin:4px 0">
+            <li>onboarding 允许选 <code>dmPolicy = "pairing"</code>（<span class="file-ref">src/onboarding.ts:479</span>）—— 配置入口存在</li>
+            <li>inbound 处理：<code>pairing</code> 时把授权交给 SDK pairing flow（<span class="file-ref">src/inbound-handler.ts:672</span> 注释："SDK pairing flow performs actual authorization checks"）—— 注释这么写，但<strong>没有声明 pairing.text adapter，闭环未跑通验证</strong></li>
+          </ul>
+          之前写 "dmPolicy=pairing 已支持 CONFIRMED" 过强——配置入口存在 ≠ pairing 闭环可用。本 channel 没声明 <code>pairing.text</code>，到底批准后用户能不能收到通知 / ID 规范化能否生效，需要实际跑一遍 pairing 流程才知道。
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：<code>pairing.text</code> 适配器</strong>
+          <span class="file-ref">src/channel.ts:30-45</span> 的 <code>dingtalkPlugin</code> 没有声明 <code>pairing.text</code> adapter，缺：
+          <ul style="margin:4px 0">
+            <li><code>idLabel</code>（如 <code>"dingTalkUserId"</code>）</li>
+            <li><code>normalizeAllowEntry</code>（去掉 <code>dingtalk:</code> / <code>user:</code> 前缀）</li>
+            <li><code>notify</code>（配对批准后给用户发平台内通知）</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <strong>对标实证：4 个对标插件全部声明 pairing adapter</strong>
+          <ul style="margin:4px 0">
+            <li><span class="file-ref">openclaw/extensions/discord/src/channel.ts:693</span></li>
+            <li><span class="file-ref">openclaw/extensions/telegram/src/channel.ts:1106</span></li>
+            <li><span class="file-ref">openclaw/extensions/feishu/src/channel.ts:1363</span></li>
+            <li><span class="file-ref">openclaw/extensions/slack/src/channel.ts:777</span></li>
+          </ul>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>先验证</strong>：跑一次 pairing 流程，确认当前到底是否会失败 / 用户能否收到通知；如果完全跑不通 → 升 P1；如果只是没"批准后通知"消息 → 维持 P2/P3</li>
+          <li><strong>新增</strong> <span class="file-ref">src/channel.ts</span> <code>pairing: { text: { idLabel, normalizeAllowEntry, notify } }</code></li>
+          <li><strong>对标</strong>：Discord / Slack / Telegram / Feishu 任一实现</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>跑通 pairing 流程</strong>：DM 用户 → 触发 pairing → owner 批准 → 用户收到平台内通知</li>
+          <li><strong>ID 规范化</strong>：允许列表写 <code>dingtalk:userX</code> / <code>user:userX</code> / <code>userX</code> 都能匹配</li>
+          <li><strong>失败处理</strong>：<code>notify</code> 发送失败有日志但不阻塞 pairing 状态变更</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                               GAP 16                                -->
+      <!-- =================================================================== -->
+      <section id="gap-16" class="gap-section">
+        <h2 class="gap-title">16 · TTS Voice-Note Capability 未声明</h2>
+        <div class="meta-row">
+          <span class="badge p3">P3 · 能力声明</span>
+          <span class="ev confirmed">voice 发送已实现 CONFIRMED</span>
+          <span class="ev confirmed">tts capability 未声明 CONFIRMED</span>
+        </div>
+
+        <h3>现状</h3>
+        <div class="callout">
+          <strong>已有：voice 发送链路完整</strong>
+          <ul style="margin:4px 0">
+            <li><span class="file-ref">src/send-service.ts:520</span>：<code>voice</code> mediaType → <code>msgKey = "sampleAudio"</code>，含 duration</li>
+            <li><span class="file-ref">src/messaging/channel-actions.ts:97</span>：处理 <code>audioAsVoice</code> / <code>asVoice</code> 参数</li>
+          </ul>
+        </div>
+        <div class="callout warn">
+          <strong>真正缺的：capability 未声明，OpenClaw TTS 入口未接</strong>
+          <span class="file-ref">src/channel.ts:35-41</span> 的 <code>capabilities</code> 块没有 <code>tts</code> 字段。OpenClaw runtime 因此<strong>不知道</strong>钉钉支持 voice-note 输出，TTS 工具不会自动选钉钉作为目标。
+        </div>
+        <div class="callout">
+          <strong>对标 + SDK</strong>
+          <ul style="margin:4px 0">
+            <li>SDK 类型：<code>ChannelCapabilities.tts.voice.synthesisTarget</code>（<span class="file-ref">openclaw/src/channels/plugins/types.core.ts:288</span>）</li>
+            <li>Discord：<code>tts: { voice: { synthesisTarget: "voice-note" } }</code>（<span class="file-ref">openclaw/extensions/discord/src/shared.ts:131</span>）</li>
+            <li>Telegram：同上（<span class="file-ref">openclaw/extensions/telegram/src/shared.ts:164</span>）</li>
+            <li>Feishu：<code>tts: { voice: { synthesisTarget: "voice-note", transcodesAudio: true } }</code>（<span class="file-ref">openclaw/extensions/feishu/src/channel.ts:686</span>）</li>
+          </ul>
+        </div>
+
+        <h3>实现建议</h3>
+        <ul>
+          <li><strong>改造</strong> <span class="file-ref">src/channel.ts:35-41</span> <code>capabilities</code>：加 <code>tts: { voice: { synthesisTarget: "voice-note" } }</code>；当前 <span class="file-ref">src/media-utils.ts:245-262</span> 已经把非钉钉原生音频（非 .ogg / 不在 <code>DINGTALK_VOICE_UPLOAD_EXTENSIONS</code>）通过 ffmpeg 转成 <strong>OGG/Opus</strong>（<code>libopus</code>、16kHz、mono、24k bitrate），所以应同时加 <code>transcodesAudio: true</code>（参考 Feishu）</li>
+          <li><strong>测试</strong>：确认 OpenClaw TTS 工具能选钉钉作为目标并正确发送 voice 消息</li>
+        </ul>
+
+        <h3>验收标准</h3>
+        <ol>
+          <li><strong>capability 声明</strong>：<code>capabilities.tts.voice.synthesisTarget === "voice-note"</code></li>
+          <li><strong>OpenClaw TTS 工具接入</strong>：可以选钉钉作为 TTS 目标，agent 调用后收到正常 voice 消息</li>
+          <li><strong>不影响现有 voice 发送</strong>：直接调 send action with <code>mediaType=voice</code> 行为不变</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                            PRIORITIES                              -->
+      <!-- =================================================================== -->
+      <section id="priorities" class="gap-section">
+        <h2 class="gap-title">行动优先级与依赖关系</h2>
+
+        <h3>建议落地顺序</h3>
+        <table>
+          <thead><tr><th>优先级</th><th>任务</th><th>估工</th><th>主要收益</th><th>前置研究</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge p0">P0</span></td><td>01 · Action dispatcher + Approval（仅 button）</td><td>中</td><td>解锁工具确认链路</td><td>登录 open-dev 核实其它组件</td></tr>
+            <tr><td><span class="badge p0">P0</span></td><td>02 · Doctor（不含 membership）+ 基础 Audit</td><td>中</td><td>运维底座</td><td>chat 端点路径需独立核实</td></tr>
+            <tr><td><span class="badge p1">P1</span></td><td>03 · editMessage / recallMessage 封装</td><td>小-中</td><td>修正错答 / 撤回</td><td>—（recall 端点已 confirmed）</td></tr>
+            <tr><td><span class="badge p1">P1</span></td><td>04 · Per-endpoint Throttling</td><td>小</td><td>防 QPS 熔断</td><td>—（识别 HTTP 429 + 关键字 errcode）</td></tr>
+            <tr><td><span class="badge p3">P3</span></td><td>05 · Markdown recall-based draft <strong>（建议不做）</strong></td><td>—</td><td>视觉略好但代价大</td><td>需先做 A/B 用户研究</td></tr>
+            <tr><td><span class="badge p2">P2</span></td><td>06 · 持久化 dedup（独立可立项）</td><td>小-中</td><td>跨重启 / 长 TTL / 多实例 standalone 收益</td><td>—（与 #11 共用抽象，互不阻塞）</td></tr>
+            <tr><td><span class="badge p2">P2</span></td><td>07 · Snapshot 指标增强（不是从无到有）</td><td>小</td><td>更细 transport 健康指标</td><td>—（在 #04 后做）</td></tr>
+            <tr><td><span class="badge p3">P3</span></td><td>08 · 启动 stagger <strong>（默认关，按需开）</strong></td><td>小</td><td>工程防风暴（非平台硬要求）</td><td>—</td></tr>
+            <tr><td><span class="badge p3">P3</span></td><td>09 · SaaS 扩展（drive / yida / doc 补全）</td><td>大</td><td>生态价值大</td><td>登录 apifox 核实 drive / yida 路径</td></tr>
+            <tr><td><span class="badge p3">P3</span></td><td>10 · 机器人菜单（三种模型先调研）</td><td>研究 + 中</td><td>上手体验</td><td>菜单类型 + API 端点都需核实</td></tr>
+            <tr><td><span class="badge p2">P2</span></td><td>11 · 事件订阅探查 + recall/read 接入</td><td>小（研究）+ 小（实现）</td><td>recall/read 已有线索可立项</td><td>开放平台事件订阅页</td></tr>
+            <tr><td><span class="badge p1">P1</span></td><td>12 · Message tool action surface</td><td>中</td><td>解锁 agent 工具面（read/edit/delete/pin/member-info ...）</td><td>—（与 #03 / #02 / #09 协调）</td></tr>
+            <tr><td><span class="badge p1">P1</span></td><td>13 · Current conversation binding</td><td>小-中</td><td>agent 在当前会话自然回复，无需显式 to</td><td>—（SDK 已有 conversationBindings 类型）</td></tr>
+            <tr><td><span class="badge p1">P1</span></td><td>14 · Live directory / target lookup</td><td>中</td><td>群/成员/自身查询；解锁 directory tools</td><td>chat/user 端点核实 + SDK upstream requester context</td></tr>
+            <tr><td><span class="badge p2">P2/P3</span></td><td>15 · Pairing adapter（待验证）</td><td>小</td><td>dmPolicy=pairing 完整闭环；批准后平台通知</td><td>先跑 pairing 流程验证当前是否真有缺口</td></tr>
+            <tr><td><span class="badge p3">P3</span></td><td>16 · TTS voice-note capability</td><td>极小</td><td>OpenClaw TTS 工具能选钉钉</td><td>—（capability 声明即可）</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:12px;color:var(--color-text-faint)">
+          <strong>优先级速读</strong>：<strong>P0</strong> #01 Action dispatcher + Approval、#02 Doctor + Audit；<strong>P1</strong> #03 recall/edit 封装、#04 throttling、#12 message tool action 完整化、#13 conversation binding、#14 live directory；<strong>P2</strong> #06 持久化 dedup（独立可立项）、#07 snapshot 增强、#11 事件订阅（recall/read 已有线索）；<strong>P3</strong> #08 启动 stagger（按需）、#09 SaaS 扩展、#10 机器人菜单（先研究）、#16 TTS capability；<strong>建议不做</strong> #05 markdown recall-based draft（现有增量已可接受）；<strong>待验证</strong> #15 pairing adapter（先跑流程）。
+        </p>
+
+        <h3>需要先做的"前置研究清单"</h3>
+        <ol>
+          <li>登录 <code>open-dev.dingtalk.com/fe/card</code> 卡片搭建平台 → 导出 AI Card 完整组件清单（影响 #01 后续扩展）</li>
+          <li>登录开放平台后台 → 查 chat 信息查询 API 路径与错误码（影响 #02 audit-membership）</li>
+          <li>登录 apifox / 开放平台 → 查 drive 端点形状（不是 dentries，可能是 files/{fileId}）（影响 #09）</li>
+          <li>登录 apifox / 开放平台 → 查 Yida OpenAPI 端点（影响 #09）</li>
+          <li>登录开放平台 → 确认 OpenClaw 机器人属于哪种类型（应用 / 群机器人 / 服务号），再决定菜单 API（影响 #10）</li>
+          <li>登录开放平台事件订阅页 → 列全可订阅事件清单（影响 #11）</li>
+        </ol>
+
+        <h3>如果只能做 3 件事</h3>
+        <p>建议选 <strong>#01（Action dispatcher + Approval）</strong>、<strong>#02（Doctor + Audit）</strong> 和 <strong>#11 中的 recall 入站</strong>：</p>
+        <ul>
+          <li>都基于已核验的证据（不依赖未确认的端点 / 限制 / 错误码）</li>
+          <li>用户价值最高（#01）+ 运维必须（#02）+ 已有线索的新能力（#11 recall）</li>
+          <li>#03 (recall outbound) 也可加入这个短列表——端点已 confirmed，工时小</li>
+        </ul>
+
+        <h3>不要做的事项</h3>
+        <div class="callout warn">
+          <ul style="margin:4px 0 0">
+            <li><strong>不要假设 errcode=88 是限流</strong>—— 它是 token / ISV 权限问题</li>
+            <li><strong>不要写死"24h 撤回时间窗"</strong>—— 单聊 <code>otoMessages/batchRecall</code> apifox 页面有 24h 明示，群聊 <code>groupMessages/recall</code> 页面未提；为兼容未来调整，仍让代码读 API 返回</li>
+            <li><strong>不要假设钉钉有 IP / 网关级连接频率限制</strong>—— 官方只约束"单 client-id 单连接"；跨 client-id 多连接被允许（用途为隔离/调试，非负载均衡）</li>
+            <li><strong>不要把"机器人 robot callback 网络超时会重投"作为持久化 dedup 的理由</strong>—— Stream protocol 原文："机器人消息当前是 fire-forgot 模式，不会因为网络超时而重复推送"；真正必须 dedup 的是<strong>事件订阅</strong>（protocol 原文："如果不回复 ACK，会触发服务端的超时重新推送"）+ 多实例 / 重启窗口</li>
+            <li><strong>不要把 markdown recall-based draft-stream 套 Telegram 心智</strong>—— 钉钉撤回有"该消息已撤回"系统行，循环 recall 会让对话变噪声流</li>
+            <li><strong>不要假设 markdown / 普通消息也能挂反馈学习</strong>—— 显式反馈学习是 AI Card 按钮回调驱动的闭环，markdown 无可承载按钮的组件，无法参与显式学习</li>
+            <li><strong>不要把 robot_msg_recall 或任何入站事件当作反馈信号</strong>—— <code>feedback-learning-service.ts</code> 与 reaction / 入站事件<strong>没有任何关联</strong>，唯一显式入口是 AI Card 按钮回调；recall 事件只能用于上下文清理 / 副作用回滚 / 审计</li>
+            <li>不要做 Thread / Topic—— 钉钉群无此概念</li>
+            <li>不要做 typing indicator—— 钉钉无 API，已用 ack reaction 替代</li>
+            <li>不要把多 process 用同一 client-id 部署—— 官方硬约束</li>
+            <li>不要直接把 doc 的 <code>dentries</code> 形状套到 drive—— 是两套独立 API，drive 是 file-based</li>
+          </ul>
+        </div>
+
+        <h3>DingTalk 现有强项（重构中必须保留）</h3>
+        <ol>
+          <li>AI Card v2 生命周期最完整：状态机、owner-only stop、未完成卡崩溃恢复、降级回退三段</li>
+          <li>Warm reconnect：提前创建新 DWClient 减少消息丢失窗口</li>
+          <li>动态 ack reaction：emoji + kaomoji + 情感分类 + tool heartbeat</li>
+          <li>DisplayName 学习目录：自动学习用户/群展示名 + 反向解析</li>
+          <li>反馈学习闭环（<strong>AI Card 按钮独占</strong>）：显式入口只有 AI Card 上的 feedback_up/feedback_down 按钮回调驱动 learning service（<span class="file-ref">src/feedback-learning-service.ts</span>），<strong>不依赖任何入站事件 / reaction</strong>。markdown / text 回复路径无可承载按钮的组件，因此非 Card 回复不参与显式学习——是设计上的硬限制</li>
+          <li>附件文本提取（pdf-parse / mammoth）</li>
+          <li>钉钉文档基础 4 接口已集成（<span class="file-ref">src/docs-service.ts</span>）</li>
+          <li>Account snapshot 基础（<span class="file-ref">src/platform/channel-status.ts:59</span>）已发布 14 字段</li>
+          <li><strong>Markdown 模式已经是增量发送（不是等结束）</strong>（<span class="file-ref">src/reply-strategy-markdown.ts:29-43</span>）</li>
+          <li>Card 解析层已经能处理任意 actionId（<span class="file-ref">src/card-callback-service.ts:76-78</span>），只是缺 dispatcher</li>
+          <li>Reconnect jitter 已实现（<span class="file-ref">src/connection-manager.ts</span>）</li>
+        </ol>
+      </section>
+
+      <!-- =================================================================== -->
+      <!--                            REFERENCES                              -->
+      <!-- =================================================================== -->
+      <section id="refs" class="gap-section">
+        <h2 class="gap-title">参考来源（按可信度排序）</h2>
+        <h4>SDK 源码（最高可信度）</h4>
+        <ul>
+          <li><a href="https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs/blob/main/src/constants.ts">dingtalk-stream-sdk-nodejs · constants.ts</a> — 所有 stream topic 定义</li>
+          <li><a href="https://github.com/open-dingtalk/dingtalk-stream-sdk-python">open-dingtalk/dingtalk-stream-sdk-python</a> — 额外 DELEGATE_TOPIC</li>
+          <li><a href="https://github.com/open-dingtalk/dingtalk-card-examples">open-dingtalk/dingtalk-card-examples</a> — 卡片示例 + client-id 唯一连接约束</li>
+          <li><a href="https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli">DingTalk-Real-AI/dingtalk-workspace-cli</a> — 官方 CLI 命令清单（doc / drive 能力面）</li>
+        </ul>
+        <h4>官方文档与开发者百科</h4>
+        <ul>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">Stream 模式概述</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 模式协议</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/faq/">Stream FAQ</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/bot/message/">developerpedia · 机器人消息（入站/出站类型清单）</a></li>
+          <li><a href="https://open.dingtalk.com/document/orgapp/dingtalk-document-overview">钉钉文档概述</a>（SPA，需登录后台读正文）</li>
+          <li><a href="https://open.dingtalk.com/document/orgapp/descriptions-about-adjusting-limit-and-frequency-of-api-calls">API 调用频次限制公告</a></li>
+        </ul>
+        <h4>第三方镜像与社区</h4>
+        <ul>
+          <li><a href="https://dingtalk.apifox.cn/api-142252940">apifox · 创建并投放卡片 /v1.0/card/instances/createAndDeliver</a></li>
+          <li><a href="https://dingtalk.apifox.cn/api-142251457">apifox · 更新卡片 PUT /v1.0/card/instances</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3550110">apifox · 机器人发送消息的类型（7 种出站类型清单）</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3559835">apifox · 接收消息（6 种入站类型 + unknownMsgType）</a></li>
+          <li><a href="https://dingtalk.apifox.cn/api-140612777">apifox · 机器人撤回群消息 /v1.0/robot/groupMessages/recall</a></li>
+          <li><a href="https://dingtalk.apifox.cn/api-140609762">apifox · 机器人撤回单聊消息 /v1.0/robot/otoMessages/batchRecall</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3661036">apifox · 机器人消息撤回事件 robot_msg_recall（Stream 支持）</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3661045">apifox · 机器人消息已读事件 robot_msg_read（Stream 支持）</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3595317">apifox · AI 卡片模板</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3546886">apifox · 创建及更新互动卡片</a></li>
+          <li><a href="https://developer.aliyun.com/ask/583548">阿里云开发者社区 · errcode 88 含义</a></li>
+          <li><a href="https://docs.aliwork.com/en/docs/developer/api/openAPI">宜搭 · Cross-Application Data Source API</a></li>
+        </ul>
+        <h4>本仓库代码（事实证据）</h4>
+        <ul>
+          <li><span class="file-ref">src/docs-service.ts:97,136,162,186</span> — 4 个 doc 接口已落地</li>
+          <li><span class="file-ref">src/card-service.ts:285,845,1315,1316</span> — card streaming / createAndDeliver / group&amp;oto recall 端点</li>
+          <li><span class="file-ref">src/send-service.ts:397-398</span> — group / oto 发送端点</li>
+          <li><span class="file-ref">src/auth.ts:32</span> — accessToken 端点</li>
+          <li><span class="file-ref">src/ack-reaction-service.ts:9,78</span> — emotion <code>{reply,recall}</code> 端点（<code>THINKING_EMOTION_ID = "2659900"</code> 硬编码，非通用 emoji reaction）</li>
+          <li><span class="file-ref">src/card-callback-service.ts:76-78</span> — actionId 任意解析（无 whitelist）</li>
+          <li><span class="file-ref">src/card-callback-service.ts:132,153</span> — feedback ack 文本生成</li>
+          <li><span class="file-ref">src/gateway/channel-gateway.ts:353-363</span> — <code>recordExplicitFeedbackLearning</code> 真正写入 learning service</li>
+          <li><span class="file-ref">src/gateway/channel-gateway.ts:347-395</span> — 卡片 callback 三分支路由（else 分支只 ack 无 handler）</li>
+          <li><span class="file-ref">src/platform/channel-status.ts:59</span> — account snapshot 已发布 14 字段</li>
+          <li><span class="file-ref">src/reply-strategy-markdown.ts:29-43</span> — markdown 已增量发送</li>
+          <li><span class="file-ref">src/connection-manager.ts:243-259</span> — exponential backoff + jitter 已实现</li>
+          <li><span class="file-ref">src/dedup.ts:1-67</span> — in-memory dedup，第 1 行声明 <code>DEDUP_NAMESPACE_POLICY = "memory-only"</code></li>
+          <li><span class="file-ref">src/channel.ts:40</span> — <code>nativeCommands: false</code></li>
+          <li><span class="file-ref">src/card-service.ts:143-152</span> — 错误关键字归一化（throttler 可复用）</li>
+          <li><span class="file-ref">docs/assets/card-template-v2.json</span> — 动态 ButtonGroup 模板源</li>
+          <li><span class="file-ref">index.ts:91,95-98,239-276</span> — <code>dingtalk.docs.*</code> + <code>dingtalk-connector.docs.*</code> 双套别名注册；status / probe RPC</li>
+          <li><span class="file-ref">src/learning-command-service.ts:30,210</span> — <code>/learn</code> 系列文本命令解析 + 帮助文本（17 个子命令）</li>
+          <li><span class="file-ref">src/session-command-service.ts:16</span> — <code>/session-alias</code> 系列会话别名命令解析</li>
+          <li><span class="file-ref">src/command/inbound-command-dispatch-service.ts:77</span> — <code>handleInboundCommandDispatch</code> 统一分发 /learn 与 /session-alias</li>
+          <li><span class="file-ref">src/inbound-handler.ts:1545,1667,1756</span> — targeted slash（<code>@agent /new</code> 等）+ <code>/stop</code> 锁外中止 + <code>/btw</code> 旁路</li>
+        </ul>
+        <h4>openclaw 对标证据</h4>
+        <ul>
+          <li><span class="file-ref">openclaw/src/channels/plugins/approval-native.types.ts:25-44</span> — <code>ChannelApprovalNativeAdapter</code> 接口（#01 实现目标）</li>
+          <li><span class="file-ref">openclaw/src/channels/account-snapshot-fields.ts</span> — <code>ChannelAccountSnapshot</code> 类型（#07 扩展目标）</li>
+          <li><span class="file-ref">openclaw/extensions/discord/src/channel.ts:85</span> — <code>DISCORD_ACCOUNT_STARTUP_STAGGER_MS = 10_000</code>（#08 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/discord/src/channel.ts:598,627-662</span> — <code>auditAccount</code> + <code>resolveAccountSnapshot</code>（#02 / #07 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/discord/src/approval-native.ts</span> — Discord 已实现 ApprovalNative（#01 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/channel.ts:870</span> — Telegram <code>auditAccount</code>（#02 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/security.ts:39</span> — Telegram <code>collectAuditFindings</code>（#02 security audit 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/lane-delivery-text-deliverer.ts:305-355</span> — <code>editStreamMessage</code>（#05 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/bot-updates.ts:71</span> — Telegram <code>createDedupeCache</code> 内存 5 分钟（#06 对标，之前误引 <code>message-cache.ts</code> 是 context 持久化，不是 update dedup）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/bot-handlers.runtime.ts:2710</span> — <code>bot.on("edited_message")</code> 入站 edit handler</li>
+          <li><span class="file-ref">openclaw/extensions/feishu/src/channel.ts:1320</span> — Feishu 仅 <code>probeAccount</code>，无 doctor（与 DingTalk 同）</li>
+          <li><span class="file-ref">openclaw/extensions/feishu/src/dedup.ts:27-30</span> — <code>createPersistentDedupe</code>（#06 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/feishu/src/drive.ts</span> — drive / doc / sheet / bitable 工具（#09 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/feishu/src/monitor.bot-menu-handler.ts:59</span> + <span class="file-ref">monitor.account.ts:393</span> — bot menu <strong>事件 handler</strong>（处理 <code>application.bot.menu_v6</code>，转 synthetic <code>/menu xxx</code>），<strong>非菜单注册 API</strong></li>
+          <li><span class="file-ref">openclaw/extensions/slack/src/shared.ts:94</span> + <span class="file-ref">extensions/slack/src/doctor.ts</span> — Slack <code>doctor: slackDoctor</code>（#02 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/slack/src/security.ts:52</span> — Slack <code>collectAuditFindings</code>（#02 security audit 对标）</li>
+          <li><span class="file-ref">openclaw/extensions/slack/src/channel.ts:524-531</span> — <code>draftPreview/progressUpdates/finalEdit</code>（#05 对标）</li>
+        </ul>
+        <h4>Reaction 入站对标证据（#11 对标）</h4>
+        <p style="font-size:12px;color:var(--color-text-faint)">关键：4 个插件都把 reaction 当成 inbound 事件投给 session，<strong>没有任何一个</strong>喂给 learning service。reaction 与 feedback-learning 是不同轨道。</p>
+        <ul>
+          <li><span class="file-ref">openclaw/extensions/discord/src/monitor/listeners.reactions.ts:56,482,501</span> — Discord <code>MessageReactionAdd/Remove</code> → <code>enqueueSystemEvent</code>；reactionNotifications: off/own/all/allowlist</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/bot-handlers.runtime.ts:1372,1444,1487</span> — Telegram <code>message_reaction</code> → <code>enqueueSystemEvent</code>；default own，只处理新增</li>
+          <li><span class="file-ref">openclaw/extensions/slack/src/monitor/events/reactions.ts:43,86,88</span> — Slack <code>reaction_added/removed</code> → <code>enqueueSystemEvent</code>；default own</li>
+          <li><span class="file-ref">openclaw/extensions/feishu/src/monitor.account.ts:78,143,334</span> — Feishu <code>im.message.reaction.created_v1/deleted_v1</code> → 伪造成 text message 走 <code>handleFeishuMessage</code></li>
+        </ul>
+      </section>
+
+      <footer class="page-footer">
+        DingTalk Channel · Features Gap Comprehensive Proposal · 2026-05-17
+      </footer>
+
+    </div>
+  </div>
+</body>
+</html>
