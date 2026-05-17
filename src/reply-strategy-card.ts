@@ -487,7 +487,6 @@ export function createCardReplyStrategy(
             if (processedMediaUrls.has(url)) {
               continue;
             }
-            processedMediaUrls.add(url);
             try {
               const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
               const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
@@ -503,10 +502,10 @@ export function createCardReplyStrategy(
               const result = await uploadMedia(config, prepared.path, "image", log);
               await prepared.cleanup?.();
               if (result?.mediaId) {
+                processedMediaUrls.add(url);
                 await controller.appendImageBlock(result.mediaId);
               }
             } catch (err: unknown) {
-              processedMediaUrls.delete(url);
               const msg = err instanceof Error ? err.message : String(err);
               log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
             }
@@ -570,7 +569,6 @@ export function createCardReplyStrategy(
           if (processedMediaUrls.has(url)) {
             continue;
           }
-          processedMediaUrls.add(url);
           try {
             const prepared = await prepareMediaInput(url, log, config.mediaUrlAllowlist);
             const mediaType = resolveOutboundMediaType({ mediaPath: prepared.path, asVoice: false });
@@ -583,10 +581,10 @@ export function createCardReplyStrategy(
             const result = await uploadMedia(config, prepared.path, "image", log);
             await prepared.cleanup?.();
             if (result?.mediaId) {
+              processedMediaUrls.add(url);
               await controller.appendImageBlock(result.mediaId);
             }
           } catch (err: unknown) {
-            processedMediaUrls.delete(url);
             const msg = err instanceof Error ? err.message : String(err);
             log?.debug?.(`[DingTalk][Card] Failed to upload media as image block: ${msg}`);
           }
