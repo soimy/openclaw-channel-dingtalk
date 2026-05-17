@@ -123,26 +123,26 @@
       <h4>P1 · 体验与运维</h4>
       <a href="#gap-03">03 · Edit / Recall Message</a>
       <a href="#gap-04">04 · Throttling</a>
-      <a href="#gap-05">05 · Edit-based Draft Stream</a>
 
-      <h4>P2 · 健壮性与观测</h4>
-      <a href="#gap-06">06 · 持久化 Dedup</a>
-      <a href="#gap-07">07 · Snapshot 发布</a>
-      <a href="#gap-08">08 · 启动 Stagger</a>
-
-      <h4>P3 · 生态扩展</h4>
-      <a href="#gap-09">09 · SaaS 工具集</a>
-      <a href="#gap-10">10 · 机器人菜单</a>
-      <a href="#gap-11">11 · 入站事件探查</a>
-
-      <h4>P1 · 新增主 gap</h4>
+      <h4>P1 · Agent UX 新增主 gap</h4>
       <a href="#gap-12">12 · Message Tool Actions</a>
       <a href="#gap-13">13 · Conversation Binding</a>
       <a href="#gap-14">14 · Live Directory</a>
 
-      <h4>补充 Gap（待验证）</h4>
-      <a href="#gap-15">15 · Pairing Adapter</a>
+      <h4>P2 · 健壮性与观测</h4>
+      <a href="#gap-06">06 · 持久化 Dedup</a>
+      <a href="#gap-07">07 · Snapshot 发布</a>
+      <a href="#gap-11">11 · 入站事件探查</a>
+
+      <h4>P3 · 生态扩展 / 按需研究</h4>
+      <a href="#gap-08">08 · 启动 Stagger</a>
+      <a href="#gap-09">09 · SaaS 工具集</a>
+      <a href="#gap-10">10 · 机器人菜单</a>
       <a href="#gap-16">16 · TTS Capability</a>
+
+      <h4>补充 Gap（待验证 / 建议不做）</h4>
+      <a href="#gap-05">05 · Edit-based Draft Stream（建议不做）</a>
+      <a href="#gap-15">15 · Pairing Adapter（待验证）</a>
 
       <h4>结尾</h4>
       <a href="#priorities">行动优先级</a>
@@ -940,7 +940,7 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
         <h3>平台能力评估</h3>
         <div class="callout success">
           <strong><span class="ev documented">DOCUMENTED</span> 事件订阅：不 ACK 会重投，需要 dedup</strong>
-          钉钉 <a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对事件订阅 ACK 语义的<strong>原文</strong>：
+          钉钉 <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对事件订阅 ACK 语义的<strong>原文</strong>：
           <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
             如果不回复 ACK，会触发服务端的超时重新推送，以及客户端对相同事件的重复处理。
           </blockquote>
@@ -948,7 +948,7 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
         </div>
         <div class="callout success">
           <strong><span class="ev documented">DOCUMENTED</span> 机器人消息：当前是 fire-forgot，不因超时重推</strong>
-          同一 <a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对 robot callback 的<strong>原文备注</strong>：
+          同一 <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 协议</a>对 robot callback 的<strong>原文备注</strong>：
           <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
             备注：机器人消息当前是 fire-forgot 模式，不会因为网络超时而重复推送。
           </blockquote>
@@ -1183,7 +1183,7 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
       <section id="gap-08" class="gap-section">
         <h2 class="gap-title">08 · 启动 Stagger（工程防风暴，不是平台硬要求）</h2>
         <div class="meta-row">
-          <span class="badge p2">P2 · 健壮性</span>
+          <span class="badge p3">P3 · 按需开（默认关）</span>
           <span class="ev wrong">"钉钉网关连接频率限制" WRONG（已纠正）</span>
           <span class="ev confirmed">现有 reconnect jitter 已实现 CONFIRMED</span>
         </div>
@@ -1238,7 +1238,7 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
           <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
             请务必保证一个 client-id 同一时间只启动一个 Stream 服务。
           </blockquote>
-          <a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">官方 Stream 协议</a>:
+          <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">官方 Stream 协议</a>:
           <blockquote style="margin:6px 0;padding:6px 12px;background:#f8f9fb;border-left:3px solid #1677ff;font-style:italic">
             ticket 的有效期为 90 秒，且只能用来建立一条连接。
           </blockquote>
@@ -1599,8 +1599,8 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
             <li><code>TOPIC_AI_GRAPH_API = '/v1.0/graph/api/invoke'</code> —— <strong>本仓库未订阅</strong>，用于 AI 流程 / graph 调用，可作为未来扩展点</li>
           </ul>
           <p style="margin-top:6px;font-size:12px;color:var(--color-text-faint)">Node SDK <code>src/constants.ts</code> + Python SDK <code>card_callback.py</code> / <code>graph.py</code> 经实抓只确认上述 <strong>3 个 TOPIC</strong>（Python SDK 别名 <code>Card_Callback_Router_Topic</code> / <code>graph.TOPIC</code>）。某些 review 提到 <code>TOPIC_GRAPH_CARD = '/v1.0/card/instances/graphCallback'</code> 在公开 SDK 源码里<strong>未找到</strong>，标 <span class="ev unverified">UNVERIFIED</span>（可能在内部分支 / 文档草案 / 不同 SDK，需进一步核实再加）。<br>
-          另外社区/经验流传 callback 回调有 <strong>3 秒 / 5 秒超时</strong>语义（handler 实现要快返回 / 异步处理重活），但 <span class="ev unverified">UNVERIFIED</span>：WebFetch <a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">stream/protocol</a> 页正文<strong>未找到</strong>具体的 3s/5s 数字；可能在 FAQ / overview 或后台文档里有，待人工核实。本仓库 SDK 实现以 <code>socketCallBackResponse</code> 立即 ack 为准。</p>
-          <p><a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">官方 developerpedia</a> 描述 stream 三大类：<strong>机器人收消息 / 事件订阅 / 互动卡片回调</strong>。<span class="ev community">COMMUNITY</span> 按通常流程，"事件订阅"需在开放平台后台先开通对应事件 → 才能通过 stream topic 下发；具体激活路径以后台文档为准（overview 页本身未明文写这一步要求，是经验流程）。</p>
+          另外社区/经验流传 callback 回调有 <strong>3 秒 / 5 秒超时</strong>语义（handler 实现要快返回 / 异步处理重活），但 <span class="ev unverified">UNVERIFIED</span>：WebFetch <a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">stream/protocol</a> 页正文<strong>未找到</strong>具体的 3s/5s 数字；可能在 FAQ / overview 或后台文档里有，待人工核实。本仓库 SDK 实现以 <code>socketCallBackResponse</code> 立即 ack 为准。</p>
+          <p><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">官方 developerpedia</a> 描述 stream 三大类：<strong>机器人收消息 / 事件订阅 / 互动卡片回调</strong>。<span class="ev community">COMMUNITY</span> 按通常流程，"事件订阅"需在开放平台后台先开通对应事件 → 才能通过 stream topic 下发；具体激活路径以后台文档为准（overview 页本身未明文写这一步要求，是经验流程）。</p>
         </div>
 
         <div class="callout success">
@@ -2117,9 +2117,9 @@ const MESSAGE_DEDUP_MAX_SIZE = 1000;</code></pre>
         </ul>
         <h4>官方文档与开发者百科</h4>
         <ul>
-          <li><a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">Stream 模式概述</a></li>
-          <li><a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 模式协议</a></li>
-          <li><a href="http://opensource.dingtalk.com/developerpedia/docs/learn/stream/faq/">Stream FAQ</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview/">Stream 模式概述</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/protocol/">Stream 模式协议</a></li>
+          <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/stream/faq/">Stream FAQ</a></li>
           <li><a href="https://opensource.dingtalk.com/developerpedia/docs/learn/bot/message/">developerpedia · 机器人消息（入站/出站类型清单）</a></li>
           <li><a href="https://open.dingtalk.com/document/orgapp/dingtalk-document-overview">钉钉文档概述</a>（SPA，需登录后台读正文）</li>
           <li><a href="https://open.dingtalk.com/document/orgapp/descriptions-about-adjusting-limit-and-frequency-of-api-calls">API 调用频次限制公告</a></li>
