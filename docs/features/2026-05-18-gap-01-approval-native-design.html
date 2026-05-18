@@ -53,7 +53,7 @@
           <li><strong>不做停机 finalize-on-stop</strong>（D13 v3 推迟）——D18 删除 store 后失去枚举能力；遗留卡片在用户点击时降级为"已过期/已关闭"</li>
           <li>不抽通用 action dispatcher / registry —— peer 三家都没做，approval 走自己的回调前缀分支，与 <code>feedback_up/down</code> / <code>btn_stop</code> 在 TOPIC_CARD listener 中同级并列</li>
           <li>不动 <code>btn_stop</code> 与 feedback 既有路径（向后兼容，零回归风险）</li>
-          <li>不为 markdown 模式做"教用户打 /approve 命令"的主路径文案——卡片是唯一推广 UX</li>
+          <li><strong>v3.3 修订删除原条目"不为 markdown 模式做主路径文案"</strong>——v3.3 起 markdown 路径就是主路径之一，必须教用户用 <code>/approve</code> 命令完成审批</li>
           <li>不做重启后主动 rebind pending approval（v1 范围；用户点过期/失效按钮时显式降级提示）</li>
           <li>不引入 select / input / datepicker 等高级组件——仅 button（已 CONFIRMED 平台支持）</li>
         </ul>
@@ -138,7 +138,7 @@ await resolveApprovalOverGateway({
             <tr>
               <td>D2</td>
               <td>Slash 命令</td>
-              <td>命令字面量与上游一致（<code>/approve &lt;id&gt; &lt;decision&gt;</code>），但 <strong>channel 端必须在 inbound-handler 入口早期 intercept</strong>，直接调 <code>resolveApprovalOverGateway</code>——<strong>不走正常 inbound dispatch 路径</strong>。<br/>原因（v1 实施踩坑确认）：Plugin Approval 的 <code>waitDecision</code> 阻塞在 <code>dispatchReply</code> 内并持有 DingTalk 自己的 session lock，若 <code>/approve</code> 走 normal pipeline 会 session lock 死锁，120s 超时失败。<br/><strong>权限校验必须由 channel 自行执行</strong>（<code>capability.authorizeActorAction</code>），<code>resolveApprovalOverGateway</code> 只连 gateway 不校验 approver（Issue 1 修订）。<br/>decision alias v3.1 显式支持范围：<code>allow-once|once|allow → allow-once；allow-always|always → allow-always；deny|reject|block → deny</code>；同时接两种顺序 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 与 <code>/approve &lt;decision&gt; &lt;id&gt;</code>。若上游引入新 alias 或新顺序需同步更新（§11.2 风险表登记）</td>
+              <td>命令字面量与上游一致（<code>/approve &lt;id&gt; &lt;decision&gt;</code>），但 <strong>channel 端必须在 inbound-handler 入口早期 intercept</strong>，直接调 <code>resolveApprovalOverGateway</code>——<strong>不走正常 inbound dispatch 路径</strong>。<br/>原因（v1 实施踩坑确认）：Plugin Approval 的 <code>waitDecision</code> 阻塞在 <code>dispatchReply</code> 内并持有 DingTalk 自己的 session lock，若 <code>/approve</code> 走 normal pipeline 会 session lock 死锁，120s 超时失败。<br/><strong>权限校验必须由 channel 自行执行</strong>（<code>capability.authorizeActorAction</code>），<code>resolveApprovalOverGateway</code> 只连 gateway 不校验 approver（Issue 1 修订）。<br/>decision alias v3.4 修订：上游 <span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts:19-30</span> 实际共 <strong>10 个</strong>：<br/><code>allow / once / allow-once / allowonce → allow-once</code>；<code>always / allow-always / allowalways → allow-always</code>；<code>deny / reject / block → deny</code>（v3.1 漏列了 <code>allowonce</code> 和 <code>allowalways</code> 两个无连字符形式）。channel 端 regex 必须完整支持这 10 个 alias × 两种顺序 = 20 个合法形式。若上游新增 alias / 顺序需同步更新（§11.2 风险表登记）</td>
               <td>对齐 PR #489 揭示的运行时约束</td>
             </tr>
             <tr>
@@ -316,6 +316,14 @@ await resolveApprovalOverGateway({
               <strong>(6)</strong> §10 PR-1 措辞改"resolve 通道生效，approval id 可见性依赖外部界面，完整 UX 在 PR-2"；
               <strong>(7)</strong> §6.7 删除 <code>store.register</code> 残留；
               <strong>(8)</strong> §6.3 / §6.6 / §8 / §9 等所有 already-resolved 文案改"ℹ️ 已处理或已过期"并明确 catch 后 return 避免覆盖；§6.8 alias 范围显式列清；§11.2 风险表新增 kind 派发边界条目</li>
+            <li>v3.4（2026-05-18 第五轮 review）：7 处修订——
+              <strong>(1)</strong> <strong>失败降级策略修订</strong>：card patch 明确失败时降级到 markdown（v3.3 错误地选"静默 pending"，用户连 approval id 都看不到无法兜底 /approve）；模糊失败（超时）仍 return null 避免双消息；
+              <strong>(2)</strong> 错误矩阵 / §6.7 / §10 等多处 createAndDeliver 失败 fallback / approval-card 模板未发布等过时表述统一清理；
+              <strong>(3)</strong> card-run-registry 当前无 sessionKey 查询 API，spec 明确新增 <code>resolveActiveCardRunBySession(accountId, sessionKey)</code>（<span class="file-ref">src/card/card-run-registry.ts</span>），含 state 过滤；§3.3 接触面表加该 file；
+              <strong>(4)</strong> /approve alias 补全至 10 个（v3.1 漏列 <code>allowonce</code> 和 <code>allowalways</code> 两个无连字符形式）；测试 case 数 16 → 20；CI 断言改为"上游 = channel 覆盖集"强相等；
+              <strong>(5)</strong> 删除 <code>resolveApproveCommandBehavior</code> 字段提及——上游工厂 <code>createApproverRestrictedNativeApprovalCapability</code> 参数集不接受该字段（<span class="file-ref">openclaw/src/plugin-sdk/approval-delivery-helpers.ts:30</span>），且 channel 端 /approve 早期 intercept 不依赖 dispatcher 行为定制；
+              <strong>(6)</strong> CardBtn 类型来源修订——当前 main 未导出 CardBtn TS 类型（<span class="file-ref">src/card/card-template.ts:12</span> 仅 template key 常量；PR #480 引入资产但没暴露类型）；approval 模块内自定义 CardBtn 接口，PR-2 实施时附 fixture 验证 v2 模板 btns key 契约；
+              <strong>(7)</strong> §1.1 / §3.3 等多处 v3.2 残留同步（删"不为 markdown 做主路径文案"；reply-strategy 关系澄清）</li>
             <li>v3.3（2026-05-18 第四轮 review，<strong>架构 pivot</strong>）：用户提出"卡片模式下不要新建独立 approval 卡片，挂到原 agent reply card 上；markdown 模式走 /approve 文字命令"。修订面：
               <strong>(1)</strong> 删除 D9 新模板创建/上传，复用 PR #480 已合并的 AI Card v2 + CardBtn[]；
               <strong>(2)</strong> D10 路由策略改为按 <code>card-run-registry</code> 实际状态（不读 messageType，因 runtime 降级不反映）；
@@ -433,9 +441,9 @@ await resolveApprovalOverGateway({
             <tr>
               <td><code>approval-card-locator.ts</code><br/><strong>★ v3.3 新增（D22 落地核心）</strong></td>
               <td>导出 <code>findActiveAgentCard({ cfg, accountId, sessionKey })</code>：按 sessionKey 查 <code>card-run-registry</code>，仅在 entry 存在且 <code>entry.card.state ∈ {PROCESSING, INPUTING}</code> 时返回 <code>{ outTrackId, sessionKey }</code>；否则返回 null（caller 走 markdown 路径）。
-                <br/>关键边界：entry.state 必须在 active 集合内，避免对 FINISHED/STOPPED/FAILED card 错误注入按钮</td>
-              <td>card-run-registry（既有模块）</td>
-              <td>~60</td>
+                <br/><strong>v3.4 关键依赖：card-run-registry 必须新增 sessionKey 查询 API</strong>——当前源码只导出 <code>resolveCardRun(outTrackId)</code> / <code>resolveCardRunByConversation</code> / <code>resolveCardRunByOwner</code>（<span class="file-ref">src/card/card-run-registry.ts:91-145</span>），无 by-sessionKey 查询。需在 <span class="file-ref">src/card/card-run-registry.ts</span> 新增 <code>resolveActiveCardRunBySession(accountId: string, sessionKey: string): CardRunRecord | null</code>——遍历 records Map，按 accountId + sessionKey 精确匹配且 state ∈ active 集合。Record 已有 sessionKey 字段（<span class="file-ref">card-run-registry.ts:16</span>），实现仅是新增一个 export。<strong>不要</strong>让 locator 依赖 conversation contains 模糊匹配或私有 Map 访问</td>
+              <td>card-run-registry（既有模块；需新增 export）</td>
+              <td>~60（+ card-run-registry 内 ~20 行新 API）</td>
             </tr>
             <tr>
               <td><code>approval-card-patcher.ts</code><br/><strong>★ v3.3 替代 card-template + card-render</strong></td>
@@ -444,7 +452,9 @@ await resolveApprovalOverGateway({
                 <br/>• <code>applyPendingPatch(outTrackId, approvalId, token)</code>：PUT 设置 <code>btns=approvalButtons, hasAction="true"</code>（隐藏 btn_stop，D23）；
                 <br/>• <code>applyResolvedPatch(outTrackId, decision, resolverDisplayName, token)</code>：PUT 清按钮 + 写"✅ 已批准 by @user · &lt;decision&gt;" 到 agent card 的某变量位（具体位置 PR-2 实施时决定）+ 若 card 还活则恢复 btn_stop；
                 <br/>• <code>applyExpiredPatch(outTrackId, token)</code>：PUT 清按钮 + 写"ℹ️ 已处理或已过期" + 恢复 btn_stop（如适用）</td>
-              <td>card-callback-service.updateCardVariables, AI Card v2 CardBtn 类型</td>
+              <td>card-callback-service.updateCardVariables；approval 模块内自定义的 CardBtn 类型（v3.4：当前 main 未导出 CardBtn 类型，approval 模块自定义）</td>
+            </tr>
+            <tr style="background:#f7f7f7"><td colspan="4" style="font-size:12px;color:var(--color-text-faint)">关于 CardBtn 类型来源（v3.4 修订）：核实当前 main 后，<span class="file-ref">src/card/card-template.ts:12</span> 仅暴露 template key 常量；PR #480 引入了 AI Card v2 ButtonGroup 资产但没暴露 TS 类型。所以 <code>approval-card-patcher.ts</code> 内部自定义 CardBtn 接口（含 text/color/status/event 四字段），并在 patcher 测试里加 fixture 验证："btns" key 在当前 v2 模板有 String 类型 cardParamMap 字段</td>
               <td>~150</td>
             </tr>
             <tr>
@@ -472,8 +482,11 @@ await resolveApprovalOverGateway({
             </tr>
             <tr>
               <td><code>approval-command-parser.ts</code><br/><strong>★ v3.2 新增</strong></td>
-              <td>纯解析（无副作用）。导出 <code>parseApproveCommand(text: string): { approvalId, decision } | null</code>：支持 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 与 <code>/approve &lt;decision&gt; &lt;id&gt;</code> 两种顺序 + 8 个 alias（allow-once / once / allow / allow-always / always / deny / reject / block）。
-                <br/>测试以上游 <span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> 的 alias 集合做对照，确保跨 channel 体验一致</td>
+              <td>纯解析（无副作用）。导出 <code>parseApproveCommand(text: string): { approvalId, decision } | null</code>：支持 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 与 <code>/approve &lt;decision&gt; &lt;id&gt;</code> 两种顺序 + <strong>10 个 alias</strong>（<span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts:19-30</span>）：
+                <br/>• allow-once 类：<code>allow / once / allow-once / allowonce</code>（4 个）
+                <br/>• allow-always 类：<code>always / allow-always / allowalways</code>（3 个）
+                <br/>• deny 类：<code>deny / reject / block</code>（3 个）
+                <br/>测试以上游 alias 集合做对照 + CI 断言上游 alias 数等于 channel 端 regex 覆盖数，跨 channel 体验一致</td>
               <td>—（纯函数）</td>
               <td>~60</td>
             </tr>
@@ -532,8 +545,13 @@ await resolveApprovalOverGateway({
               <td>—</td>
             </tr>
             <tr>
+              <td><span class="file-ref">src/card/card-run-registry.ts</span><br/><strong>（v3.4 新增改动面）</strong></td>
+              <td>新增 <code>export function resolveActiveCardRunBySession(accountId: string, sessionKey: string): CardRunRecord | null</code>——遍历 records Map（小，TTL 30min；scan 性能可接受）按 accountId + sessionKey 精确匹配且 record.card.state ∈ {PROCESSING, INPUTING} 过滤。<strong>不要</strong>修改 sweep 行为（避免影响 btn_stop 路径）</td>
+              <td>低（追加 export，不动既有 API；新 API 仅供 approval-card-locator 使用）</td>
+            </tr>
+            <tr>
               <td><span class="file-ref">src/types.ts</span></td>
-              <td>新增 <code>ApprovalCardEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> / <code>CardBtn</code> 类型（CardBtn 来自 PR #480）</td>
+              <td>新增 <code>ApprovalEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> 类型；同时 <strong>在 approval 模块内定义 <code>CardBtn</code> 类型</strong>（v3.4 修订：当前 main 未导出 CardBtn 类型——<span class="file-ref">src/card/card-template.ts:12</span> 仅暴露 template key 常量。PR #480 引入了 ButtonGroup 资产但没暴露 TS 类型）。approval 模块自定义 CardBtn 接口反映 sendCardRequest 契约（text/color/status/event 四字段）；并在 approval-card-patcher 测试里加"btns key 是 AI Card v2 模板约定字段"的 fixture 验证</td>
               <td>极低</td>
             </tr>
             <tr>
@@ -559,7 +577,7 @@ await resolveApprovalOverGateway({
           <ul style="margin:4px 0 0">
             <li><span class="file-ref">src/card/card-action-handler.ts</span>（btn_stop 不动）</li>
             <li><span class="file-ref">src/feedback-learning-service.ts</span>（与 approval 完全不交叉）</li>
-            <li>所有 <code>src/reply-strategy-*</code>（approval 不进 agent reply 路径，独立卡片）</li>
+            <li>所有 <code>src/reply-strategy-*</code>（v3.3 修订后仍 <strong>不修改 reply-strategy</strong>——但请注意 approval 与 reply-strategy 不再是完全无关：approval card 路径会通过 card-run-registry 找到 reply-strategy-card 创建的 active card，并对它做字段级 patch。reply-strategy 文件本身仍不动）</li>
           </ul>
         </div>
       </section>
@@ -703,11 +721,18 @@ commands:
             </tr>
             <tr>
               <td><code>deliverPending({ cfg, accountId, preparedTarget, request, pendingPayload })</code></td>
-              <td><strong>v3.3 修订：按 <code>preparedTarget.route</code> 分两条路径</strong>。
-                <br/><strong>route="card"</strong>：调 <code>approval-card-patcher.applyPendingPatch(activeCardOutTrackId, request.id, token)</code>——PUT updateCardVariables 注入 3 个 approval 按钮到现有 agent card（D22）+ 隐藏 btn_stop（D23）。成功返回 <code>entry = { approvalId, accountId, mode: "card", outTrackId: activeCardOutTrackId }</code>。
-                <br/><strong>route="markdown"</strong>：调 <code>approval-markdown-render</code> 构造 markdown 文本（含 /approve 命令模板），<code>sendProactiveTextOrMarkdown(config, target.to, text, ...)</code> 发独立消息。成功返回 <code>entry = { approvalId, accountId, mode: "markdown" }</code>（无 outTrackId）。
-                <br/><strong>失败</strong>（两路径通用）：transport 内部 catch + WARN log + return null。<strong>不</strong>在 catch 内调 <code>observe.onDeliveryError</code>（runtime 契约不允许 transport 自己触发 observe）。
-                <br/>注：card 路径失败时<strong>不</strong>降级到 markdown 路径——core 看 null 即标 entry 失败，避免一次 approval 投出两条消息</td>
+              <td><strong>v3.4 修订：按 <code>preparedTarget.route</code> 分两条路径 + card 失败时降级 markdown</strong>。
+                <br/><strong>route="card"</strong>：
+                <br/>(1) 调 <code>approval-card-patcher.applyPendingPatch(activeCardOutTrackId, request.id, token)</code>——PUT updateCardVariables 注入 3 个 approval 按钮到现有 agent card（D22）+ 隐藏 btn_stop（D23）。
+                <br/>(2) <strong>成功</strong> → 返回 <code>entry = { approvalId, accountId, mode: "card", outTrackId: activeCardOutTrackId }</code>。
+                <br/>(3) <strong>明确失败</strong>（HTTP 4xx/5xx 非超时、模板字段不支持、PUT 被钉钉拒等可确定失败的错误）→ WARN log + <strong>降级 markdown</strong>（调下方 route="markdown" 同一段逻辑），成功后返回 <code>entry = { approvalId, accountId, mode: "markdown" }</code>。这样用户至少能看到 approval id 与 /approve 命令模板。
+                <br/>(4) <strong>模糊失败</strong>（请求超时但可能已成功）→ WARN log + return null（不重发避免双消息）。
+                <br/><br/><strong>route="markdown"</strong>：
+                <br/>(1) 调 <code>approval-markdown-render</code> 构造 markdown 文本（含 /approve 命令模板）；
+                <br/>(2) <code>sendProactiveTextOrMarkdown(config, target.to, text, ...)</code> 发独立消息；
+                <br/>(3) 成功 → 返回 <code>entry = { approvalId, accountId, mode: "markdown" }</code>；
+                <br/>(4) 失败 → WARN log + return null（markdown 已是最低保障路径，再降无意义）。
+                <br/><br/>两路径通用约束：<strong>不</strong>在 catch 内调 <code>observe.onDeliveryError</code>——runtime 契约不允许 transport 自触发该钩子</td>
             </tr>
             <tr>
               <td><code>updateEntry({ cfg, accountId, entry, payload, phase })</code></td>
@@ -1069,34 +1094,41 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
           v2 future：若 SDK 暴露 <code>activeEntries</code> 查询 API，或 channel 引入轻量 outTrackId Set（仅供 stop-time 清理用，非完整 entry store），再实现 finalize。
         </div>
 
-        <h3>6.7 失败处理（v3.3 重写：两路由各自的失败模式）</h3>
+        <h3>6.7 失败处理（v3.4 修订：card 失败明确降级 markdown）</h3>
 
-        <h4>card 路径失败</h4>
+        <h4>card 路径失败的两种亚态</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">approval-card-patcher.applyPendingPatch(outTrackId, ...)
-  ├─ PUT updateCardVariables → 钉钉 API 5xx / 网络 / agent card 已 FINISHED 不可改
+  ├─ PUT updateCardVariables
   │
-  └─ 内部 catch + WARN 日志 + return null
-       core 看 null → 不再触发 updateEntry → 该 approval 在 channel 端无视觉反馈
-       用户可用 /approve 命令兜底
-
-注意：card 路径失败时<strong>不</strong>自动降级到 markdown 路径——这样会导致 1 个
-approval 投出 2 条消息（按钮 patch 残留 + 新 markdown 消息），UX 混乱。
-若需"双保险"策略，应在 prepareTarget 层就明确路由（已经是这样）。</pre>
+  ├─ 明确失败（HTTP 4xx/5xx 已收到 / 模板字段不支持 / 钉钉显式拒绝）
+  │     ├─ WARN log
+  │     └─ <strong>降级到 markdown 路径</strong>：调 sendProactiveTextOrMarkdown 发 /approve
+  │         命令模板消息（v3.4 修订——v3.3 错误地选择"静默 pending"，但此时用户看
+  │         不到 approval id，无法用 /approve 命令兜底，等于双重失败）
+  │         成功 → return entry { mode:"markdown", ... }
+  │         失败 → 同 markdown 路径失败处理
+  │
+  └─ 模糊失败（请求超时但可能已成功 / 网络中断难判定）
+        ├─ WARN log
+        └─ return null（不重发，避免"超时其实已成功 + 重发"导致双消息）
+            上游 core 把这个 approval 标失败，用户从 OpenClaw 监控看到 pending 超时</pre>
 
         <h4>markdown 路径失败</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">sendProactiveTextOrMarkdown(target, markdownText, ...)
   ├─ 钉钉 API 5xx / 工作通知权限不足 / target 不可达
   │
   └─ 内部 catch + WARN 日志 + return null
-       同上：core 看 null 不触发后续；approval 在 channel 端无视觉反馈
-       此场景下用户可能完全感知不到 approval 存在 → 仅靠 CLI/WebUI 日志</pre>
+       core 看 null 标 entry 失败；markdown 已是最低保障路径，再降无意义
+       此场景用户可能完全感知不到 approval 存在 → 仅靠 OpenClaw 端 pending 告警</pre>
 
         <div class="callout warn">
-          <strong>v3.3 失败模式的设计取舍</strong>
+          <strong>v3.4 失败降级策略关键原则</strong>
           <ul style="margin:6px 0 0">
-            <li>card 失败不降级 markdown：避免双消息。需要"双保险"留给 v2 future 决策（可能引入 retry + fallback chain）</li>
-            <li>markdown 失败不降级到其它通道：同样避免双消息；本来 markdown 已经是"最低保证"路径，再降无意义</li>
-            <li>两路径共同的接受前提：approval 投递失败是异常通路。生产环境应通过 OpenClaw 端 approval 监控发现（approval 长时间 pending 触发告警）</li>
+            <li><strong>card 明确失败 → markdown 降级</strong>：保证用户至少能看到 approval id + /approve 命令模板，否则用户连兜底命令都用不上</li>
+            <li><strong>card 模糊失败（超时）→ 不重发</strong>：避免"实际成功 + 重发"导致双消息</li>
+            <li>实现层面区分两种亚态的判定：HTTP status code 已收到 + body 含错误码 = 明确失败；socket timeout / connection reset = 模糊失败</li>
+            <li>markdown 失败不再降级：本来就是最低保障路径</li>
+            <li>所有失败都进 OpenClaw 端 approval pending 监控告警（runtime 已有此能力）</li>
           </ul>
         </div>
 
@@ -1460,16 +1492,28 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
           <thead><tr><th>失败点</th><th>触发条件</th><th>处理</th><th>用户体验</th></tr></thead>
           <tbody>
             <tr>
-              <td>createAndDeliver 网络/HTTP 失败</td>
-              <td>钉钉 API 5xx、超时、429</td>
-              <td><strong>v3.3 transport 自闭环按 route 分支</strong>：card 路径下 PUT 失败 → 内部 WARN log + return null（不降级到 markdown，避免双消息，详见 §6.7）；markdown 路径下 sendProactiveTextOrMarkdown 失败同样 internal log + return null。<strong>不</strong>调 observe.onDeliveryError——那是 runtime 捕获 throw 才触发的钩子，本设计选 transport 内部处理就不能同时让 runtime observe 介入</td>
-              <td>收到 markdown 消息，含 <code>/approve</code> 命令模板</td>
+              <td>card 路径 PUT updateCardVariables 失败</td>
+              <td>钉钉 API 5xx / 4xx 明确错 / 模板字段不支持 / agent card 已 FINISHED 不可改</td>
+              <td><strong>v3.4 修订：明确失败时降级 markdown</strong>。card 路径 catch → WARN log → 调 markdown 路径同一段（构造 markdown + sendProactiveTextOrMarkdown）→ 成功 return entry { mode:"markdown" }。<strong>不</strong>调 observe.onDeliveryError（runtime 契约不允许）</td>
+              <td>用户收到 markdown 消息含 approval id + <code>/approve</code> 命令模板，可手动完成审批</td>
             </tr>
             <tr>
-              <td>approval-card 模板未发布</td>
-              <td>templateId 在 DingTalk 侧不存在</td>
-              <td>同上（错误归一化为 createAndDeliver 失败）+ ERROR 级日志（transport 内部 log，不 throw）</td>
-              <td>降级到 markdown；运维需看日志修复</td>
+              <td>card 路径 PUT 模糊失败</td>
+              <td>请求超时但可能已成功 / 网络中断难判定</td>
+              <td>WARN log + return null（不重发避免"实际成功 + 重发"双消息）</td>
+              <td>用户可能在卡片上看到按钮也可能看不到；OpenClaw 端 pending 告警兜底</td>
+            </tr>
+            <tr>
+              <td>markdown 路径 sendProactiveTextOrMarkdown 失败</td>
+              <td>钉钉 API 5xx / 工作通知权限不足 / target 不可达</td>
+              <td>WARN log + return null（markdown 已是最低保障路径，再降无意义）</td>
+              <td>用户感知不到 approval；仅靠 OpenClaw 端 pending 告警</td>
+            </tr>
+            <tr>
+              <td>v3.3 提到的 "approval-card 模板未发布"</td>
+              <td><strong>不适用（v3.3 起 D9 不再新建模板）</strong></td>
+              <td>—</td>
+              <td>—</td>
             </tr>
             <tr>
               <td>updateCardVariables 失败</td>
@@ -1530,7 +1574,7 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
             <tr><td><code>tests/unit/approval-card-render.test.ts</code></td><td>pending/resolved/expired/canceled × exec/plugin = 8 个矩阵</td><td>~16</td></tr>
             <tr><td><code>tests/unit/approval-target-resolver.test.ts</code></td><td>origin 解析（含 turnSourceChannel=null）、DM 列表构造</td><td>~10</td></tr>
             <tr><td><code>tests/unit/approval-resolver.test.ts</code><br/><strong>★ v3.2</strong></td><td>D20/D21 核心：kind 推导 4 情况（plugin: 前缀 / 无前缀 + 两边授权 / 仅 plugin 授权 / 仅 exec 授权）、未授权返 unauthorized、<code>resolveApprovalOverGateway</code> 调用参数（含 resolveMethod 与 allowPluginFallback）、错误分类（already-resolved / not-found / gateway-error）；mock SDK gateway</td><td>~18</td></tr>
-            <tr><td><code>tests/unit/approval-command-parser.test.ts</code><br/><strong>★ v3.2</strong></td><td>两种顺序 × 8 个 alias = 16 个合法 case + 5 个 malformed case + 上游 commands-approve.ts alias 集合对照断言</td><td>~12</td></tr>
+            <tr><td><code>tests/unit/approval-command-parser.test.ts</code><br/><strong>★ v3.2（v3.4 修订）</strong></td><td>两种顺序 × <strong>10 个 alias = 20 个合法 case</strong> + 5 个 malformed case + 上游 <span class="file-ref">commands-approve.ts:19-30</span> alias 集合对照断言（CI 断言：上游 alias 数 = channel 端 regex 覆盖数）</td><td>~26</td></tr>
             <tr><td><code>tests/unit/approval-callback-handler.test.ts</code></td><td>cardPrivateData 结构化 parse（含 button index 后缀）、调 resolver、按 result 分支处理（resolved/unauthorized/已处理或已过期）；以 §1.2 的真机回调样本作 fixture（不重复测 resolver 内部逻辑——那由 resolver test 覆盖）</td><td>~14</td></tr>
             <tr><td><code>tests/unit/card-callback-service.test.ts</code>（扩展既有）</td><td>D16 改动：<code>analyzeCardCallback</code> 抽 <code>cardPrivateData</code> 含 actionIds + params；既有 feedback / btn_stop 用例不受影响</td><td>+6</td></tr>
             <tr><td><code>tests/unit/approval-command-intercept.test.ts</code></td><td>parser 命中 → 调 resolver；未授权 → sendProactiveTextOrMarkdown（mock）；resolve-failed 仅 log；非 /approve 命令 return false；不重复测 parser / resolver 内部</td><td>~8</td></tr>
@@ -1563,7 +1607,8 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
           <li><strong>self-approval 在 DM</strong>：approver 自己 DM 发起 exec → 投 1 卡到自己私聊 → 自己点 → 通过</li>
           <li><strong>非 approver 点击</strong>：投 1 卡 → 非 approver 用户点 → 收私聊拒绝 → 卡片不变（按钮保留）</li>
           <li><strong>过期</strong>：投卡 → mock 上游 expired event → core 调 updateEntry → 卡片刷成过期</li>
-          <li><strong>createAndDeliver 失败 fallback</strong>：mock HTTP 错 → deliverPending 返 null → 同步调 sendProactiveTextOrMarkdown 发 markdown 兜底（含 /approve 命令模板）</li>
+          <li><strong>card patch 明确失败降级 markdown</strong>（v3.4）：route="card" → mock applyPendingPatch 抛 HTTP 400 → deliverPending 自动降级到 markdown 路径 → 验证 sendProactiveTextOrMarkdown 被调（含 /approve 命令模板）→ entry.mode 最终为 "markdown"</li>
+          <li><strong>card patch 模糊失败不降级</strong>（v3.4）：route="card" → mock applyPendingPatch 抛 socket timeout → deliverPending 返 null（不重发避免双消息）→ 验证 sendProactiveTextOrMarkdown <strong>未被调</strong></li>
           <li><strong>用户敲 /approve 命令</strong>：群里 @bot /approve abc once → inbound-handler 早期 intercept → resolveApprovalOverGateway → 不进 reply 派发（不触发 session lock）</li>
           <li><strong>未配置 approver</strong>：execApprovals 缺省 → isConfigured=false → shouldHandle=false → 上游不会调 DingTalk 路径</li>
           <li><strong>turnSourceChannel 非 dingtalk</strong>（CLI 触发）：shouldHandle=false → 跳过 DingTalk 投递；用户在钉钉里手敲 /approve 完成审批</li>
@@ -1603,7 +1648,7 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
           <li>实现核心收敛点（D20）：<strong><code>approval-resolver.ts</code></strong>、<strong><code>approval-command-parser.ts</code></strong></li>
           <li>实现 v3.3 新增的 <strong><code>approval-card-locator.ts</code></strong>（D22 落地）—— PR-1 就要做，因为 markdown 路径下 locator 也会被调（返回 null 是触发 markdown 的信号）</li>
           <li>实现支撑模块：<code>approval-config.ts</code>、<code>approval-target-resolver.ts</code>（仅 origin）、<code>approval-capability.ts</code>（不含 nativeRuntime 完整实现）、<code>approval-command-intercept.ts</code>（薄壳，调 parser + resolver）</li>
-          <li>在 <code>src/channel.ts</code> 挂上 <code>approvalCapability</code>，<code>nativeRuntime</code> 暂留 <code>undefined</code>；capability 仅生效 <code>authorizeActorAction</code> / <code>resolveApproveCommandBehavior</code> 等权限部分</li>
+          <li>在 <code>src/channel.ts</code> 挂上 <code>approvalCapability</code>，<code>nativeRuntime</code> 暂留 <code>undefined</code>；capability 仅生效工厂吐出的部分（<code>authorizeActorAction</code> / <code>getActionAvailabilityState</code> / <code>delivery</code> / <code>native.describeDeliveryCapabilities</code>）。<br/><strong>v3.4 修订</strong>：<strong>不</strong>引入 <code>resolveApproveCommandBehavior</code>——上游工厂 <code>createApproverRestrictedNativeApprovalCapability</code>（<span class="file-ref">openclaw/src/plugin-sdk/approval-delivery-helpers.ts:30</span>）参数集不接受该字段；channel 端 <code>/approve</code> 走 §6.8 早期 intercept（绕过上游 dispatcher），不依赖 dispatcher 行为定制，因此本字段无意义</li>
           <li><strong>在 <code>src/inbound-handler.ts</code> 加 <code>/approve</code> 早期 intercept</strong>（§6.8，D2 落地）—— PR-1 就要做，因为这是 Feishu-同档体验的最后一公里</li>
           <li><strong>SDK 基线三件套</strong>（D17 v3.2）：peerDependency bump + <code>pnpm-lock.yaml</code> 更新 + 确认 <code>node_modules/openclaw</code> 版本 / tsconfig path 优先级</li>
           <li>schema、配置文档（草稿）</li>
@@ -1678,8 +1723,8 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
             </tr>
             <tr>
               <td>上游 commands-approve.ts 扩展 decision alias / 命令顺序</td>
-              <td>钉钉 channel 端 §6.8 的 regex 写死支持 allow-once|once|allow / allow-always|always / deny|reject|block 共 8 个别名 + 两种顺序；若上游新增 alias 或新顺序，channel 端用户敲新形式会被 channel 拒为 "malformed"</td>
-              <td>在 §6.8 regex 旁加显式注释引用上游文件路径；CI 加一个测试断言上游 alias 集合不超出 channel 端支持范围（参考 <span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> alias 列表）；或考虑改为复用上游 parser（如果上游导出 pure parse 函数则无须重写）</td>
+              <td>钉钉 channel 端 §6.8 的 regex v3.4 完整支持上游 10 个别名 + 两种顺序；若上游新增 alias 或新顺序，channel 端用户敲新形式会被 channel 拒为 "malformed"</td>
+              <td>在 §6.8 regex 旁加显式注释引用 <span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts:19-30</span>；CI 加一个测试断言上游 alias 集合 = channel 端 regex 覆盖集（强相等，非子集）；或考虑改为复用上游 parser（如果上游导出 pure parse 函数则无须重写）</td>
             </tr>
             <tr>
               <td>approval kind 按前缀派发的边界（Issue 2 修订相关）</td>
