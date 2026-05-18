@@ -133,9 +133,13 @@ export function createCardReplyStrategy(
   let latestReasoningSnapshot = "";
   /** Non-image media attachments deferred for out-of-card delivery. */
   let pendingNonImageMedia: DeferredMedia[] = [];
+  let deliveredCardImageBlock = false;
+
+  const getFallbackAnswer = (): string | undefined =>
+    finalTextForFallback || (sawFinalDelivery && !deliveredCardImageBlock ? EMPTY_FINAL_REPLY : undefined);
 
   const getRenderedTimeline = (options: { preferFinalAnswer?: boolean } = {}): string => {
-    const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
+    const fallbackAnswer = getFallbackAnswer();
     return controller.getRenderedContent({
       fallbackAnswer,
       overrideAnswer: options.preferFinalAnswer ? finalTextForFallback : undefined,
@@ -493,6 +497,7 @@ export function createCardReplyStrategy(
               await prepared.cleanup?.();
               if (result?.mediaId) {
                 await controller.appendImageBlock(result.mediaId);
+                deliveredCardImageBlock = true;
               }
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : String(err);
@@ -684,7 +689,7 @@ export function createCardReplyStrategy(
         await controller.waitForInFlight();
 
         // Prepare finalize options for single instances API call
-        const fallbackAnswer = finalTextForFallback || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
+        const fallbackAnswer = getFallbackAnswer();
         const blockListJson = controller.getRenderedBlocks({
           fallbackAnswer,
           overrideAnswer: finalTextForFallback,
@@ -692,7 +697,7 @@ export function createCardReplyStrategy(
         const content = controller.getRenderedContent({
           fallbackAnswer,
           overrideAnswer: finalTextForFallback,
-        }) || fallbackAnswer || EMPTY_FINAL_REPLY;
+        }) || fallbackAnswer || (deliveredCardImageBlock ? "" : EMPTY_FINAL_REPLY);
 
         controller.stop();
         log?.info?.(
@@ -814,7 +819,7 @@ export function createCardReplyStrategy(
     getFinalText(): string | undefined {
       return finalTextForFallback
         || controller.getFinalAnswerContent()
-        || (sawFinalDelivery ? EMPTY_FINAL_REPLY : undefined);
+        || getFallbackAnswer();
     },
   };
 }

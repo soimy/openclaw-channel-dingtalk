@@ -442,6 +442,101 @@ describe("inbound-handler media handling", () => {
     expect(cleanupB).toHaveBeenCalledTimes(1);
   });
 
+  it("card config with streaming off still delivers MEDIA image directives through markdown strategy when card creation falls back", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.sourceReplyDeliveryMode).toBe("automatic");
+        await dispatcherOptions.deliver(
+          {
+            text: [
+              "发你这两张图：",
+              "MEDIA:/tmp/中文 目录/截图 结果.png",
+              "MEDIA:~/.openclaw/workspace/临时 输出/生成 图片.png",
+            ].join("\n"),
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.createAICardMock.mockResolvedValueOnce(null);
+
+    const tmpImage = "/tmp/中文 目录/截图 结果.png";
+    const workspaceImage = "~/.openclaw/workspace/临时 输出/生成 图片.png";
+    const resolvedWorkspaceImage = path.resolve(
+      os.homedir(),
+      ".openclaw",
+      "workspace",
+      "临时 输出",
+      "生成 图片.png",
+    );
+
+    // Local path expansion happens in the markdown strategy after prepareMediaInput.
+    shared.prepareMediaInputMock
+      .mockResolvedValueOnce({ path: tmpImage })
+      .mockResolvedValueOnce({ path: workspaceImage });
+    shared.resolveOutboundMediaTypeMock.mockReturnValue("image");
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        cardStreamingMode: "off",
+        ackReaction: "",
+      } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_card_off_media_markdown",
+        msgtype: "text",
+        text: { content: "把图发我" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.prepareMediaInputMock).toHaveBeenNthCalledWith(
+      1,
+      tmpImage,
+      undefined,
+      undefined,
+    );
+    expect(shared.prepareMediaInputMock).toHaveBeenNthCalledWith(
+      2,
+      workspaceImage,
+      undefined,
+      undefined,
+    );
+    expect(shared.sendMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      [
+        "发你这两张图：",
+        "",
+        `![截图 结果.png](${tmpImage})`,
+        "",
+        `![生成 图片.png](${resolvedWorkspaceImage})`,
+      ].join("\n"),
+      expect.objectContaining({
+        sessionWebhook: "https://session.webhook",
+        quotedRef: {
+          targetDirection: "inbound",
+          key: "msgId",
+          value: "m_card_off_media_markdown",
+        },
+      }),
+    );
+  });
+
   it("deliver callback sends mixed text and media payloads", async () => {
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
@@ -568,6 +663,144 @@ describe("inbound-handler media handling", () => {
       expect.objectContaining({ content: "final output" }),  // answer-only markdown (image block excluded)
       undefined,
     );
+  });
+
+  it("card streaming mode all delivers MEDIA image directives into card image blocks", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.sourceReplyDeliveryMode).toBe("automatic");
+        await dispatcherOptions.deliver(
+          {
+            text: ["发你这张图：", "MEDIA:/tmp/test.png"].join("\n"),
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = { cardInstanceId: "card_stream_media", state: "1", lastUpdated: Date.now() } as unknown as {
+      cardInstanceId: string;
+      state: string;
+      lastUpdated: number;
+    };
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/test.png",
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("image");
+    shared.uploadMediaMock.mockResolvedValueOnce({ mediaId: "media_stream_img_123" });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        cardStreamingMode: "all",
+        ackReaction: "",
+      } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_card_stream_media_directive",
+        msgtype: "text",
+        text: { content: "把图发我" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+    expect(shared.prepareMediaInputMock).toHaveBeenCalledWith("/tmp/test.png", undefined, undefined);
+    expect(shared.resolveOutboundMediaTypeMock).toHaveBeenCalledWith({
+      mediaPath: "/tmp/test.png",
+      asVoice: false,
+    });
+    expect(shared.uploadMediaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dmPolicy: "open",
+        messageType: "card",
+        cardStreamingMode: "all",
+      }),
+      "/tmp/test.png",
+      "image",
+      undefined,
+    );
+    expect(shared.sendMessageMock).not.toHaveBeenCalled();
+
+    const commitPayload = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1];
+    expect(commitPayload?.content).toContain("发你这张图：");
+    expect(commitPayload?.content).not.toContain("MEDIA:/tmp/test.png");
+    expect(commitPayload?.blockListJson).toContain('"type":3');
+    expect(commitPayload?.blockListJson).toContain('"mediaId":"media_stream_img_123"');
+  });
+
+  it("card media-only MEDIA directive does not render Done as the visible answer", async () => {
+    const runtime = buildRuntime();
+    runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+      .fn()
+      .mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
+        expect(replyOptions?.sourceReplyDeliveryMode).toBe("automatic");
+        await dispatcherOptions.deliver(
+          {
+            text: "MEDIA:/tmp/generated-only.png",
+          },
+          { kind: "final" },
+        );
+        return { queuedFinal: false };
+      });
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    const card = { cardInstanceId: "card_media_only", state: "1", lastUpdated: Date.now() } as unknown as {
+      cardInstanceId: string;
+      state: string;
+      lastUpdated: number;
+    };
+    shared.createAICardMock.mockResolvedValueOnce(card);
+    shared.prepareMediaInputMock.mockResolvedValueOnce({
+      path: "/tmp/generated-only.png",
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
+    shared.resolveOutboundMediaTypeMock.mockReturnValueOnce("image");
+    shared.uploadMediaMock.mockResolvedValueOnce({ mediaId: "media_only_img_123" });
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        dmPolicy: "open",
+        messageType: "card",
+        cardStreamingMode: "all",
+        ackReaction: "",
+      } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_card_media_only_directive",
+        msgtype: "text",
+        text: { content: "把图发我" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    const commitPayload = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1];
+    expect(commitPayload?.content).not.toContain("✅ Done");
+    expect(commitPayload?.blockListJson).toContain('"type":3');
+    expect(commitPayload?.blockListJson).toContain('"mediaId":"media_only_img_123"');
+    expect(commitPayload?.blockListJson).not.toContain("✅ Done");
   });
 
   it("deliver callback falls back to proactive media send when sessionWebhook is absent", async () => {
