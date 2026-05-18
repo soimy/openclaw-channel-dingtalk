@@ -362,6 +362,14 @@ await approvalResolver.resolveApproval({
               <strong>(6)</strong> §10 PR-1 措辞改"resolve 通道生效，approval id 可见性依赖外部界面，完整 UX 在 PR-2"；
               <strong>(7)</strong> §6.7 删除 <code>store.register</code> 残留；
               <strong>(8)</strong> §6.3 / §6.6 / §8 / §9 等所有 already-resolved 文案改"ℹ️ 已处理或已过期"并明确 catch 后 return 避免覆盖；§6.8 alias 范围显式列清；§11.2 风险表新增 kind 派发边界条目</li>
+            <li>v3.5.1（2026-05-19 流程审核）：用户重审 approval 完整流程时发现 v3.5 改动没扫干净的 6 处残留——
+              <strong>(1)</strong> §6.2 场景 A 的 deliverPending 描述还在 PUT btns + hasAction:"true"（v3.3 风格），改成 toggle show_approve_btns=true + hasAction=false + markCardRunPendingApproval；
+              <strong>(2)</strong> §6.4 同步流的 applyResolvedPatch 描述还在"清按钮 + 写终态指示"，改成 toggle show_approve_btns=false + cardStillActive ? hasAction=true + clearCardRunPendingApproval，明确说明 v1 不写终态文字；
+              <strong>(3)</strong> §6.5 表头从 statusFooter 改成"card 按钮 actionId / params.action / 等价命令 / agent 行为"四列，明确独立 actionId；
+              <strong>(4)</strong> §6.6 重复点击：重写为"先反查 pendingApprovalId，命中/未命中两分支"，体现 D24；
+              <strong>(5)</strong> §6.6 重启后点旧卡片：改为"反查未命中 → 直接隐藏按钮 + return，不调上游 resolve"（之前还在描述上游 not-found catch）；
+              <strong>(6)</strong> §6.6 上游过期事件：PUT 字段改成 show_approve_btns + hasAction（之前还写 status + btns:"[]"）。
+              <br/>这是流程 end-to-end 一致性修订，不引入新决策</li>
             <li>v3.5（2026-05-18 用户实配 schema 对齐）：用户在 v2 模板上实际配置后揭示 5 处事实修订——
               <strong>(1)</strong> 模板新增 <code>approve_btns</code>（按钮组）+ <code>show_approve_btns</code>（Boolean）两个变量；
               <strong>(2)</strong> 三个按钮 actionId 独立命名 <code>allow-once</code> / <code>allow-always</code> / <code>deny</code>，<strong>无 index 后缀</strong>（之前测试 "approve0/1/2" 是因为 3 按钮都叫 approve 重名，DingTalk 才加 index 消歧；唯一名时原样回）；
@@ -884,23 +892,28 @@ approval-runtime 投递计划（D4 v1 origin-only）：
   │     dedupeKey: "dingtalk:default:group:cid_xxx:ai_card_xxx",
   │   }
 
-调 deliverPending（route=card 分支）：
+调 deliverPending（route=card 分支，v3.5：toggle 变量 + 反查映射）：
   └─ approval-card-patcher.applyPendingPatch("ai_card_xxx", "abc123", token)
-       → PUT updateCardVariables("ai_card_xxx", {
-           btns: JSON.stringify([<allow-once>, <allow-always>, <deny>]),
-           hasAction: "true",
-           // D23：approval 期间隐藏 btn_stop，所以 btns 只含 approval 3 个
-         }, token)
-       → entry = {
-           approvalId:"abc123",
-           accountId:"default",
-           mode:"card",
-           outTrackId:"ai_card_xxx",
-         }
+       │
+       ├─ PUT updateCardVariables("ai_card_xxx", {
+       │       show_approve_btns: "true",   // 显示 approval 3 按钮（D15 模板内置）
+       │       hasAction:         "false",  // 隐藏 btn_stop（D23）
+       │     }, token)
+       │   （按钮 actionId/params/颜色都在 v2 模板的 approve_btns 按钮组里固化，
+       │    channel 不传按钮定义；只 toggle 两个 Boolean 变量）
+       │
+       └─ markCardRunPendingApproval("ai_card_xxx", "abc123")
+           （D24 反查映射：把 approvalId 写到 card-run-registry record，
+            供后续 callback 用 outTrackId 反查）
+
+       → entry = { approvalId:"abc123", accountId:"default",
+                    mode:"card", outTrackId:"ai_card_xxx" }
   └─ core 把 entry 缓存到 activeEntries
 
 → 群里 staffA 和 staffB 在 agent reply card 底部看到 3 按钮
-  agent 流式输出暂停（waitDecision 阻塞），等点击 / 命令 / 过期</pre>
+  （允许一次 / 总是允许 / 拒绝；btn_stop 暂时隐藏）
+  agent 流式输出暂停（waitDecision 阻塞上游 turn 直到 resolve），
+  等用户点按钮 / 敲命令 / 过期</pre>
 
         <h4>场景 B：用户在 messageType=markdown 模式触发 exec（markdown 路径）</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">前提：messageType=markdown，agent reply 已通过 markdown 消息发出。
@@ -1051,16 +1064,21 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
         ├─ 分支命中 → 跳过既有 handleCardAction
         └─ finally: socketCallBackResponse(messageId, { success: true }) （ack 平台）</pre>
 
-        <h3>6.4 上游 resolve 后的状态同步（v3.3：按 entry.mode 分支）</h3>
+        <h3>6.4 上游 resolve 后的状态同步（v3.5：按 entry.mode 分支）</h3>
         <p>点击或命令 → 上游 store 标记 resolved → approval-handler-runtime 对每个 entry 调 <code>transport.updateEntry({ phase: "resolved" })</code>。channel 按 <code>entry.mode</code> 分支：</p>
 
-        <h4>mode === "card"：在原 agent reply card 上做终态 patch</h4>
+        <h4>mode === "card"：在原 agent reply card 上 toggle 变量</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">approval abc123 被 staffA 在 agent reply card 上点了"允许一次"
 
        ┌──────────────────────────────────────┐
        │ channel callback handler（§6.3 step 5）│
-       │   approval-card-patcher.applyResolvedPatch(outTrackId, ...)
-       │   → PUT 清按钮 + 写终态指示 + 恢复 btn_stop（如 INPUTING）│
+       │   approval-card-patcher.applyResolvedPatch(outTrackId,
+       │     decision, cardStillActive, token)
+       │   → PUT updateCardVariables(outTrackId, {
+       │       show_approve_btns: "false",     // 隐藏 approval 3 按钮
+       │       hasAction: cardStillActive ? "true" : "false", // 恢复 btn_stop
+       │     }, token)
+       │   → clearCardRunPendingApproval(outTrackId)  // D24 清反查映射
        └──────────────────┬───────────────────┘ ← 第一次 update（同步）
                           │
                           ▼ (resolveApprovalOverGateway 异步返回)
@@ -1070,7 +1088,7 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
        │   decision = allow-once               │
        │   resolvedBy = staffA                 │
        └──────────────────┬──────────────────┘
-                          │ 触发
+                          │ 触发上游 runtime
                           ▼
        presentation.buildResolvedResult({ view, entry })
          returns { kind:"update", payload:{
@@ -1080,15 +1098,19 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
                           │
                           ▼
        transport.updateEntry：entry.mode === "card" 分支
-         → approval-card-patcher.applyResolvedPatch(entry.outTrackId,
-             payload.decision, payload.resolverDisplayName, token)
+         → approval-card-patcher.applyResolvedPatch(entry.outTrackId, ...)
          → 与 callback handler 的 step 5 内容一致，幂等覆盖 OK
+         → core 从 activeEntries 移除该 entry
 
-       agent reply card 看起来：approval 按钮消失，多一行"✅ 已批准 by @staffA · allow-once"，
-       btn_stop 恢复显示，agent 继续流式输出（如果 decision != deny）
+       agent reply card 看起来：approval 按钮消失，btn_stop 恢复显示
+       （若 card 还 INPUTING），agent 继续流式输出（waitDecision 解除阻塞）
+
+       v3.5 v1 不写"✅ 已批准 by @user"终态文字（schema 无干净字段位，
+       §7.1 已说明）；用户感知"按钮消失=已处理"。v1.x 加 approval_status
+       变量后再写
 
        agent reply card 自己的状态机不变（PROCESSING/INPUTING/FINISHED 由
-       agent reply 流程控制，approval 只 patch cardParamMap 字段）</pre>
+       agent reply 流程控制，approval 只 patch 2 个 Boolean cardParamMap 字段）</pre>
 
         <h4>mode === "markdown"：v1 不发新通知消息</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">transport.updateEntry：entry.mode === "markdown" 分支
@@ -1101,24 +1123,29 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
         <h4>v2 future（DM 投递启用后）</h4>
         <p style="font-size:13px;color:var(--color-text-faint)">core 会对所有 entry（origin + 每个 DM）调 updateEntry，所有卡片同步刷成相同终态。当前 v1 origin-only 每个 approval 只有 1 个 entry。</p>
 
-        <h3>6.5 用户点 deny / allow-always 的差异</h3>
+        <h3>6.5 三个 decision 的差异（v3.5 同步）</h3>
         <table>
-          <thead><tr><th>按钮</th><th>actionId</th><th>statusFooter 终态</th></tr></thead>
+          <thead><tr><th>按钮</th><th>card 按钮 actionId</th><th>params.action</th><th>等价 /approve 命令</th><th>resolve 后 agent 行为</th></tr></thead>
           <tbody>
-            <tr><td>✅ 允许一次</td><td><code>/approve &lt;id&gt; allow-once</code></td><td>✅ 已批准 by @user · 允许一次</td></tr>
-            <tr><td>✅ 总是允许</td><td><code>/approve &lt;id&gt; allow-always</code></td><td>✅ 已批准 by @user · 总是允许</td></tr>
-            <tr><td>⛔ 拒绝</td><td><code>/approve &lt;id&gt; deny</code></td><td>⛔ 已拒绝 by @user</td></tr>
+            <tr><td>✅ 允许一次</td><td><code>allow-once</code></td><td><code>"allow-once"</code></td><td><code>/approve &lt;id&gt; allow-once</code></td><td>本次允许，下次相同操作仍需审批</td></tr>
+            <tr><td>✅ 总是允许</td><td><code>allow-always</code></td><td><code>"allow-always"</code></td><td><code>/approve &lt;id&gt; allow-always</code></td><td>本次允许 + 加入白名单，相同操作后续免审批</td></tr>
+            <tr><td>⛔ 拒绝</td><td><code>deny</code></td><td><code>"deny"</code></td><td><code>/approve &lt;id&gt; deny</code></td><td>本次拒绝，agent turn 通常被上游终止</td></tr>
           </tbody>
         </table>
+        <p style="font-size:13px;color:var(--color-text-faint)">resolve 是否触发 agent 继续 / 终止由上游 approval-handler-runtime 决定，channel 端只负责传递 decision，不解释语义。</p>
 
         <h3>6.6 失败 / 边界场景</h3>
 
         <h4>用户重复点击（按钮看起来还在但已 resolved）</h4>
         <ol>
-          <li>callback-handler 调 <code>resolveApprovalOverGateway</code></li>
-          <li>上游返回 <code>already-resolved</code> 类的具名错误（catch 到）</li>
-          <li>catch 分支调 <code>updateCardVariables</code> 把卡片刷成"ℹ️ 已处理或已过期"（即使 UI 还没刷过来也立即修正）</li>
-          <li>对用户：第二次点击看起来等同于第一次"已生效"，无打扰提示</li>
+          <li>callback-handler 解析按钮 → 反查 <code>cardRun.pendingApprovalId</code></li>
+          <li>反查可能命中（resolved 后还没来得及 clear）或未命中（已 clear）：
+            <ul>
+              <li><strong>命中</strong>：调 resolver → 上游返回 already-resolved → catch 分支 PUT <code>{ show_approve_btns: "false" }</code> 把按钮再次隐藏</li>
+              <li><strong>未命中</strong>：直接 PUT <code>{ show_approve_btns: "false" }</code>，return "no-pending-approval"</li>
+            </ul>
+          </li>
+          <li>对用户：第二次点击 = 按钮立即消失，与第一次结果一致，无打扰提示</li>
         </ol>
 
         <h4>非 approver 点击</h4>
@@ -1129,13 +1156,12 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
           <li>日志 <code>[DingTalk][Approval][Denied] approvalId=&lt;id&gt; clicker=&lt;userId&gt;</code></li>
         </ol>
 
-        <h4>Channel 重启后用户点旧卡片（v3：no-store 模式下的行为）</h4>
+        <h4>Channel 重启后用户点旧卡片（v3.5）</h4>
         <ol>
-          <li>channel 端无本地 store（D18），但 entry 信息从平台回调的 <code>outTrackId</code> 仍能拿到</li>
-          <li>callback-handler 解析 cardPrivateData 拿到 <code>approvalId</code> + <code>decision</code> → 直接调 <code>resolveApprovalOverGateway</code></li>
-          <li>上游 core 在重启后 <code>activeEntries</code> 也清空了，<code>resolveApprovalOverGateway</code> 返回 <code>not-found</code></li>
-          <li>callback-handler 进 catch 分支 → <code>updateCardVariables(outTrackId, { status: "ℹ️ 已处理或已过期", hasAction: "false", btns: "[]" })</code></li>
-          <li>用户体感：按钮点了一下卡片刷成"已过期"，明确反馈——对长时间下线降级，可接受</li>
+          <li>channel 端 card-run-registry 内存清空 → <code>resolveCardRun(outTrackId).pendingApprovalId</code> 返 null</li>
+          <li>callback-handler 进 "no-pending-approval" 分支 → PUT <code>{ show_approve_btns: "false" }</code>，return</li>
+          <li>不调上游 resolve（没 approvalId 可传）；上游 approval 由它自己的 TTL 兜底</li>
+          <li>用户体感：按钮点了一下就消失——降级到"按钮自动消失"，对长时间下线可接受</li>
         </ol>
 
         <h4>上游过期事件触达</h4>
@@ -1144,9 +1170,17 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
   │     phase: "expired",
   │   }}
   └─ transport.updateEntry({ entry, payload, phase: "expired" })
-       → entry 由 core 从 activeEntries 取出回传（无需 channel 本地 store）
-       → PUT /v1.0/card/instances 把 status 改为 "⏰ 已过期"，hasAction=false
-       → core 从 activeEntries 移除该 entry</pre>
+       → entry.mode === "card" 分支：
+         approval-card-patcher.applyExpiredPatch(entry.outTrackId, cardStillActive, token)
+         → PUT updateCardVariables({
+             show_approve_btns: "false",
+             hasAction: cardStillActive ? "true" : "false",
+           })
+         → clearCardRunPendingApproval(entry.outTrackId)
+       → entry.mode === "markdown" 分支：no-op
+       → core 从 activeEntries 移除该 entry
+
+       agent reply card：approval 按钮自动消失，btn_stop 视 card 状态恢复</pre>
 
         <h4>Channel stopClient（账号停用 / gateway 重启）—— v3 推迟到 v2</h4>
         <div class="callout warn">
