@@ -58,66 +58,89 @@
           <li>不引入 select / input / datepicker 等高级组件——仅 button（已 CONFIRMED 平台支持）</li>
         </ul>
 
-        <h3>1.2 按钮 payload 编码与解码（D15 落地）</h3>
-        <div class="callout warn">
-          <strong>真机回调实证（2026-03-21）：DingTalk 会自动在 actionId 末尾追加 button 索引</strong><br/>
-          定义 <code>btns = [{actionId:"btn_approve"}, {actionId:"btn_approve_once"}, {actionId:"btn_deny"}]</code> →
-          回调拿到的 <code>cardPrivateData.actionIds[0]</code> 依次是 <code>"btn_approve0"</code> / <code>"btn_approve_once1"</code> / <code>"btn_deny2"</code>。
-          所以 actionId <strong>不能</strong>承载结构化语义（解析正则会乱）；结构化信息必须走 <code>params</code>。
+        <h3>1.2 按钮 payload 编码与解码（D15/D24 落地，v3.5 对齐用户实配 schema）</h3>
+
+        <div class="callout success">
+          <strong>v3.5 实测核对：DingTalk 仅在 actionId 重名时才追加 index 后缀</strong><br/>
+          v3.2 测试 3 按钮都叫 "approve" → 回调 "approve0/1/2"（消歧）；
+          v3.5 用户在模板配 3 按钮独立 actionId（allow-once/allow-always/deny）→ 回调原样回 "allow-once" / "allow-always" / "deny"（无后缀）。
+          唯一名时无后缀。
         </div>
 
-        <h4>编码（构造按钮时）</h4>
-        <p>三按钮共享同一个 <code>actionId: "approval"</code>，靠 <code>params</code> 区分：</p>
-        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// approval-card-service.ts 内部
-btn.event = {
-  type: "sendCardRequest",
-  params: {
-    actionId: "approval",                              // 三按钮全用这个
-    params: { t: "approval", d: "&lt;decision&gt;", id: "&lt;approvalId&gt;" },
-  },
-}
-// decision ∈ { "allow-once" | "allow-always" | "deny" }</pre>
+        <h4>编码（v2 模板内置的按钮组定义）</h4>
+        <p>v3.5 起按钮在 AI Card v2 模板内置（"按钮组来源：指定"），channel 不再构造 <code>CardBtn[]</code>。模板 schema 配置（用户实测）：</p>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// AI Card v2 模板里 approve_btns 按钮组的 3 个按钮：
+//
+// 按钮 1（允许一次）：
+//   text=允许一次, color=green, status=normal
+//   event:
+//     type:    "sendCardRequest"
+//     ActionId: "allow-once"
+//     回传参数: [{ 参数名: "action", 参数类型: 静态值, 参数值: "allow-once" }]
+//
+// 按钮 2（总是允许）：
+//   ActionId: "allow-always", params={action:"allow-always"}
+//
+// 按钮 3（拒绝）：
+//   ActionId: "deny", params={action:"deny"}
+//
+// 显示控制（条件计算）：show_approve_btns 的值为 true → 整组可见
 
-        <h4>回调实测形态</h4>
-        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用户点"允许"按钮（btn[0]），平台 push 的 callback data.content：
+// channel 端 patch 时只需 PUT 两个变量：
+updateCardVariables(outTrackId, {
+  show_approve_btns: "true",     // ← 显示 approval 按钮组（D23）
+  hasAction:         "false",    // ← 隐藏 btn_stop（D23）
+}, token)
+// 三个按钮的 actionId / params 都在 template 里固定，channel 不传</pre>
+
+        <h4>回调实测形态（用户配 schema 后的预期）</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用户点"允许一次"按钮，平台 push 的 callback data.content：
 {
   "cardPrivateData": {
-    "actionIds": ["approval0"],                        // ← 平台追加 index "0"
-    "params": { "t": "approval", "d": "allow-once", "id": "abc123" }
-  }
+    "actionIds": ["allow-once"],          // ← 唯一命名，无 index 后缀
+    "params":    { "action": "allow-once" }
+  },
+  "outTrackId":  "ai_card_xxx",           // ← agent reply card 的 id
+  "userId":      "staffA",                 // ← clicker staffId
+  "spaceType":   "im" 或 "group",
+  ...
 }
-// 注意：content 与 value 字段内容一致（钉钉冗余）
-// userId 字段：staffId（已用户确认），不是 unionId</pre>
+// 注意 approval id 不在 payload —— 必须通过 outTrackId 反查（D24）</pre>
 
         <h4>解码（callback 入口）</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 第一步：扩展后的 analyzeCardCallback 把 cardPrivateData 整体放进 analysis
-const cpd = analysis.cardPrivateData;                  // { actionIds, params }
+const cpd = analysis.cardPrivateData;          // { actionIds, params }
 
 // 第二步：parseApprovalFromCardPrivateData(cpd)
-if (!cpd?.actionIds?.[0]?.startsWith("approval")) return null;  // 前缀匹配兼容 index 后缀
-if (cpd.params?.t !== "approval") return null;
-if (!["allow-once","allow-always","deny"].includes(cpd.params?.d)) return null;
-if (typeof cpd.params?.id !== "string") return null;
-return { approvalId: cpd.params.id, decision: cpd.params.d };</pre>
+//   actionId 用 exact match（唯一命名无后缀）；fallback 用 params.action 兜底
+//   （万一未来 schema 改动让 actionId 出现后缀也不会断）
+if (!cpd?.params?.action) return null;
+const action = cpd.params.action;
+if (!["allow-once", "allow-always", "deny"].includes(action)) return null;
+const decision = action as "allow-once" | "allow-always" | "deny";
+
+// 第三步（D24）：approvalId 反查
+const cardRun = resolveCardRun(analysis.outTrackId);
+if (!cardRun?.pendingApprovalId) {
+  // 卡片不存在/未挂 approval/已被清理 → 视为"已处理或已过期"
+  return { approvalId: null, decision, reason: "no-pending-approval" };
+}
+return { approvalId: cardRun.pendingApprovalId, decision };</pre>
 
         <h4>回写上游</h4>
-        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用 SDK 公开 API（v2026.4.7+）：
-import { resolveApprovalOverGateway } from "openclaw/plugin-sdk/approval-gateway-runtime";
-
-await resolveApprovalOverGateway({
-  cfg,
-  approvalId,
-  decision,
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用 SDK 公开 API（v2026.4.7+），通过 approval-resolver 单点收敛（D20）：
+await approvalResolver.resolveApproval({
+  cfg, accountId,
+  approvalId, decision,
   senderId: analysis.userId,           // staffId
-  clientDisplayName: "DingTalk",
-});
-// SDK 内部按 approval kind 自动 dispatch 到
-// exec.approval.resolve / plugin.approval.resolve</pre>
+  log,
+})
+// resolver 内部按 D21 推导 resolveMethod + allowPluginFallback，
+// 然后调 resolveApprovalOverGateway。channel 端零重复</pre>
 
         <div class="callout">
           <strong>命令路径与按钮路径的关系</strong><br/>
-          v1 spec 宣称"按钮和 <code>/approve</code> 命令走完全同一条解析链"——v2 不再成立（按钮走 cardPrivateData，命令走文本 regex）。
-          但两条路径都最终调同一个 <code>resolveApprovalOverGateway</code>，**等价收敛到上游 store**。用户感知一致，channel 内部解码逻辑分两条。
+          两条路径都最终调同一个 <code>approval-resolver.resolveApproval</code>（D20 单点收敛）。差异仅在 decode 阶段：按钮走 cardPrivateData + outTrackId 反查；命令走文本 regex。用户感知一致。
         </div>
       </section>
 
@@ -225,9 +248,16 @@ await resolveApprovalOverGateway({
             </tr>
             <tr>
               <td>D15</td>
-              <td>按钮 payload 编码</td>
-              <td><strong>所有三按钮共享 actionId <code>"approval"</code></strong>，decision/id 走 <code>params</code> 结构化字段：<br/><code>event.params = { actionId: "approval", params: { t: "approval", d: "allow-once"|"allow-always"|"deny", id: &lt;approvalId&gt; } }</code><br/>原因（真机回调证据）：DingTalk 会在 actionId 末尾自动追加 button index（"approval" → "approval0"/"approval1"/"approval2"），用前缀匹配 + 结构化 params 比字符串字面量解析稳得多。</td>
-              <td>对齐 PR #489 + 真机 payload</td>
+              <td>按钮 payload 编码（v3.5 大改：对齐用户实配 schema）</td>
+              <td><strong>三个按钮独立命名 actionId</strong>（与 OpenClaw 语义对齐）：
+                <br/>• 允许一次 → actionId=<code>allow-once</code>, params={action:"allow-once"}
+                <br/>• 总是允许 → actionId=<code>allow-always</code>, params={action:"allow-always"}
+                <br/>• 拒绝 → actionId=<code>deny</code>, params={action:"deny"}
+                <br/>
+                <br/><strong>关键修正</strong>（v3.5 实测）：DingTalk 仅在 <strong>actionId 重名时才追加 button index 后缀</strong>（消歧用）。独立命名时 callback 中 actionId 原样回传，<strong>无 index 后缀</strong>。之前 v3.2 看到的 "approve0/1/2" 是测试时 3 按钮都叫 "approve" 触发的消歧行为。
+                <br/>
+                <br/><strong>approval id 不在按钮 payload</strong>——只能通过 callback 的 <code>outTrackId</code>（agent reply card 的 id）反查（详见 D24）</td>
+              <td>对齐用户实测 + OpenClaw 命名习惯</td>
             </tr>
             <tr>
               <td>D16</td>
@@ -291,12 +321,28 @@ await resolveApprovalOverGateway({
             </tr>
             <tr>
               <td>D23</td>
-              <td>btn_stop 与 approval 按钮共存（v3.3 新增）</td>
-              <td><strong>approval 期间隐藏 btn_stop</strong>（cardParamMap.btns 只含 approval 3 按钮）；
-                <br/><strong>resolved 后恢复 btn_stop</strong>（若 agent card 还在 INPUTING 状态，让用户继续可中止 agent）；
-                <br/><strong>expired/decision=deny 时</strong>恢复 btn_stop 不一定有意义——deny 时 agent 通常会被上游终止，card 进入 STOPPED 状态，按钮自然隐藏。
-                <br/>语义动机："等批准" 阶段 stop 没语义（agent 卡在等决定），4 按钮也太挤；批准放行后 agent 继续输出，stop 才重新有用</td>
-              <td>v3.3 用户拍板</td>
+              <td>btn_stop 与 approval 按钮共存（v3.3 新增；v3.5 实施修订）</td>
+              <td>独立 cardParamMap 变量分别控制可见性：
+                <br/>• <code>show_approve_btns</code>（Boolean）→ 控制 approval 按钮组（D15 三按钮）
+                <br/>• <code>hasAction</code>（Boolean）→ 控制 btn_stop（现有 AI Card v2 既有字段）
+                <br/>
+                <br/><strong>pending 时</strong>：show_approve_btns=true + hasAction=false（隐藏 stop）；
+                <br/><strong>resolved 时</strong>：show_approve_btns=false + hasAction=true（恢复 stop，若 card 还活跃）；
+                <br/><strong>expired 时</strong>：show_approve_btns=false + hasAction 视 card 状态而定。
+                <br/>语义动机："等批准" 阶段 stop 没语义（agent 卡在等决定）；批准放行后 agent 继续输出，stop 才重新有用</td>
+              <td>v3.3 用户拍板 + v3.5 实测 schema 字段</td>
+            </tr>
+            <tr>
+              <td>D24</td>
+              <td>approvalId 反查机制（v3.5 新增）</td>
+              <td>按钮 payload 不携带 approval id（D15），但 callback 一定带 <code>outTrackId</code>（agent reply card 的 id）。channel 端通过扩展 <code>CardRunRecord</code> 加一个新字段 <code>pendingApprovalId?: string</code> 来建立反查映射：
+                <br/>• <code>approval-card-patcher.applyPendingPatch(outTrackId, approvalId)</code> 内部调 <code>markCardRunPendingApproval(outTrackId, approvalId)</code> 把 approvalId 写到 record；
+                <br/>• callback handler 拿到 outTrackId 后 <code>resolveCardRun(outTrackId).pendingApprovalId</code> 即可拿到 approvalId；
+                <br/>• <code>applyResolvedPatch</code> / <code>applyExpiredPatch</code> 内部调 <code>clearCardRunPendingApproval(outTrackId)</code> 清字段。
+                <br/>
+                <br/><strong>不引入独立 approval-store</strong>——只是给现有 <code>card-run-registry</code> 加 1 个 optional 字段 + 2 个 API，与 D18 边界一致。
+                <br/><strong>一卡只能挂 1 个 approval</strong>（pendingApprovalId 是单字段）；agent 串行 approval 是天然约束，多并发 approval 不在 v1 范围</td>
+              <td>v3.5 用户拍板（A 方案：不再改模板）</td>
             </tr>
           </tbody>
         </table>
@@ -316,6 +362,13 @@ await resolveApprovalOverGateway({
               <strong>(6)</strong> §10 PR-1 措辞改"resolve 通道生效，approval id 可见性依赖外部界面，完整 UX 在 PR-2"；
               <strong>(7)</strong> §6.7 删除 <code>store.register</code> 残留；
               <strong>(8)</strong> §6.3 / §6.6 / §8 / §9 等所有 already-resolved 文案改"ℹ️ 已处理或已过期"并明确 catch 后 return 避免覆盖；§6.8 alias 范围显式列清；§11.2 风险表新增 kind 派发边界条目</li>
+            <li>v3.5（2026-05-18 用户实配 schema 对齐）：用户在 v2 模板上实际配置后揭示 5 处事实修订——
+              <strong>(1)</strong> 模板新增 <code>approve_btns</code>（按钮组）+ <code>show_approve_btns</code>（Boolean）两个变量；
+              <strong>(2)</strong> 三个按钮 actionId 独立命名 <code>allow-once</code> / <code>allow-always</code> / <code>deny</code>，<strong>无 index 后缀</strong>（之前测试 "approve0/1/2" 是因为 3 按钮都叫 approve 重名，DingTalk 才加 index 消歧；唯一名时原样回）；
+              <strong>(3)</strong> 按钮在 template 内置（"按钮组来源: 指定"），channel <strong>不再构造 CardBtn[]</strong>，只 toggle <code>show_approve_btns</code> 可见性；
+              <strong>(4)</strong> 回传参数仅 <code>params.action</code>（值 = decision），<strong>不带 approval id</strong>——必须通过 outTrackId 反查 approvalId；
+              <strong>(5)</strong> 新增 D24：approvalId 反查机制——给 <code>CardRunRecord</code> 加 <code>pendingApprovalId?: string</code> 字段 + <code>markCardRunPendingApproval</code> / <code>clearCardRunPendingApproval</code> API。
+              <br/>影响：D15 改、新增 D24；§1.2 / §3.2 / §3.3 / §5.2 / §5.3 / §6.3 / §7.1 / §7.2 全部对齐；模块层面 approval-card-patcher 大幅简化（不构造按钮数组）；approval 模块不再需要自定义 CardBtn 类型</li>
             <li>v3.4（2026-05-18 第五轮 review）：7 处修订——
               <strong>(1)</strong> <strong>失败降级策略修订</strong>：card patch 明确失败时降级到 markdown（v3.3 错误地选"静默 pending"，用户连 approval id 都看不到无法兜底 /approve）；模糊失败（超时）仍 return null 避免双消息；
               <strong>(2)</strong> 错误矩阵 / §6.7 / §10 等多处 createAndDeliver 失败 fallback / approval-card 模板未发布等过时表述统一清理；
@@ -446,16 +499,17 @@ await resolveApprovalOverGateway({
               <td>~60（+ card-run-registry 内 ~20 行新 API）</td>
             </tr>
             <tr>
-              <td><code>approval-card-patcher.ts</code><br/><strong>★ v3.3 替代 card-template + card-render</strong></td>
-              <td>知道如何在<strong>已存在的 agent reply card</strong>上做按钮区域 patch：
-                <br/>• <code>buildApprovalButtons(approvalId): CardBtn[]</code>（3 个按钮，编码同 §1.2 D15）；
-                <br/>• <code>applyPendingPatch(outTrackId, approvalId, token)</code>：PUT 设置 <code>btns=approvalButtons, hasAction="true"</code>（隐藏 btn_stop，D23）；
-                <br/>• <code>applyResolvedPatch(outTrackId, decision, resolverDisplayName, token)</code>：PUT 清按钮 + 写"✅ 已批准 by @user · &lt;decision&gt;" 到 agent card 的某变量位（具体位置 PR-2 实施时决定）+ 若 card 还活则恢复 btn_stop；
-                <br/>• <code>applyExpiredPatch(outTrackId, token)</code>：PUT 清按钮 + 写"ℹ️ 已处理或已过期" + 恢复 btn_stop（如适用）</td>
-              <td>card-callback-service.updateCardVariables；approval 模块内自定义的 CardBtn 类型（v3.4：当前 main 未导出 CardBtn 类型，approval 模块自定义）</td>
-            </tr>
-            <tr style="background:#f7f7f7"><td colspan="4" style="font-size:12px;color:var(--color-text-faint)">关于 CardBtn 类型来源（v3.4 修订）：核实当前 main 后，<span class="file-ref">src/card/card-template.ts:12</span> 仅暴露 template key 常量；PR #480 引入了 AI Card v2 ButtonGroup 资产但没暴露 TS 类型。所以 <code>approval-card-patcher.ts</code> 内部自定义 CardBtn 接口（含 text/color/status/event 四字段），并在 patcher 测试里加 fixture 验证："btns" key 在当前 v2 模板有 String 类型 cardParamMap 字段</td>
-              <td>~150</td>
+              <td><code>approval-card-patcher.ts</code><br/><strong>★ v3.5 大幅简化（不再构造按钮）</strong></td>
+              <td>v3.5：按钮在 v2 模板内置（"按钮组来源：指定"，3 按钮 actionId/params 都固化），patcher 只 toggle 变量 + 维护 D24 反查映射。
+                <br/>• <code>applyPendingPatch(outTrackId, approvalId, token)</code>：PUT updateCardVariables({ <code>show_approve_btns: "true"</code>, <code>hasAction: "false"</code> }) + <code>markCardRunPendingApproval(outTrackId, approvalId)</code>；
+                <br/>• <code>applyResolvedPatch(outTrackId, decision, token, cardStillActive)</code>：PUT updateCardVariables({ <code>show_approve_btns: "false"</code>, <code>hasAction: cardStillActive ? "true" : "false"</code> }) + <code>clearCardRunPendingApproval(outTrackId)</code>；
+                <br/>• <code>applyExpiredPatch(outTrackId, token, cardStillActive)</code>：同上但语义不同。
+                <br/>
+                <br/><strong>v3.5 已知限制（v1）</strong>：用户实测 schema 里没专门的 approval 终态文字位（statusLine 被 taskInfo 占用，contentKey 与 stream 写冲突）。v1 终态仅靠"按钮消失"——用户感知按钮没了就是已处理。若需明确终态文字，v1.x 让用户在模板加 <code>approval_status</code> 变量后再 PUT 写入。
+                <br/>
+                <br/>v3.5 不再需要自定义 CardBtn 类型（v3.4 关心的事在 v3.5 自动失效——按钮 channel 端不构造）</td>
+              <td>card-callback-service.updateCardVariables; card-run-registry pendingApprovalId API（v3.5 新增）</td>
+              <td>~80（v3.4 是 ~150）</td>
             </tr>
             <tr>
               <td><code>approval-markdown-render.ts</code><br/><strong>★ v3.3 替代 fallback-render</strong></td>
@@ -545,13 +599,19 @@ await resolveApprovalOverGateway({
               <td>—</td>
             </tr>
             <tr>
-              <td><span class="file-ref">src/card/card-run-registry.ts</span><br/><strong>（v3.4 新增改动面）</strong></td>
-              <td>新增 <code>export function resolveActiveCardRunBySession(accountId: string, sessionKey: string): CardRunRecord | null</code>——遍历 records Map（小，TTL 30min；scan 性能可接受）按 accountId + sessionKey 精确匹配且 record.card.state ∈ {PROCESSING, INPUTING} 过滤。<strong>不要</strong>修改 sweep 行为（避免影响 btn_stop 路径）</td>
-              <td>低（追加 export，不动既有 API；新 API 仅供 approval-card-locator 使用）</td>
+              <td><span class="file-ref">src/card/card-run-registry.ts</span><br/><strong>（v3.4 + v3.5 新增改动面）</strong></td>
+              <td><strong>v3.4 改动</strong>：新增 <code>resolveActiveCardRunBySession(accountId, sessionKey): CardRunRecord | null</code>——遍历 records Map 按 accountId + sessionKey 精确匹配且 state ∈ {PROCESSING, INPUTING} 过滤。
+                <br/><strong>v3.5 新增（D24 落地）</strong>：
+                <br/>• <code>CardRunRecord</code> 接口新增 <code>pendingApprovalId?: string</code> 字段；
+                <br/>• 新增 <code>markCardRunPendingApproval(outTrackId: string, approvalId: string): void</code>；
+                <br/>• 新增 <code>clearCardRunPendingApproval(outTrackId: string): void</code>。
+                <br/>两个 API 都是无副作用的 setter/clearer，对既有 outTrackId 路径无影响。
+                <br/><strong>不要</strong>修改 sweep 行为（避免影响 btn_stop 路径）。注意：record 被 sweep 时 pendingApprovalId 自然丢失——callback 反查失败时降级为 "已处理或已过期" 提示（D24 + §6.6）</td>
+              <td>低（仅追加字段与 export，不动既有 API；仅供 approval-card-patcher / approval-callback-handler 使用）</td>
             </tr>
             <tr>
               <td><span class="file-ref">src/types.ts</span></td>
-              <td>新增 <code>ApprovalEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> 类型；同时 <strong>在 approval 模块内定义 <code>CardBtn</code> 类型</strong>（v3.4 修订：当前 main 未导出 CardBtn 类型——<span class="file-ref">src/card/card-template.ts:12</span> 仅暴露 template key 常量。PR #480 引入了 ButtonGroup 资产但没暴露 TS 类型）。approval 模块自定义 CardBtn 接口反映 sendCardRequest 契约（text/color/status/event 四字段）；并在 approval-card-patcher 测试里加"btns key 是 AI Card v2 模板约定字段"的 fixture 验证</td>
+              <td>新增 <code>ApprovalEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> 类型。<br/><strong>v3.5 修订</strong>：不再需要 CardBtn 类型——v3.4 关心的"channel 端构造按钮"在 v3.5 失效（按钮在 v2 模板内置）。channel 端只 PUT cardParamMap 的 <code>show_approve_btns</code> 和 <code>hasAction</code> 两个 Boolean 字段，无任何按钮数据结构</td>
               <td>极低</td>
             </tr>
             <tr>
@@ -679,21 +739,12 @@ commands:
           <tbody>
             <tr>
               <td><code>buildPendingPayload({ request, nowMs, view })</code></td>
-              <td><strong>v3.3 修订：同时构造 card 路径用的 buttons + markdown 路径用的文本</strong>。
-                <br/>transport 后续按 <code>preparedTarget.route</code> 选用其一。返回 <code>{ approvalId: request.id, buttons: CardBtn[], markdownText: string }</code>。
-                <br/>• <strong>buttons</strong>（card 路径用）：3 个 CardBtn，共享 actionId <code>"approval"</code>，靠 params.d 区分（D15 编码）：
-<pre style="margin:6px 0;background:#0d1117;color:#c9d1d9;padding:8px;border-radius:4px;font-size:11px">buttons = [
-  { text:"✅ 允许一次", color:"green",
-    event:{type:"sendCardRequest", params:{
-      actionId:"approval", params:{t:"approval", d:"allow-once", id:request.id}}}},
-  { text:"✅ 总是允许", color:"blue",
-    event:{type:"sendCardRequest", params:{
-      actionId:"approval", params:{t:"approval", d:"allow-always", id:request.id}}}},
-  { text:"⛔ 拒绝", color:"red",
-    event:{type:"sendCardRequest", params:{
-      actionId:"approval", params:{t:"approval", d:"deny", id:request.id}}}},
-]</pre>
-                <br/>• <strong>markdownText</strong>（markdown 路径用）：由 <code>approval-markdown-render.buildExecApprovalMarkdown(request, nowMs)</code> 或 <code>buildPluginApprovalMarkdown</code> 输出，含 approval id、command/tool preview、3 个 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 复制即用块</td>
+              <td><strong>v3.5 简化（D15 + 模板内置按钮）</strong>：channel 不再构造按钮数组。
+                <br/>返回 <code>{ approvalId: request.id, markdownText: string }</code>。
+                <br/>• <strong>approvalId</strong>：transport.deliverPending(card) 用来 <code>markCardRunPendingApproval(outTrackId, approvalId)</code>（D24）；
+                <br/>• <strong>markdownText</strong>（markdown 路径用）：由 <code>approval-markdown-render.buildExecApprovalMarkdown(request, nowMs)</code> 或 <code>buildPluginApprovalMarkdown</code> 输出，含 approval id、command/tool preview、3 个 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 复制即用块。
+                <br/>
+                <br/>按钮本身的 actionId / params 都在 v2 模板的 <code>approve_btns</code> 按钮组里固化（D15），channel 端永远不传按钮定义</td>
             </tr>
             <tr>
               <td><code>buildResolvedResult({ request, resolved, view, entry })</code></td>
@@ -723,7 +774,7 @@ commands:
               <td><code>deliverPending({ cfg, accountId, preparedTarget, request, pendingPayload })</code></td>
               <td><strong>v3.4 修订：按 <code>preparedTarget.route</code> 分两条路径 + card 失败时降级 markdown</strong>。
                 <br/><strong>route="card"</strong>：
-                <br/>(1) 调 <code>approval-card-patcher.applyPendingPatch(activeCardOutTrackId, request.id, token)</code>——PUT updateCardVariables 注入 3 个 approval 按钮到现有 agent card（D22）+ 隐藏 btn_stop（D23）。
+                <br/>(1) 调 <code>approval-card-patcher.applyPendingPatch(activeCardOutTrackId, request.id, token)</code>——内部 PUT updateCardVariables({ show_approve_btns: "true", hasAction: "false" }) 显示 approval 按钮组（D15 + D22）+ 隐藏 btn_stop（D23）+ 把 approvalId 写到 card-run-registry record.pendingApprovalId（D24 反查映射）。按钮 actionId/params 都在模板内置，channel 不传按钮定义。
                 <br/>(2) <strong>成功</strong> → 返回 <code>entry = { approvalId, accountId, mode: "card", outTrackId: activeCardOutTrackId }</code>。
                 <br/>(3) <strong>明确失败</strong>（HTTP 4xx/5xx 非超时、模板字段不支持、PUT 被钉钉拒等可确定失败的错误）→ WARN log + <strong>降级 markdown</strong>（调下方 route="markdown" 同一段逻辑），成功后返回 <code>entry = { approvalId, accountId, mode: "markdown" }</code>。这样用户至少能看到 approval id 与 /approve 命令模板。
                 <br/>(4) <strong>模糊失败</strong>（请求超时但可能已成功）→ WARN log + return null（不重发避免双消息）。
@@ -909,38 +960,48 @@ v2 future：approver-DM 投递启用后，CLI 场景能自动 DM 给 approver。
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">用户在卡片上点"允许一次"
 
 t=0   DingTalk Stream 平台推送 TOPIC_CARD 回调
-        payload.content/value (内嵌 JSON, 真机实测 §1.2):
+        payload.content/value (内嵌 JSON, v3.5 实配 schema):
           { cardPrivateData: {
-              actionIds: ["approval0"],          ← 平台自动追加 button index
-              params: { t:"approval", d:"allow-once", id:"abc123" }   ← decision payload
+              actionIds: ["allow-once"],          ← 唯一命名无 index 后缀（D15 v3.5）
+              params:    { action: "allow-once" } ← 仅 decision，不带 approvalId
             } }
-        payload.userId                    = "staffA"  (staffId)
-        payload.spaceId / spaceType       = "cid_xxx" / "group"
-        payload.outTrackId                = "approval_abc123_<hash(group:cid_xxx)>"
+        payload.userId      = "staffA"             ← clicker staffId
+        payload.spaceType   = "im" 或 "group"
+        payload.outTrackId  = "ai_card_xxx"        ← 原 agent reply card 的 outTrackId
 
 t=1   src/gateway/channel-gateway.ts:330 listener 触发
         ├─ messageId = res.headers.messageId
         ├─ payload   = JSON.parse(res.data)
         ├─ analysis  = analyzeCardCallback(payload)
-        │    analysis.actionId       = "approval0"          ← 平台追加 button index
-        │    analysis.userId         = "staffA"             ← staffId（已用户确认）
-        │    analysis.cardPrivateData = {                    ← D16 新增字段
-        │      actionIds: ["approval0"],
-        │      params: { t:"approval", d:"allow-once", id:"abc123" }
+        │    analysis.actionId       = "allow-once"          ← 唯一命名无后缀
+        │    analysis.userId         = "staffA"
+        │    analysis.outTrackId     = "ai_card_xxx"
+        │    analysis.cardPrivateData = {                     ← D16 新增字段
+        │      actionIds: ["allow-once"],
+        │      params: { action: "allow-once" }
         │    }
         │
         ├─ 【新增分支】tryHandleApprovalCallback(analysis, ...)
         │    │
-        │    1. 前缀 + 结构化字段双校验
+        │    1. 双源解码（v3.5 对齐实配 schema）
         │       parsed = parseApprovalFromCardPrivateData(analysis.cardPrivateData)
-        │       // 内部：actionIds[0].startsWith("approval") + params.t==="approval"
-        │       //       + params.d ∈ {allow-once|allow-always|deny}
-        │       //       + typeof params.id === "string"
+        │       // 内部：params.action ∈ {allow-once|allow-always|deny} → decision
+        │       //       （actionId 仅用于"是不是 approval 按钮"路由，exact match 即可）
         │       if (!parsed) return { handled: false }
-        │       parsed = { approvalId: "abc123", decision: "allow-once" }
+        │       parsed = { decision: "allow-once" }       ← 注意：还没有 approvalId
         │
-        │    2. （v2 不再走 parseExecApprovalCommandText——按钮路径走 cardPrivateData 解析；
-        │        命令路径走 §6.8 早期 intercept 的 regex；两条路径最终都调 resolveApprovalOverGateway）
+        │    2. 反查 approvalId（D24）
+        │       const cardRun = resolveCardRun(analysis.outTrackId);
+        │       const approvalId = cardRun?.pendingApprovalId;
+        │       if (!approvalId) {
+        │         // card 不存在（重启清空 / TTL sweep）/ 未挂 pending approval
+        │         // → 卡片刷"ℹ️ 已处理或已过期"提示用户
+        │         await updateCardVariables(analysis.outTrackId, {
+        │           show_approve_btns: "false",
+        │         }, token).catch(() =&gt; {});
+        │         return { handled: true, reason: "no-pending-approval" };
+        │       }
+        │       parsed.approvalId = approvalId;          ← 现在有了
         │
         │    3. 调统一 resolver（D20：所有 kind 推导 / 授权 / fallback /
         │                       gateway 调用 / 错误分类都在内部）
@@ -1247,64 +1308,80 @@ if (/^\/approve\b/i.test(textForApproveCheck)) {
       <section id="card-design">
         <h2>7. 审批卡片设计</h2>
 
-        <h3>7.1 复用 AI Card v2 模板的字段映射（v3.3 D9）</h3>
-        <p>v3.3 不再设计独立 approval 模板——card 路径直接复用 PR #480 已合并的 AI Card v2 模板。approval 渲染只是在 agent reply card 上做 cardParamMap 字段级 patch：</p>
+        <h3>7.1 v2 模板字段映射（v3.5 对齐用户实配 schema）</h3>
+        <p>v3.5 用户已在 AI Card v2 模板上配好两个新增变量（schema id ending in <code>876de.schema</code>）+ 一个 ButtonGroup：</p>
         <table>
-          <thead><tr><th>AI Card v2 现有字段</th><th>approval 用途</th><th>pending → resolved/expired 变化</th></tr></thead>
+          <thead><tr><th>cardParamMap 变量</th><th>类型</th><th>approval 用途</th><th>pending / resolved / expired 时的值</th></tr></thead>
           <tbody>
             <tr>
-              <td><code>btns</code>（JSON-stringified CardBtn[]）</td>
-              <td>承载 approval 3 按钮 + btn_stop 共存策略</td>
-              <td>pending：写入 3 个 approval 按钮（隐藏 btn_stop，D23）<br/>resolved：恢复 btn_stop（若 card 活跃）<br/>expired：恢复 btn_stop（若 card 活跃）或清空</td>
+              <td><code>approve_btns</code></td>
+              <td>按钮组（template 内置 3 按钮定义）</td>
+              <td>不在 channel 端构造——按钮 actionId / params 都在模板里固化（D15）</td>
+              <td>不需要 channel 端更新</td>
             </tr>
             <tr>
-              <td><code>hasAction</code>（"true"/"false"）</td>
-              <td>控制按钮区可见性</td>
-              <td>pending：<code>"true"</code><br/>resolved/expired：若恢复 btn_stop 则 <code>"true"</code>；否则 <code>"false"</code></td>
+              <td><code>show_approve_btns</code></td>
+              <td>Boolean</td>
+              <td>approval 按钮组的显隐条件</td>
+              <td>pending：<code>"true"</code>；resolved/expired：<code>"false"</code></td>
             </tr>
             <tr>
-              <td><strong>approval 终态指示位</strong>（PR-2 实施时决定，见下方说明）</td>
+              <td><code>hasAction</code>（既有字段）</td>
+              <td>Boolean</td>
+              <td>btn_stop 的显隐（既有 AI Card v2）</td>
+              <td>pending：<code>"false"</code>（D23 隐藏 stop）；resolved/expired：<code>card 还 active ? "true" : "false"</code></td>
+            </tr>
+            <tr>
+              <td><strong>approval 终态指示位</strong></td>
+              <td>—</td>
               <td>显示"✅ 已批准 by @user · allow-once" / "ℹ️ 已处理或已过期"</td>
-              <td>pending 不写；resolved/expired 写入对应文案</td>
+              <td><strong>v1 不实现</strong>——用户感知"按钮消失=已处理"（详见下方限制）</td>
             </tr>
           </tbody>
         </table>
 
         <div class="callout warn">
-          <strong>"approval 终态指示位"的实施候选（PR-2 决定）</strong>
+          <strong>v3.5 v1 终态展示限制（坦率描述）</strong>
+          用户实配 schema 没有专门给 approval 终态文字的字段位：
           <ul style="margin:6px 0 0">
-            <li><strong>A. append 到 <code>contentKey</code> 末尾</strong>："...&lt;agent reply&gt;\n\n---\n✅ 已批准 by @user · allow-once"。优点：零模板改动；缺点：与 agent 内容混在一起，视觉权重不分</li>
-            <li><strong>B. 用 <code>blockListKey</code> 加 system block</strong>（若 AI Card v2 模板支持）：cleaner UX；缺点：需确认模板的 block type 列表是否含 system/notification 类型</li>
-            <li><strong>C. 新增 <code>approvalStatus</code> 变量</strong>：最干净的语义；缺点：需要模板侧轻微改动（导入 + 重新发布 v2 模板）。考虑做成"模板可选支持，缺失时回落到 A"</li>
+            <li><code>statusLine</code>：已被 taskInfo 占用（agent 显示 model/tokens/effort/taskTime/dapiUsage/agent 名）</li>
+            <li><code>content</code>：与 agent stream 写冲突，patch append 不安全</li>
+            <li><code>blockList</code>：未确认模板支持 system/notification block 类型</li>
+            <li><code>quoteContent</code>：群聊引用上下文用，语义不匹配</li>
           </ul>
-          PR-2 阶段确认 AI Card v2 模板能力后选定方案；当前 spec 不锁死具体字段以免与未来 main 状态错位。
+          <strong>v1 策略</strong>：不主动写终态文字。show_approve_btns 由 true → false 让按钮消失，用户感知"我点的按钮成功了"即可。
+          <br/><strong>v1.x 升级路径</strong>：让维护者在模板加 <code>approval_status</code> 变量（小工作量）后再 PUT 写入"✅ 已批准 by @&lt;name&gt; · &lt;decision&gt;"
         </div>
 
-        <h3>7.2 三按钮配置（v2 修订：cardPrivateData 结构化 - D15 落地）</h3>
-        <p>按钮通过 PR #480 引入的 <code>CardBtn[]</code> 模板字段渲染。<strong>三按钮共享 actionId <code>"approval"</code></strong>，区分靠 <code>params.d</code>：</p>
-        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">// approval-card-patcher.ts 内部（v3.3）
-function makeApprovalBtns(approvalId: string): CardBtn[] {
-  return [
-    { text: "✅ 允许一次", color: "green",  status: "normal",
-      event: { type: "sendCardRequest",
-               params: { actionId: "approval",
-                         params: { t: "approval", d: "allow-once", id: approvalId } } } },
-    { text: "✅ 总是允许", color: "blue",   status: "normal",
-      event: { type: "sendCardRequest",
-               params: { actionId: "approval",
-                         params: { t: "approval", d: "allow-always", id: approvalId } } } },
-    { text: "⛔ 拒绝",     color: "red",    status: "normal",
-      event: { type: "sendCardRequest",
-               params: { actionId: "approval",
-                         params: { t: "approval", d: "deny", id: approvalId } } } },
-  ];
-}
-// 实际放进 cardParamMap：
-//   cardParamMap.btns = JSON.stringify(makeApprovalBtns(approvalId))
-//   cardParamMap.hasAction = "true"  (终态时改为 "false")</pre>
+        <h3>7.2 三按钮配置（v3.5：在 v2 模板内置）</h3>
+        <p>按钮定义在 AI Card v2 模板的 <code>approve_btns</code> 按钮组里（"按钮组来源：指定"），channel 端不构造，仅 toggle <code>show_approve_btns</code> 可见性。模板配置（用户实测）：</p>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">// approve_btns 按钮组（template 内置）：
+// ─────────────────────────────────────────────────────────────
+//   按钮 1 · 允许一次（color: green）
+//     ActionId:  "allow-once"
+//     回传参数:  [{ name: "action", type: 静态值, value: "allow-once" }]
+//
+//   按钮 2 · 总是允许（color: blue）
+//     ActionId:  "allow-always"
+//     回传参数:  [{ name: "action", type: 静态值, value: "allow-always" }]
+//
+//   按钮 3 · 拒绝（color: red）
+//     ActionId:  "deny"
+//     回传参数:  [{ name: "action", type: 静态值, value: "deny" }]
+//
+//   显示控制 → 条件计算：show_approve_btns 的值为 true → 整组可见
+// ─────────────────────────────────────────────────────────────
+
+// channel 端 patch 只 PUT 这两个变量（approval-card-patcher.ts，v3.5）：
+updateCardVariables(outTrackId, {
+  show_approve_btns: "true",     // ← 显示 approval 3 按钮（D15）
+  hasAction:         "false",    // ← 隐藏 btn_stop（D23）
+}, token)
+// approvalId 通过 markCardRunPendingApproval(outTrackId, approvalId) 写到
+// card-run-registry record，callback 时反查（D24）</pre>
         <p style="font-size:13px;color:var(--color-text-faint)">
-          注意：DingTalk 平台会在回调里给每个按钮的 actionId 末尾追加 button index（"approval" → "approval0"/"approval1"/"approval2"），
-          回调解析使用 <code>startsWith("approval")</code> + <code>params.d</code> 取 decision 即可，详见 §1.2 与 §6.3。
+          v3.5 实证：actionId 唯一命名时 DingTalk callback 原样回传，<strong>无 index 后缀</strong>。
+          回调解析以 <code>params.action</code> 取 decision，详见 §1.2 与 §6.3。
         </p>
 
         <h3>7.3 双状态机并存（v3.3）</h3>
