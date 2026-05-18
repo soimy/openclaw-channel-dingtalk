@@ -105,7 +105,8 @@ updateCardVariables(outTrackId, {
   "spaceType":   "im" 或 "group",
   ...
 }
-// 注意 approval id 不在 payload —— 必须通过 outTrackId 反查（D24）</pre>
+// v3.6+ 主链路：approvalId 已通过 approveId 变量绑定到按钮 params，
+// callback 自带；D24 registry 反查仅作 fallback（详见解码段）</pre>
 
         <h4>解码（callback 入口）</h4>
         <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 第一步：扩展后的 analyzeCardCallback 把 cardPrivateData 整体放进 analysis
@@ -227,8 +228,8 @@ await approvalResolver.resolveApproval({
               <td>D10</td>
               <td>渲染策略（v3.3 重写）</td>
               <td>不读 <code>messageType</code> 配置——按 <strong><code>card-run-registry</code> 实际状态</strong> 分两路由：
-                <br/>• <strong>card 路径</strong>：sessionKey 命中 registry 且 entry.state ∈ {PROCESSING, INPUTING} → 在 entry.outTrackId 上 PUT 注入 approval 按钮
-                <br/>• <strong>markdown 路径</strong>：其它所有情况（无 entry / entry 已 FINISHED/STOPPED/FAILED / entry 被 TTL sweep / messageType=markdown 时本来就没 entry / card 创建失败降级）→ <code>sendProactiveTextOrMarkdown</code> 发独立消息 + <code>/approve</code> 命令模板
+                <br/>• <strong>card 路径</strong>：sessionKey 命中 registry 且 <code>record.card?.state</code> ∈ {PROCESSING, INPUTING} → 在 record.outTrackId 上 PUT 注入 approval 按钮（实施细节：<code>CardRunRecord.card</code> 是 <code>AICardInstance | undefined</code>，state 在 <code>record.card.state</code>，不是 record 顶层 — <span class="file-ref">src/card/card-run-registry.ts:13</span> + <span class="file-ref">src/types.ts:689</span>）
+                <br/>• <strong>markdown 路径</strong>：其它所有情况（无 entry / entry 已 FINISHED/STOPPED/FAILED / entry 被 TTL sweep / messageType=markdown 时本来就没 entry / card 创建失败降级）→ <code>sendProactiveTextOrMarkdown(config, target, text, { <strong>forceMarkdown: true</strong>, accountId, log })</code> 发独立消息 + <code>/approve</code> 命令模板。<strong>必须传 forceMarkdown:true</strong>——否则 messageType=card 配置下函数会走 sendProactiveCardText 把 markdown 包成另一张 AI Card（参 <span class="file-ref">src/send-service.ts:371-393</span>），等于完全失去 markdown 路径意义
                 <br/>messageType 配置完全不参与决策——单一事实源是 registry 实际状态</td>
               <td>v3.3 用户拍板：runtime 实际降级要 cover</td>
             </tr>
@@ -269,7 +270,7 @@ await approvalResolver.resolveApproval({
                 <br/>
                 <br/><strong>关键修正</strong>（v3.5 实测）：DingTalk 仅在 <strong>actionId 重名时才追加 button index 后缀</strong>（消歧用）。独立命名时 callback 中 actionId 原样回传，<strong>无 index 后缀</strong>。之前 v3.2 看到的 "approve0/1/2" 是测试时 3 按钮都叫 "approve" 触发的消歧行为。
                 <br/>
-                <br/><strong>approval id 不在按钮 payload</strong>——只能通过 callback 的 <code>outTrackId</code>（agent reply card 的 id）反查（详见 D24）</td>
+                <br/><strong>approvalId 通过 approveId 变量带回</strong>（v3.6 D24 主链路）：v3 模板的三按钮 params 都绑定到 <code>approveId</code> 变量，channel 端 patch 时 PUT 设值，callback 中 <code>cardPrivateData.params.approveId</code> 自动带回。D24 的 registry pendingApprovalId 仅作 fallback（应对老卡片 / 平台异常）</td>
               <td>对齐用户实测 + OpenClaw 命名习惯</td>
             </tr>
             <tr>
@@ -326,7 +327,7 @@ await approvalResolver.resolveApproval({
               <td>agent-card-coalesce（v3.3 新增核心）</td>
               <td>card 路径下，approval 按钮挂在 <strong>原 agent reply card</strong> 而非新建独立卡片：
                 <br/>(1) <code>transport.prepareTarget</code> 内部调 <code>approval-card-locator.findActiveAgentCard(request)</code>，按 <code>request.sessionKey</code> 查 <code>card-run-registry</code>；
-                <br/>(2) 命中且 entry.state ∈ {PROCESSING, INPUTING} → <code>preparedTarget.route="card"</code> 携带 entry.outTrackId；否则 <code>route="markdown"</code>；
+                <br/>(2) 命中且 <code>record.card?.state</code> ∈ {PROCESSING, INPUTING} → <code>preparedTarget.route="card"</code> 携带 record.outTrackId；否则 <code>route="markdown"</code>；
                 <br/>(3) <code>transport.deliverPending</code> 按 route 分支：card 走 PUT <code>updateCardVariables(outTrackId, { show_approve_btns:"true", hasAction:"false", approveId:"&lt;id&gt;" })</code>（v3.6 修订：按钮在模板内置；D24 v3.6 把 approvalId 通过 approveId 变量带到 callback）；markdown 走 <code>sendProactiveTextOrMarkdown</code>；
                 <br/>(4) entry 记下 mode + outTrackId（如有），core 把 entry 带回 updateEntry 时按 mode 分支处理终态
                 <br/>关键不变量：approval 只对 cardParamMap 做字段级 patch，<strong>不触碰 agent card 的 lifecycle 状态机</strong>（PROCESSING/INPUTING/FINISHED 仍由 agent reply 流控制）</td>
@@ -352,7 +353,7 @@ await approvalResolver.resolveApproval({
                 <br/>1) v3 模板新增字符串变量 <code>approveId</code>（PR-2 前置；用户回去给 schema 加，与 show_approve_btns 同级）；
                 <br/>2) 三个按钮各加一个回传参数：<code>参数名="approveId", 参数类型=变量, 参数值=approveId</code>（绑定到上一步新增的同名变量）；
                 <br/>3) channel 端 <code>applyPendingPatch</code> 时 PUT <code>{ show_approve_btns:"true", hasAction:"false", approveId:"&lt;id&gt;" }</code>；
-                <br/>4) callback payload 自带 <code>params:{ action:"allow-once", id:"&lt;id&gt;" }</code>，approvalId 不再依赖反查；
+                <br/>4) callback payload 自带 <code>params:{ action:"allow-once", approveId:"&lt;id&gt;" }</code>，approvalId 主链路从 params.approveId 直接取；
                 <br/>5) <code>applyResolvedPatch</code>/<code>applyExpiredPatch</code> 时 PUT <code>{ show_approve_btns:"false", approveId:"" }</code> 清空。
                 <br/>
                 <br/><strong>fallback：card-run-registry.pendingApprovalId 字段</strong>——保留为兜底，应对老版本卡片 / 平台行为异常等：当 callback 没带 <code>params.approveId</code> 或带的是空时，反查 <code>resolveCardRun(outTrackId).pendingApprovalId</code>。该字段仍由 patcher 在 pending/resolved 时 set/clear。
@@ -380,6 +381,13 @@ await approvalResolver.resolveApproval({
               <strong>(6)</strong> §10 PR-1 措辞改"resolve 通道生效，approval id 可见性依赖外部界面，完整 UX 在 PR-2"；
               <strong>(7)</strong> §6.7 删除 <code>store.register</code> 残留；
               <strong>(8)</strong> §6.3 / §6.6 / §8 / §9 等所有 already-resolved 文案改"ℹ️ 已处理或已过期"并明确 catch 后 return 避免覆盖；§6.8 alias 范围显式列清；§11.2 风险表新增 kind 派发边界条目</li>
+            <li>v3.8（2026-05-19 第八轮 review）：5 处实施一致性 fix + 1 处 limitation 备注——
+              <strong>(1)</strong> D24 主链路全局收敛：清理 §1.2 / D15 / D24 / §6.3 等多处"approvalId 不在 payload，必须 outTrackId 反查"等 v3.5 老语义残留，统一为"params.approveId 主链路 + registry pendingApprovalId fallback"；
+              <strong>(2)</strong> 备注 v1 limitation：上游 ExecApprovalRequest / PluginApprovalRequest 的 <code>allowedDecisions</code> 允许 per-request 限制可选 decision（例 ask=always 时 exec 只允许 allow-once+deny），v3 模板固定 3 按钮全显示，点击不支持的 decision 会被上游拒绝、卡片刷"ℹ️ 已处理或已过期"——v1 不实现按 allowedDecisions 动态隐藏按钮，§11.1 加 limitation 条目；
+              <strong>(3)</strong> markdown 路径强制 <code>forceMarkdown: true</code>：核实 <span class="file-ref">src/send-service.ts:371-393</span>——messageType=card 配置下 sendProactiveTextOrMarkdown 默认走 sendProactiveCardText 把 markdown 包成 AI Card。v3.8 在 D10 / §6.2 / §6.3 多处明确传 <code>forceMarkdown: true</code>，避免 markdown 路径被卡片化；
+              <strong>(4)</strong> sub-adapter 数量描述统一：上游类型实际 3 必需（availability/presentation/transport）+ 2 可选（interactions?/observe?）。v1 实现 4 个（3 必需 + observe）。§5 标题从 "5 个 Sub-Adapter 详解" 改为 "Sub-Adapter 详解（v1 实现 4 个）"，正文同步；
+              <strong>(5)</strong> entry.state → record.card?.state：核实 <span class="file-ref">src/card/card-run-registry.ts:13</span> + <span class="file-ref">src/types.ts:689</span>——CardRunRecord 顶层无 state 字段，state 在 <code>record.card?.state</code>。spec 多处 entry.state 改成 record.card?.state；建议 card-run-registry 加一个 <code>isActiveCardRun(record)</code> helper 封装；
+              <strong>(6)</strong> /approve intercept 插入点精确化：spec 之前写"command dispatch 之后、reply 派发之前"模糊，v3.8 明确为"access control + content extract + senderId 确定之后；早于本地 command dispatch（<span class="file-ref">src/inbound-handler.ts:874</span>）+ 早于 sub-agent targeted command 递归 + 早于 acquireSessionLock（<span class="file-ref">src/inbound-handler.ts:2053</span>）"——否则 @agent /approve 被 sub-agent 吞 / session lock 死锁</li>
             <li>v3.7（2026-05-19 用户实配 D24 确认）：用户回去给 v3 schema 实际加 approveId 变量 + 在 deny 按钮配了第 2 个回传参数（<code>参数名=approveId, 参数类型=变量, 参数值=approveId</code>）。命名修正：
               <strong>(1)</strong> 变量名实际是 <code>approveId</code>（camelCase），不是 v3.6 spec 假设的 <code>approval_id</code>（snake_case）；
               <strong>(2)</strong> 回传参数名也是 <code>approveId</code>（v3.6 spec 假设 <code>id</code>）；
@@ -403,7 +411,7 @@ await approvalResolver.resolveApproval({
               <strong>(1)</strong> 模板新增 <code>approve_btns</code>（按钮组）+ <code>show_approve_btns</code>（Boolean）两个变量；
               <strong>(2)</strong> 三个按钮 actionId 独立命名 <code>allow-once</code> / <code>allow-always</code> / <code>deny</code>，<strong>无 index 后缀</strong>（之前测试 "approve0/1/2" 是因为 3 按钮都叫 approve 重名，DingTalk 才加 index 消歧；唯一名时原样回）；
               <strong>(3)</strong> 按钮在 template 内置（"按钮组来源: 指定"），channel <strong>不再构造 CardBtn[]</strong>，只 toggle <code>show_approve_btns</code> 可见性；
-              <strong>(4)</strong> 回传参数仅 <code>params.action</code>（值 = decision），<strong>不带 approval id</strong>——必须通过 outTrackId 反查 approvalId；
+              <strong>(4)</strong> v3.5 阶段回传参数曾仅有 <code>params.action</code>，但 v3.6/v3.7 已加 <code>approveId</code> 变量绑定（D24 主链路）；早期 v3.5 假设的"必须 outTrackId 反查"已被 v3.6 重构掉，registry 反查只剩 fallback；
               <strong>(5)</strong> 新增 D24：approvalId 反查机制——给 <code>CardRunRecord</code> 加 <code>pendingApprovalId?: string</code> 字段 + <code>markCardRunPendingApproval</code> / <code>clearCardRunPendingApproval</code> API。
               <br/>影响：D15 改、新增 D24；§1.2 / §3.2 / §3.3 / §5.2 / §5.3 / §6.3 / §7.1 / §7.2 全部对齐；模块层面 approval-card-patcher 大幅简化（不构造按钮数组）；approval 模块不再需要自定义 CardBtn 类型</li>
             <li>v3.4（2026-05-18 第五轮 review）：7 处修订——
@@ -533,7 +541,7 @@ await approvalResolver.resolveApproval({
             </tr>
             <tr>
               <td><code>approval-card-locator.ts</code><br/><strong>★ v3.3 新增（D22 落地核心）</strong></td>
-              <td>导出 <code>findActiveAgentCard({ cfg, accountId, sessionKey })</code>：按 sessionKey 查 <code>card-run-registry</code>，仅在 entry 存在且 <code>entry.card.state ∈ {PROCESSING, INPUTING}</code> 时返回 <code>{ outTrackId, sessionKey }</code>；否则返回 null（caller 走 markdown 路径）。
+              <td>导出 <code>findActiveAgentCard({ cfg, accountId, sessionKey })</code>：按 sessionKey 查 <code>card-run-registry</code>，仅在 record 存在且 <code>record.card?.state ∈ {PROCESSING, INPUTING}</code> 时返回 <code>{ outTrackId, sessionKey }</code>；否则返回 null（caller 走 markdown 路径）。<strong>注意</strong>：state 在 <code>record.card.state</code>（<span class="file-ref">src/card/card-run-registry.ts:13</span> + <span class="file-ref">src/types.ts:689</span>），不是 record 顶层；建议在 card-run-registry 加一个 helper <code>isActiveCardRun(record: CardRunRecord): boolean</code> 把这个判断封装起来，approval-card-locator 与未来其它消费方共用。</td>
                 <br/><strong>v3.4 关键依赖：card-run-registry 必须新增 sessionKey 查询 API</strong>——当前源码只导出 <code>resolveCardRun(outTrackId)</code> / <code>resolveCardRunByConversation</code> / <code>resolveCardRunByOwner</code>（<span class="file-ref">src/card/card-run-registry.ts:91-145</span>），无 by-sessionKey 查询。需在 <span class="file-ref">src/card/card-run-registry.ts</span> 新增 <code>resolveActiveCardRunBySession(accountId: string, sessionKey: string): CardRunRecord | null</code>——遍历 records Map，按 accountId + sessionKey 精确匹配且 state ∈ active 集合。Record 已有 sessionKey 字段（<span class="file-ref">card-run-registry.ts:16</span>），实现仅是新增一个 export。<strong>不要</strong>让 locator 依赖 conversation contains 模糊匹配或私有 Map 访问</td>
               <td>card-run-registry（既有模块；需新增 export）</td>
               <td>~60（+ card-run-registry 内 ~20 行新 API）</td>
@@ -647,7 +655,7 @@ await approvalResolver.resolveApproval({
             </tr>
             <tr>
               <td><span class="file-ref">src/card/card-run-registry.ts</span><br/><strong>（v3.4 + v3.5 新增改动面）</strong></td>
-              <td><strong>v3.4 改动</strong>：新增 <code>resolveActiveCardRunBySession(accountId, sessionKey): CardRunRecord | null</code>——遍历 records Map 按 accountId + sessionKey 精确匹配且 state ∈ {PROCESSING, INPUTING} 过滤。
+              <td><strong>v3.4 改动</strong>：新增 <code>resolveActiveCardRunBySession(accountId, sessionKey): CardRunRecord | null</code>——遍历 records Map 按 accountId + sessionKey 精确匹配且 <code>record.card?.state</code> ∈ {PROCESSING, INPUTING} 过滤（state 在 <code>record.card</code>，不是 record 顶层）。同时新增 helper <code>isActiveCardRun(record: CardRunRecord): boolean</code> 封装 state 判断逻辑，供 approval-card-locator 与未来其它 active card 消费方共用。
                 <br/><strong>v3.5 新增（D24 落地）</strong>：
                 <br/>• <code>CardRunRecord</code> 接口新增 <code>pendingApprovalId?: string</code> 字段；
                 <br/>• 新增 <code>markCardRunPendingApproval(outTrackId: string, approvalId: string): void</code>；
@@ -668,7 +676,9 @@ await approvalResolver.resolveApproval({
             </tr>
             <tr>
               <td><span class="file-ref">src/inbound-handler.ts</span><br/><strong>（D2：v2 新增改动面）</strong></td>
-              <td>在 <code>handleDingTalkMessage</code> 入口（command dispatch 之后、reply 派发之前）插入 <code>/approve</code> 命令早期 intercept 分支，详见 §6.8</td>
+              <td>在 <code>handleDingTalkMessage</code> 早期插入 <code>/approve</code> 命令 intercept 分支。
+                <br/><strong>v3.8 精确定位</strong>：插入点必须在 <strong>access control + content extract + senderId 确定之后</strong>（需要这些上下文做 approver 权限校验），但必须 <strong>早于本地命令 dispatch（<span class="file-ref">src/inbound-handler.ts:874</span>）+ 早于 sub-agent targeted command 递归</strong>——否则 <code>@agent /approve abc once</code> 会被 sub-agent 路由先吃掉。
+                <br/>更必须 <strong>早于 acquireSessionLock（<span class="file-ref">src/inbound-handler.ts:2053</span>）</strong>——后者一旦持有锁，<code>resolveApprovalOverGateway</code> 内部的 plugin approval waitDecision 会等同一把锁就死锁。详见 §6.8</td>
               <td>中（需谨慎确保 intercept 之前的 dedup/self-filter/content-extract 行为不变）</td>
             </tr>
             <tr>
@@ -757,8 +767,8 @@ commands:
 
       <!-- ============================ 5 ADAPTERS ============================ -->
       <section id="adapters">
-        <h2>5. 5 个 Sub-Adapter 详解</h2>
-        <p>上游 <code>ChannelApprovalNativeRuntimeAdapter</code>（<span class="file-ref">openclaw/src/infra/approval-handler-runtime-types.ts:216-235</span>）定义了 5 个子接口，approval-runtime 按下面顺序调用它们完成"投递 / 更新 / 终态"。本节给每个子接口的 DingTalk 实现锚到具体函数与代码骨架。</p>
+        <h2>5. Sub-Adapter 详解（v1 实现 4 个）</h2>
+        <p>上游 <code>ChannelApprovalNativeRuntimeAdapter</code>（<span class="file-ref">openclaw/src/infra/approval-handler-runtime-types.ts:216-235</span>）类型定义为 <strong>3 个必需</strong>（availability / presentation / transport）+ <strong>2 个可选</strong>（interactions? / observe?）。<strong>v1 实现 4 个</strong>：3 必需 + observe（用于投递日志）；<strong>interactions 推迟到 v2</strong>（仅在 DM 投递启用后才有实际收益）。本节按上游调用顺序展开。</p>
 
         <h3>5.1 availability</h3>
         <table>
@@ -827,7 +837,7 @@ commands:
                 <br/>(4) <strong>模糊失败</strong>（请求超时但可能已成功）→ WARN log + return null（不重发避免双消息）。
                 <br/><br/><strong>route="markdown"</strong>：
                 <br/>(1) 调 <code>approval-markdown-render</code> 构造 markdown 文本（含 /approve 命令模板）；
-                <br/>(2) <code>sendProactiveTextOrMarkdown(config, target.to, text, ...)</code> 发独立消息；
+                <br/>(2) <code>sendProactiveTextOrMarkdown(config, target.to, text, { forceMarkdown:true, accountId, log })</code> 发独立消息（<strong>forceMarkdown:true 必传</strong>，否则 messageType=card 下函数会回退到 sendProactiveCardText 投递 AI Card——失去 markdown 路径本意，<span class="file-ref">src/send-service.ts:371-393</span>）；
                 <br/>(3) 成功 → 返回 <code>entry = { approvalId, accountId, mode: "markdown" }</code>；
                 <br/>(4) 失败 → WARN log + return null（markdown 已是最低保障路径，再降无意义）。
                 <br/><br/>两路径通用约束：<strong>不</strong>在 catch 内调 <code>observe.onDeliveryError</code>——runtime 契约不允许 transport 自触发该钩子</td>
@@ -976,7 +986,11 @@ approval-runtime 投递计划（D4 v1 origin-only）：
           批准（仅一次）：`/approve abc123 allow-once`
           批准（总是）：`/approve abc123 allow-always`
           拒绝：`/approve abc123 deny`"
-  └─ sendProactiveTextOrMarkdown(config, "group:cid_xxx", markdownText, opts)
+  └─ sendProactiveTextOrMarkdown(config, "group:cid_xxx", markdownText, {
+       forceMarkdown: true,    // ← 必传，否则 messageType=card 下会被
+                                //   sendProactiveCardText 接管发成另一张
+                                //   AI Card（src/send-service.ts:371-393）
+       accountId: "default", log })
   └─ entry = { approvalId:"abc123", accountId:"default", mode:"markdown" }
                                                       ↑ 注意无 outTrackId
 
@@ -1017,7 +1031,7 @@ t=0   DingTalk Stream 平台推送 TOPIC_CARD 回调
         payload.content/value (内嵌 JSON, v3.5 实配 schema):
           { cardPrivateData: {
               actionIds: ["allow-once"],          ← 唯一命名无 index 后缀（D15 v3.5）
-              params:    { action: "allow-once", id: "abc123" } ← D24 v3.6 主链路
+              params:    { action: "allow-once", approveId: "abc123" } ← D24 主链路
             } }
         payload.userId      = "staffA"             ← clicker staffId
         payload.spaceType   = "im" 或 "group"
@@ -1032,7 +1046,7 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
         │    analysis.outTrackId     = "ai_card_xxx"
         │    analysis.cardPrivateData = {                     ← D16 新增字段
         │      actionIds: ["allow-once"],
-        │      params: { action: "allow-once", id: "abc123" }   ← D24 v3.6
+        │      params: { action: "allow-once", approveId: "abc123" }  ← D24
         │    }
         │
         ├─ 【新增分支】tryHandleApprovalCallback(analysis, ...)
@@ -1077,7 +1091,7 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
         │               dingtalkConfig,
         │               `user:${analysis.userId}`,
         │               "⛔ 你不在 approver 名单，无权批准此请求",
-        │               { accountId, log })
+        │               { forceMarkdown: true, accountId, log })  // 强制 markdown
         │             return { handled: true, reason: "unauthorized" }
         │
         │           case "already-resolved":
@@ -1284,8 +1298,14 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
 //             → session routing → command dispatch → reply 派发
 //
 //   v2 修订：在 "command dispatch" 之后、"reply 派发"之前，加入 /approve early intercept。
-//            （放在 command dispatch 之后是为了让 dedup / self-filter / content extract
-//            等基础设施先 run；放在 reply 派发之前是关键——避免 session lock 死锁。）
+//            插入点（v3.8 精确）：
+//            ✓ 必须在：dedup / self-filter / access control / content extract /
+//              senderId 确定 之后（需要 senderId 做 approver 权限校验）
+//            ✓ 必须早于：本地 command dispatch (src/inbound-handler.ts:874)
+//              + sub-agent targeted command 递归（@agent /approve 否则被吞）
+//            ✓ 必须早于：acquireSessionLock (src/inbound-handler.ts:2053)
+//              否则 resolveApprovalOverGateway 内部 plugin waitDecision
+//              会等同一把锁 → 死锁
 
 // ---- Early /approve bypass：collapsed into approval-resolver ----
 // 关键：parse 与 resolve 都走专用模块（D20），不在 inbound-handler 内堆 200 行
@@ -1879,6 +1899,11 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
           <li><strong>统一交互状态模型</strong>（gap 文档 #01 sub-6）：v1 仅为 approval 实现 pending/resolved/expired 状态机；将之普适到其它交互需要更多用例验证，留待 #12 message tool action surface</li>
           <li><strong>主动 rebind on restart</strong>（D12 B 选项）：留待 v2</li>
           <li><strong>interactions sub-adapter</strong>：v1 不实现，仅在 DM 启用后才有实际收益</li>
+          <li><strong>respect 上游 allowedDecisions 字段（v3.8 limitation 备注，明确不做）</strong>：
+            <br/>上游 <code>ExecApprovalRequest.allowedDecisions</code>（<span class="file-ref">openclaw/src/infra/exec-approvals.ts:1241</span>）与 <code>PluginApprovalRequest.allowedDecisions</code>（<span class="file-ref">openclaw/src/infra/plugin-approvals.ts:54</span>）允许 per-request 限制可选 decision。例如 ask="always" 时 exec 只允许 <code>allow-once + deny</code>（不允许 allow-always）。
+            <br/>v1 模板按钮组 <strong>固定 3 按钮全部显示</strong>，未读取 request 的 allowedDecisions 来动态隐藏不支持的选项。
+            <br/>用户行为：若点击 approval 不支持的 decision（如 ask=always 时点 allow-always），上游 <code>resolveApprovalOverGateway</code> 会拒绝该 decision，channel 端 callback handler 会进 resolve-failed 分支 → 卡片刷"ℹ️ 已处理或已过期"。用户体感 = "点了一下卡片刷掉但没成功"。
+            <br/>已知降级。修复需要：(a) v3 模板新增 3 个 boolean 变量（如 <code>show_allow_once_btn</code> / <code>show_allow_always_btn</code> / <code>show_deny_btn</code>）+ 按钮显示控制条件细化；(b) channel 端 patcher 按 <code>request.allowedDecisions</code> 设变量值。v1 不实现，留待用户反馈后再加</li>
         </ul>
 
         <h3>11.2 已知风险</h3>
