@@ -42,7 +42,7 @@
             <li><strong>与 peer 对齐</strong>：approver schema / ID 不短化 / slash 命令文本格式都跟 Discord/Telegram/Slack 一致；origin-only 边界与 PR #489 v1 一致</li>
             <li><strong>钉钉特性最大化（v3.3 修订）</strong>：审批按 <code>card-run-registry</code> 实际状态分两路由——card 路径在 agent reply card 上挂按钮（不创建新卡，不突兀）；markdown 路径发独立文字消息含 <code>/approve</code> 模板。不读 <code>messageType</code> 配置，因为它不反映 runtime 实际降级状态</li>
             <li><strong>上游约定为权威</strong>：按钮点击解码后通过 SDK 公开 API <code>resolveApprovalOverGateway</code> 回写；用户手敲 <code>/approve</code> 因 session lock 死锁需早期 intercept，但同样收敛到 <code>resolveApprovalOverGateway</code></li>
-            <li><strong>v3 卡片模板部署 + approver 配置（v3.6 修订）</strong>：card 路径用 v3 模板（既有 AI Card v2 字段超集，新加 <code>approve_btns</code> + <code>show_approve_btns</code> + <code>approval_id</code> 三个变量；按钮内置无需 channel 构造）；markdown 路径无需模板。把 v3 模板发布并替换默认 templateId（§10 阶段 0），然后把 approver staffId 列表写进 <code>channels.dingtalk.execApprovals.approvers</code> 即可启用</li>
+            <li><strong>v3 卡片模板部署 + approver 配置（v3.6 修订）</strong>：card 路径用 v3 模板（既有 AI Card v2 字段超集，新加 <code>approve_btns</code> + <code>show_approve_btns</code> + <code>approveId</code> 三个变量；按钮内置无需 channel 构造）；markdown 路径无需模板。把 v3 模板发布并替换默认 templateId（§10 阶段 0），然后把 approver staffId 列表写进 <code>channels.dingtalk.execApprovals.approvers</code> 即可启用</li>
           </ul>
         </div>
 
@@ -119,12 +119,12 @@ const action = cpd.params.action;
 if (!["allow-once", "allow-always", "deny"].includes(action)) return null;
 const decision = action as "allow-once" | "allow-always" | "deny";
 
-// 第三步（D24 v3.6）：approvalId 主链路从 cardPrivateData.params.id 直接取；
+// 第三步（D24 v3.6）：approvalId 主链路从 cardPrivateData.params.approveId 直接取；
 //                     registry 反查仅作为 fallback（应对老卡片 / 平台异常）
 let approvalId: string | null =
-  (typeof cpd.params?.id === "string" && cpd.params.id) || null;
+  (typeof cpd.params?.approveId === "string" && cpd.params.approveId) || null;
 if (!approvalId) {
-  // 兜底：v3 模板未带 approval_id，或 callback 字段丢失 → 查 registry
+  // 兜底：v3 模板未带 approveId，或 callback 字段丢失 → 查 registry
   const cardRun = resolveCardRun(analysis.outTrackId);
   approvalId = cardRun?.pendingApprovalId ?? null;
 }
@@ -212,7 +212,7 @@ await approvalResolver.resolveApproval({
             <tr>
               <td>D9</td>
               <td>卡片模板（v3.3 大改）</td>
-              <td><strong>不再新建 approval 专用模板</strong>——card 路径用 v3 模板（v2 字段超集 + 新加 approve_btns / show_approve_btns / approval_id 三变量；按钮在模板内置）。
+              <td><strong>不再新建 approval 专用模板</strong>——card 路径用 v3 模板（v2 字段超集 + 新加 approve_btns / show_approve_btns / approveId 三变量；按钮在模板内置）。
                 <br/>v3.3 移除：<code>BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code> 常量、<code>DINGTALK_APPROVAL_CARD_TEMPLATE_ID</code> env、<code>docs/assets/card-template-approval-v1.json</code> 源、阶段 0 模板上传任务。
                 <br/>实施时确认 AI Card v2 模板的 <code>cardParamMap.btns</code> + <code>hasAction</code> 字段在当前 main 行为符合 §7.2 描述（默认应该 OK，PR #480 设计就这样）</td>
               <td>v3.3 用户拍板：approval 挂到原 card</td>
@@ -321,7 +321,7 @@ await approvalResolver.resolveApproval({
               <td>card 路径下，approval 按钮挂在 <strong>原 agent reply card</strong> 而非新建独立卡片：
                 <br/>(1) <code>transport.prepareTarget</code> 内部调 <code>approval-card-locator.findActiveAgentCard(request)</code>，按 <code>request.sessionKey</code> 查 <code>card-run-registry</code>；
                 <br/>(2) 命中且 entry.state ∈ {PROCESSING, INPUTING} → <code>preparedTarget.route="card"</code> 携带 entry.outTrackId；否则 <code>route="markdown"</code>；
-                <br/>(3) <code>transport.deliverPending</code> 按 route 分支：card 走 PUT <code>updateCardVariables(outTrackId, { show_approve_btns:"true", hasAction:"false", approval_id:"&lt;id&gt;" })</code>（v3.6 修订：按钮在模板内置；D24 v3.6 把 approvalId 通过 approval_id 变量带到 callback）；markdown 走 <code>sendProactiveTextOrMarkdown</code>；
+                <br/>(3) <code>transport.deliverPending</code> 按 route 分支：card 走 PUT <code>updateCardVariables(outTrackId, { show_approve_btns:"true", hasAction:"false", approveId:"&lt;id&gt;" })</code>（v3.6 修订：按钮在模板内置；D24 v3.6 把 approvalId 通过 approveId 变量带到 callback）；markdown 走 <code>sendProactiveTextOrMarkdown</code>；
                 <br/>(4) entry 记下 mode + outTrackId（如有），core 把 entry 带回 updateEntry 时按 mode 分支处理终态
                 <br/>关键不变量：approval 只对 cardParamMap 做字段级 patch，<strong>不触碰 agent card 的 lifecycle 状态机</strong>（PROCESSING/INPUTING/FINISHED 仍由 agent reply 流控制）</td>
               <td>v3.3 用户拍板</td>
@@ -342,14 +342,14 @@ await approvalResolver.resolveApproval({
             <tr>
               <td>D24</td>
               <td>approvalId 传递机制（v3.6 重构：模板内置为主，registry 兜底）</td>
-              <td><strong>v3.6 主链路：approval_id 通过 cardParamMap 变量带到按钮 callback</strong>——
-                <br/>1) v3 模板新增字符串变量 <code>approval_id</code>（PR-2 前置；用户回去给 schema 加，与 show_approve_btns 同级）；
-                <br/>2) 三个按钮各加一个回传参数：<code>name="id", type=绑定变量, 绑定到 approval_id</code>（不是静态值）；
-                <br/>3) channel 端 <code>applyPendingPatch</code> 时 PUT <code>{ show_approve_btns:"true", hasAction:"false", approval_id:"&lt;id&gt;" }</code>；
+              <td><strong>v3.6 主链路：approveId 通过 cardParamMap 变量带到按钮 callback</strong>——
+                <br/>1) v3 模板新增字符串变量 <code>approveId</code>（PR-2 前置；用户回去给 schema 加，与 show_approve_btns 同级）；
+                <br/>2) 三个按钮各加一个回传参数：<code>参数名="approveId", 参数类型=变量, 参数值=approveId</code>（绑定到上一步新增的同名变量）；
+                <br/>3) channel 端 <code>applyPendingPatch</code> 时 PUT <code>{ show_approve_btns:"true", hasAction:"false", approveId:"&lt;id&gt;" }</code>；
                 <br/>4) callback payload 自带 <code>params:{ action:"allow-once", id:"&lt;id&gt;" }</code>，approvalId 不再依赖反查；
-                <br/>5) <code>applyResolvedPatch</code>/<code>applyExpiredPatch</code> 时 PUT <code>{ show_approve_btns:"false", approval_id:"" }</code> 清空。
+                <br/>5) <code>applyResolvedPatch</code>/<code>applyExpiredPatch</code> 时 PUT <code>{ show_approve_btns:"false", approveId:"" }</code> 清空。
                 <br/>
-                <br/><strong>fallback：card-run-registry.pendingApprovalId 字段</strong>——保留为兜底，应对老版本卡片 / 平台行为异常等：当 callback 没带 <code>params.id</code> 或带的是空时，反查 <code>resolveCardRun(outTrackId).pendingApprovalId</code>。该字段仍由 patcher 在 pending/resolved 时 set/clear。
+                <br/><strong>fallback：card-run-registry.pendingApprovalId 字段</strong>——保留为兜底，应对老版本卡片 / 平台行为异常等：当 callback 没带 <code>params.approveId</code> 或带的是空时，反查 <code>resolveCardRun(outTrackId).pendingApprovalId</code>。该字段仍由 patcher 在 pending/resolved 时 set/clear。
                 <br/>
                 <br/><strong>原因（v3.5 D24 内存反查的脆弱性）</strong>：进程重启会丢、多 worker 部署 callback 可能路由到另一个 worker（src/card/card-run-registry.ts:1-9 多进程约束说明）、TTL sweep 也会清。v3.6 把主链路从"内存映射"改成"卡片自带"，registry 仅作降级保护。
                 <br/>
@@ -374,11 +374,16 @@ await approvalResolver.resolveApproval({
               <strong>(6)</strong> §10 PR-1 措辞改"resolve 通道生效，approval id 可见性依赖外部界面，完整 UX 在 PR-2"；
               <strong>(7)</strong> §6.7 删除 <code>store.register</code> 残留；
               <strong>(8)</strong> §6.3 / §6.6 / §8 / §9 等所有 already-resolved 文案改"ℹ️ 已处理或已过期"并明确 catch 后 return 避免覆盖；§6.8 alias 范围显式列清；§11.2 风险表新增 kind 派发边界条目</li>
+            <li>v3.7（2026-05-19 用户实配 D24 确认）：用户回去给 v3 schema 实际加 approveId 变量 + 在 deny 按钮配了第 2 个回传参数（<code>参数名=approveId, 参数类型=变量, 参数值=approveId</code>）。命名修正：
+              <strong>(1)</strong> 变量名实际是 <code>approveId</code>（camelCase），不是 v3.6 spec 假设的 <code>approval_id</code>（snake_case）；
+              <strong>(2)</strong> 回传参数名也是 <code>approveId</code>（v3.6 spec 假设 <code>id</code>）；
+              <strong>(3)</strong> schema id 已从 v3.5 的 <code>876de.schema</code> 变到 <code>05061.schema</code>，用户需重新 export 更新 <code>docs/assets/card-template-v3.json</code>。
+              spec 全局替换 approval_id → approveId、params.id → params.approveId；§10 阶段 0 描述同步用户实际进展（schema 已配 ✓，待 export + 发布）；按钮 params 描述细化为"参数名=approveId, 类型=变量, 值=approveId"；隐式假设 allow-once / allow-always 按钮也配同样的 params2（用户截图仅展示 deny 按钮，应在 PR-2 前置确认其它两个按钮也配齐）</li>
             <li>v3.6（2026-05-19 第六轮 review，含 1 个结构性修订 + 4 处实施 blocker）：
-              <strong>(2)</strong> <strong>D24 重构</strong>：v3.5 用 card-run-registry 内存反查 approvalId 的方案受重启 / 多 worker / TTL 影响（registry 是进程内 Map，<span class="file-ref">src/card/card-run-registry.ts:1-9</span> 明确多进程约束）。v3.6 改为 v3 模板再加 <code>approval_id</code> 变量 + 三按钮 params 加 <code>id</code> 绑定到该变量；callback 自带 approvalId 为<strong>主链路</strong>，registry pendingApprovalId 降级为<strong>兜底</strong>；
+              <strong>(2)</strong> <strong>D24 重构</strong>：v3.5 用 card-run-registry 内存反查 approvalId 的方案受重启 / 多 worker / TTL 影响（registry 是进程内 Map，<span class="file-ref">src/card/card-run-registry.ts:1-9</span> 明确多进程约束）。v3.6 改为 v3 模板再加 <code>approveId</code> 变量 + 三按钮 params 加 <code>id</code> 绑定到该变量；callback 自带 approvalId 为<strong>主链路</strong>，registry pendingApprovalId 降级为<strong>兜底</strong>；
               <strong>(3)</strong> §10 阶段 0 措辞收紧：v3 模板"<strong>必须替换</strong>默认 templateId"（不再写"替代还是并存"），v3 是 v2 字段超集向后兼容，并存会让边界不清；
-              <strong>(4)</strong> §3.3 加 <code>src/card-service.ts</code> 改动面：<strong>createAICard 必须显式写 show_approve_btns:"false" + approval_id:""</strong>，否则 v3 模板默认值会让 agent reply 一上线就显示未绑 approval 的按钮；finalize/stop 路径同样确保 false；
-              <strong>(5)</strong> §10 阶段 2 把 <code>src/card-callback-service.ts</code> 扩展明确标 <strong>BLOCKER</strong>——当前 <span class="file-ref">src/card-callback-service.ts:6</span> 接口只暴露 actionId，approval handler 拿不到 <code>params.action</code> / <code>params.id</code>，必须扩展才能跑；
+              <strong>(4)</strong> §3.3 加 <code>src/card-service.ts</code> 改动面：<strong>createAICard 必须显式写 show_approve_btns:"false" + approveId:""</strong>，否则 v3 模板默认值会让 agent reply 一上线就显示未绑 approval 的按钮；finalize/stop 路径同样确保 false；
+              <strong>(5)</strong> §10 阶段 2 把 <code>src/card-callback-service.ts</code> 扩展明确标 <strong>BLOCKER</strong>——当前 <span class="file-ref">src/card-callback-service.ts:6</span> 接口只暴露 actionId，approval handler 拿不到 <code>params.action</code> / <code>params.approveId</code>，必须扩展才能跑；
               <strong>(6)</strong> 清理 v3.3 残留：顶部核心原则段、D9、D22、错误矩阵、§12 references 等多处"PUT btns / JSON.stringify(CardBtn[]) / 复用 CardBtn / actionIds[0] 不是 approval 前缀"老语义，统一对齐 v3.5+v3.6</li>
             <li>v3.5.1（2026-05-19 流程审核）：用户重审 approval 完整流程时发现 v3.5 改动没扫干净的 6 处残留——
               <strong>(1)</strong> §6.2 场景 A 的 deliverPending 描述还在 PUT btns + hasAction:"true"（v3.3 风格），改成 toggle show_approve_btns=true + hasAction=false + markCardRunPendingApproval；
@@ -530,7 +535,7 @@ await approvalResolver.resolveApproval({
             <tr>
               <td><code>approval-card-patcher.ts</code><br/><strong>★ v3.5 大幅简化（不再构造按钮）</strong></td>
               <td>v3.5：按钮在 v2 模板内置（"按钮组来源：指定"，3 按钮 actionId/params 都固化），patcher 只 toggle 变量 + 维护 D24 反查映射。
-                <br/>• <code>applyPendingPatch(outTrackId, approvalId, token)</code>：PUT updateCardVariables({ <code>show_approve_btns: "true"</code>, <code>hasAction: "false"</code>, <code>approval_id: "&lt;id&gt;"</code> }) + <code>markCardRunPendingApproval(outTrackId, approvalId)</code>（D24 v3.6：主链路靠 approval_id 变量带到按钮回调，registry 写入仅作 fallback）；
+                <br/>• <code>applyPendingPatch(outTrackId, approvalId, token)</code>：PUT updateCardVariables({ <code>show_approve_btns: "true"</code>, <code>hasAction: "false"</code>, <code>approveId: "&lt;id&gt;"</code> }) + <code>markCardRunPendingApproval(outTrackId, approvalId)</code>（D24 v3.6：主链路靠 approveId 变量带到按钮回调，registry 写入仅作 fallback）；
                 <br/>• <code>applyResolvedPatch(outTrackId, decision, token, cardStillActive)</code>：PUT updateCardVariables({ <code>show_approve_btns: "false"</code>, <code>hasAction: cardStillActive ? "true" : "false"</code> }) + <code>clearCardRunPendingApproval(outTrackId)</code>；
                 <br/>• <code>applyExpiredPatch(outTrackId, token, cardStillActive)</code>：同上但语义不同。
                 <br/>
@@ -629,8 +634,8 @@ await approvalResolver.resolveApproval({
             </tr>
             <tr>
               <td><span class="file-ref">src/card-service.ts</span><br/><strong>（v3.6 新增改动面）</strong></td>
-              <td><strong>createAICard 必须显式设置 show_approve_btns:"false" + approval_id:""</strong>（D9 v3 模板会让 mock 默认 show_approve_btns=true，运行时若不显式覆盖可能出现"agent reply card 一上线就显示 3 个未绑 approval 的按钮"）。
-                <br/>finalize / stop / 错误兜底路径也确保 show_approve_btns:"false" + approval_id:""——避免遗留 approval 按钮卡在终态卡上。
+              <td><strong>createAICard 必须显式设置 show_approve_btns:"false" + approveId:""</strong>（D9 v3 模板会让 mock 默认 show_approve_btns=true，运行时若不显式覆盖可能出现"agent reply card 一上线就显示 3 个未绑 approval 的按钮"）。
+                <br/>finalize / stop / 错误兜底路径也确保 show_approve_btns:"false" + approveId:""——避免遗留 approval 按钮卡在终态卡上。
                 <br/>当前 <span class="file-ref">src/card-service.ts:802</span> 只写了 <code>hasAction:"true"</code>，PR-2 必须补这两个新字段</td>
               <td>低（在现有 createAndDeliver/finalize 调用处 cardParamMap 增加两个 KV）</td>
             </tr>
@@ -926,7 +931,7 @@ approval-runtime 投递计划（D4 v1 origin-only）：
        ├─ PUT updateCardVariables("ai_card_xxx", {
        │       show_approve_btns: "true",     // 显示 approval 3 按钮（D15）
        │       hasAction:         "false",    // 隐藏 btn_stop（D23）
-       │       approval_id:       "abc123",   // D24 v3.6 主链路：按钮 params.id
+       │       approveId:       "abc123",   // D24 v3.6 主链路：按钮 params.approveId
        │                                       //   绑定到此变量，callback 自带
        │     }, token)
        │   （按钮 actionId/颜色都在 v3 模板的 approve_btns 按钮组里固化，
@@ -934,7 +939,7 @@ approval-runtime 投递计划（D4 v1 origin-only）：
        │
        └─ markCardRunPendingApproval("ai_card_xxx", "abc123")
            （D24 v3.6 fallback：approvalId 也写到 registry，应对老卡片 /
-            平台异常等 callback 没带 params.id 的情况）
+            平台异常等 callback 没带 params.approveId 的情况）
 
        → entry = { approvalId:"abc123", accountId:"default",
                     mode:"card", outTrackId:"ai_card_xxx" }
@@ -1168,7 +1173,7 @@ v2 future 可视用户反馈再加 "✅ 已批准 by @staffA" 的轻量回执消
 
         <h4>用户重复点击（按钮看起来还在但已 resolved）</h4>
         <ol>
-          <li>callback-handler 解析按钮 → 主链路读 <code>params.id</code>（D24 v3.6）；缺失 fallback 到 <code>resolveCardRun(outTrackId).pendingApprovalId</code></li>
+          <li>callback-handler 解析按钮 → 主链路读 <code>params.approveId</code>（D24 v3.6）；缺失 fallback 到 <code>resolveCardRun(outTrackId).pendingApprovalId</code></li>
           <li>反查可能命中（resolved 后还没来得及 clear）或未命中（已 clear）：
             <ul>
               <li><strong>命中</strong>：调 resolver → 上游返回 already-resolved → catch 分支 PUT <code>{ show_approve_btns: "false" }</code> 把按钮再次隐藏</li>
@@ -1779,13 +1784,19 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
                 <li><strong>验证 <code>tsconfig.json</code> path 解析顺序</strong>——开发期 monorepo / linked checkout 场景可临时调高 <code>../openclaw/src/plugin-sdk</code> 在 paths 中的优先级做 unblock，但 release 前必须切回 lockfile 路径以保证发布包正确</li>
               </ol></li>
             <li><strong>本仓库 PR #480 已合并</strong>（MERGED；2026-05-18 核实）：AI Card v2 模板的 <code>sendCardRequest</code> 回调格式已在当前 main 可用。v3.6 本设计在此基础上发布 v3 模板（v2 字段超集，按钮在模板内置，channel 不构造按钮）；详见 §10 阶段 0</li>
-            <li><strong>AI Card v3 模板部署</strong>（v3.6 定死必做）：用户已配好 schema 并导出到 <span class="file-ref">docs/assets/card-template-v3.json</span>（267KB，schemaVersion 3.0.0，含 <code>approve_btns</code> 按钮组定义 + <code>show_approve_btns</code> Boolean 变量 + 三按钮 actionId/params 全部固化）。<strong>v3.6 还要再加一个变量 <code>approval_id</code></strong>（D24 v3.6 重构主链路）+ 三按钮回传参数加 <code>id</code> 绑定到 <code>approval_id</code>。
+            <li><strong>AI Card v3 模板部署</strong>（v3.7 用户实配确认）：用户已在 v3 schema 配齐三个新变量（v3.7 实测确认）：
+              <ul style="margin:4px 0">
+                <li><code>approve_btns</code>（按钮组）：内置 3 按钮，actionId 分别为 <code>allow-once</code> / <code>allow-always</code> / <code>deny</code>，每个按钮回传参数 <code>action</code>（静态值 = decision）+ <code>approveId</code>（变量，绑定到下面的 approveId 变量）</li>
+                <li><code>show_approve_btns</code>（Boolean）：按钮组可见性条件</li>
+                <li><code>approveId</code>（普通文本）：v3.6 新增的 D24 主链路载体（v3.7 用户实际命名 camelCase 不是 snake_case）</li>
+              </ul>
+              schema id 已变更（之前 <code>876de.schema</code> → 当前 <code>05061.schema</code>，因加了 approveId 变量重新发布）。
               <br/>阶段 0 任务（PR-2 前置 BLOCKER）：
               <ol style="margin:4px 0">
-                <li>用户在 <code>open-dev.dingtalk.com</code> 给 v3 schema 加 <code>approval_id</code> 字符串变量 + 三按钮 params 加 <code>id</code> 绑定，重新导出更新 <code>docs/assets/card-template-v3.json</code></li>
+                <li>用户重新 export 完整 schema 到 <span class="file-ref">docs/assets/card-template-v3.json</span>（含 approveId 变量 + 三按钮 params 绑定的最终状态）</li>
                 <li>把 v3 schema 发布为预置卡片模板，拿到正式 templateId</li>
-                <li><strong>必须替换</strong> <code>src/card/card-template.ts</code> 的 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code> 默认值为 v3 templateId（<strong>不并存</strong>——v3 是 v2 的超集向后兼容，并存会让"哪个场景用哪个模板"的决策复杂化，且 createAICard 不知道哪种 cardParamMap 字段集生效）</li>
-                <li>真机回归确认：(a) v3 模板下既有 AI Card 流式行为不变（v2 是 v3 子集，向后兼容）；(b) <code>show_approve_btns</code> toggle 行为符合 §6.2 / §6.4；(c) callback payload 含 <code>params.id</code></li>
+                <li><strong>必须替换</strong> <code>src/card/card-template.ts</code> 的 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code> 默认值为 v3 templateId（<strong>不并存</strong>——v3 是 v2 的超集向后兼容，并存会让"哪个场景用哪个模板"的决策复杂化）</li>
+                <li>真机回归确认：(a) v3 模板下既有 AI Card 流式行为不变；(b) <code>show_approve_btns</code> toggle 行为符合 §6.2 / §6.4；(c) callback payload 含 <code>cardPrivateData.params.approveId</code> 字符串（与 patch 时设的值一致）</li>
               </ol></li>
           </ul>
         </div>
@@ -1808,8 +1819,8 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
         <ul>
           <li>实现 v3.3 渲染层：<strong><code>approval-card-patcher.ts</code></strong>（D22 落地：在原 agent card 上 patch 按钮 / 终态指示）+ <strong><code>approval-markdown-render.ts</code></strong>（markdown 路径主路径）</li>
           <li>实现 <code>approval-callback-handler.ts</code>（用 <code>parseApprovalFromCardPrivateData</code> → 调阶段 1 已有的 <code>approval-resolver.resolveApproval</code>——零新增权限逻辑；resolved 后调 approval-card-patcher.applyResolvedPatch 更新原 agent card）、<code>approval-native-runtime.ts</code>（4 子 adapter；interactions 不实现；transport 内部按 preparedTarget.route 分支调 patcher 或 markdown-render）</li>
-          <li><strong>【BLOCKER】修改 <code>src/card-callback-service.ts</code></strong>（D16）：当前 <span class="file-ref">src/card-callback-service.ts:6</span> 的 <code>CardCallbackAnalysis</code> 接口只暴露 actionId，approval handler 拿不到 <code>params.action</code> 和 <code>params.id</code>。必须扩展接口加 <code>cardPrivateData?: { actionIds?: string[]; params?: Record&lt;string, unknown&gt; }</code> 字段，<code>analyzeCardCallback</code> 从 <code>content</code> / <code>value</code> 嵌套 JSON 抽 params 并附到 analysis。这是 callback handler 能工作的硬前置——没这步什么都跑不通</li>
-          <li><strong>修改 <code>src/card-service.ts</code></strong>（D24 v3.6）：createAICard 显式写 <code>show_approve_btns:"false"</code> + <code>approval_id:""</code>；finalize / stop / 错误路径也写 false——避免 v3 模板默认值导致 agent reply 一上线就显示未绑 approval 的按钮</li>
+          <li><strong>【BLOCKER】修改 <code>src/card-callback-service.ts</code></strong>（D16）：当前 <span class="file-ref">src/card-callback-service.ts:6</span> 的 <code>CardCallbackAnalysis</code> 接口只暴露 actionId，approval handler 拿不到 <code>params.action</code> 和 <code>params.approveId</code>。必须扩展接口加 <code>cardPrivateData?: { actionIds?: string[]; params?: Record&lt;string, unknown&gt; }</code> 字段，<code>analyzeCardCallback</code> 从 <code>content</code> / <code>value</code> 嵌套 JSON 抽 params 并附到 analysis。这是 callback handler 能工作的硬前置——没这步什么都跑不通</li>
+          <li><strong>修改 <code>src/card-service.ts</code></strong>（D24 v3.6）：createAICard 显式写 <code>show_approve_btns:"false"</code> + <code>approveId:""</code>；finalize / stop / 错误路径也写 false——避免 v3 模板默认值导致 agent reply 一上线就显示未绑 approval 的按钮</li>
           <li><code>src/gateway/channel-gateway.ts</code> 接入 <code>tryHandleApprovalCallback</code> 分支（在 feedback / btn_stop 之前；callback 命中后通过 outTrackId 找到原 agent card 调 patcher）</li>
           <li>在阶段 1 的 capability 里挂上 <code>nativeRuntime</code>（4 子 adapter；v1 不实现 interactions）</li>
           <li>测试：approval-card-patcher（核心：按钮注入 + 终态 patch + btn_stop 恢复策略 D23）+ approval-markdown-render（文案 + alias） + callback-handler（cardPrivateData 解析 → resolver → patcher）；resolver 的 unit test 在 PR-1 已完成，PR-2 仅加 callback 入口集成测试覆盖"按钮 → resolver → patcher"链路 + agent card 状态正确同步</li>
