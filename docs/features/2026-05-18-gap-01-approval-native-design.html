@@ -211,11 +211,17 @@ await approvalResolver.resolveApproval({
             </tr>
             <tr>
               <td>D9</td>
-              <td>卡片模板（v3.3 大改）</td>
-              <td><strong>不再新建 approval 专用模板</strong>——card 路径用 v3 模板（v2 字段超集 + 新加 approve_btns / show_approve_btns / approveId 三变量；按钮在模板内置）。
-                <br/>v3.3 移除：<code>BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code> 常量、<code>DINGTALK_APPROVAL_CARD_TEMPLATE_ID</code> env、<code>docs/assets/card-template-approval-v1.json</code> 源、阶段 0 模板上传任务。
-                <br/>实施时确认 AI Card v2 模板的 <code>cardParamMap.btns</code> + <code>hasAction</code> 字段在当前 main 行为符合 §7.2 描述（默认应该 OK，PR #480 设计就这样）</td>
-              <td>v3.3 用户拍板：approval 挂到原 card</td>
+              <td>卡片模板（v3.7 锁定正式 templateId）</td>
+              <td><strong>不新建 approval 专用模板</strong>——card 路径用 v3 模板（v2 字段超集 + 新加 approve_btns / show_approve_btns / approveId 三变量；按钮在模板内置）。
+                <br/>
+                <br/><strong>正式 templateId（v3.7 用户确认，唯一权威值）</strong>：
+                <br/>&nbsp;&nbsp;&nbsp;&nbsp;<code>58f73932-fc3b-46ae-8e90-93313e405061.schema</code>
+                <br/>
+                <br/>PR-2 实施时把 <span class="file-ref">src/card/card-template.ts:6</span> 的 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code> 默认值从旧 v2 <code>675cde2f-...</code> 替换为上面 v3 ID。
+                <br/>JSON schema 源：<span class="file-ref">docs/assets/card-template-v3.json</span>（用户重新 export 后覆盖）。
+                <br/>
+                <br/>v3.3 移除：<code>BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code> 常量、<code>DINGTALK_APPROVAL_CARD_TEMPLATE_ID</code> env、<code>docs/assets/card-template-approval-v1.json</code> 源、阶段 0 模板上传任务（v3.7 上传任务已由用户完成）</td>
+              <td>v3.7 用户实测发布</td>
             </tr>
             <tr>
               <td>D10</td>
@@ -1794,8 +1800,11 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
               <br/>阶段 0 任务（PR-2 前置 BLOCKER）：
               <ol style="margin:4px 0">
                 <li>用户重新 export 完整 schema 到 <span class="file-ref">docs/assets/card-template-v3.json</span>（含 approveId 变量 + 三按钮 params 绑定的最终状态）</li>
-                <li>把 v3 schema 发布为预置卡片模板，拿到正式 templateId</li>
-                <li><strong>必须替换</strong> <code>src/card/card-template.ts</code> 的 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code> 默认值为 v3 templateId（<strong>不并存</strong>——v3 是 v2 的超集向后兼容，并存会让"哪个场景用哪个模板"的决策复杂化）</li>
+                <li>把 v3 schema 发布为预置卡片模板（用户已完成 ✓，正式 templateId = <code>58f73932-fc3b-46ae-8e90-93313e405061.schema</code>）</li>
+                <li><strong>必须替换</strong> <code>src/card/card-template.ts:6</code> 的 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code> 默认值：
+                  <br/>&nbsp;&nbsp;&nbsp;&nbsp;旧：<code>"675cde2f-f526-40cb-b828-f5b2b57b8b77.schema"</code>（v2）
+                  <br/>&nbsp;&nbsp;&nbsp;&nbsp;新：<code>"58f73932-fc3b-46ae-8e90-93313e405061.schema"</code>（v3，含 approve_btns / show_approve_btns / approveId）
+                  <br/>（<strong>不并存</strong>——v3 是 v2 的超集向后兼容，并存会让"哪个场景用哪个模板"的决策复杂化）</li>
                 <li>真机回归确认：(a) v3 模板下既有 AI Card 流式行为不变；(b) <code>show_approve_btns</code> toggle 行为符合 §6.2 / §6.4；(c) callback payload 含 <code>cardPrivateData.params.approveId</code> 字符串（与 patch 时设的值一致）</li>
               </ol></li>
           </ul>
