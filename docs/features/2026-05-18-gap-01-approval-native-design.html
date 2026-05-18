@@ -384,7 +384,7 @@ await approvalResolver.resolveApproval({
               <strong>(1)</strong> 变量名实际是 <code>approveId</code>（camelCase），不是 v3.6 spec 假设的 <code>approval_id</code>（snake_case）；
               <strong>(2)</strong> 回传参数名也是 <code>approveId</code>（v3.6 spec 假设 <code>id</code>）；
               <strong>(3)</strong> schema id 已从 v3.5 的 <code>876de.schema</code> 变到 <code>05061.schema</code>，用户需重新 export 更新 <code>docs/assets/card-template-v3.json</code>。
-              spec 全局替换 approval_id → approveId、params.id → params.approveId；§10 阶段 0 描述同步用户实际进展（schema 已配 ✓，待 export + 发布）；按钮 params 描述细化为"参数名=approveId, 类型=变量, 值=approveId"；隐式假设 allow-once / allow-always 按钮也配同样的 params2（用户截图仅展示 deny 按钮，应在 PR-2 前置确认其它两个按钮也配齐）</li>
+              spec 全局替换 approval_id → approveId、params.id → params.approveId；§10 阶段 0 描述同步用户实际进展（schema 已配 ✓，已发布 ✓ templateId=58f73932-...05061.schema，已重新 export JSON 覆盖 docs/assets/card-template-v3.json ✓，三按钮均配齐 approveId 回传参数 ✓）；按钮 params 描述细化为"参数名=approveId, 类型=变量, 值=approveId"</li>
             <li>v3.6（2026-05-19 第六轮 review，含 1 个结构性修订 + 4 处实施 blocker）：
               <strong>(2)</strong> <strong>D24 重构</strong>：v3.5 用 card-run-registry 内存反查 approvalId 的方案受重启 / 多 worker / TTL 影响（registry 是进程内 Map，<span class="file-ref">src/card/card-run-registry.ts:1-9</span> 明确多进程约束）。v3.6 改为 v3 模板再加 <code>approveId</code> 变量 + 三按钮 params 加 <code>id</code> 绑定到该变量；callback 自带 approvalId 为<strong>主链路</strong>，registry pendingApprovalId 降级为<strong>兜底</strong>；
               <strong>(3)</strong> §10 阶段 0 措辞收紧：v3 模板"<strong>必须替换</strong>默认 templateId"（不再写"替代还是并存"），v3 是 v2 字段超集向后兼容，并存会让边界不清；
