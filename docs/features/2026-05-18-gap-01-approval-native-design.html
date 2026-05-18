@@ -12,7 +12,7 @@
         <p class="breadcrumb">openclaw-channel-dingtalk / docs / features / gap-01-approval-native-design</p>
         <h1 class="page-title">Gap #01 · DingTalk Native Approval 设计方案</h1>
         <p class="page-subtitle">
-          为 DingTalk Channel 接入 OpenClaw 的 <strong>原生审批能力</strong>（exec approval + plugin approval），全量实现 <code>ChannelApprovalCapability</code> 与 5 个子 native runtime adapter。审批以 AI 卡片三按钮形式投放，按钮 payload 直接复用上游 <code>/approve</code> 命令字面量，与 Discord / Telegram / Slack 三个 peer channel 对齐。
+          为 DingTalk Channel 接入 OpenClaw 的 <strong>原生审批能力</strong>（exec approval + plugin approval），全量实现 <code>ChannelApprovalCapability</code> 与 5 个子 native runtime adapter。审批以 AI 卡片三按钮形式投放，按钮 payload 用 DingTalk sendCardRequest 的 <code>cardPrivateData.params</code> 结构化字段编码 decision/approvalId（v2 修订；v1 曾设想用 <code>/approve</code> 命令字面量，被真机回调证伪）。按钮点击与 <code>/approve</code> 文本命令两条路径都收敛到上游公开 API <code>resolveApprovalOverGateway</code>。
         </p>
         <div class="meta-row">
           <span class="badge p0">P0 · 核心缺口</span>
@@ -49,6 +49,68 @@
           <li>不做重启后主动 rebind pending approval（v1 范围；用户点过期/失效按钮时显式降级提示）</li>
           <li>不引入 select / input / datepicker 等高级组件——仅 button（已 CONFIRMED 平台支持）</li>
         </ul>
+
+        <h3>1.2 按钮 payload 编码与解码（D15 落地）</h3>
+        <div class="callout warn">
+          <strong>真机回调实证（2026-03-21）：DingTalk 会自动在 actionId 末尾追加 button 索引</strong><br/>
+          定义 <code>btns = [{actionId:"btn_approve"}, {actionId:"btn_approve_once"}, {actionId:"btn_deny"}]</code> →
+          回调拿到的 <code>cardPrivateData.actionIds[0]</code> 依次是 <code>"btn_approve0"</code> / <code>"btn_approve_once1"</code> / <code>"btn_deny2"</code>。
+          所以 actionId <strong>不能</strong>承载结构化语义（解析正则会乱）；结构化信息必须走 <code>params</code>。
+        </div>
+
+        <h4>编码（构造按钮时）</h4>
+        <p>三按钮共享同一个 <code>actionId: "approval"</code>，靠 <code>params</code> 区分：</p>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// approval-card-service.ts 内部
+btn.event = {
+  type: "sendCardRequest",
+  params: {
+    actionId: "approval",                              // 三按钮全用这个
+    params: { t: "approval", d: "&lt;decision&gt;", id: "&lt;approvalId&gt;" },
+  },
+}
+// decision ∈ { "allow-once" | "allow-always" | "deny" }</pre>
+
+        <h4>回调实测形态</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用户点"允许"按钮（btn[0]），平台 push 的 callback data.content：
+{
+  "cardPrivateData": {
+    "actionIds": ["approval0"],                        // ← 平台追加 index "0"
+    "params": { "t": "approval", "d": "allow-once", "id": "abc123" }
+  }
+}
+// 注意：content 与 value 字段内容一致（钉钉冗余）
+// userId 字段：staffId（已用户确认），不是 unionId</pre>
+
+        <h4>解码（callback 入口）</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 第一步：扩展后的 analyzeCardCallback 把 cardPrivateData 整体放进 analysis
+const cpd = analysis.cardPrivateData;                  // { actionIds, params }
+
+// 第二步：parseApprovalFromCardPrivateData(cpd)
+if (!cpd?.actionIds?.[0]?.startsWith("approval")) return null;  // 前缀匹配兼容 index 后缀
+if (cpd.params?.t !== "approval") return null;
+if (!["allow-once","allow-always","deny"].includes(cpd.params?.d)) return null;
+if (typeof cpd.params?.id !== "string") return null;
+return { approvalId: cpd.params.id, decision: cpd.params.d };</pre>
+
+        <h4>回写上游</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;font-size:12px">// 用 SDK 公开 API（v2026.4.7+）：
+import { resolveApprovalOverGateway } from "openclaw/plugin-sdk/approval-gateway-runtime";
+
+await resolveApprovalOverGateway({
+  cfg,
+  approvalId,
+  decision,
+  senderId: analysis.userId,           // staffId
+  clientDisplayName: "DingTalk",
+});
+// SDK 内部按 approval kind 自动 dispatch 到
+// exec.approval.resolve / plugin.approval.resolve</pre>
+
+        <div class="callout">
+          <strong>命令路径与按钮路径的关系</strong><br/>
+          v1 spec 宣称"按钮和 <code>/approve</code> 命令走完全同一条解析链"——v2 不再成立（按钮走 cardPrivateData，命令走文本 regex）。
+          但两条路径都最终调同一个 <code>resolveApprovalOverGateway</code>，**等价收敛到上游 store**。用户感知一致，channel 内部解码逻辑分两条。
+        </div>
       </section>
 
       <!-- ============================ DECISIONS ============================ -->
@@ -68,8 +130,8 @@
             <tr>
               <td>D2</td>
               <td>Slash 命令</td>
-              <td>纯复用上游 <code>/approve &lt;id&gt; &lt;decision&gt;</code>，channel 端零注册</td>
-              <td>三家完全一致</td>
+              <td>命令字面量与上游一致（<code>/approve &lt;id&gt; &lt;decision&gt;</code>），但 <strong>channel 端必须在 inbound-handler 入口早期 intercept</strong>，直接调 <code>resolveApprovalOverGateway</code>——<strong>不走正常 inbound dispatch 路径</strong>。<br/>原因（v1 实施踩坑确认）：Plugin Approval 的 <code>waitDecision</code> 阻塞在 <code>dispatchReply</code> 内并持有 DingTalk 自己的 session lock，若 <code>/approve</code> 走 normal pipeline 会 session lock 死锁，120s 超时失败。<br/>decision 别名按上游 commands-approve.ts 完整支持（once/always/allow/deny/reject/block）</td>
+              <td>对齐 PR #489 揭示的运行时约束</td>
             </tr>
             <tr>
               <td>D3</td>
@@ -143,8 +205,35 @@
               <td><code>kind: "update"</code>——PUT <code>/v1.0/card/instances</code> 改 statusFooter + 隐藏按钮组，卡片保留</td>
               <td>Slack 同款</td>
             </tr>
+            <tr>
+              <td>D15</td>
+              <td>按钮 payload 编码</td>
+              <td><strong>所有三按钮共享 actionId <code>"approval"</code></strong>，decision/id 走 <code>params</code> 结构化字段：<br/><code>event.params = { actionId: "approval", params: { t: "approval", d: "allow-once"|"allow-always"|"deny", id: &lt;approvalId&gt; } }</code><br/>原因（真机回调证据）：DingTalk 会在 actionId 末尾自动追加 button index（"approval" → "approval0"/"approval1"/"approval2"），用前缀匹配 + 结构化 params 比字符串字面量解析稳得多。</td>
+              <td>对齐 PR #489 + 真机 payload</td>
+            </tr>
+            <tr>
+              <td>D16</td>
+              <td>card-callback-service 扩展</td>
+              <td><strong>必须修改</strong> <span class="file-ref">src/card-callback-service.ts</span>：在 <code>CardCallbackAnalysis</code> 增加 <code>cardPrivateData?: { actionIds?: string[]; params?: Record&lt;string, unknown&gt; }</code> 字段，在 <code>analyzeCardCallback</code> 中从 <code>content</code>/<code>value</code> 嵌套 JSON 抽出 <code>cardPrivateData.params</code> 保留到 analysis 结果</td>
+              <td>对齐 PR #489（之前 spec 误判此文件不修改）</td>
+            </tr>
+            <tr>
+              <td>D17</td>
+              <td>前置依赖</td>
+              <td><strong>peerDependency 必须 bump 到 <code>openclaw &gt;= 2026.4.7</code></strong>（才有 <code>ChannelApprovalNativeRuntimeAdapter</code> 契约与 <code>resolveApprovalOverGateway</code> 公开 API）；真机验证需要本仓库 <strong>PR #480（AI Card v2 / CardBtn[] + sendCardRequest 回调格式）</strong> 先合并</td>
+              <td>对齐 PR #489 实施约束</td>
+            </tr>
           </tbody>
         </table>
+
+        <div class="callout warn" style="margin-top:12px">
+          <strong>本设计的版本演进</strong>
+          <ul style="margin:6px 0 0">
+            <li>v1（2026-05-18 初版）：基于上游 SDK + peer 三家对标做的纸面设计，D2 写"纯复用 /approve dispatcher"，按钮 payload 用 Telegram 风格字符串字面量</li>
+            <li>v2（2026-05-18 修订）：对比 <a href="https://github.com/soimy/openclaw-channel-dingtalk/pull/489">PR #489</a>（@BrilliantWang 并行实施）+ 真机回调 payload 实证，确认 4 处必须改的事实约束 → 新增 D15/D16/D17，D2 重写。下文 §1.2 / §3.3 / §5.2 / §6.3 / §6.8 / §7.2 / §8 / §10 / §11 已全部对齐 v2 状态</li>
+            <li>userId 字段身份核实：用户在 v2 修订过程中确认 callback <code>userId === staffId</code>（不是 unionId），所以 §4.2 approver schema（staffId 名单）保持不变</li>
+          </ul>
+        </div>
       </section>
 
       <!-- ============================ ARCHITECTURE ============================ -->
@@ -163,8 +252,9 @@
 │   ├─ exec.approval.resolve { id, decision }                                │
 │   └─ plugin.approval.resolve { id, decision }                              │
 │                                                                            │
-│  parseExecApprovalCommandText(text)  ◄────  按钮 payload 字面复用          │
-│   (用户敲 /approve <id> <decision> 也走这里)                                │
+│  resolveApprovalOverGateway({approvalId,decision,senderId,...})            │
+│   公开 API（v2026.4.7+）：按钮点击 + /approve 命令两条路径都调它              │
+│   内部按 approval kind dispatch 到 exec/plugin.approval.resolve            │
 │                                                                            │
 └───────────────────────────────────┬────────────────────────────────────────┘
                                     │ adapter 实现
@@ -291,8 +381,23 @@
             </tr>
             <tr>
               <td><span class="file-ref">src/types.ts</span></td>
-              <td>新增 <code>ApprovalCardEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> 类型</td>
+              <td>新增 <code>ApprovalCardEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> / <code>CardBtn</code> 类型（CardBtn 来自 PR #480）</td>
               <td>极低</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/card-callback-service.ts</span><br/><strong>（D16：v2 新增改动面）</strong></td>
+              <td><code>CardCallbackAnalysis</code> 接口加 <code>cardPrivateData?: { actionIds?: string[]; params?: Record&lt;string, unknown&gt; }</code> 字段；<code>analyzeCardCallback</code> 中遍历 <code>embeddedContent</code>/<code>embeddedValue</code>/<code>record</code> 抽出 <code>cardPrivateData</code> 整体（actionIds 数组 + params 对象）并附到返回 analysis 上</td>
+              <td>低（仅追加字段，既有调用方不受影响；现有 <code>extractCardActionId</code> 抽 actionIds[0] 的逻辑不变）</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/inbound-handler.ts</span><br/><strong>（D2：v2 新增改动面）</strong></td>
+              <td>在 <code>handleDingTalkMessage</code> 入口（command dispatch 之后、reply 派发之前）插入 <code>/approve</code> 命令早期 intercept 分支，详见 §6.8</td>
+              <td>中（需谨慎确保 intercept 之前的 dedup/self-filter/content-extract 行为不变）</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">package.json</span> · <code>peerDependencies.openclaw</code><br/><strong>（D17：v2 新增）</strong></td>
+              <td>从当前 <code>&gt;=&lt;current-version&gt;</code> bump 到 <code>&gt;=2026.4.7</code></td>
+              <td>BREAKING（用户需升级上游 openclaw）</td>
             </tr>
           </tbody>
         </table>
@@ -301,7 +406,6 @@
           <strong>明确不修改的文件</strong>（向后兼容保证）
           <ul style="margin:4px 0 0">
             <li><span class="file-ref">src/card/card-action-handler.ts</span>（btn_stop 不动）</li>
-            <li><span class="file-ref">src/card-callback-service.ts</span>（<code>extractCardActionId</code> 已能取任意字符串）</li>
             <li><span class="file-ref">src/feedback-learning-service.ts</span>（与 approval 完全不交叉）</li>
             <li>所有 <code>src/reply-strategy-*</code>（approval 不进 agent reply 路径，独立卡片）</li>
           </ul>
@@ -401,7 +505,18 @@ commands:
           <tbody>
             <tr>
               <td><code>buildPendingPayload({ request, nowMs, view })</code></td>
-              <td>调 <code>approval-card-render.buildPendingCardParamMap(request, view)</code>，返回 <code>{ kind: "card", templateId, cardParamMap, actionIds }</code>。<br/>actionIds 是 3 个："<code>/approve &lt;id&gt; allow-once</code>"、"<code>/approve &lt;id&gt; allow-always</code>"、"<code>/approve &lt;id&gt; deny</code>"</td>
+              <td>调 <code>approval-card-render.buildPendingCardParamMap(request, view)</code>，返回 <code>{ kind: "card", templateId, cardParamMap }</code>。<br/>cardParamMap 含 <code>btns</code> 字段（JSON-stringified <code>CardBtn[]</code>），三按钮 <strong>共享 actionId "approval"</strong>，靠 <code>params.d</code> 区分（D15）：
+<pre style="margin:6px 0;background:#0d1117;color:#c9d1d9;padding:8px;border-radius:4px;font-size:11px">btns = [
+  { text:"✅ 允许一次", color:"green",
+    event:{type:"sendCardRequest", params:{
+      actionId:"approval", params:{t:"approval", d:"allow-once", id:request.id}}}},
+  { text:"✅ 总是允许", color:"blue",
+    event:{type:"sendCardRequest", params:{
+      actionId:"approval", params:{t:"approval", d:"allow-always", id:request.id}}}},
+  { text:"⛔ 拒绝", color:"red",
+    event:{type:"sendCardRequest", params:{
+      actionId:"approval", params:{t:"approval", d:"deny", id:request.id}}}},
+]</pre></td>
             </tr>
             <tr>
               <td><code>buildResolvedResult({ request, resolved, view, entry })</code></td>
@@ -560,17 +675,25 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
         ├─ messageId = res.headers.messageId
         ├─ payload   = JSON.parse(res.data)
         ├─ analysis  = analyzeCardCallback(payload)
-        │    analysis.actionId = "/approve abc123 allow-once"
-        │    analysis.userId   = "staffA"
+        │    analysis.actionId       = "approval0"          ← 平台追加 button index
+        │    analysis.userId         = "staffA"             ← staffId（已用户确认）
+        │    analysis.cardPrivateData = {                    ← D16 新增字段
+        │      actionIds: ["approval0"],
+        │      params: { t:"approval", d:"allow-once", id:"abc123" }
+        │    }
         │
         ├─ 【新增分支】tryHandleApprovalCallback(analysis, ...)
         │    │
-        │    1. 前缀匹配
-        │       if (!analysis.actionId?.startsWith("/approve ")) return { handled: false }
+        │    1. 前缀 + 结构化字段双校验
+        │       parsed = parseApprovalFromCardPrivateData(analysis.cardPrivateData)
+        │       // 内部：actionIds[0].startsWith("approval") + params.t==="approval"
+        │       //       + params.d ∈ {allow-once|allow-always|deny}
+        │       //       + typeof params.id === "string"
+        │       if (!parsed) return { handled: false }
+        │       parsed = { approvalId: "abc123", decision: "allow-once" }
         │
-        │    2. 解析（复用上游！）
-        │       parsed = parseExecApprovalCommandText(analysis.actionId)
-        │       → { kind?: "exec"|"plugin", id: "abc123", decision: "allow-once" }
+        │    2. （v2 不再走 parseExecApprovalCommandText——按钮路径走 cardPrivateData 解析；
+        │        命令路径走 §6.8 早期 intercept 的 regex；两条路径最终都调 resolveApprovalOverGateway）
         │
         │    3. 查 store 找 entry
         │       entry = approval-store.getByApprovalId("abc123")
@@ -595,17 +718,19 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
         │         return { handled: true, reason: "unauthorized" }
         │       }
         │
-        │    5. 调上游 gateway resolve 方法回写
-        │       // gateway 实例从 channel-gateway 闭包注入到 callback-handler 构造
-        │       // （registerCallbackListener 注册时已持有 gateway 引用，
-        │       //  与现有 recordExplicitFeedbackLearning 的 gateway 注入方式一致）
-        │       method = entry.kind === "exec"
-        │         ? "exec.approval.resolve"
-        │         : "plugin.approval.resolve"
-        │       await invokeGatewayMethod(method, {
-        │         id: parsed.id,
-        │         decision: parsed.decision,
+        │    5. 调上游 SDK 公开 API 回写（v2026.4.7+）
+        │       import { resolveApprovalOverGateway } from "openclaw/plugin-sdk/approval-gateway-runtime"
+        │
+        │       await resolveApprovalOverGateway({
+        │         cfg,
+        │         approvalId: parsed.approvalId,
+        │         decision: parsed.decision,        // "allow-once" | "allow-always" | "deny"
+        │         senderId: analysis.userId,         // staffId
+        │         clientDisplayName: "DingTalk",
         │       })
+        │       // SDK 内部根据 approval kind 自动 dispatch 到
+        │       // exec.approval.resolve / plugin.approval.resolve
+        │       // channel 端不需要关心 kind 区分
         │
         │       （上游 resolve 触发 approval-handler-runtime 调
         │        presentation.buildResolvedResult →
@@ -742,6 +867,87 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
           <strong>兜底路径的设计取舍</strong>
           markdown 消息一旦发出无法编辑（钉钉机器人 API 无 edit）。所以兜底卡片的"终态同步"做不到——expire / resolve 时不会发新消息覆盖原 markdown。这是已知降级；接受理由：(1) createAndDeliver 失败本身就是异常通路；(2) 不再追发消息免得用户被刷屏；(3) 用户用 <code>/approve</code> 命令照样能完成审批。
         </div>
+
+        <h3>6.8 <code>/approve</code> 命令必须早期 intercept（D2 落地）</h3>
+
+        <div class="callout danger">
+          <strong>Session lock 死锁 — PR #489 揭示的真实运行时约束</strong><br/>
+          Plugin Approval 的 <code>waitDecision</code> 阻塞在 <code>dispatchReply</code> 内部，<strong>持有 DingTalk 自己的 session lock</strong>。
+          如果 <code>/approve</code> 命令走正常 inbound dispatch 路径（→ command dispatcher → reply 派发），
+          要再去 <code>acquireSessionLock</code> 才能继续——而锁已经被 <code>waitDecision</code> 持有，
+          于是发生 <strong>session lock 死锁</strong>，120s session 超时后整个 approval 链路失败。
+        </div>
+
+        <h4>解决方案：在 <code>handleDingTalkMessage</code> 入口最早处直接拦截，不走正常 dispatch</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">// src/inbound-handler.ts 内 handleDingTalkMessage 函数：
+//   既有顺序：dedup → self-filter → content extract → authorization
+//             → session routing → command dispatch → reply 派发
+//
+//   v2 修订：在 "command dispatch" 之后、"reply 派发"之前，加入 /approve early intercept。
+//            （放在 command dispatch 之后是为了让 dedup / self-filter / content extract
+//            等基础设施先 run；放在 reply 派发之前是关键——避免 session lock 死锁。）
+
+// ---- Early /approve bypass: resolveApprovalOverGateway ----
+const textForApproveCheck = !isDirect
+  ? extractedContent.text.replace(/^(?:@\S+\s+)*/u, "").trim()  // 群里剥前导 @mention
+  : extractedContent.text.trim();
+
+if (/^\/approve\b/i.test(textForApproveCheck)) {
+  const m = textForApproveCheck.match(
+    /^\/approve\s+(\S+)\s+(allow-once|allow-always|allow|once|always|deny|reject|block)\s*$/i,
+  );
+  if (!m) {
+    log?.warn?.("[DingTalk] /approve malformed — usage: /approve &lt;id&gt; &lt;decision&gt;");
+    return;
+  }
+  const approvalId = m[1];
+  // 与上游 commands-approve.ts 的 alias 表对齐——保持跨 channel 体验一致
+  const rawDecision = m[2].toLowerCase();
+  const decision: "allow-once" | "allow-always" | "deny" =
+    rawDecision === "allow" || rawDecision === "once" ? "allow-once"
+    : rawDecision === "always" ? "allow-always"
+    : rawDecision === "reject" || rawDecision === "block" ? "deny"
+    : (rawDecision as "allow-once" | "allow-always" | "deny");
+
+  log?.info?.(`[DingTalk] /approve intercept id=${approvalId} decision=${decision}`);
+  try {
+    const { resolveApprovalOverGateway } = await import(
+      "openclaw/plugin-sdk/approval-gateway-runtime"
+    );
+    await resolveApprovalOverGateway({
+      cfg,
+      approvalId,
+      decision,
+      senderId,                                          // 入站消息的 senderStaffId
+      clientDisplayName: "DingTalk",
+    });
+  } catch (err) {
+    log?.warn?.(`[DingTalk] /approve resolve failed: ${getErrorMessage(err)}`);
+  }
+  return;                                                // ← 关键：return，不再进 reply 派发
+}</pre>
+
+        <h4>为什么 D2 不能"纯复用上游 /approve dispatcher"</h4>
+        <table>
+          <thead><tr><th>方案</th><th>结果</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>v1 设想：用户敲 <code>/approve</code> → DingTalk 透传给上游 OpenClaw 的 commands-approve.ts dispatcher</td>
+              <td>❌ 透传必须经过 channel 的 reply 派发 → reply 派发 acquireSessionLock → 死锁</td>
+            </tr>
+            <tr>
+              <td>v2 实施：channel 端 early intercept，自己识别 <code>/approve</code> 格式，直接调 SDK 公开的 <code>resolveApprovalOverGateway</code></td>
+              <td>✅ 不进 reply 派发，不碰 session lock；上游 store 同样收敛到 resolved</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>与上游 commands-approve.ts 的语义对齐</strong>
+          channel 端的 regex 必须复现上游全部 decision alias（once/always/allow/deny/reject/block），
+          这样钉钉用户敲的命令与 Discord/Telegram/Slack 完全一致。
+          上游若未来扩展 alias，channel 端需同步更新（在 §11.2 风险表登记）。
+        </div>
       </section>
 
       <!-- ============================ CARD DESIGN ============================ -->
@@ -764,11 +970,32 @@ t=1   src/gateway/channel-gateway.ts:330 listener 触发
           </tbody>
         </table>
 
-        <h3>7.2 三按钮配置（actionId 编码与 D2/D3 对齐）</h3>
-        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">ButtonGroup (在 buttonGroupVisible=true 时渲染):
-  ├─ ✅ 允许一次   actionId = "/approve ${approvalId} allow-once"   style=primary
-  ├─ ✅ 总是允许   actionId = "/approve ${approvalId} allow-always" style=ghost
-  └─ ⛔ 拒绝       actionId = "/approve ${approvalId} deny"         style=danger</pre>
+        <h3>7.2 三按钮配置（v2 修订：cardPrivateData 结构化 - D15 落地）</h3>
+        <p>按钮通过 PR #480 引入的 <code>CardBtn[]</code> 模板字段渲染。<strong>三按钮共享 actionId <code>"approval"</code></strong>，区分靠 <code>params.d</code>：</p>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">// approval-card-render.ts 内部
+function makeApprovalBtns(approvalId: string): CardBtn[] {
+  return [
+    { text: "✅ 允许一次", color: "green",  status: "normal",
+      event: { type: "sendCardRequest",
+               params: { actionId: "approval",
+                         params: { t: "approval", d: "allow-once", id: approvalId } } } },
+    { text: "✅ 总是允许", color: "blue",   status: "normal",
+      event: { type: "sendCardRequest",
+               params: { actionId: "approval",
+                         params: { t: "approval", d: "allow-always", id: approvalId } } } },
+    { text: "⛔ 拒绝",     color: "red",    status: "normal",
+      event: { type: "sendCardRequest",
+               params: { actionId: "approval",
+                         params: { t: "approval", d: "deny", id: approvalId } } } },
+  ];
+}
+// 实际放进 cardParamMap：
+//   cardParamMap.btns = JSON.stringify(makeApprovalBtns(approvalId))
+//   cardParamMap.hasAction = "true"  (终态时改为 "false")</pre>
+        <p style="font-size:13px;color:var(--color-text-faint)">
+          注意：DingTalk 平台会在回调里给每个按钮的 actionId 末尾追加 button index（"approval" → "approval0"/"approval1"/"approval2"），
+          回调解析使用 <code>startsWith("approval")</code> + <code>params.d</code> 取 decision 即可，详见 §1.2 与 §6.3。
+        </p>
 
         <h3>7.3 状态机</h3>
         <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">           ┌─ user click allow-once  ──► RESOLVED (allow-once)
@@ -950,10 +1177,10 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
               <td>偶发不一致；上游 store 仍是真相</td>
             </tr>
             <tr>
-              <td>parseExecApprovalCommandText 失败</td>
-              <td>actionId 被人手改坏 / 编码 bug</td>
-              <td>WARN 日志 + ack 平台 + 卡片<strong>不变</strong>（保留按钮）</td>
-              <td>用户感觉点击没反应；可通过 <code>/approve</code> 命令兜底</td>
+              <td>parseApprovalFromCardPrivateData 失败</td>
+              <td>cardPrivateData 缺失 / actionIds[0] 不是 "approval" 前缀 / params 结构损坏</td>
+              <td>WARN 日志 + ack 平台 + 卡片<strong>不变</strong>（保留按钮）；continue 走原 callback 既有路径（feedback / btn_stop 等）</td>
+              <td>非 approval 按钮回调不受影响；approval 按钮异常时可通过 <code>/approve</code> 命令兜底</td>
             </tr>
             <tr>
               <td>权限校验失败</td>
@@ -1007,7 +1234,9 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
             <tr><td><code>tests/unit/approval-card-template.test.ts</code></td><td>cardParamMap 构造（含 stringify 规则）</td><td>~8</td></tr>
             <tr><td><code>tests/unit/approval-card-render.test.ts</code></td><td>pending/resolved/expired/canceled × exec/plugin = 8 个矩阵</td><td>~16</td></tr>
             <tr><td><code>tests/unit/approval-target-resolver.test.ts</code></td><td>origin 解析（含 turnSourceChannel=null）、DM 列表构造</td><td>~10</td></tr>
-            <tr><td><code>tests/unit/approval-callback-handler.test.ts</code></td><td>actionId parse、权限校验、resolve 调用、各错误分支</td><td>~18</td></tr>
+            <tr><td><code>tests/unit/approval-callback-handler.test.ts</code></td><td>cardPrivateData 结构化 parse（含 button index 后缀）、权限校验、resolveApprovalOverGateway 调用、各错误分支；以 §1.2 的真机回调样本作 fixture</td><td>~20</td></tr>
+            <tr><td><code>tests/unit/card-callback-service.test.ts</code>（扩展既有）</td><td>D16 改动：<code>analyzeCardCallback</code> 抽 <code>cardPrivateData</code> 含 actionIds + params；既有 feedback / btn_stop 用例不受影响</td><td>+6</td></tr>
+            <tr><td><code>tests/unit/inbound-handler-approve-intercept.test.ts</code></td><td>§6.8 早期 intercept：群里带 @mention 前缀、私聊、各 decision alias、malformed 命令、resolveApprovalOverGateway 调用</td><td>~12</td></tr>
             <tr><td><code>tests/unit/approval-store.test.ts</code></td><td>register/get/remove/findByAccountId/finalizeAll</td><td>~8</td></tr>
             <tr><td><code>tests/unit/approval-cancel.test.ts</code></td><td>stopClient 触发 finalize</td><td>~4</td></tr>
             <tr><td><code>tests/unit/approval-fallback-render.test.ts</code></td><td>markdown 兜底文案、exec/plugin 分支</td><td>~6</td></tr>
@@ -1051,42 +1280,53 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
         <h2>10. 实施阶段</h2>
         <p>按"先上链路、再上 UX、最后部署模板"分 3 阶段。每阶段独立可合并，前一阶段不阻塞后一阶段对应的 PR review。</p>
 
+        <h3>阶段 0 · 前置依赖（必须先满足）</h3>
+        <div class="callout warn">
+          <strong>D17：阶段 1 PR 提交前必须完成的事</strong>
+          <ul style="margin:6px 0 0">
+            <li><strong>上游 openclaw &gt;= 2026.4.7</strong>：才有 <code>ChannelApprovalNativeRuntimeAdapter</code> 契约（<span class="file-ref">openclaw/src/infra/approval-handler-runtime-types.ts:216-235</span>）与 <code>resolveApprovalOverGateway</code> 公开 API（<span class="file-ref">openclaw/plugin-sdk/approval-gateway-runtime</span>）。
+              <br/>实施 PR-1 时 <code>package.json</code> 的 <code>peerDependencies.openclaw</code> 同步 bump，写入 release notes 作为 BREAKING change</li>
+            <li><strong>本仓库 PR #480 必须先合并</strong>：才有 AI Card v2 模板的 <code>CardBtn[]</code> 与 <code>sendCardRequest</code> 回调格式支持。本设计的按钮渲染（§7.2）依赖这两个能力</li>
+            <li><strong>approval-card 模板上传</strong>：在 <code>open-dev.dingtalk.com/fe/card</code> 导入 <code>docs/assets/card-template-approval-v1.json</code>，发布为预置统一模板，拿到 templateId（用于阶段 2 替换占位常量）</li>
+          </ul>
+        </div>
+
         <h3>阶段 1 · 接口骨架与权限链路（PR-1）</h3>
         <ul>
           <li>新增 <code>src/approval/</code> 目录与全部 9 个文件骨架</li>
           <li>实现 <code>approval-config.ts</code>、<code>approval-store.ts</code>、<code>approval-target-resolver.ts</code>、<code>approval-capability.ts</code>（不含 native runtime 完整实现）</li>
           <li>在 <code>src/channel.ts</code> 挂上 <code>approvalCapability</code>，但 <code>nativeRuntime</code> 暂留 <code>undefined</code>，capability 仅生效 <code>authorizeActorAction</code> / <code>resolveApproveCommandBehavior</code> 等权限部分</li>
+          <li><strong>在 <code>src/inbound-handler.ts</code> 加 <code>/approve</code> 早期 intercept</strong>（§6.8，D2 落地）——这部分 PR-1 就要做，因为它就是 Feishu-同档体验的最后一公里</li>
+          <li><code>package.json</code> peerDependency bump 到 <code>openclaw &gt;= 2026.4.7</code></li>
           <li>schema、配置文档（草稿）</li>
-          <li>测试：<code>approval-config</code>、<code>approval-store</code>、<code>approval-target-resolver</code>、<code>approval-capability</code></li>
-          <li><strong>这阶段交付后：用户已经能在钉钉里手敲 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 完成审批</strong>（权限校验生效）。Feishu 同档能力。</li>
+          <li>测试：<code>approval-config</code>、<code>approval-store</code>、<code>approval-target-resolver</code>、<code>approval-capability</code>、<strong><code>approve-command-early-intercept</code></strong></li>
+          <li><strong>这阶段交付后：用户已经能在钉钉里手敲 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 完成审批</strong>（权限校验生效 + 早期 intercept 绕过 session lock）。Feishu 同档能力。</li>
         </ul>
 
         <h3>阶段 2 · 完整 native runtime（PR-2）</h3>
         <ul>
-          <li>实现 <code>approval-card-template.ts</code>（先用占位 templateId，注释 TODO）、<code>approval-card-render.ts</code>、<code>approval-fallback-render.ts</code>、<code>approval-callback-handler.ts</code>、<code>approval-native-runtime.ts</code>、<code>approval-cancel.ts</code></li>
-          <li><code>src/gateway/channel-gateway.ts</code> 接入 <code>tryHandleApprovalCallback</code> 分支</li>
-          <li>在阶段 1 的 capability 里挂上 <code>nativeRuntime</code></li>
-          <li>测试：剩余 6 个 unit 文件 + 2 个 integration 文件</li>
-          <li><strong>这阶段交付后：完整三按钮卡片 UX 可用，但 templateId 仍是占位</strong>——本地 mock 测试已能验证全链路；真实部署需阶段 3</li>
+          <li>实现 <code>approval-card-template.ts</code>（用阶段 0 拿到的正式 templateId 写入常量）、<code>approval-card-render.ts</code>（按 §7.2 出 cardPrivateData 结构化 btns）、<code>approval-fallback-render.ts</code>、<code>approval-callback-handler.ts</code>（用 <code>parseApprovalFromCardPrivateData</code>）、<code>approval-native-runtime.ts</code>、<code>approval-cancel.ts</code></li>
+          <li><strong>修改 <code>src/card-callback-service.ts</code></strong>（D16）：<code>CardCallbackAnalysis</code> 加 <code>cardPrivateData</code> 字段，<code>analyzeCardCallback</code> 抽 params 并附到 analysis</li>
+          <li><code>src/gateway/channel-gateway.ts</code> 接入 <code>tryHandleApprovalCallback</code> 分支（在 feedback / btn_stop 之前）</li>
+          <li>在阶段 1 的 capability 里挂上 <code>nativeRuntime</code>（含 5 子 adapter；interactions 的 clearPendingActions / cancelDelivered 有实质实现）</li>
+          <li>测试：剩余 6 个 unit 文件 + 2 个 integration 文件；新增 callback-handler 与 cardPrivateData 解析的 test（基于 §1.2 的真机回调样本作 fixture）</li>
+          <li><strong>这阶段交付后：完整三按钮卡片 UX 在真机可用</strong>——templateId 已为正式发布版；可走真机回归（参照 <code>skills/dingtalk-real-device-testing/SKILL.md</code>）</li>
         </ul>
 
-        <h3>阶段 3 · 模板上传与发布（PR-3）</h3>
+        <h3>阶段 3 · 用户文档与回归收尾（PR-3）</h3>
         <ul>
-          <li>登录 <code>open-dev.dingtalk.com/fe/card</code>，把 <code>docs/assets/card-template-approval-v1.json</code> 导入卡片搭建器</li>
-          <li>调试模板布局（按 §7 mockup 对齐）</li>
-          <li>发布为统一预置模板，获得正式 templateId</li>
-          <li>替换 <code>approval-card-template.ts</code> 里的占位常量为真实 templateId</li>
-          <li>真机回归（参照 <code>skills/dingtalk-real-device-testing/SKILL.md</code>）</li>
-          <li>更新用户文档 <code>docs/user/features/exec-approval.md</code></li>
-          <li><strong>这阶段交付后：用户安装即用，零部署摩擦</strong></li>
+          <li>更新用户文档 <code>docs/user/features/exec-approval.md</code>（配置示例、approver 名单、UX 截图）</li>
+          <li>更新 README 与 release notes（特别说明 peerDependency BREAKING）</li>
+          <li>补真机回归记录到 <code>docs/artifacts/</code>（与现有 v2 卡片真机回归同模式）</li>
+          <li><strong>这阶段交付后：feature 正式宣告 production-ready</strong></li>
         </ul>
 
         <div class="callout success">
           <strong>分阶段的好处</strong>
           <ul style="margin:6px 0 0">
-            <li>PR-1 可独立 merge，立刻让"在钉钉里用 /approve 命令"成为可能（Feishu-同档 baseline）</li>
-            <li>PR-2 引入大量代码但完全自给自足（不依赖模板上传），测试可用 mock templateId 全覆盖</li>
-            <li>PR-3 只动配置常量与文档，code-review 量极小，便于聚焦真机回归</li>
+            <li>PR-1 可独立 merge，立刻让"在钉钉里用 /approve 命令"成为可能（Feishu-同档 baseline）；权限校验生效，安全已闭环</li>
+            <li>PR-2 引入大量代码但全部聚焦 native runtime；阶段 0 模板已发布，可直接进真机回归</li>
+            <li>PR-3 只动文档与回归记录，code-review 量极小，便于聚焦写作质量</li>
             <li>任何阶段回滚都不破坏前阶段已交付能力</li>
           </ul>
         </div>
@@ -1115,9 +1355,14 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
               <td>阶段 3 在发布后做真机回归；fallback 路径保证不出现 approval 静默消失</td>
             </tr>
             <tr>
-              <td>callback userId 字段语义假设（认为是 staffId）</td>
-              <td>若实际是 unionId → 权限校验全部失败</td>
-              <td>真机回归阶段必查；若不符则在 callback-handler 加一次 unionId→staffId 解析（用现有 <code>getUnionIdByStaffId</code> 反向 API），命中后缓存</td>
+              <td>上游 commands-approve.ts 扩展 decision alias</td>
+              <td>钉钉 channel 端 §6.8 的 regex 写死支持 once/always/allow/deny/reject/block；若上游新增 alias，channel 端用户敲新 alias 会被 channel 拒为 "malformed"</td>
+              <td>在 §6.8 regex 旁加显式注释引用上游文件路径；CI 加一个测试断言上游 alias 集合不超出 channel 端支持范围（参考 <span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> alias 列表）</td>
+            </tr>
+            <tr>
+              <td>DingTalk 平台未来变更 cardPrivateData 字段命名</td>
+              <td>所有 approval 按钮点击解析失败 → 卡片按钮点了无反应</td>
+              <td>parseApprovalFromCardPrivateData 失败时降级到 <code>actionId.startsWith("approval")</code> 简单匹配 + 从 actionId 末尾索引推 decision（兜底但精度差）；同时上游 monitor warn 上报，触发 hotfix</td>
             </tr>
             <tr>
               <td>机器人 DM approver 失败（企业权限）</td>
@@ -1153,7 +1398,13 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
           <li><span class="file-ref">openclaw/src/infra/exec-approvals.ts</span> — ExecApprovalRequest / Resolved</li>
           <li><span class="file-ref">openclaw/src/infra/plugin-approvals.ts</span> — PluginApprovalRequest / Resolved</li>
           <li><span class="file-ref">openclaw/src/plugin-sdk/approval-delivery-helpers.ts:30-261</span> — createApproverRestrictedNativeApprovalCapability 工厂</li>
-          <li><span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> — <code>/approve</code> 命令解析与 dispatcher</li>
+          <li><span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> — <code>/approve</code> 命令解析与 dispatcher（channel 端 §6.8 regex 需保持与此处 alias 集合对齐）</li>
+          <li><span class="file-ref">openclaw/plugin-sdk/approval-gateway-runtime</span> — <code>resolveApprovalOverGateway</code> 公开 API（v2026.4.7+ 引入；本设计的按钮 / 命令两条路径都调它）</li>
+        </ul>
+
+        <h4>本设计的对照实现（必读）</h4>
+        <ul>
+          <li><a href="https://github.com/soimy/openclaw-channel-dingtalk/pull/489">PR #489 · feat(approval): exec/plugin approval card with command session dispatch</a>（@BrilliantWang 并行实施）—— 揭示 4 处关键事实约束：session lock 死锁（§6.8）、cardPrivateData 结构化 payload（§1.2）、peerDependency bump（D17）、PR #480 依赖（阶段 0）；本设计对其取舍：保留 approver schema、保留 finalizeActiveApprovalCardsForAccount、保留 markdown 兜底、保留 both surface</li>
         </ul>
 
         <h4>对标 channel 实现</h4>
