@@ -478,7 +478,10 @@ await approvalResolver.resolveApproval({
 │    └─ src/types.ts                      加 ApprovalEntry / Decision        │
 │                                                                            │
 │  资产                                                                       │
-│    （v3.3 删除 card-template-approval-v1.json 与 -source.md，复用 AI v2）   │
+│    ├─ docs/assets/card-template-v3.json   ★ v3.5.1 新增：用户实配的       │
+│    │                                        AI Card v3.0.0 schema（含     │
+│    │                                        approve_btns + show_approve_btns
+│    │                                        变量定义，267KB 完整低代码）   │
 │    └─ docs/user/features/exec-approval.md              用户配置指南          │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘</pre>
@@ -1343,7 +1346,7 @@ if (/^\/approve\b/i.test(textForApproveCheck)) {
         <h2>7. 审批卡片设计</h2>
 
         <h3>7.1 v2 模板字段映射（v3.5 对齐用户实配 schema）</h3>
-        <p>v3.5 用户已在 AI Card v2 模板上配好两个新增变量（schema id ending in <code>876de.schema</code>）+ 一个 ButtonGroup：</p>
+        <p>v3.5 用户已在 AI Card v2 模板上配好两个新增变量（schema id 末尾 <code>876de.schema</code>）+ 一个 ButtonGroup。完整低代码 schema（v3.0.0）见 <a href="../assets/card-template-v3.json"><span class="file-ref">docs/assets/card-template-v3.json</span></a>（267KB，从开发者平台导出）——可重新导入开放平台卡片搭建器对比 / 定制 / 版本迁移用。</p>
         <table>
           <thead><tr><th>cardParamMap 变量</th><th>类型</th><th>approval 用途</th><th>pending / resolved / expired 时的值</th></tr></thead>
           <tbody>
@@ -1749,7 +1752,13 @@ description: 对 production.orders 表查询近 7 天订单</code></pre>
                 <li><strong>验证 <code>tsconfig.json</code> path 解析顺序</strong>——开发期 monorepo / linked checkout 场景可临时调高 <code>../openclaw/src/plugin-sdk</code> 在 paths 中的优先级做 unblock，但 release 前必须切回 lockfile 路径以保证发布包正确</li>
               </ol></li>
             <li><strong>本仓库 PR #480 已合并</strong>（MERGED；2026-05-18 核实）：AI Card v2 模板的 <code>CardBtn[]</code> 与 <code>sendCardRequest</code> 回调格式已在当前 main 可用。实施时需复用 / 确认当前 main 上的 <code>CardBtn</code> 类型与 <code>sendCardRequest</code> 契约（路径与字段命名）与本 spec §1.2 / §7.2 一致；如有偏差以当前 main 为准并回头修订 spec</li>
-            <li><strong>~~approval-card 模板上传~~（v3.3 删除）</strong>：D9 v3.3 不再新建 approval 模板。替代任务：阶段 1 实施前确认当前 main 上 AI Card v2 模板的字段是否满足 §7.1 候选 A/B/C 之一（btns 必须；approval 终态指示位用 contentKey append / blockList system block / 新增 approvalStatus 三选一）。若需轻微改动 v2 模板，按 PR #480 既有流程处理</li>
+            <li><strong>AI Card v3 模板部署</strong>（v3.5.1 修订）：用户已配好 schema 并导出到 <span class="file-ref">docs/assets/card-template-v3.json</span>（267KB，schemaVersion 3.0.0，含 <code>approve_btns</code> 按钮组定义 + <code>show_approve_btns</code> Boolean 变量 + 三按钮 actionId/params 全部固化）。
+              <br/>阶段 0 任务：
+              <ol style="margin:4px 0">
+                <li>在 <code>open-dev.dingtalk.com</code> 把这份 schema 发布为预置卡片模板，拿到正式 templateId</li>
+                <li>把 templateId 写到 <code>src/card/card-template.ts</code> ——决定是<strong>替代</strong>现有 <code>BUILTIN_DINGTALK_CARD_TEMPLATE_ID</code>（v3 全面替换 v2）还是<strong>并存</strong>（v2 用于无 approval 场景、v3 用于 approval 场景），由 PR-2 实施时根据真机回归结果决定</li>
+                <li>真机回归确认 <code>show_approve_btns</code> toggle 行为符合 §6.2 / §6.4 描述（true→显示 3 按钮，false→隐藏）</li>
+              </ol></li>
           </ul>
         </div>
 
