@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gap #01 · DingTalk Native Approval 设计方案</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <p class="breadcrumb">openclaw-channel-dingtalk / docs / features / gap-01-approval-native-design</p>
+        <h1 class="page-title">Gap #01 · DingTalk Native Approval 设计方案</h1>
+        <p class="page-subtitle">
+          为 DingTalk Channel 接入 OpenClaw 的 <strong>原生审批能力</strong>（exec approval + plugin approval），全量实现 <code>ChannelApprovalCapability</code> 与 5 个子 native runtime adapter。审批以 AI 卡片三按钮形式投放，按钮 payload 直接复用上游 <code>/approve</code> 命令字面量，与 Discord / Telegram / Slack 三个 peer channel 对齐。
+        </p>
+        <div class="meta-row">
+          <span class="badge p0">P0 · 核心缺口</span>
+          <span class="badge platform-ok">平台能力 CONFIRMED</span>
+          <span class="badge">基线 v3.6.3</span>
+          <span class="badge">设计日期 2026-05-18</span>
+          <span class="badge">作者 zhumin + Claude Opus 4.7</span>
+        </div>
+      </header>
+
+      <!-- ============================ OVERVIEW ============================ -->
+      <section id="overview">
+        <h2>1. 总览</h2>
+        <p>
+          DingTalk Channel 当前 <span class="file-ref">src/channel.ts:22-127</span> 没有声明 <code>approvalCapability</code>，所以 OpenClaw 的 exec / plugin 审批流程在钉钉用户那里完全走不通——agent 想跑命令时只能在 WebUI / 终端 UI 里批，从钉钉群里发起的 agent 任务等于 dead-end。本设计填补这一空缺，让钉钉群（origin）与 approver 私聊（DM）两端都能直接收到三按钮卡片，点击即可完成审批。
+        </p>
+
+        <div class="callout success">
+          <strong>本设计的核心原则</strong>
+          <ul style="margin:6px 0 0">
+            <li><strong>不做一半</strong>：exec + plugin 两类 approval 一次到位，5 个 native runtime sub-adapter 全部实现</li>
+            <li><strong>与 peer 对齐</strong>：所有可对照决策（surface / approver schema / ID 不短化 / slash 命令复用上游）都跟 Discord/Telegram/Slack 一致，不为 DingTalk 发明独有约定</li>
+            <li><strong>钉钉特性最大化</strong>：审批永远用 DingTalk 互动卡片（独立模板）渲染，与 <code>messageType: card | markdown</code> 配置无关</li>
+            <li><strong>上游约定为权威</strong>：按钮点击解码后回写到 <code>exec.approval.resolve</code> / <code>plugin.approval.resolve</code> gateway method，与用户手敲 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 走同一条解析链</li>
+            <li><strong>用户零部署摩擦</strong>：审批卡片模板 ID 内置常量，无环境变量配置；只需把 approver staffId 列表写进 <code>channels.dingtalk.execApprovals.approvers</code> 即可启用</li>
+          </ul>
+        </div>
+
+        <h3>1.1 范围明确不做的事</h3>
+        <ul>
+          <li>不抽通用 action dispatcher / registry —— peer 三家都没做，approval 走自己的回调前缀分支，与 <code>feedback_up/down</code> / <code>btn_stop</code> 在 TOPIC_CARD listener 中同级并列</li>
+          <li>不动 <code>btn_stop</code> 与 feedback 既有路径（向后兼容，零回归风险）</li>
+          <li>不为 markdown 模式做"教用户打 /approve 命令"的主路径文案——卡片是唯一推广 UX</li>
+          <li>不做重启后主动 rebind pending approval（v1 范围；用户点过期/失效按钮时显式降级提示）</li>
+          <li>不引入 select / input / datepicker 等高级组件——仅 button（已 CONFIRMED 平台支持）</li>
+        </ul>
+      </section>
+
+      <!-- ============================ DECISIONS ============================ -->
+      <section id="decisions">
+        <h2>2. 已确认的决策清单</h2>
+        <p>本节是设计的 single source of truth，下文所有 section 的实现细节都基于这 10 条决策。任何变更需要回到这里更新。</p>
+
+        <table>
+          <thead><tr><th width="5%">#</th><th width="30%">决策点</th><th width="50%">选定方案</th><th width="15%">关联 peer</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>D1</td>
+              <td>实现范围</td>
+              <td>Full native runtime（5 个 sub-adapter 全做）</td>
+              <td>Discord / Slack / Telegram</td>
+            </tr>
+            <tr>
+              <td>D2</td>
+              <td>Slash 命令</td>
+              <td>纯复用上游 <code>/approve &lt;id&gt; &lt;decision&gt;</code>，channel 端零注册</td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D3</td>
+              <td>Approval ID 形式</td>
+              <td>全 ID 不短化（DingTalk 无 byte 限制；Telegram 短到 8 字符仅因 64 字节硬限制）</td>
+              <td>Discord / Slack</td>
+            </tr>
+            <tr>
+              <td>D4</td>
+              <td>Surface 默认值</td>
+              <td><code>both</code> + <code>notifyOriginWhenDmOnly=true</code></td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D5</td>
+              <td>自批准（self-approval）</td>
+              <td>允许（clicker 在 approver 名单里即可，不查 originator vs clicker）</td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D6</td>
+              <td>Origin == DM 去重</td>
+              <td>用 <code>transport.prepareTarget</code> 返回的 <code>dedupeKey = accountId:target.to</code></td>
+              <td>SDK 标准机制</td>
+            </tr>
+            <tr>
+              <td>D7</td>
+              <td>Approver schema</td>
+              <td>仅 staffId（含 <code>dingtalk:/dd:/ding:</code> 前缀剥离）；多账号 override；fallback 到 <code>commands.ownerAllowFrom</code>；<code>enabled: auto</code></td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D8</td>
+              <td>Approval 类别</td>
+              <td>exec + plugin 一次到位（<code>eventKinds: ["exec", "plugin"]</code>）</td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D9</td>
+              <td>卡片模板</td>
+              <td>新建 approval 专用模板（独立 templateId），<strong>纯常量内置，无 env 覆盖</strong>；JSON 源 commit 到 <code>docs/assets/</code></td>
+              <td>—（DingTalk 特化）</td>
+            </tr>
+            <tr>
+              <td>D10</td>
+              <td>渲染策略</td>
+              <td>所有 approval 永远用 approval 卡片，与 <code>messageType</code> 无关；markdown/text 仅作 createAndDeliver 失败时的 error-recovery 兜底</td>
+              <td>三家完全一致</td>
+            </tr>
+            <tr>
+              <td>D11</td>
+              <td>TTL 归属</td>
+              <td>上游 approval store 管 <code>expiresAtMs</code>；channel 端不跑自己的 timer，跟随上游事件</td>
+              <td>SDK 标准</td>
+            </tr>
+            <tr>
+              <td>D12</td>
+              <td>重启恢复</td>
+              <td>v1 不主动 rebind；遗留卡片的按钮点击触发"过期/失效"显式降级提示</td>
+              <td>—（v1 范围）</td>
+            </tr>
+            <tr>
+              <td>D13</td>
+              <td>停机取消</td>
+              <td>复刻现有 <code>finalizeActiveCardsForAccount</code> 模式，<code>stopClient</code> 时把所有 pending approval 卡片刷成"已取消（通道断开）"</td>
+              <td>—（DingTalk 特化）</td>
+            </tr>
+            <tr>
+              <td>D14</td>
+              <td>终态展示</td>
+              <td><code>kind: "update"</code>——PUT <code>/v1.0/card/instances</code> 改 statusFooter + 隐藏按钮组，卡片保留</td>
+              <td>Slack 同款</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================ ARCHITECTURE ============================ -->
+      <section id="architecture">
+        <h2>3. 架构与模块布局</h2>
+
+        <h3>3.1 上下游分工</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.45">┌──────────────────────────── upstream OpenClaw ────────────────────────────┐
+│                                                                            │
+│  exec-approval / plugin-approval store ─┐    (createApprovalRequest)       │
+│                                          │                                  │
+│  approval-handler-runtime ────────────► nativeRuntime 5 子 adapter         │
+│  (src/infra/approval-handler-runtime.ts) ▲      (DingTalk channel 实现)    │
+│                                          │                                  │
+│  resolve gateway ◄───────────────────────┤      调上游回写                  │
+│   ├─ exec.approval.resolve { id, decision }                                │
+│   └─ plugin.approval.resolve { id, decision }                              │
+│                                                                            │
+│  parseExecApprovalCommandText(text)  ◄────  按钮 payload 字面复用          │
+│   (用户敲 /approve <id> <decision> 也走这里)                                │
+│                                                                            │
+└───────────────────────────────────┬────────────────────────────────────────┘
+                                    │ adapter 实现
+                                    ▼
+┌──────────────────── openclaw-channel-dingtalk (本仓库) ────────────────────┐
+│                                                                            │
+│  src/approval/  ── 新增 domain 目录                                         │
+│    ├─ approval-capability.ts            ApprovalCapability 单例装配         │
+│    ├─ approval-native-runtime.ts        5 子 adapter 入口（lazy load）      │
+│    ├─ approval-card-template.ts         模板 ID 常量 + cardParamMap helper  │
+│    ├─ approval-card-render.ts           pending / resolved / expired 渲染   │
+│    ├─ approval-fallback-render.ts       markdown 兜底（仅 error-recovery）  │
+│    ├─ approval-target-resolver.ts       origin / DM target 解析             │
+│    ├─ approval-callback-handler.ts      TOPIC_CARD 回调入口 approve: 分支   │
+│    ├─ approval-config.ts                execApprovals.* schema 读写         │
+│    ├─ approval-store.ts                 内存 pendingEntry (outTrackId↔id)   │
+│    └─ approval-cancel.ts                stopClient 时 finalize 所有 pending │
+│                                                                            │
+│  改造点（增量、向后兼容）                                                    │
+│    ├─ src/channel.ts                    新增 approvalCapability 字段        │
+│    ├─ src/config-schema.ts              新增 execApprovalsSchema           │
+│    ├─ src/gateway/channel-gateway.ts    TOPIC_CARD listener 加 approve 分支│
+│    ├─ src/card/card-template.ts         加 BUILTIN_APPROVAL_CARD_TEMPLATE_ID│
+│    └─ src/types.ts                      加 ApprovalCardEntry / Decision    │
+│                                                                            │
+│  资产                                                                       │
+│    ├─ docs/assets/card-template-approval-v1.json       低代码 schema       │
+│    ├─ docs/assets/card-template-approval-v1-source.md  字段语义说明         │
+│    └─ docs/user/features/exec-approval.md              用户配置指南          │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘</pre>
+
+        <h3>3.2 模块单一职责表</h3>
+        <table>
+          <thead><tr><th>模块</th><th>单一职责</th><th>主要依赖</th><th>预计行数</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>approval-capability.ts</code></td>
+              <td>用 <code>createApproverRestrictedNativeApprovalCapability</code> 工厂把所有零件组装成单例 <code>ChannelApprovalCapability</code></td>
+              <td>SDK 工厂 + 其它 8 个 approval-* 模块</td>
+              <td>~80</td>
+            </tr>
+            <tr>
+              <td><code>approval-native-runtime.ts</code></td>
+              <td>实现 5 个子 adapter，用 <code>createLazyChannelApprovalNativeRuntimeAdapter</code> 懒加载</td>
+              <td>render / store / target-resolver / card-service</td>
+              <td>~220</td>
+            </tr>
+            <tr>
+              <td><code>approval-card-template.ts</code></td>
+              <td><code>BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code> 常量 + <code>buildApprovalCardParamMap()</code> 把 view+phase 转 KV</td>
+              <td>—</td>
+              <td>~120</td>
+            </tr>
+            <tr>
+              <td><code>approval-card-render.ts</code></td>
+              <td>给 request+phase 输出 cardParamMap（pending/resolved/expired/canceled × exec/plugin）</td>
+              <td>approval-card-template</td>
+              <td>~180</td>
+            </tr>
+            <tr>
+              <td><code>approval-fallback-render.ts</code></td>
+              <td>仅 createAndDeliver 失败时调用，生成 markdown/text 兜底正文</td>
+              <td>approval-config</td>
+              <td>~60</td>
+            </tr>
+            <tr>
+              <td><code>approval-target-resolver.ts</code></td>
+              <td><code>resolveOriginTarget</code> + <code>resolveApproverDmTargets</code>，从 request 与 config 提取 DingTalk target</td>
+              <td>normalizeDingTalkTarget, config</td>
+              <td>~120</td>
+            </tr>
+            <tr>
+              <td><code>approval-callback-handler.ts</code></td>
+              <td>TOPIC_CARD 收到 <code>"/approve …"</code> 前缀的 actionId 时：parse → authorize → resolve gateway → ack</td>
+              <td>gateway primitive, capability auth, store</td>
+              <td>~150</td>
+            </tr>
+            <tr>
+              <td><code>approval-config.ts</code></td>
+              <td>纯读 helper：<code>getExecApprovalsConfig</code> / <code>listExecApprovers</code> / <code>isExecAuthorizedSender</code> / <code>resolveNativeDeliveryMode</code></td>
+              <td>config 模块</td>
+              <td>~90</td>
+            </tr>
+            <tr>
+              <td><code>approval-store.ts</code></td>
+              <td>per-process Map：approvalId ↔ entry，支持 register/get*/remove/finalizeAll</td>
+              <td>—</td>
+              <td>~80</td>
+            </tr>
+            <tr>
+              <td><code>approval-cancel.ts</code></td>
+              <td><code>finalizeActiveApprovalCardsForAccount(accountId, reason)</code>：扫 store + PUT update 为"已取消（通道断开）"</td>
+              <td>approval-store, card-service</td>
+              <td>~70</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size:13px;color:var(--color-text-faint)">合计新增 ~1170 行业务代码；测试代码预计 ~2200 行（按 2× 比例，含 fixture）。</p>
+
+        <h3>3.3 与现有代码的接触面</h3>
+        <table>
+          <thead><tr><th>文件</th><th>改动</th><th>风险</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="file-ref">src/channel.ts:22-127</span></td>
+              <td>plugin 对象新增 <code>approvalCapability</code> 字段（1 行 import + 1 行赋值）</td>
+              <td>极低</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/config-schema.ts</span></td>
+              <td>新增 <code>execApprovalsSchema</code>，加到 <code>DingTalkConfigSchema</code> 与 account override schema</td>
+              <td>低</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/gateway/channel-gateway.ts:330-407</span></td>
+              <td>TOPIC_CARD listener 在调 <code>handleCardAction</code> 之前插入 <code>tryHandleApprovalCallback()</code>；命中则 return，否则继续既有路径</td>
+              <td>中（需谨慎保持 feedback / btn_stop 行为不变）</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/card/card-template.ts</span></td>
+              <td>新增 <code>BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code> 常量（与 AI Card 常量并列）</td>
+              <td>极低</td>
+            </tr>
+            <tr>
+              <td><span class="file-ref">src/types.ts</span></td>
+              <td>新增 <code>ApprovalCardEntry</code> / <code>ApprovalDecision</code> / <code>ApprovalPhase</code> 类型</td>
+              <td>极低</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>明确不修改的文件</strong>（向后兼容保证）
+          <ul style="margin:4px 0 0">
+            <li><span class="file-ref">src/card/card-action-handler.ts</span>（btn_stop 不动）</li>
+            <li><span class="file-ref">src/card-callback-service.ts</span>（<code>extractCardActionId</code> 已能取任意字符串）</li>
+            <li><span class="file-ref">src/feedback-learning-service.ts</span>（与 approval 完全不交叉）</li>
+            <li>所有 <code>src/reply-strategy-*</code>（approval 不进 agent reply 路径，独立卡片）</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================ CAPABILITY ============================ -->
+      <section id="capability">
+        <h2>4. Capability 装配</h2>
+
+        <h3>4.1 用 SDK 工厂的输入清单</h3>
+        <p>调 <code>createApproverRestrictedNativeApprovalCapability</code>（<span class="file-ref">openclaw/src/plugin-sdk/approval-delivery-helpers.ts:30-261</span>）一次组装出完整 <code>ChannelApprovalCapability</code>。下面是 DingTalk 端要传的 16 个参数：</p>
+
+        <table>
+          <thead><tr><th>参数</th><th>必填</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr><td><code>channel</code></td><td>✓</td><td><code>"dingtalk"</code></td></tr>
+            <tr><td><code>channelLabel</code></td><td>✓</td><td><code>"DingTalk"</code></td></tr>
+            <tr><td><code>listAccountIds</code></td><td>✓</td><td>复用 <code>dingtalkPlugin.config.listAccountIds</code></td></tr>
+            <tr><td><code>hasApprovers</code></td><td>✓</td><td><code>listExecApprovers({ cfg, accountId }).length &gt; 0</code></td></tr>
+            <tr><td><code>isExecAuthorizedSender</code></td><td>✓</td><td><code>isExecAuthorizedSender({ cfg, accountId, senderId })</code>，clicker staffId 在名单中</td></tr>
+            <tr><td><code>isPluginAuthorizedSender</code></td><td>可选</td><td>默认 <code>= isExecAuthorizedSender</code>（同一份 approver 名单管两类）</td></tr>
+            <tr><td><code>isNativeDeliveryEnabled</code></td><td>✓</td><td>检查 <code>execApprovals.enabled !== false && hasApprovers</code>（<code>auto</code> 视为 true）</td></tr>
+            <tr><td><code>resolveNativeDeliveryMode</code></td><td>✓</td><td>读 <code>execApprovals.target</code>（<code>"both" | "dm" | "channel"</code>），默认 <code>"both"</code></td></tr>
+            <tr><td><code>requireMatchingTurnSourceChannel</code></td><td>可选</td><td><code>false</code>（允许 CLI/WebUI 触发的 approval 也通过 DingTalk 投递）</td></tr>
+            <tr><td><code>resolveOriginTarget</code></td><td>可选</td><td>详见 §6.1：从 <code>turnSourceTo</code> + <code>turnSourceThreadId</code> 还原 DingTalk target</td></tr>
+            <tr><td><code>resolveApproverDmTargets</code></td><td>可选</td><td>详见 §6.1：approver staffId 列表 → 每个 staffId 一条 <code>{ to: "user:&lt;staffId&gt;" }</code></td></tr>
+            <tr><td><code>notifyOriginWhenDmOnly</code></td><td>可选</td><td><code>true</code>（D4）</td></tr>
+            <tr><td><code>nativeRuntime</code></td><td>可选</td><td><code>createLazyChannelApprovalNativeRuntimeAdapter({ load, isConfigured, shouldHandle, eventKinds: ["exec","plugin"] })</code>，详见 §5</td></tr>
+            <tr><td><code>describeExecApprovalSetup</code></td><td>可选</td><td>返回中文配置指南字符串，引导用户填 <code>channels.dingtalk.execApprovals.approvers</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>4.2 配置 schema（D7 落地）</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px"># channel-level（也是 default account 的配置）
+channels:
+  dingtalk:
+    # 现有字段（不变）
+    clientId: "..."
+    clientSecret: "..."
+    messageType: card
+
+    # 新增：execApprovals 块
+    execApprovals:
+      enabled: auto             # true | false | auto（auto = approvers 非空时启用）
+      approvers:                # staffId 列表，支持 dingtalk:/dd:/ding: 前缀
+        - "staff001"
+        - "dingtalk:staff002"   # ← 等价于 "staff002"
+      target: both              # both | dm | channel（默认 both）
+      ttlMs: 600000             # 可选 channel-level TTL hint；不传时跟随上游默认（建议留空）
+
+    # 多账号 override
+    accounts:
+      acme:
+        execApprovals:
+          approvers: ["staff100"]   # 完全替换 channel-level 名单
+          target: dm                # 此账号偏好 DM-only
+
+# 全局 fallback（peer 惯例；与 dingtalk 无关，由上游统一处理）
+commands:
+  ownerAllowFrom: ["staff999"]</pre>
+
+        <div class="callout">
+          <strong>配置语义细节</strong>
+          <ul style="margin:6px 0 0">
+            <li><code>enabled: auto</code> = approvers 非空则启用；显式 <code>false</code> 优先级最高（即使有 approvers 也禁用）</li>
+            <li>多账号 override <strong>完全替换</strong>名单（不与 channel-level 合并），与现有 <code>allowFrom</code> 的语义保持一致</li>
+            <li>fallback 优先级：account-level <code>approvers</code> → channel-level <code>approvers</code> → <code>commands.ownerAllowFrom</code> → 空</li>
+            <li>所有 staffId 在写入时 normalize：<code>raw.replace(/^(dingtalk|dd|ding):/i, "")</code>（与 <span class="file-ref">src/channel.ts:86</span> dmPolicy 完全一致）</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================ 5 ADAPTERS ============================ -->
+      <section id="adapters">
+        <h2>5. 5 个 Sub-Adapter 详解</h2>
+        <p>上游 <code>ChannelApprovalNativeRuntimeAdapter</code>（<span class="file-ref">openclaw/src/infra/approval-handler-runtime-types.ts:216-235</span>）定义了 5 个子接口，approval-runtime 按下面顺序调用它们完成"投递 / 更新 / 终态"。本节给每个子接口的 DingTalk 实现锚到具体函数与代码骨架。</p>
+
+        <h3>5.1 availability</h3>
+        <table>
+          <thead><tr><th>方法</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>isConfigured({ cfg, accountId })</code></td>
+              <td>返回 <code>isNativeDeliveryEnabled({ cfg, accountId })</code>——即 <code>enabled !== false && hasApprovers</code></td>
+            </tr>
+            <tr>
+              <td><code>shouldHandle({ cfg, accountId, request })</code></td>
+              <td>三连判：(1) <code>isConfigured</code> 为 true；(2) request 的 <code>turnSourceChannel</code> 为空 OR 为 <code>"dingtalk"</code>；(3) approver 名单非空</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>5.2 presentation</h3>
+        <table>
+          <thead><tr><th>方法</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>buildPendingPayload({ request, nowMs, view })</code></td>
+              <td>调 <code>approval-card-render.buildPendingCardParamMap(request, view)</code>，返回 <code>{ kind: "card", templateId, cardParamMap, actionIds }</code>。<br/>actionIds 是 3 个："<code>/approve &lt;id&gt; allow-once</code>"、"<code>/approve &lt;id&gt; allow-always</code>"、"<code>/approve &lt;id&gt; deny</code>"</td>
+            </tr>
+            <tr>
+              <td><code>buildResolvedResult({ request, resolved, view, entry })</code></td>
+              <td>返回 <code>{ kind: "update", payload: buildResolvedCardParamMap(request, resolved) }</code>。payload 把 statusFooter 改成"✅ 已批准 by @&lt;resolverDisplayName&gt;"或对应的拒绝文案；buttonGroupVisible=false</td>
+            </tr>
+            <tr>
+              <td><code>buildExpiredResult({ request, view, entry })</code></td>
+              <td>返回 <code>{ kind: "update", payload: buildExpiredCardParamMap(request) }</code>。statusFooter = "⏰ 已过期（未在 &lt;X&gt; 分钟内响应）"；buttonGroupVisible=false</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>5.3 transport</h3>
+        <table>
+          <thead><tr><th>方法</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>prepareTarget({ plannedTarget, request, view, pendingPayload })</code></td>
+              <td>对 <code>plannedTarget.to</code> 调 <code>normalizeApprovalTargetTo</code>（§6.1）确保带 <code>user:/group:</code> 前缀；返回 <code>{ target: { to: normalizedTo, threadId: null }, dedupeKey: \`${accountId}:${normalizedTo}\` }</code>。DingTalk 无 thread 概念，threadId 永远 null。</td>
+            </tr>
+            <tr>
+              <td><code>deliverPending({ preparedTarget, request, view, pendingPayload })</code></td>
+              <td>根据 <code>preparedTarget.target.to</code> 的前缀分支：<br/>• <code>group:cid_xxx</code> → <code>card-service.createAndDeliver({ openConversationId: stripPrefix(target.to), ... })</code><br/>• <code>user:&lt;staffId&gt;</code> → <code>card-service.createAndDeliver({ userIds: [stripPrefix(target.to)], ... })</code><br/>统一参数：<code>outTrackId = \`approval-${request.id}-${hash(target.to)}\`</code>（hash 避免 outTrackId 含冒号导致 PUT 路径解析问题），<code>templateId = BUILTIN_APPROVAL_CARD_TEMPLATE_ID</code>，<code>cardParamMap</code> 来自 <code>buildPendingPayload</code>，<code>callbackType: "STREAM"</code>。<br/>成功：<code>approval-store.register({ approvalId, outTrackId, accountId, target: preparedTarget.target, deliveredAt: Date.now(), kind: request.kind })</code>，返回 entry。<br/>失败：<code>observe.onDeliveryError</code> + 调 <code>approval-fallback-render</code> 发 markdown/text 兜底（仍写一条 fallback entry 到 store 留痕）</td>
+            </tr>
+            <tr>
+              <td><code>updateEntry({ entry, payload, phase })</code></td>
+              <td>调 <code>updateCardVariables(entry.outTrackId, payload.cardParamMap, token)</code>（即 PUT /v1.0/card/instances）。phase=expired/resolved 时同时 <code>approval-store.remove(entry.approvalId)</code></td>
+            </tr>
+            <tr>
+              <td><code>deleteEntry({ entry, phase })</code></td>
+              <td>not used（D14: 永远 update，从不 delete）。占位实现：仅 <code>approval-store.remove</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>5.4 interactions（可选，但本设计实现）</h3>
+        <table>
+          <thead><tr><th>方法</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>bindPending({ entry, request, view, pendingPayload })</code></td>
+              <td>no-op（DingTalk 端按钮的 actionId 编码已经在 <code>buildPendingPayload</code> 写进 cardParamMap，平台侧无需额外 binding）。返回 <code>null</code> 表示无 binding</td>
+            </tr>
+            <tr>
+              <td><code>unbindPending({ entry, binding, request })</code></td>
+              <td>no-op</td>
+            </tr>
+            <tr>
+              <td><code>clearPendingActions({ entry, phase })</code></td>
+              <td>调 <code>updateCardVariables(entry.outTrackId, { buttonGroupVisible: false }, token)</code>，仅隐藏按钮；statusFooter 不动（由 <code>updateEntry</code> 负责）</td>
+            </tr>
+            <tr>
+              <td><code>cancelDelivered({ entry, request })</code></td>
+              <td>调 <code>updateCardVariables</code> 把 statusFooter 改成"❌ 已取消"，buttonGroupVisible=false</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>5.5 observe（可选，本设计仅实现 onDeliveryError 用于日志）</h3>
+        <table>
+          <thead><tr><th>方法</th><th>DingTalk 实现</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>onDeliveryError({ error, plannedTarget, request })</code></td>
+              <td>结构化日志 <code>[DingTalk][Approval][DeliveryError] approvalId=&lt;id&gt; target=&lt;to&gt; error=&lt;msg&gt;</code></td>
+            </tr>
+            <tr>
+              <td><code>onDuplicateSkipped</code> / <code>onDelivered</code></td>
+              <td>仅 debug 日志</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================ DATA FLOWS ============================ -->
+      <section id="dataflows">
+        <h2>6. 数据流（交互逻辑详解）</h2>
+
+        <h3>6.1 Target 解析</h3>
+
+        <h4>resolveOriginTarget</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">输入 request.request:
+  ├─ turnSourceChannel: "dingtalk" | null
+  ├─ turnSourceAccountId: string | null
+  ├─ turnSourceTo: string | null         // e.g. "group:cidxxxxx" / "user:staff001"
+  └─ turnSourceThreadId: null            // DingTalk 无 thread
+
+if turnSourceChannel !== "dingtalk" → return null（CLI/WebUI 触发，无 origin 可投）
+if !turnSourceTo                    → return null
+return {
+  to: normalizeApprovalTargetTo(turnSourceTo),   // 保留 "user:" / "group:" 前缀
+  threadId: null,
+}
+
+// normalizeApprovalTargetTo 约定：
+//   - 输入若已带 "user:" / "group:" 前缀 → 原样返回
+//   - 输入若为裸 conversationId（"cid..." 开头）→ 加 "group:" 前缀
+//   - 输入若为裸 staffId → 加 "user:" 前缀
+//   - 与 sendProactiveTextOrMarkdown 内部 stripTargetPrefix 的反向约定保持一致</pre>
+
+        <h4>resolveApproverDmTargets</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">approvers = listExecApprovers({ cfg, accountId })  // staffId[] after normalize
+return approvers.map(staffId => ({
+  to: `user:${staffId}`,                  // 永远带 user: 前缀
+  threadId: null,
+}))</pre>
+
+        <h3>6.2 投递 pending（origin + DM 双路径 + 去重）</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">场景：用户在钉钉群 cid_xxx 里 @ agent，agent 跑命令需要批准。
+       approvers = ["staffA", "staffB"]
+       触发用户也是 staffA（在群里）
+
+approval-runtime 投递计划：
+  ├─ origin   = { to: "group:cid_xxx" }
+  ├─ DM[0]    = { to: "user:staffA" }
+  └─ DM[1]    = { to: "user:staffB" }
+
+依次调 prepareTarget：
+  ├─ origin    → dedupeKey = "default:group:cid_xxx"
+  ├─ DM[0]     → dedupeKey = "default:user:staffA"
+  └─ DM[1]     → dedupeKey = "default:user:staffB"
+  → 三个 dedupeKey 全不同 → 三条都投
+
+依次调 deliverPending：
+  ├─ group:cid_xxx → createAndDeliver outTrackId="approval-abc123-group:cid_xxx"  ✓
+  ├─ user:staffA   → createAndDeliver outTrackId="approval-abc123-user:staffA"    ✓
+  └─ user:staffB   → createAndDeliver outTrackId="approval-abc123-user:staffB"    ✓
+
+approval-store 写 3 条 entry，所有 entry.approvalId="abc123"
+
+———————————————————————————————————————————————————————————————————
+
+变体场景：用户 staffA 直接跟 agent DM 触发 exec：
+       origin   = { to: "user:staffA" }
+       DM[0]    = { to: "user:staffA" }   ← 与 origin 相同
+       DM[1]    = { to: "user:staffB" }
+
+prepareTarget：
+  ├─ origin → dedupeKey = "default:user:staffA"
+  ├─ DM[0]  → dedupeKey = "default:user:staffA"  ⚠ 重复！
+  └─ DM[1]  → dedupeKey = "default:user:staffB"
+
+上游 SDK 见 dedupeKey 重复 → DM[0] 自动跳过（onDuplicateSkipped 日志）
+最终只投 2 条：staffA 一张（origin 角色）+ staffB 一张</pre>
+
+        <h3>6.3 点击 approve → 上游 resolve（核心交互链路）</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">用户在卡片上点"允许一次"
+
+t=0   DingTalk Stream 平台推送 TOPIC_CARD 回调
+        payload.cardPrivateData.actionIds = ["/approve abc123 allow-once"]
+        payload.userId                    = "staffA"
+        payload.spaceId / spaceType       = "cid_xxx" / "group"
+        payload.outTrackId                = "approval-abc123-group:cid_xxx"
+
+t=1   src/gateway/channel-gateway.ts:330 listener 触发
+        ├─ messageId = res.headers.messageId
+        ├─ payload   = JSON.parse(res.data)
+        ├─ analysis  = analyzeCardCallback(payload)
+        │    analysis.actionId = "/approve abc123 allow-once"
+        │    analysis.userId   = "staffA"
+        │
+        ├─ 【新增分支】tryHandleApprovalCallback(analysis, ...)
+        │    │
+        │    1. 前缀匹配
+        │       if (!analysis.actionId?.startsWith("/approve ")) return { handled: false }
+        │
+        │    2. 解析（复用上游！）
+        │       parsed = parseExecApprovalCommandText(analysis.actionId)
+        │       → { kind?: "exec"|"plugin", id: "abc123", decision: "allow-once" }
+        │
+        │    3. 查 store 找 entry
+        │       entry = approval-store.getByApprovalId("abc123")
+        │       if (!entry) {
+        │         updateCardVariables(payload.outTrackId,
+        │                             { statusFooter: "⏰ 已过期或已关闭",
+        │                               buttonGroupVisible: false }, token)
+        │         return { handled: true, reason: "not-found" }
+        │       }
+        │
+        │    4. 权限校验
+        │       authorized = capability.authorizeActorAction({
+        │         cfg, accountId, senderId: analysis.userId,
+        │         action: "approve",
+        │         approvalKind: entry.kind })
+        │       if (!authorized.authorized) {
+        │         sendProactiveTextOrMarkdown(
+        │           config,
+        │           `user:${analysis.userId}`,             // 带 user: 前缀，明确为 oto 投递
+        │           "⛔ 你不在 approver 名单，无权批准此请求",
+        │           { accountId, log })
+        │         return { handled: true, reason: "unauthorized" }
+        │       }
+        │
+        │    5. 调上游 gateway resolve 方法回写
+        │       // gateway 实例从 channel-gateway 闭包注入到 callback-handler 构造
+        │       // （registerCallbackListener 注册时已持有 gateway 引用，
+        │       //  与现有 recordExplicitFeedbackLearning 的 gateway 注入方式一致）
+        │       method = entry.kind === "exec"
+        │         ? "exec.approval.resolve"
+        │         : "plugin.approval.resolve"
+        │       await invokeGatewayMethod(method, {
+        │         id: parsed.id,
+        │         decision: parsed.decision,
+        │       })
+        │
+        │       （上游 resolve 触发 approval-handler-runtime 调
+        │        presentation.buildResolvedResult →
+        │        transport.updateEntry({ phase: "resolved" }) →
+        │        所有 3 张卡片都被更新为终态，包含本机这张）
+        │
+        │    6. 兜底立即 update 本机这张（防止上游事件回环延迟）
+        │       updateCardVariables(payload.outTrackId,
+        │         buildResolvedCardParamMap(...), token)
+        │
+        │    7. 日志 + return { handled: true, reason: "resolved" }
+        │
+        ├─ 分支命中 → 跳过既有 handleCardAction
+        └─ finally: socketCallBackResponse(messageId, { success: true }) （ack 平台）</pre>
+
+        <h3>6.4 上游 resolve 后的卡片状态同步</h3>
+        <p>当任意一张卡片被点击 → 上游 store 标记为 resolved → approval-handler-runtime 会对**所有 entry**（origin + 所有 DM）调一次 <code>transport.updateEntry({ phase: "resolved" })</code>。这保证所有人看到的卡片都同步更新。</p>
+
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">approval abc123 被 staffA 在群里点了"允许一次"
+
+       ┌─────────────────────────┐
+       │ upstream approval store │
+       │  abc123 → resolved      │
+       │  decision = allow-once  │
+       │  resolvedBy = staffA    │
+       └────────────┬────────────┘
+                    │ 触发
+                    ▼
+       presentation.buildResolvedResult()
+       returns { kind: "update", payload: {
+         statusFooter: "✅ 已批准 by @staffA (allow-once)",
+         buttonGroupVisible: false,
+       }}
+                    │
+                    │  approval-runtime 遍历所有 entry
+                    ▼
+       ┌─────────────────────────────────────────────┐
+       │ for entry of store.findByApprovalId(abc123) │
+       │   transport.updateEntry({ entry, payload })  │
+       │   → PUT /v1.0/card/instances                 │
+       └─────────────────────────────────────────────┘
+                    │
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+   group 卡片    DM-A 卡片    DM-B 卡片
+   都被 PUT 成   都被 PUT 成   都被 PUT 成
+   "✅ 已批准"   "✅ 已批准"   "✅ 已批准"</pre>
+
+        <h3>6.5 用户点 deny / allow-always 的差异</h3>
+        <table>
+          <thead><tr><th>按钮</th><th>actionId</th><th>statusFooter 终态</th></tr></thead>
+          <tbody>
+            <tr><td>✅ 允许一次</td><td><code>/approve &lt;id&gt; allow-once</code></td><td>✅ 已批准 by @user · 允许一次</td></tr>
+            <tr><td>✅ 总是允许</td><td><code>/approve &lt;id&gt; allow-always</code></td><td>✅ 已批准 by @user · 总是允许</td></tr>
+            <tr><td>⛔ 拒绝</td><td><code>/approve &lt;id&gt; deny</code></td><td>⛔ 已拒绝 by @user</td></tr>
+          </tbody>
+        </table>
+
+        <h3>6.6 失败 / 边界场景</h3>
+
+        <h4>用户重复点击（按钮看起来还在但已 resolved）</h4>
+        <ol>
+          <li>上游 <code>exec.approval.resolve</code> 返回 <code>already-resolved</code> 错误</li>
+          <li>callback-handler 捕获错误，调 <code>updateCardVariables</code> 把卡片刷成终态（即使 UI 还没刷过来也立即修正）</li>
+          <li>对用户：第二次点击看起来等同于第一次"已生效"，无打扰提示</li>
+        </ol>
+
+        <h4>非 approver 点击</h4>
+        <ol>
+          <li><code>authorizeActorAction</code> 返回 <code>authorized: false</code></li>
+          <li>调 <code>sendProactiveTextOrMarkdown(config, "user:" + clicker.staffId, "⛔ 你不在 approver 名单", ...)</code> 给点击者私聊（target 必须带 <code>user:</code> 前缀走 oto 投递）</li>
+          <li>卡片<strong>不变</strong>（按钮保留，给真正的 approver 用）</li>
+          <li>日志 <code>[DingTalk][Approval][Denied] approvalId=&lt;id&gt; clicker=&lt;userId&gt;</code></li>
+        </ol>
+
+        <h4>Channel 重启后用户点旧卡片</h4>
+        <ol>
+          <li>approval-store 内存清空 → <code>getByApprovalId</code> 返 null</li>
+          <li>callback-handler 进 <code>not-found</code> 分支</li>
+          <li>卡片刷成"⏰ 已过期或已关闭"，按钮隐藏</li>
+          <li>用户体感：按钮"点了一下变灰，没批成"——对长时间下线降级，可接受</li>
+        </ol>
+
+        <h4>上游过期事件触达</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">upstream timer 触发 approval.expired event
+  ├─ presentation.buildExpiredResult() → { kind: "update", payload: {
+  │     statusFooter: "⏰ 已过期（未在 10 分钟内响应）",
+  │     buttonGroupVisible: false,
+  │   }}
+  └─ transport.updateEntry({ phase: "expired" }) for all entries
+       → 所有卡片同步更新为过期态
+       → approval-store.remove(approvalId)</pre>
+
+        <h4>Channel stopClient（账号停用 / gateway 重启）</h4>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">gateway.stopClient(accountId)
+  ├─ finalizeActiveCardsForAccount(accountId)        ── 现有 AI Card 收尾
+  └─ finalizeActiveApprovalCardsForAccount(accountId)  ← 新增
+        for entry of approval-store.findByAccountId(accountId):
+          updateCardVariables(entry.outTrackId, {
+            statusFooter: "❌ 已取消（钉钉通道已断开）",
+            buttonGroupVisible: false,
+          }, token).catch(noop)
+          approval-store.remove(entry.approvalId)</pre>
+
+        <h3>6.7 createAndDeliver 失败 → markdown 兜底（error-recovery）</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">deliverPending(target)
+  ├─ card-service.createAndDeliver(...)
+  │
+  ├─ 成功 → store.register(entry) → return entry
+  │
+  └─ 失败（网络 / API 4xx/5xx / 模板未发布）
+       │
+       ├─ observe.onDeliveryError({ error, plannedTarget, request })
+       │
+       ├─ approval-fallback-render.buildMarkdownFallback(request)
+       │  →  内容包含：
+       │     ### ⚠️ 需要审批：&lt;exec command / plugin tool 简介&gt;
+       │     **ID**: `abc123`
+       │     **过期时间**: 10 分钟
+       │
+       │     批准（仅一次）：`/approve abc123 allow-once`
+       │     批准（总是）：`/approve abc123 allow-always`
+       │     拒绝：`/approve abc123 deny`
+       │
+       ├─ sendProactiveTextOrMarkdown(target, markdownText, ...)
+       │
+       ├─ 仍写一条降级 entry 到 store（无 outTrackId，type="fallback"）
+       │     这样后续 expired/resolved 事件还能 try-best 触达——
+       │     虽然 markdown 消息不能 update，但至少不会留下孤儿状态
+       │
+       └─ return fallback-entry</pre>
+
+        <div class="callout warn">
+          <strong>兜底路径的设计取舍</strong>
+          markdown 消息一旦发出无法编辑（钉钉机器人 API 无 edit）。所以兜底卡片的"终态同步"做不到——expire / resolve 时不会发新消息覆盖原 markdown。这是已知降级；接受理由：(1) createAndDeliver 失败本身就是异常通路；(2) 不再追发消息免得用户被刷屏；(3) 用户用 <code>/approve</code> 命令照样能完成审批。
+        </div>
+      </section>
+
+      <!-- ============================ CARD DESIGN ============================ -->
+      <section id="card-design">
+        <h2>7. 审批卡片设计</h2>
+
+        <h3>7.1 模板字段约定（approval-card-template-v1）</h3>
+        <table>
+          <thead><tr><th>变量 key</th><th>类型</th><th>语义</th></tr></thead>
+          <tbody>
+            <tr><td><code>kindBadge</code></td><td>String</td><td>"⚙️ 命令执行" | "🔌 插件调用"</td></tr>
+            <tr><td><code>title</code></td><td>String</td><td>e.g. "Agent 请求批准执行命令"</td></tr>
+            <tr><td><code>bodyMarkdown</code></td><td>String</td><td>正文，markdown 渲染（含命令 preview / 工具描述）</td></tr>
+            <tr><td><code>detailRows</code></td><td>loopArray</td><td>"cwd: /tmp"、"severity: high" 等 metadata，逐行渲染</td></tr>
+            <tr><td><code>severityBadge</code></td><td>String</td><td>"🟢 low" | "🟡 medium" | "🔴 high"</td></tr>
+            <tr><td><code>approvalId</code></td><td>String</td><td>显示用，与按钮 actionId 内 ID 一致</td></tr>
+            <tr><td><code>expiryHint</code></td><td>String</td><td>"⏰ &lt;X&gt; 分钟后过期"</td></tr>
+            <tr><td><code>buttonGroupVisible</code></td><td>Boolean</td><td>控制三按钮可见性（终态 = false）</td></tr>
+            <tr><td><code>statusFooter</code></td><td>String</td><td>终态条："✅ 已批准…" / "⛔ 已拒绝…" / "⏰ 已过期" / "❌ 已取消"</td></tr>
+          </tbody>
+        </table>
+
+        <h3>7.2 三按钮配置（actionId 编码与 D2/D3 对齐）</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">ButtonGroup (在 buttonGroupVisible=true 时渲染):
+  ├─ ✅ 允许一次   actionId = "/approve ${approvalId} allow-once"   style=primary
+  ├─ ✅ 总是允许   actionId = "/approve ${approvalId} allow-always" style=ghost
+  └─ ⛔ 拒绝       actionId = "/approve ${approvalId} deny"         style=danger</pre>
+
+        <h3>7.3 状态机</h3>
+        <pre style="background:#0d1117;color:#c9d1d9;padding:14px;border-radius:6px;overflow-x:auto;font-size:12px">           ┌─ user click allow-once  ──► RESOLVED (allow-once)
+           ├─ user click allow-always ──► RESOLVED (allow-always)
+           ├─ user click deny         ──► RESOLVED (deny)
+PENDING ───┤
+           ├─ upstream expired event  ──► EXPIRED
+           ├─ channel stopClient      ──► CANCELED
+           └─ upstream canceled event ──► CANCELED
+
+(终态：buttonGroupVisible=false; statusFooter 文案对应)</pre>
+
+        <h3>7.4 Mockup（pending · exec approval · 群聊）</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>#OpenClaw 工作群</span></div>
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar">U</div>
+              <div><div class="chat-sender">小赵</div><div class="chat-bubble">@OpenClaw 帮我把 720 小时之前的 docker image 清理掉</div></div>
+            </div>
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header">
+                    <span class="ai-card-status">⚙️ 命令执行 · 等待审批</span>
+                    <span style="margin-left:auto">claude-opus-4.7</span>
+                  </div>
+                  <div class="ai-card-body">
+                    <strong>Agent 请求批准执行命令</strong>
+                    <pre style="margin:8px 0 0;background:#f4f5f7"><code>docker image prune -a -f --filter "until=720h"</code></pre>
+                    <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:#555">
+                      <li>cwd: <code>/Users/zhumin/projects/openclaw</code></li>
+                      <li>security: <span style="color:#c97400">🟡 medium</span>（删除大量镜像不可逆）</li>
+                      <li>approval id: <code>exec-abc123</code></li>
+                    </ul>
+                  </div>
+                  <div class="ai-card-actions">
+                    <button class="btn primary">✅ 允许一次</button>
+                    <button class="btn ghost">✅ 总是允许</button>
+                    <button class="btn danger">⛔ 拒绝</button>
+                  </div>
+                  <div class="ai-card-footer"><span>仅 approver（@小赵 @小钱）可操作</span><span>⏰ 10 分钟后过期</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>7.5 Mockup（resolved · 已批准）</h3>
+        <div class="chat-frame">
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header">
+                    <span class="ai-card-status">⚙️ 命令执行 · ✅ 已批准</span>
+                    <span style="margin-left:auto">claude-opus-4.7</span>
+                  </div>
+                  <div class="ai-card-body">
+                    <strong>Agent 请求批准执行命令</strong>
+                    <pre style="margin:8px 0 0;background:#f4f5f7"><code>docker image prune -a -f --filter "until=720h"</code></pre>
+                    <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:#555">
+                      <li>approval id: <code>exec-abc123</code></li>
+                    </ul>
+                  </div>
+                  <div class="ai-card-footer" style="background:#e8f5e9;color:#2e7d32"><span>✅ 已批准 by @小赵 · 允许一次</span><span>2026-05-18 14:23</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>7.6 Mockup（resolved · 已拒绝）</h3>
+        <div class="chat-frame">
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header">
+                    <span class="ai-card-status">⚙️ 命令执行 · ⛔ 已拒绝</span>
+                  </div>
+                  <div class="ai-card-body">
+                    <strong>Agent 请求批准执行命令</strong>
+                    <pre style="margin:8px 0 0;background:#f4f5f7"><code>docker image prune -a -f --filter "until=720h"</code></pre>
+                  </div>
+                  <div class="ai-card-footer" style="background:#ffebee;color:#c62828"><span>⛔ 已拒绝 by @小钱</span><span>2026-05-18 14:23</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>7.7 Mockup（expired · 已过期）</h3>
+        <div class="chat-frame">
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header">
+                    <span class="ai-card-status">⚙️ 命令执行 · ⏰ 已过期</span>
+                  </div>
+                  <div class="ai-card-body">
+                    <strong>Agent 请求批准执行命令</strong>
+                    <pre style="margin:8px 0 0;background:#f4f5f7"><code>docker image prune -a -f --filter "until=720h"</code></pre>
+                  </div>
+                  <div class="ai-card-footer" style="background:#fff3e0;color:#ef6c00"><span>⏰ 已过期（未在 10 分钟内响应）</span><span>2026-05-18 14:33</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>7.8 Mockup（plugin approval · pending · DM 私聊）</h3>
+        <div class="chat-frame">
+          <div class="chat-header"><span>OpenClaw · 私聊</span></div>
+          <div class="chat-body">
+            <div class="chat-msg">
+              <div class="chat-avatar" style="background:#7b6cff">O</div>
+              <div>
+                <div class="chat-sender">OpenClaw</div>
+                <div class="ai-card">
+                  <div class="ai-card-header">
+                    <span class="ai-card-status">🔌 插件调用 · 等待审批</span>
+                    <span style="margin-left:auto">codex agent</span>
+                  </div>
+                  <div class="ai-card-body">
+                    <strong>Agent 请求授权使用工具：postgres-mcp</strong>
+                    <p style="margin:6px 0">将对你的生产 PG 库执行：</p>
+                    <pre style="margin:0;background:#f4f5f7"><code>tool: query_database
+description: 对 production.orders 表查询近 7 天订单</code></pre>
+                    <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:#555">
+                      <li>severity: <span style="color:#c62828">🔴 high</span>（涉及生产数据）</li>
+                      <li>approval id: <code>plugin-xyz789</code></li>
+                    </ul>
+                  </div>
+                  <div class="ai-card-actions">
+                    <button class="btn primary">✅ 允许一次</button>
+                    <button class="btn ghost">✅ 总是允许</button>
+                    <button class="btn danger">⛔ 拒绝</button>
+                  </div>
+                  <div class="ai-card-footer"><span>仅 approver 可操作</span><span>⏰ 10 分钟后过期</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ ERROR MATRIX ============================ -->
+      <section id="error-matrix">
+        <h2>8. 错误处理矩阵</h2>
+        <table>
+          <thead><tr><th>失败点</th><th>触发条件</th><th>处理</th><th>用户体验</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>createAndDeliver 网络/HTTP 失败</td>
+              <td>钉钉 API 5xx、超时、429</td>
+              <td>onDeliveryError 日志 + 走 §6.7 markdown 兜底</td>
+              <td>收到 markdown 消息，含 <code>/approve</code> 命令模板</td>
+            </tr>
+            <tr>
+              <td>approval-card 模板未发布</td>
+              <td>templateId 在 DingTalk 侧不存在</td>
+              <td>同上（错误归一化为 createAndDeliver 失败）+ ERROR 级日志</td>
+              <td>降级到 markdown；运维需看日志修复</td>
+            </tr>
+            <tr>
+              <td>updateCardVariables 失败</td>
+              <td>PUT /v1.0/card/instances 5xx</td>
+              <td>WARN 日志，<strong>不</strong>重试（避免 race）；卡片视觉短暂不一致，下次相关事件会再覆盖</td>
+              <td>偶发不一致；上游 store 仍是真相</td>
+            </tr>
+            <tr>
+              <td>parseExecApprovalCommandText 失败</td>
+              <td>actionId 被人手改坏 / 编码 bug</td>
+              <td>WARN 日志 + ack 平台 + 卡片<strong>不变</strong>（保留按钮）</td>
+              <td>用户感觉点击没反应；可通过 <code>/approve</code> 命令兜底</td>
+            </tr>
+            <tr>
+              <td>权限校验失败</td>
+              <td>clicker.staffId 不在 approver 名单</td>
+              <td>调 sendProactiveTextOrMarkdown 给点击者私聊"⛔ 无权批准"；卡片<strong>不变</strong>；日志</td>
+              <td>点击者私聊收到拒绝提示，原卡片对其他人仍可用</td>
+            </tr>
+            <tr>
+              <td>上游 resolve 返回 already-resolved</td>
+              <td>用户重复点击 / 多端同时点</td>
+              <td>callback-handler 静默成功，强制 update 本机卡片到终态</td>
+              <td>第二次点击看起来等同生效，无打扰</td>
+            </tr>
+            <tr>
+              <td>上游 resolve 返回 not-found</td>
+              <td>approvalId 在上游已过期/清除（如 channel 长时间下线）</td>
+              <td>callback-handler 更新卡片为"⏰ 已过期或已关闭"</td>
+              <td>点击后卡片直接刷成过期态</td>
+            </tr>
+            <tr>
+              <td>approval-store entry 缺失（点击时）</td>
+              <td>channel 重启后内存清空</td>
+              <td>同上"not-found"路径</td>
+              <td>同上</td>
+            </tr>
+            <tr>
+              <td>DM 投递权限不足</td>
+              <td>机器人对某 approver 无法主动 DM（企业权限问题）</td>
+              <td>onDeliveryError 日志 + 该 target 走 markdown 兜底（可能也失败）；其它 target 不受影响</td>
+              <td>未配置 DM 权限的 approver 收不到通知；运维需排查</td>
+            </tr>
+            <tr>
+              <td>同一 approver 既在 origin 群里又收 DM</td>
+              <td>正常场景</td>
+              <td>SDK dedupeKey 自动去重（§6.2 变体）；同一 target 只投一次</td>
+              <td>不会重复打扰</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================ TESTING ============================ -->
+      <section id="testing">
+        <h2>9. 测试策略</h2>
+
+        <h3>9.1 测试文件布局</h3>
+        <table>
+          <thead><tr><th>文件</th><th>覆盖目标</th><th>预计 case 数</th></tr></thead>
+          <tbody>
+            <tr><td><code>tests/unit/approval-config.test.ts</code></td><td>schema 解析、normalize、enabled=auto、fallback chain</td><td>~12</td></tr>
+            <tr><td><code>tests/unit/approval-card-template.test.ts</code></td><td>cardParamMap 构造（含 stringify 规则）</td><td>~8</td></tr>
+            <tr><td><code>tests/unit/approval-card-render.test.ts</code></td><td>pending/resolved/expired/canceled × exec/plugin = 8 个矩阵</td><td>~16</td></tr>
+            <tr><td><code>tests/unit/approval-target-resolver.test.ts</code></td><td>origin 解析（含 turnSourceChannel=null）、DM 列表构造</td><td>~10</td></tr>
+            <tr><td><code>tests/unit/approval-callback-handler.test.ts</code></td><td>actionId parse、权限校验、resolve 调用、各错误分支</td><td>~18</td></tr>
+            <tr><td><code>tests/unit/approval-store.test.ts</code></td><td>register/get/remove/findByAccountId/finalizeAll</td><td>~8</td></tr>
+            <tr><td><code>tests/unit/approval-cancel.test.ts</code></td><td>stopClient 触发 finalize</td><td>~4</td></tr>
+            <tr><td><code>tests/unit/approval-fallback-render.test.ts</code></td><td>markdown 兜底文案、exec/plugin 分支</td><td>~6</td></tr>
+            <tr><td><code>tests/unit/approval-capability.test.ts</code></td><td>SDK 工厂参数装配正确、capability 单例</td><td>~6</td></tr>
+            <tr><td><code>tests/unit/approval-native-runtime.test.ts</code></td><td>5 子 adapter 集成 mock</td><td>~14</td></tr>
+            <tr><td><code>tests/integration/approval-end-to-end.test.ts</code></td><td>模拟 createApprovalRequest → 投递 → 点击 → resolve 回写 → 卡片刷新；含 dedupeKey、both-surface、self-approval</td><td>~10</td></tr>
+            <tr><td><code>tests/integration/approval-channel-stop.test.ts</code></td><td>stopClient 触发的 finalize 链路</td><td>~3</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:13px;color:var(--color-text-faint)">合计 ~115 case；按现有测试目录 1 case ≈ 18-25 行估算，测试代码约 2000-2800 行。</p>
+
+        <h3>9.2 Mock 策略</h3>
+        <ul>
+          <li>所有 DingTalk HTTP（createAndDeliver / updateCardVariables / sendProactiveTextOrMarkdown）：<code>vi.mock("../../src/http-client")</code> 与 <code>vi.mock("../../src/auth")</code>，不打真实 API</li>
+          <li>上游 SDK 工厂：<code>vi.mock("openclaw/plugin-sdk")</code> 注入 spy，验证传入参数完整</li>
+          <li>上游 gateway resolve：<code>vi.mock</code> 抽象的 invoke，断言 method + payload</li>
+          <li>approval-store：测试用 fresh instance，避免跨 case 污染（现有 vitest <code>clearMocks/restoreMocks/mockReset</code> 全局开启）</li>
+        </ul>
+
+        <h3>9.3 关键 integration 场景</h3>
+        <ol>
+          <li><strong>群 + 双 approver DM</strong>：发起 → 3 卡片投出 → 群里点 approve → 3 卡片同步刷新</li>
+          <li><strong>self-approval 在 DM</strong>：approver 自己 DM 发起 exec → 仅投 1 卡（dedupe）→ 自己点 → 通过</li>
+          <li><strong>非 approver 点击</strong>：投 1 卡 → 非 approver 用户点 → 收私聊拒绝 → 卡片不变</li>
+          <li><strong>过期</strong>：投卡 → mock 上游 expired event → 所有卡片刷成过期</li>
+          <li><strong>stopClient</strong>：投 2 卡 → 调 stopClient → 2 卡都刷成"已取消"</li>
+          <li><strong>createAndDeliver 失败 fallback</strong>：mock HTTP 错 → 走 markdown 兜底 → 验证 sendProactiveTextOrMarkdown 调用与文案</li>
+          <li><strong>重复点击</strong>：第一次成功 → mock 上游返 already-resolved → 卡片仍刷成终态，不再调 resolve</li>
+          <li><strong>未配置 approver</strong>：execApprovals 缺省 → isConfigured=false → shouldHandle=false → 上游不会调 DingTalk 路径</li>
+        </ol>
+
+        <h3>9.4 覆盖率目标</h3>
+        <ul>
+          <li><code>src/approval/*</code>：line ≥ 90%，branch ≥ 85%</li>
+          <li>整体仓库 coverage 不下降（pnpm test:coverage）</li>
+        </ul>
+      </section>
+
+      <!-- ============================ IMPLEMENTATION PHASES ============================ -->
+      <section id="phases">
+        <h2>10. 实施阶段</h2>
+        <p>按"先上链路、再上 UX、最后部署模板"分 3 阶段。每阶段独立可合并，前一阶段不阻塞后一阶段对应的 PR review。</p>
+
+        <h3>阶段 1 · 接口骨架与权限链路（PR-1）</h3>
+        <ul>
+          <li>新增 <code>src/approval/</code> 目录与全部 9 个文件骨架</li>
+          <li>实现 <code>approval-config.ts</code>、<code>approval-store.ts</code>、<code>approval-target-resolver.ts</code>、<code>approval-capability.ts</code>（不含 native runtime 完整实现）</li>
+          <li>在 <code>src/channel.ts</code> 挂上 <code>approvalCapability</code>，但 <code>nativeRuntime</code> 暂留 <code>undefined</code>，capability 仅生效 <code>authorizeActorAction</code> / <code>resolveApproveCommandBehavior</code> 等权限部分</li>
+          <li>schema、配置文档（草稿）</li>
+          <li>测试：<code>approval-config</code>、<code>approval-store</code>、<code>approval-target-resolver</code>、<code>approval-capability</code></li>
+          <li><strong>这阶段交付后：用户已经能在钉钉里手敲 <code>/approve &lt;id&gt; &lt;decision&gt;</code> 完成审批</strong>（权限校验生效）。Feishu 同档能力。</li>
+        </ul>
+
+        <h3>阶段 2 · 完整 native runtime（PR-2）</h3>
+        <ul>
+          <li>实现 <code>approval-card-template.ts</code>（先用占位 templateId，注释 TODO）、<code>approval-card-render.ts</code>、<code>approval-fallback-render.ts</code>、<code>approval-callback-handler.ts</code>、<code>approval-native-runtime.ts</code>、<code>approval-cancel.ts</code></li>
+          <li><code>src/gateway/channel-gateway.ts</code> 接入 <code>tryHandleApprovalCallback</code> 分支</li>
+          <li>在阶段 1 的 capability 里挂上 <code>nativeRuntime</code></li>
+          <li>测试：剩余 6 个 unit 文件 + 2 个 integration 文件</li>
+          <li><strong>这阶段交付后：完整三按钮卡片 UX 可用，但 templateId 仍是占位</strong>——本地 mock 测试已能验证全链路；真实部署需阶段 3</li>
+        </ul>
+
+        <h3>阶段 3 · 模板上传与发布（PR-3）</h3>
+        <ul>
+          <li>登录 <code>open-dev.dingtalk.com/fe/card</code>，把 <code>docs/assets/card-template-approval-v1.json</code> 导入卡片搭建器</li>
+          <li>调试模板布局（按 §7 mockup 对齐）</li>
+          <li>发布为统一预置模板，获得正式 templateId</li>
+          <li>替换 <code>approval-card-template.ts</code> 里的占位常量为真实 templateId</li>
+          <li>真机回归（参照 <code>skills/dingtalk-real-device-testing/SKILL.md</code>）</li>
+          <li>更新用户文档 <code>docs/user/features/exec-approval.md</code></li>
+          <li><strong>这阶段交付后：用户安装即用，零部署摩擦</strong></li>
+        </ul>
+
+        <div class="callout success">
+          <strong>分阶段的好处</strong>
+          <ul style="margin:6px 0 0">
+            <li>PR-1 可独立 merge，立刻让"在钉钉里用 /approve 命令"成为可能（Feishu-同档 baseline）</li>
+            <li>PR-2 引入大量代码但完全自给自足（不依赖模板上传），测试可用 mock templateId 全覆盖</li>
+            <li>PR-3 只动配置常量与文档，code-review 量极小，便于聚焦真机回归</li>
+            <li>任何阶段回滚都不破坏前阶段已交付能力</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================ NON-GOALS & RISKS ============================ -->
+      <section id="risks">
+        <h2>11. 非目标与已知风险</h2>
+
+        <h3>11.1 明确不在本 spec 范围</h3>
+        <ul>
+          <li><strong>通用 action dispatcher</strong>（gap 文档 #01 sub-1, sub-2）：peer 三家都没做，approval 按前缀走自己的分支已经够清晰</li>
+          <li><strong>抽象 interactive payload → AI Card 自动渲染</strong>（gap 文档 #01 sub-4）：approval 是固定 3 按钮，不需要 runtime 任意组件渲染；任意组件需登录卡片平台核实清单后单独立项</li>
+          <li><strong>统一交互状态模型</strong>（gap 文档 #01 sub-6）：本 spec 已为 approval 实现 pending/resolved/expired/canceled 状态机；将之普适到其它交互需要更多用例验证，留待 #12 message tool action surface</li>
+          <li><strong>per-account 配置 surface 降级</strong>（D4 D 选项）：当前 schema 已支持 <code>execApprovals.target</code> 字段，但默认值固定为 <code>both</code>，不主推切换</li>
+          <li><strong>主动 rebind on restart</strong>（D12 B 选项）：留待 v2</li>
+        </ul>
+
+        <h3>11.2 已知风险</h3>
+        <table>
+          <thead><tr><th>风险</th><th>影响</th><th>缓解</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>approval-card 模板需在 DingTalk 侧发布为跨租户预置</td>
+              <td>若发布失败 → 所有用户都走 markdown 兜底</td>
+              <td>阶段 3 在发布后做真机回归；fallback 路径保证不出现 approval 静默消失</td>
+            </tr>
+            <tr>
+              <td>callback userId 字段语义假设（认为是 staffId）</td>
+              <td>若实际是 unionId → 权限校验全部失败</td>
+              <td>真机回归阶段必查；若不符则在 callback-handler 加一次 unionId→staffId 解析（用现有 <code>getUnionIdByStaffId</code> 反向 API），命中后缓存</td>
+            </tr>
+            <tr>
+              <td>机器人 DM approver 失败（企业权限）</td>
+              <td>该 approver 收不到 DM；origin 仍可见</td>
+              <td>onDeliveryError 日志；用户文档明示需配置工作通知权限</td>
+            </tr>
+            <tr>
+              <td>updateCardVariables 在频繁 approve/expire 时遇上 race</td>
+              <td>卡片视觉短暂不一致</td>
+              <td>"upstream store 是真相"原则；不重试 update；下次相关事件会覆盖</td>
+            </tr>
+            <tr>
+              <td>多账号场景下 approval-store 单例如何按账号隔离</td>
+              <td>潜在跨账号污染</td>
+              <td>store 内 entry 强制带 accountId；所有查询 API 必须传 accountId；测试覆盖跨账号场景</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================ REFERENCES ============================ -->
+      <section id="refs">
+        <h2>12. 参考来源</h2>
+
+        <h4>上游 OpenClaw 核心类型与运行时</h4>
+        <ul>
+          <li><span class="file-ref">openclaw/src/channels/plugins/approval-native.types.ts</span> — Native surface/target/adapter 接口</li>
+          <li><span class="file-ref">openclaw/src/channels/plugins/types.adapters.ts:576-669</span> — ChannelApprovalCapability/Adapter/Delivery/Render 完整签名</li>
+          <li><span class="file-ref">openclaw/src/channels/plugins/types.plugin.ts:84-86</span> — plugin 字段 <code>approvalCapability?: ChannelApprovalCapability</code></li>
+          <li><span class="file-ref">openclaw/src/infra/approval-handler-runtime-types.ts:216-235</span> — ChannelApprovalNativeRuntimeAdapter 完整签名</li>
+          <li><span class="file-ref">openclaw/src/infra/approval-handler-adapter-runtime.ts:10-136</span> — createLazyChannelApprovalNativeRuntimeAdapter</li>
+          <li><span class="file-ref">openclaw/src/infra/approval-gateway-resolver.ts:29-46</span> — resolve gateway method 入口</li>
+          <li><span class="file-ref">openclaw/src/infra/exec-approvals.ts</span> — ExecApprovalRequest / Resolved</li>
+          <li><span class="file-ref">openclaw/src/infra/plugin-approvals.ts</span> — PluginApprovalRequest / Resolved</li>
+          <li><span class="file-ref">openclaw/src/plugin-sdk/approval-delivery-helpers.ts:30-261</span> — createApproverRestrictedNativeApprovalCapability 工厂</li>
+          <li><span class="file-ref">openclaw/src/auto-reply/reply/commands-approve.ts</span> — <code>/approve</code> 命令解析与 dispatcher</li>
+        </ul>
+
+        <h4>对标 channel 实现</h4>
+        <ul>
+          <li><span class="file-ref">openclaw/extensions/discord/src/approval-native.ts</span>（219 行）+ <span class="file-ref">approval-handler.runtime.ts</span>（636 行）</li>
+          <li><span class="file-ref">openclaw/extensions/telegram/src/approval-native.ts</span>（168 行）+ <span class="file-ref">approval-handler.runtime.ts</span>（195 行）+ <span class="file-ref">approval-callback-data.ts</span>（64 字节限制处理）</li>
+          <li><span class="file-ref">openclaw/extensions/slack/src/approval-native.ts</span>（211 行）+ <span class="file-ref">approval-handler.runtime.ts</span>（352 行）</li>
+        </ul>
+
+        <h4>本仓库相关代码</h4>
+        <ul>
+          <li><span class="file-ref">src/channel.ts:22-127</span> — plugin 定义入口（待新增 <code>approvalCapability</code>）</li>
+          <li><span class="file-ref">src/gateway/channel-gateway.ts:330-407</span> — TOPIC_CARD listener（待插入 approval 分支）</li>
+          <li><span class="file-ref">src/card-callback-service.ts:68-92</span> — extractCardActionId（已支持任意字符串）</li>
+          <li><span class="file-ref">src/card-callback-service.ts:175-201</span> — updateCardVariables 即 PUT /v1.0/card/instances</li>
+          <li><span class="file-ref">src/card-service.ts:649</span> — sendProactiveCardText（DM 投卡链路）</li>
+          <li><span class="file-ref">src/card-service.ts:711-785</span> — finalizeActiveCardsForAccount（停机收尾模式参考）</li>
+          <li><span class="file-ref">src/card-service.ts:795-855</span> — createAndDeliver</li>
+          <li><span class="file-ref">src/send-service.ts:352-482</span> — sendProactiveTextOrMarkdown（markdown 兜底链路）</li>
+          <li><span class="file-ref">src/card/card-template.ts</span> — 现有 AI Card 模板常量（新模板按此模式并列）</li>
+          <li><span class="file-ref">src/card/card-action-handler.ts:18-62</span> — btn_stop owner 校验模式参考</li>
+          <li><span class="file-ref">src/channel.ts:86</span> — normalize approver 复用此函数 <code>raw.replace(/^(dingtalk|dd|ding):/i, "")</code></li>
+          <li><span class="file-ref">src/messaging/quoted-file-service.ts:93</span> — getUnionIdByStaffId（应急 ID 解析备用）</li>
+        </ul>
+
+        <h4>钉钉平台 API</h4>
+        <ul>
+          <li><a href="https://dingtalk.apifox.cn/api-142252940">apifox · 创建并投放卡片 /v1.0/card/instances/createAndDeliver</a></li>
+          <li><a href="https://dingtalk.apifox.cn/api-142251457">apifox · 更新卡片 PUT /v1.0/card/instances</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3595317">apifox · AI 卡片模板</a></li>
+          <li><a href="https://dingtalk.apifox.cn/doc-3546886">apifox · 创建及更新互动卡片</a></li>
+        </ul>
+
+        <h4>项目内规范</h4>
+        <ul>
+          <li><span class="file-ref">CLAUDE.md</span> — 代码约定、日志前缀规范、测试目标</li>
+          <li><span class="file-ref">.github/instructions/code-review.instructions.md</span> — review 评论使用简体中文</li>
+          <li><span class="file-ref">skills/dingtalk-real-device-testing/SKILL.md</span> — 真机回归 checklist</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
