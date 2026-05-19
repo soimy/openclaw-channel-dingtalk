@@ -1,4 +1,5 @@
 import { updateCardVariables } from "../card-callback-service";
+import { finalizeAICardStreamingLifecycleIfNeeded } from "../card-service";
 import {
   buildApprovalClearedCardParams,
   buildApprovalPendingCardParams,
@@ -40,9 +41,13 @@ function buildTerminalPatchParams(
   return params;
 }
 
-function completeDeferredFinalize(outTrackId: string): void {
+async function completeDeferredFinalize(outTrackId: string): Promise<void> {
   const record = resolveCardRun(outTrackId);
   if (record?.deferredFinalize && record.card) {
+    // commitAICardBlocks skipped the DingTalk streaming-lifecycle close when
+    // it deferred this finalize. Close it now so DingTalk treats the card as
+    // fully finished (in addition to flowStatus=3 the caller already PUT).
+    await finalizeAICardStreamingLifecycleIfNeeded(record.card).catch(() => {});
     record.card.state = AICardStatus.FINISHED;
     record.card.lastUpdated = Date.now();
   }
@@ -63,7 +68,7 @@ export async function applyResolvedPatch(
     config,
   );
   clearCardRunPendingApproval(outTrackId);
-  completeDeferredFinalize(outTrackId);
+  await completeDeferredFinalize(outTrackId);
 }
 
 export async function applyExpiredPatch(
@@ -79,5 +84,5 @@ export async function applyExpiredPatch(
     config,
   );
   clearCardRunPendingApproval(outTrackId);
-  completeDeferredFinalize(outTrackId);
+  await completeDeferredFinalize(outTrackId);
 }

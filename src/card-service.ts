@@ -1085,7 +1085,7 @@ export async function clearAICardStreamingContent(
   }
 }
 
-async function finalizeAICardStreamingLifecycleIfNeeded(
+export async function finalizeAICardStreamingLifecycleIfNeeded(
   card: AICardInstance,
   log?: Logger,
 ): Promise<void> {
@@ -1140,17 +1140,23 @@ export async function commitAICardBlocks(
   }
 
   await ensureFreshToken(card, log);
-  await finalizeAICardStreamingLifecycleIfNeeded(card, log);
-
-  const template = DINGTALK_CARD_TEMPLATE;
   const trackId = card.outTrackId || card.cardInstanceId;
   // DingTalk constraint: action buttons (including approve_btns) only render
   // while the card is in PROCESSING/INPUTING state. flowStatus=3 (FINISHED)
-  // hides every action button regardless of show_approve_btns. So when an
-  // approval is pending we must defer the finalize: skip flowStatus=3, skip
-  // the in-memory state transition, skip removePendingCard. The deferred
-  // finalize completes from applyResolvedPatch / applyExpiredPatch.
+  // hides every action button regardless of show_approve_btns. Equally, the
+  // PUT /v1.0/card/streaming { isFinalize: true } call closes DingTalk's
+  // streaming lifecycle which the client also treats as "card done" and
+  // therefore hides action buttons. So when an approval is pending we must
+  // defer both signals: skip the streaming-lifecycle finalize, skip
+  // flowStatus=3, skip the in-memory state transition, skip
+  // removePendingCard. applyResolvedPatch / applyExpiredPatch completes the
+  // deferred finalize once the approval terminates.
   const approvalPending = Boolean(resolveCardRun(trackId)?.pendingApprovalId);
+  if (!approvalPending) {
+    await finalizeAICardStreamingLifecycleIfNeeded(card, log);
+  }
+
+  const template = DINGTALK_CARD_TEMPLATE;
   const updates: Record<string, unknown> = {
     [template.blockListKey]: options.blockListJson,
     [template.streamingKey]: options.content, // markdown content for display
