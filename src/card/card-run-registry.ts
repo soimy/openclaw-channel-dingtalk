@@ -21,6 +21,12 @@ export interface CardRunRecord {
   card?: AICardInstance;
   controller?: CardDraftController;
   pendingApprovalId?: string;
+  /** When commitAICardBlocks ran with a pending approval, the flowStatus=3 PUT and
+   *  state transition were skipped so the card stays in PROCESSING/INPUTING and
+   *  DingTalk keeps the approval buttons visible. Set true at defer time so
+   *  applyResolvedPatch / applyExpiredPatch knows to complete the deferred
+   *  finalize on resolve/expire. */
+  deferredFinalize?: boolean;
   stopRequestedAt?: number;
   registeredAt: number;
 }
@@ -126,6 +132,20 @@ export function clearCardRunPendingApproval(outTrackId: string): void {
   const record = records.get(outTrackId.trim());
   if (record) {
     record.pendingApprovalId = undefined;
+  }
+}
+
+export function markCardRunDeferredFinalize(outTrackId: string): void {
+  const record = records.get(outTrackId.trim());
+  if (record) {
+    record.deferredFinalize = true;
+  }
+}
+
+export function clearCardRunDeferredFinalize(outTrackId: string): void {
+  const record = records.get(outTrackId.trim());
+  if (record) {
+    record.deferredFinalize = undefined;
   }
 }
 

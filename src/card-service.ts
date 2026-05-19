@@ -6,7 +6,7 @@ import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
 import { APPROVAL_CARD_INITIAL } from "./approval/approval-card-state";
-import { resolveCardRun } from "./card/card-run-registry";
+import { markCardRunDeferredFinalize, resolveCardRun } from "./card/card-run-registry";
 import { getLogger } from "./logger-context";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
@@ -1143,12 +1143,19 @@ export async function commitAICardBlocks(
   await finalizeAICardStreamingLifecycleIfNeeded(card, log);
 
   const template = DINGTALK_CARD_TEMPLATE;
+  const trackId = card.outTrackId || card.cardInstanceId;
+  // DingTalk constraint: action buttons (including approve_btns) only render
+  // while the card is in PROCESSING/INPUTING state. flowStatus=3 (FINISHED)
+  // hides every action button regardless of show_approve_btns. So when an
+  // approval is pending we must defer the finalize: skip flowStatus=3, skip
+  // the in-memory state transition, skip removePendingCard. The deferred
+  // finalize completes from applyResolvedPatch / applyExpiredPatch.
+  const approvalPending = Boolean(resolveCardRun(trackId)?.pendingApprovalId);
   const updates: Record<string, unknown> = {
     [template.blockListKey]: options.blockListJson,
     [template.streamingKey]: options.content, // markdown content for display
     [template.copyContentKey]: options.content, // same markdown as String type for card copy action
-    flowStatus: 3, // completed state - V2 template hides stop button automatically
-    ...approvalParamsForTerminal(card.outTrackId || card.cardInstanceId),
+    ...(approvalPending ? {} : { flowStatus: 3, ...APPROVAL_CARD_INITIAL }),
   };
 
   // Optional fields
@@ -1160,14 +1167,14 @@ export async function commitAICardBlocks(
   }
 
   log?.debug?.(
-    `[DingTalk][AICard] Finalizing via instances API: outTrackId=${card.outTrackId || card.cardInstanceId} ` +
-    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=3` +
+    `[DingTalk][AICard] Finalizing via instances API: outTrackId=${trackId} ` +
+    `blockListLen=${options.blockListJson.length} contentLen=${options.content.length} flowStatus=${approvalPending ? "deferred" : 3}` +
     (options.statusLine ? ` statusLine="${options.statusLine}"` : ""),
   );
 
   try {
     await updateCardVariables(
-      card.outTrackId || card.cardInstanceId,
+      trackId,
       updates,
       card.accessToken,
       card.config,
@@ -1196,11 +1203,19 @@ export async function commitAICardBlocks(
     );
   }
 
+  if (approvalPending) {
+    markCardRunDeferredFinalize(trackId);
+    log?.info?.(
+      `[DingTalk][AICard] Card finalize deferred (approval pending): outTrackId=${trackId} state=${card.state}`,
+    );
+    return;
+  }
+
   // Update local state
   card.state = AICardStatus.FINISHED;
   card.lastUpdated = Date.now();
   removePendingCard(card, log);
-  log?.info?.(`[DingTalk][AICard] Card finalized: outTrackId=${card.outTrackId || card.cardInstanceId} state=FINISHED`);
+  log?.info?.(`[DingTalk][AICard] Card finalized: outTrackId=${trackId} state=FINISHED`);
 }
 
 

@@ -10,7 +10,12 @@ import { tryInterceptApproveCommand } from "./approval/approval-command-intercep
 import { APPROVE_COMMAND_RE } from "./approval/approval-command-parser";
 import { getAccessToken } from "./auth";
 import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
-import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
+import {
+  isCardRunStopRequested,
+  registerCardRun,
+  removeCardRun,
+  resolveCardRun,
+} from "./card/card-run-registry";
 import { renderStatusLine } from "./card/statusline-renderer";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import {
@@ -2246,12 +2251,17 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
 
       await strategy.finalize();
     } finally {
-      // Only remove the registry entry if no stop was requested. When a stop is
-      // in progress, card-stop-handler may still be running async operations
-      // (finalize card, hide button, gateway abort) that read the record.
-      // In that case, let the 30-minute TTL sweep handle cleanup.
+      // Only remove the registry entry when the run is fully closed. Three
+      // cases keep the record alive past this finally block:
+      // - a stop is in progress (card-stop-handler may still be reading it),
+      // - an approval is pending (applyResolvedPatch will need the record),
+      // - the card was deferred-finalize while approval pending (same).
+      // The 30-minute TTL sweep handles cleanup if approval never resolves.
       if (currentOutTrackId && !isCardRunStopRequested(currentOutTrackId)) {
-        removeCardRun(currentOutTrackId);
+        const record = resolveCardRun(currentOutTrackId);
+        if (!record?.pendingApprovalId && !record?.deferredFinalize) {
+          removeCardRun(currentOutTrackId);
+        }
       }
       await waitForDynamicAckDispose({
         dispose: () => dynamicAckReactionController.dispose(MIN_THINKING_REACTION_VISIBLE_MS),
