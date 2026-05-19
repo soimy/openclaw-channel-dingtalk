@@ -1,7 +1,12 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { resolveGroupConfig, resolveRelativePath, stripTargetPrefix } from '../../src/config';
+import {
+    resolveDingTalkAccount,
+    resolveGroupConfig,
+    resolveRelativePath,
+    stripTargetPrefix,
+} from '../../src/config';
 
 describe('config helpers', () => {
     describe('stripTargetPrefix', () => {
@@ -313,5 +318,72 @@ describe('config helpers', () => {
                 expect(result.endsWith('file.txt')).toBe(true);
             });
         });
+    });
+});
+
+describe('resolveDingTalkAccount · execApprovals field forwarding', () => {
+    it('exposes channel-level execApprovals on the default account', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'x',
+                    clientSecret: 'y',
+                    execApprovals: { enabled: 'auto', approvers: ['staff001'] },
+                },
+            },
+        };
+
+        const account = resolveDingTalkAccount(cfg, undefined);
+
+        expect(account.execApprovals?.approvers).toEqual(['staff001']);
+        expect(account.execApprovals?.enabled).toBe('auto');
+    });
+
+    it('account override replaces channel-level approvers', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'x',
+                    clientSecret: 'y',
+                    execApprovals: { approvers: ['staffA'] },
+                    accounts: {
+                        acme: {
+                            clientId: 'x',
+                            clientSecret: 'y',
+                            execApprovals: { approvers: ['staffB'] },
+                        },
+                    },
+                },
+            },
+        };
+
+        const acme = resolveDingTalkAccount(cfg, 'acme');
+
+        expect(acme.execApprovals?.approvers).toEqual(['staffB']);
+    });
+
+    it('account without execApprovals inherits the channel-level config', () => {
+        const cfg = {
+            channels: {
+                dingtalk: {
+                    clientId: 'x',
+                    clientSecret: 'y',
+                    execApprovals: { approvers: ['staffA'] },
+                    accounts: { acme: { clientId: 'x', clientSecret: 'y' } },
+                },
+            },
+        };
+
+        const acme = resolveDingTalkAccount(cfg, 'acme');
+
+        expect(acme.execApprovals?.approvers).toEqual(['staffA']);
+    });
+
+    it('leaves execApprovals undefined when the channel config omits it', () => {
+        const cfg = { channels: { dingtalk: { clientId: 'x', clientSecret: 'y' } } };
+
+        const account = resolveDingTalkAccount(cfg, undefined);
+
+        expect(account.execApprovals).toBeUndefined();
     });
 });

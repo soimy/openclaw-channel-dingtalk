@@ -10,6 +10,12 @@ const AckReactionSchema = z.union([
 
 const CardStreamingModeSchema = z.enum(["off", "answer", "all"]);
 const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
+export const ExecApprovalsConfigSchema = z
+  .object({
+    enabled: z.union([z.boolean(), z.literal("auto")]).optional(),
+    approvers: z.array(z.string()).optional(),
+  })
+  .strict();
 
 /**
  * Runtime-parsed DingTalk account config.
@@ -143,6 +149,9 @@ const DingTalkAccountConfigShape = {
 
   /** Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. */
   learningEnabled: z.boolean().optional(),
+
+  /** Native OpenClaw exec/plugin approval configuration. v1 intentionally rejects v2 future fields. */
+  execApprovals: ExecApprovalsConfigSchema.optional(),
 
   /** Automatically apply generated learning output into session notes or global rules when available. */
   learningAutoApply: z.boolean().optional(),

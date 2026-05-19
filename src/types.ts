@@ -24,6 +24,13 @@ export type AckReactionMode = "off" | "emoji" | "kaomoji";
 export type AckReactionConfigValue = string;
 export type CardStreamingMode = "off" | "answer" | "all";
 export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
+export type ApprovalDecision = "allow-once" | "allow-always" | "deny";
+export type ApprovalPhase = "pending" | "resolved" | "expired";
+
+export interface ExecApprovalsConfig {
+  enabled?: boolean | "auto";
+  approvers?: string[];
+}
 
 /**
  * DingTalk channel configuration (extends base OpenClaw config)
@@ -87,6 +94,8 @@ export interface DingTalkConfig extends OpenClawConfig {
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
   learningEnabled?: boolean;
+  /** Native OpenClaw exec/plugin approval configuration for this DingTalk account. */
+  execApprovals?: ExecApprovalsConfig;
   /** Auto-apply generated reflections into session notes/global rules (default false) */
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
@@ -167,6 +176,8 @@ export interface DingTalkChannelConfig {
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
   learningEnabled?: boolean;
+  /** Native OpenClaw exec/plugin approval configuration for this DingTalk account. */
+  execApprovals?: ExecApprovalsConfig;
   /** Auto-apply generated reflections into session notes/global rules (default false) */
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */

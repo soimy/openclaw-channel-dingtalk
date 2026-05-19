@@ -311,6 +311,7 @@ export function resolveDingTalkAccount(
       cardStreamInterval: dingtalk?.cardStreamInterval,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       learningEnabled: dingtalk?.learningEnabled,
+      execApprovals: dingtalk?.execApprovals,
       learningAutoApply: dingtalk?.learningAutoApply,
       learningNoteTtlMs: dingtalk?.learningNoteTtlMs,
       convertMarkdownTables: dingtalk?.convertMarkdownTables,
