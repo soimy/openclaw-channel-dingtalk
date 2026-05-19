@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearCardRunRegistryForTest,
+  clearCardRunPendingApproval,
   isActiveCardRun,
+  markCardRunPendingApproval,
   registerCardRun,
+  resolveCardRun,
   resolveActiveCardRunBySession,
   type CardRunRecord,
 } from "../../src/card/card-run-registry";
@@ -98,5 +101,15 @@ describe("card-run-registry · approval helpers", () => {
     });
 
     expect(resolveActiveCardRunBySession("default", "session-A")?.outTrackId).toBe("out-new");
+  });
+
+  it("marks and clears pendingApprovalId for callback fallback", () => {
+    register("out-active", { sessionKey: "session-A", state: AICardStatus.INPUTING });
+
+    markCardRunPendingApproval(" out-active ", " approval-123 ");
+    expect(resolveCardRun("out-active")?.pendingApprovalId).toBe("approval-123");
+
+    clearCardRunPendingApproval(" out-active ");
+    expect(resolveCardRun("out-active")?.pendingApprovalId).toBeUndefined();
   });
 });

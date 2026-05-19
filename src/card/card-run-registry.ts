@@ -20,6 +20,7 @@ export interface CardRunRecord {
   ownerUserId?: string;
   card?: AICardInstance;
   controller?: CardDraftController;
+  pendingApprovalId?: string;
   stopRequestedAt?: number;
   registeredAt: number;
 }
@@ -111,6 +112,21 @@ export function resolveActiveCardRunBySession(
     }
   }
   return latest;
+}
+
+export function markCardRunPendingApproval(outTrackId: string, approvalId: string): void {
+  const record = records.get(outTrackId.trim());
+  const trimmedApprovalId = approvalId.trim();
+  if (record && trimmedApprovalId) {
+    record.pendingApprovalId = trimmedApprovalId;
+  }
+}
+
+export function clearCardRunPendingApproval(outTrackId: string): void {
+  const record = records.get(outTrackId.trim());
+  if (record) {
+    record.pendingApprovalId = undefined;
+  }
 }
 
 /**

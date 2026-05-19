@@ -6,6 +6,10 @@ const DINGTALK_API = "https://api.dingtalk.com";
 export interface CardCallbackAnalysis {
   summary: string;
   actionId?: string;
+  cardPrivateData?: {
+    actionIds?: unknown[];
+    params?: Record<string, unknown>;
+  };
   feedbackTarget?: string;
   feedbackAckText?: string;
   userId?: string;
@@ -100,6 +104,8 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   const embeddedCardPrivateData = asRecord(parseEmbeddedJson(record?.cardPrivateData));
   const embeddedValuePrivateData = asRecord(parseEmbeddedJson(embeddedValue?.cardPrivateData));
   const embeddedContentPrivateData = asRecord(parseEmbeddedJson(embeddedContent?.cardPrivateData));
+  const extractedCardPrivateData =
+    embeddedCardPrivateData ?? embeddedValuePrivateData ?? embeddedContentPrivateData;
   const candidateRecords = [
     record,
     embeddedValue,
@@ -133,6 +139,14 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
     return {
       summary,
       actionId,
+      cardPrivateData: extractedCardPrivateData
+        ? {
+            actionIds: Array.isArray(extractedCardPrivateData.actionIds)
+              ? extractedCardPrivateData.actionIds
+              : undefined,
+            params: asRecord(extractedCardPrivateData.params),
+          }
+        : undefined,
       userId,
       spaceId,
       processQueryKey,
@@ -157,6 +171,14 @@ export function analyzeCardCallback(data: unknown): CardCallbackAnalysis {
   return {
     summary,
     actionId,
+    cardPrivateData: extractedCardPrivateData
+      ? {
+          actionIds: Array.isArray(extractedCardPrivateData.actionIds)
+            ? extractedCardPrivateData.actionIds
+            : undefined,
+          params: asRecord(extractedCardPrivateData.params),
+        }
+      : undefined,
     feedbackTarget: feedbackTarget || undefined,
     feedbackAckText,
     userId: userId || undefined,

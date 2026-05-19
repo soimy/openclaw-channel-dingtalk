@@ -5,6 +5,7 @@ import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
+import { APPROVAL_CARD_INITIAL } from "./approval/approval-card-state";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
@@ -805,6 +806,7 @@ export async function createAICard(
       quoteContent: options.quoteContent || "",
       ...(options.statusLine?.trim() ? { statusLine: options.statusLine } : {}),
       flowStatus: AICardStatus.INPUTING,
+      ...APPROVAL_CARD_INITIAL,
       // V2 template uses hasAction (string), V1 uses stop_action (string)
       // DingTalk cardParamMap requires all values to be strings
       hasAction: String(STOP_ACTION_VISIBLE),
@@ -1133,6 +1135,7 @@ export async function commitAICardBlocks(
     [template.streamingKey]: options.content, // markdown content for display
     [template.copyContentKey]: options.content, // same markdown as String type for card copy action
     flowStatus: 3, // completed state - V2 template hides stop button automatically
+    ...APPROVAL_CARD_INITIAL,
   };
 
   // Optional fields
@@ -1428,6 +1431,7 @@ export async function finalizeStoppedAICard(
         [template.streamingKey]: payload.content,
         [template.copyContentKey]: payload.content,
         flowStatus: 3,
+        ...APPROVAL_CARD_INITIAL,
       },
       card.accessToken,
       card.config,

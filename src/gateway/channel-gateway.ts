@@ -1,6 +1,7 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import { analyzeCardCallback } from "../card-callback-service";
 import { handleCardAction } from "../card/card-action-handler";
+import { tryHandleApprovalCallback } from "../approval/approval-callback-handler";
 import {
   finalizeActiveCardsForAccount,
   recoverPendingCardsForAccount,
@@ -379,6 +380,15 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
                   `[${account.accountId}] [DingTalk][CardCallback] Failed to send feedback ack: ${sendErr?.message || String(sendErr)}`,
                 );
               }
+            }
+            const approvalResult = await tryHandleApprovalCallback({
+              analysis,
+              cfg,
+              accountId: account.accountId,
+              log: pluginLog,
+            });
+            if (approvalResult.handled) {
+              return;
             }
             const actionResult = await handleCardAction({
               analysis,

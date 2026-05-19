@@ -4,7 +4,7 @@ export const STOP_ACTION_VISIBLE = true;
 export const STOP_ACTION_HIDDEN = false;
 
 export const BUILTIN_DINGTALK_CARD_TEMPLATE_ID =
-  process.env.DINGTALK_CARD_TEMPLATE_ID || "675cde2f-f526-40cb-b828-f5b2b57b8b77.schema";
+  process.env.DINGTALK_CARD_TEMPLATE_ID || "58f73932-fc3b-46ae-8e90-93313e405061.schema";
 export const BUILTIN_DINGTALK_CARD_CONTENT_KEY = "content";
 export const BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY = "blockList";
 export const BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY = "copy_content";
@@ -28,4 +28,3 @@ export const DINGTALK_CARD_TEMPLATE: Readonly<DingTalkCardTemplateContract> = Ob
   blockListKey: BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY,
   copyContentKey: BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY,
 });
-

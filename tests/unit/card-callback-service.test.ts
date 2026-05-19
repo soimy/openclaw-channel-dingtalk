@@ -74,4 +74,24 @@ describe("card-callback-service", () => {
     expect(analysis.userId).toBe("user_2");
     expect(analysis.spaceId).toBe("space_2");
   });
+
+  it("exposes cardPrivateData actionIds and params from nested callback payloads", () => {
+    const analysis = analyzeCardCallback({
+      content: JSON.stringify({
+        cardPrivateData: {
+          actionIds: ["allow-once"],
+          params: { action: "allow-once", approveId: "abc123" },
+        },
+      }),
+    });
+
+    expect(analysis.cardPrivateData).toEqual({
+      actionIds: ["allow-once"],
+      params: { action: "allow-once", approveId: "abc123" },
+    });
+  });
+
+  it("leaves cardPrivateData undefined when callback does not contain it", () => {
+    expect(analyzeCardCallback({ actionValue: "btn_stop" }).cardPrivateData).toBeUndefined();
+  });
 });

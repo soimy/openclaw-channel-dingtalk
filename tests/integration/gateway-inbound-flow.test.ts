@@ -11,6 +11,7 @@ const shared = vi.hoisted(() => ({
     markMessageProcessedMock: vi.fn(),
     handleDingTalkMessageMock: vi.fn(),
     sendProactiveTextMock: vi.fn(),
+    tryHandleApprovalCallbackMock: vi.fn(),
     connectionConfig: undefined as any,
 }));
 
@@ -70,6 +71,10 @@ vi.mock('../../src/send-service', () => ({
     uploadMedia: vi.fn(),
 }));
 
+vi.mock('../../src/approval/approval-callback-handler', () => ({
+    tryHandleApprovalCallback: shared.tryHandleApprovalCallbackMock,
+}));
+
 import { CHANNEL_INFLIGHT_NAMESPACE_POLICY, dingtalkPlugin } from '../../src/channel';
 
 const startGatewayAccount = (ctx: any) => dingtalkPlugin.gateway!.startAccount!(ctx);
@@ -113,6 +118,7 @@ describe('gateway inbound callback pipeline', () => {
         shared.markMessageProcessedMock.mockReset();
         shared.handleDingTalkMessageMock.mockReset();
         shared.sendProactiveTextMock.mockReset();
+        shared.tryHandleApprovalCallbackMock.mockReset().mockResolvedValue({ handled: false });
         shared.connectionConfig = undefined;
 
         shared.listeners = {};
@@ -364,6 +370,40 @@ describe('gateway inbound callback pipeline', () => {
             expect.objectContaining({ accountId: 'main' }),
         );
         expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_1', { success: true });
+    });
+
+    it('routes approval card callbacks before regular card actions', async () => {
+        shared.tryHandleApprovalCallbackMock.mockResolvedValueOnce({ handled: true, reason: 'resolved' });
+        const ctx = createStartContext();
+
+        await startGatewayAccount(ctx as any);
+        await shared.listeners.TOPIC_CARD?.({
+            headers: { messageId: 'card_callback_approval' },
+            data: JSON.stringify({
+                outTrackId: 'ot1',
+                userId: 'staffA',
+                content: JSON.stringify({
+                    cardPrivateData: {
+                        actionIds: ['allow-once'],
+                        params: { action: 'allow-once', approveId: 'abc123' },
+                    },
+                }),
+            }),
+        });
+
+        expect(shared.tryHandleApprovalCallbackMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                accountId: 'main',
+                analysis: expect.objectContaining({
+                    actionId: 'allow-once',
+                    outTrackId: 'ot1',
+                    cardPrivateData: expect.objectContaining({
+                        params: { action: 'allow-once', approveId: 'abc123' },
+                    }),
+                }),
+            }),
+        );
+        expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith('card_callback_approval', { success: true });
     });
 
     it('clears account in-flight locks on disconnect state change', async () => {

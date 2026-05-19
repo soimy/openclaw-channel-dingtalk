@@ -4,6 +4,10 @@ vi.mock("openclaw/plugin-sdk/approval-delivery-runtime", () => ({
   createApproverRestrictedNativeApprovalCapability: vi.fn(() => ({ mock: "capability" })),
 }));
 
+vi.mock("../../src/approval/approval-native-runtime", () => ({
+  createDingTalkApprovalNativeRuntime: vi.fn(() => ({ marker: "native-runtime" })),
+}));
+
 const { createDingTalkApprovalCapability } = await import("../../src/approval/approval-capability");
 const { createApproverRestrictedNativeApprovalCapability } = await import(
   "openclaw/plugin-sdk/approval-delivery-runtime"
@@ -36,10 +40,10 @@ describe("createDingTalkApprovalCapability", () => {
     expect(args?.resolveApproverDmTargets).toBeUndefined();
   });
 
-  it("does not attach nativeRuntime in PR-1", () => {
+  it("attaches nativeRuntime for channel-native approval delivery", () => {
     createDingTalkApprovalCapability();
 
-    expect(mockFactory.mock.calls.at(-1)?.[0].nativeRuntime).toBeUndefined();
+    expect(mockFactory.mock.calls.at(-1)?.[0].nativeRuntime).toEqual({ marker: "native-runtime" });
   });
 
   it("does not implement resolveApproveCommandBehavior because DingTalk intercepts early", () => {

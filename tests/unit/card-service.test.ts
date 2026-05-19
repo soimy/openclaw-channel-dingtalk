@@ -101,6 +101,8 @@ describe('card-service', () => {
             config: '{"autoLayout":true,"enableForward":true}',
             content: '',
             flowStatus: '2',
+            show_approve_btns: 'false',
+            approveId: '',
             hasAction: 'true',
             stop_action: 'true',
             quoteContent: '',

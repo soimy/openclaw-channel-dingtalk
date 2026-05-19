@@ -8,6 +8,7 @@ import {
   listExecApprovers,
   resolveNativeDeliveryMode,
 } from "./approval-config";
+import { createDingTalkApprovalNativeRuntime } from "./approval-native-runtime";
 import { resolveDingTalkOriginTarget } from "./approval-target-resolver";
 
 const EXEC_APPROVAL_SETUP_TEXT =
@@ -41,6 +42,8 @@ export function createDingTalkApprovalCapability(): ChannelApprovalCapability {
     requireMatchingTurnSourceChannel: true,
     resolveOriginTarget: resolveDingTalkOriginTarget,
     notifyOriginWhenDmOnly: false,
+    nativeRuntime:
+      createDingTalkApprovalNativeRuntime() as unknown as ChannelApprovalCapability["nativeRuntime"],
     describeExecApprovalSetup: () => EXEC_APPROVAL_SETUP_TEXT,
   });
 }
