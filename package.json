@@ -68,7 +68,7 @@
     "form-data": "^4.0.0",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
@@ -82,7 +82,7 @@
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.28"
+    "openclaw": ">=2026.4.7"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -91,10 +91,10 @@
   },
   "openclaw": {
     "compat": {
-      "pluginApi": ">=2026.3.28"
+      "pluginApi": ">=2026.4.7"
     },
     "build": {
-      "openclawVersion": "2026.3.28"
+      "openclawVersion": "2026.4.7"
     },
     "extensions": [
       "./index.ts"
@@ -120,7 +120,7 @@
       ]
     },
     "install": {
-      "minHostVersion": ">=2026.3.28",
+      "minHostVersion": ">=2026.4.7",
       "npmSpec": "@soimy/dingtalk",
       "localPath": ".",
       "defaultChoice": "npm"

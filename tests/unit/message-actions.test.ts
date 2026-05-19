@@ -143,7 +143,7 @@ describe('dingtalkPlugin.actions.send', () => {
             } as any),
         ).toEqual({
             actions: ['send'],
-            capabilities: ['cards'],
+            capabilities: ['presentation'],
             schema: null,
         });
     });
