@@ -1,5 +1,6 @@
 import { resolveApprovalOverGateway } from "openclaw/plugin-sdk/approval-gateway-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { isApprovalNotFoundError } from "openclaw/plugin-sdk/error-runtime";
 import type { ApprovalDecision, Logger } from "../types";
 import { isExecAuthorizedSender, isPluginAuthorizedSender } from "./approval-config";
 
@@ -114,7 +115,13 @@ export async function resolveApproval(input: ResolveApprovalInput): Promise<Reso
     return { ok: true };
   } catch (error) {
     const gatewayCode = (error as GatewayErrorLike | null)?.gatewayCode;
-    if (gatewayCode === "APPROVAL_NOT_FOUND") {
+    // Upstream not-found surfaces three ways: gatewayCode=APPROVAL_NOT_FOUND,
+    // gatewayCode=INVALID_REQUEST with details.reason=APPROVAL_NOT_FOUND, or
+    // gatewayCode=INVALID_REQUEST with message "unknown or expired approval id".
+    // Use the upstream helper so we catch all three (real-device repro showed
+    // the third form misclassified as gateway-error and surfacing a misleading
+    // "稍后重试" hint to the operator).
+    if (isApprovalNotFoundError(error)) {
       return { ok: false, reason: "not-found", error };
     }
     if (gatewayCode === "APPROVAL_ALREADY_RESOLVED") {

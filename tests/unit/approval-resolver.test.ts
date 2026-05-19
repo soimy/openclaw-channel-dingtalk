@@ -182,6 +182,35 @@ describe("approval-resolver · error classification", () => {
     expect(result).toEqual(expect.objectContaining({ ok: false, reason: "gateway-error" }));
   });
 
+  it("maps INVALID_REQUEST + details.reason=APPROVAL_NOT_FOUND to not-found", async () => {
+    mockGateway.mockRejectedValue(
+      Object.assign(new Error("approval not found"), {
+        gatewayCode: "INVALID_REQUEST",
+        details: { reason: "APPROVAL_NOT_FOUND" },
+      }),
+    );
+
+    const result = await resolveApproval({ ...base, approvalId: "abc", decision: "allow-once" });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false, reason: "not-found" }));
+  });
+
+  it('maps INVALID_REQUEST + "unknown or expired approval id" message to not-found', async () => {
+    // Real-device repro: clicking an approval button after upstream had already
+    // resolved the approval (e.g. via askFallback) returned INVALID_REQUEST
+    // with this exact message; previously misclassified as gateway-error and
+    // shown to the operator as "稍后重试".
+    mockGateway.mockRejectedValue(
+      Object.assign(new Error("unknown or expired approval id"), {
+        gatewayCode: "INVALID_REQUEST",
+      }),
+    );
+
+    const result = await resolveApproval({ ...base, approvalId: "abc", decision: "allow-once" });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false, reason: "not-found" }));
+  });
+
   it("maps arbitrary errors to gateway-error", async () => {
     mockGateway.mockRejectedValue(new Error("network down"));
 
