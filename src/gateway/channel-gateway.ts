@@ -1,7 +1,10 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
+import { CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY } from "openclaw/plugin-sdk/approval-handler-adapter-runtime";
+import { registerChannelRuntimeContext } from "openclaw/plugin-sdk/channel-runtime-context";
 import { analyzeCardCallback } from "../card-callback-service";
 import { handleCardAction } from "../card/card-action-handler";
 import { tryHandleApprovalCallback } from "../approval/approval-callback-handler";
+import { getExecApprovalsConfig } from "../approval/approval-config";
 import {
   finalizeActiveCardsForAccount,
   recoverPendingCardsForAccount,
@@ -181,6 +184,33 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
       setCurrentLogger(pluginLog, account.accountId);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
+
+      // Register approval runtime context so upstream's
+      // startChannelApprovalHandlerBootstrap can engage our nativeRuntime
+      // adapters. Mirrors the telegram/slack/discord monitor pattern. The
+      // context is opaque to the bootstrap — passing clientId is enough for
+      // upstream auth bookkeeping. Skip when execApprovals are not enabled to
+      // avoid wasted bootstrap on accounts that do not opt in.
+      if (
+        ctx.channelRuntime &&
+        getExecApprovalsConfig({ cfg, accountId: account.accountId }).isNativeDeliveryEnabled
+      ) {
+        registerChannelRuntimeContext({
+          channelRuntime: ctx.channelRuntime,
+          channelId: "dingtalk",
+          accountId: account.accountId,
+          capability: CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY,
+          context: { clientId: runtimeConfig.clientId },
+          abortSignal,
+        });
+        pluginLog?.info?.(
+          `[${account.accountId}] [DingTalk][Approval] registered native approval runtime context`,
+        );
+      } else {
+        pluginLog?.info?.(
+          `[${account.accountId}] [DingTalk][Approval] native approval runtime context NOT registered (channelRuntime=${Boolean(ctx.channelRuntime)} nativeDeliveryEnabled=${getExecApprovalsConfig({ cfg, accountId: account.accountId }).isNativeDeliveryEnabled})`,
+        );
+      }
 
       preloadPeerIdsFromSessions();
       pluginLog?.debug?.(`[${account.accountId}] Peer ID registry preloaded from sessions`);
