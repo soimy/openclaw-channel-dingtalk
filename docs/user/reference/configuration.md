@@ -29,6 +29,8 @@
 | `cardStreamingMode` | string | `off`（生效值） | 卡片流式模式：`off` / `answer` / `all` |
 | `cardStreamInterval` | number | `1000` | 卡片实时更新节奏（毫秒，最小 `200`） |
 | `cardAtSender` | string | - | 群聊中卡片完成后追加 @发送者 的消息文本；非空时生效 |
+| `execApprovals.enabled` | boolean \| `"auto"` | `"auto"` | 是否启用 DingTalk Native Approval；`false` 强制关闭 |
+| `execApprovals.approvers` | string[] | `[]` | 允许审批的 DingTalk staffId 列表；为空时回退到 `commands.ownerAllowFrom` |
 | `cardRealTimeStream` | boolean | `false` | 已弃用；仅兼容旧配置，`true` 会回退到 `cardStreamingMode: all` |
 | `aicardDegradeMs` | number | `1800000` | 卡片连续失败后的降级时间 |
 | `debug` | boolean | `false` | 是否输出调试日志 |
@@ -143,6 +145,25 @@ SecretInput 对象字段：
 - 未设置 `cardStreamingMode` 且 `cardRealTimeStream=true` 时，生效为 `all`。
 - 同时设置时，以 `cardStreamingMode` 为准。
 - `cardStreamInterval` 控制实时更新节奏（毫秒），在 `answer` / `all` 下生效；值越小，更新越频繁，API 调用通常越高。
+
+## 关于 `execApprovals`
+
+`execApprovals` 用于 DingTalk Native Approval。配置 approver 后，OpenClaw 的 exec/plugin approval 可以通过钉钉 AI Card 按钮或 `/approve` 命令处理。
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "execApprovals": {
+        "enabled": "auto",
+        "approvers": ["staff-id-1"]
+      }
+    }
+  }
+}
+```
+
+更多交互方式与限制见 [DingTalk Native Approval](../features/exec-approval.md)。
 
 ## 关于连接参数
 

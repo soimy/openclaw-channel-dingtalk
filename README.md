@@ -5,7 +5,7 @@
 # DingTalk Channel for OpenClaw
 
 <p class="repo-badges">
-  <a href="https://github.com/openclaw/openclaw"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.24-0A7CFF"></a>
+  <a href="https://github.com/openclaw/openclaw"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-%3E%3D2026.4.7-0A7CFF"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm version" src="https://img.shields.io/npm/v/%40soimy%2Fdingtalk"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40soimy%2Fdingtalk"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/soimy/openclaw-channel-dingtalk"></a>
@@ -22,6 +22,7 @@
 - 支持引用消息恢复和常见文本附件正文抽取
 - 支持 Markdown 回复与 AI 卡片流式回复（v2 结构化 block 渲染、taskInfo 元数据、图片内联）
 - 支持多 Agent、多机器人绑定和实验性的 `@多助手路由`
+- 支持 OpenClaw exec/plugin approval 在钉钉内审批（AI Card 按钮或 `/approve` 命令）
 - 支持 `/btw` 旁路问答，绕过主会话锁立即获得独立快答
 - 支持 DingTalk Device Flow 自动注册，扫码授权后自动获取凭证，无需手动复制
 - 支持实时中止当前 AI generation。常用停止指令包括 `停止`、`stop`、`/stop`、`esc` 等
@@ -46,7 +47,7 @@
 ## 安装
 
 > [!IMPORTANT]
-> 最小兼容版本为 `OpenClaw 2026.3.24`。安装前请先升级到最新版 OpenClaw。
+> 最小兼容版本为 `OpenClaw 2026.4.7`。安装前请先升级到最新版 OpenClaw。
 
 ```bash
 openclaw plugins install @soimy/dingtalk
@@ -143,6 +144,7 @@ openclaw configure --section channels
 - [消息类型支持](docs/user/features/message-types.md)
 - [回复模式](docs/user/features/reply-modes.md)
 - [AI 卡片](docs/user/features/ai-card.md)
+- [DingTalk Native Approval](docs/user/features/exec-approval.md)
 - [/btw 旁路问答](docs/user/features/btw.md)
 - [钉钉文档 API](docs/user/features/dingtalk-docs-api.md)
 - [反馈学习](docs/user/features/feedback-learning.md)

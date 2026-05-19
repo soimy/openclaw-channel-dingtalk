@@ -6,7 +6,7 @@ AI 卡片模式是钉钉插件最有辨识度的回复方式，基于结构化 b
 
 插件使用统一的预置卡片模板，无需用户配置 `cardTemplateId` / `cardTemplateKey`。
 
-如需覆盖预置模板 ID，可通过环境变量 `DINGTALK_CARD_TEMPLATE_ID` 设置，默认值为 `675cde2f-f526-40cb-b828-f5b2b57b8b77.schema`。
+如需覆盖预置模板 ID，可通过环境变量 `DINGTALK_CARD_TEMPLATE_ID` 设置，默认值为 `58f73932-fc3b-46ae-8e90-93313e405061.schema`。
 
 AI 卡片生命周期：
 
@@ -119,13 +119,15 @@ AI 卡片生命周期：
 
 如需在预置模板基础上定制卡片样式或新增自定义变量/组件，可以参考以下资产文件，将修改后的模板上传到钉钉开放平台，再通过 `DINGTALK_CARD_TEMPLATE_ID` 环境变量指向新模板 ID：
 
-- **[`card-template-v2.json`](../../assets/card-template-v2.json)** — 当前预置卡片模板的完整低代码 schema（钉钉卡片搭建器导出格式），包含组件映射、组件树、数据源和交互定义，可直接导入钉钉卡片搭建器进行编辑。
+- **[`card-template-v3.json`](../../assets/card-template-v3.json)** — 当前预置卡片模板的完整低代码 schema（钉钉卡片搭建器导出格式），包含组件映射、组件树、数据源、AI Card 展示与 Native Approval 按钮组，可直接导入钉钉卡片搭建器进行编辑。
+- **[`card-template-v2.json`](../../assets/card-template-v2.json)** — 旧版模板，仅用于历史参考。
 - **[`card-data-mock-v2.json`](../../assets/card-data-mock-v2.json)** — 卡片渲染时的 mock 数据样例，展示 `blockList`、`content`、`quoteContent`、`statusLine` 等变量结构和取值，方便在搭建器中预览卡片效果。
 
-定制时注意保持变量 key 与插件输出字段的对齐：`content`、`blockList`、`quoteContent`、`copy_content`、`statusLine`、`hasAction` 等。
+定制时注意保持变量 key 与插件输出字段的对齐：`content`、`blockList`、`quoteContent`、`copy_content`、`statusLine`、`hasAction`、`show_approve_btns`、`approveId` 等。
 
 ## 相关文档
 
 - [回复模式](reply-modes.md)
+- [DingTalk Native Approval](exec-approval.md)
 - [API 消耗说明](../reference/api-usage-and-cost.md)
 - [配置项参考](../reference/configuration.md)
