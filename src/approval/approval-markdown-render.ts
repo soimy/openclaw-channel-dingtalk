@@ -22,7 +22,7 @@ function formatExpireHint(expiresAtMs: number | undefined, nowMs: number): strin
 }
 
 function normalizePluginAllowedDecisions(
-  allowedDecisions?: readonly (ApprovalDecision | string)[] | null,
+  allowedDecisions?: readonly string[] | null,
 ): readonly ApprovalDecision[] {
   if (!Array.isArray(allowedDecisions)) {
     return ALL_DECISIONS;

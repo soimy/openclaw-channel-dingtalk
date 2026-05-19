@@ -14,7 +14,7 @@ describe("docs homepage badge layout", () => {
         expect(readme).toContain('<p class="repo-badges">');
         expect(badgeBlockMatch).not.toBeNull();
         expect(badgeAnchors).toHaveLength(5);
-        expect(badgeBlock).toContain("img.shields.io/badge/OpenClaw-%3E%3D2026.3.24-0A7CFF");
+        expect(badgeBlock).toContain("img.shields.io/badge/OpenClaw-%3E%3D2026.4.7-0A7CFF");
         expect(badgeBlock).toContain("img.shields.io/npm/v/%40soimy%2Fdingtalk");
         expect(badgeBlock).toContain("img.shields.io/npm/dm/%40soimy%2Fdingtalk");
         expect(badgeBlock).toContain("img.shields.io/github/license/soimy/openclaw-channel-dingtalk");
