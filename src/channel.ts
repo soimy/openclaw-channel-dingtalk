@@ -1,4 +1,5 @@
 import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { createDingTalkApprovalCapability } from "./approval/approval-capability";
 import { getConfig, isConfigured, mergeAccountWithDefaults, resolveGroupConfig } from "./config";
 import { DingTalkConfigSchema } from "./config-schema.js";
 import {
@@ -121,6 +122,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     listPeersLive: async (params) => listDingTalkDirectoryUsers(params),
   },
   actions: createDingTalkMessageActions(),
+  approvalCapability: createDingTalkApprovalCapability(),
   outbound: createDingTalkOutbound(),
   gateway: createDingTalkGateway(),
   status: createDingTalkStatus(),
