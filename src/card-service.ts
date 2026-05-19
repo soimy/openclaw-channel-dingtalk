@@ -7,6 +7,7 @@ import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
 import { APPROVAL_CARD_INITIAL } from "./approval/approval-card-state";
 import { resolveCardRun } from "./card/card-run-registry";
+import { getLogger } from "./logger-context";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
@@ -52,7 +53,11 @@ const aicardDegradeByAccount = new Map<string, { untilMs: number; reason: string
 // Returning `{}` here lets the approval-card-patcher remain the single writer of those
 // keys until applyResolvedPatch / applyExpiredPatch clears them.
 function approvalParamsForTerminal(outTrackId: string): Partial<typeof APPROVAL_CARD_INITIAL> {
-  return resolveCardRun(outTrackId)?.pendingApprovalId ? {} : APPROVAL_CARD_INITIAL;
+  const pending = resolveCardRun(outTrackId)?.pendingApprovalId;
+  getLogger()?.info?.(
+    `[DingTalk][Approval][terminalPatch] outTrackId=${outTrackId} pendingApprovalId=${pending ?? "<none>"} action=${pending ? "preserve" : "clear"}`,
+  );
+  return pending ? {} : APPROVAL_CARD_INITIAL;
 }
 
 export async function hideCardStopButton(
