@@ -4248,15 +4248,14 @@ EOF
 
 ---
 
-## Task 21 · integration test approval-end-to-end（DEFERRED / follow-up）
+## Task 21 · integration test approval-end-to-end（DONE）
 
 **Files:**
-- Create: `tests/integration/approval-end-to-end.test.ts`（按 sub-task 21a-21l 分 12 次 commit）
+- Create: `tests/integration/approval-end-to-end.test.ts`（12 sub-test 单 commit 落地）
 
 > spec §9.3 列出 12 个关键 integration 场景（含 v3.11 invalid-decision exec/plugin 两个）。
 > **关键约定：** 这是 integration 级——mock HTTP/auth/registry/上游 SDK，但保持 channel 内部模块（callback-handler + resolver + patcher + native-runtime）真实串联（不要 mock `src/approval/*` 内部）。
-> **TDD 严格：** 每个 sub-task 都是「写 → 跑确认 fail / pass → commit」；不允许提交空 `it(..., async () => {})`。
-> **当前分支状态：DEFERRED。** 尚未创建该 integration 文件；现有覆盖主要是各模块 unit test 加 `gateway-inbound-flow.test.ts` 的 TOPIC_CARD 路由 smoke。若严格按本文验收，Task 21 仍是合并前缺口；若先合并，本 task 应作为独立 follow-up PR 追踪。
+> **实施偏差：** 原 plan 要求按 21a–21l 分 12 次 commit（TDD red→green）；实施时源码已落地，12 个测试是补覆盖而非 TDD 增量，因此单 commit 一并落地，commit message 列出 12 个场景。共享 setup 用 `vi.hoisted` 持有 mock 实例（解决 vi.fn().mockResolvedValue 在 factory 内对静态 import 的初始化竞态）。
 
 ### 共享 setup（Step 21.0：每个 sub-task 都依赖）
 
