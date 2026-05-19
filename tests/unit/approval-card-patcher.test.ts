@@ -40,6 +40,33 @@ describe("approval-card-patcher", () => {
     mockResolveRun.mockReset().mockReturnValue(null);
   });
 
+  it("PUTs cardBodyMarkdown into blockList/content/copy_content when provided (UX body override)", async () => {
+    await applyPendingPatch("ot1", "abc123", "tok", {}, "🔒 friendly card body");
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "ot1",
+      expect.objectContaining({
+        show_approve_btns: "true",
+        approveId: "abc123",
+        hasAction: "false",
+        content: "🔒 friendly card body",
+        copy_content: "🔒 friendly card body",
+        blockList: JSON.stringify([{ type: 0, markdown: "🔒 friendly card body" }]),
+      }),
+      "tok",
+      {},
+    );
+  });
+
+  it("omits body keys when cardBodyMarkdown is not provided", async () => {
+    await applyPendingPatch("ot1", "abc123", "tok", {});
+
+    const [, params] = mockUpdate.mock.calls[0] as [string, Record<string, unknown>];
+    expect(params).not.toHaveProperty("content");
+    expect(params).not.toHaveProperty("blockList");
+    expect(params).not.toHaveProperty("copy_content");
+  });
+
   it("pre-marks the run pending before issuing the PUT (CR-2 race fix)", async () => {
     const callOrder: string[] = [];
     mockMark.mockImplementation(() => {

@@ -58,6 +58,49 @@ export function buildExecApprovalMarkdown(request: ExecApprovalRequest, nowMs: n
   ].join("\n");
 }
 
+/**
+ * Friendly approval card body used when the v3 template renders the
+ * approve_btns ButtonGroup natively. Skips the /approve command listing
+ * (the buttons render those decisions inline) so the card body stays
+ * compact and human-readable.
+ */
+export function buildExecApprovalCardBody(request: ExecApprovalRequest, nowMs: number): string {
+  const payload = request.request;
+  const command = payload.commandPreview || payload.command || "(no command)";
+  const cwdLine = payload.cwd ? `\n**工作目录**：\`${payload.cwd}\`` : "";
+  const expireLine = formatExpireHint(request.expiresAtMs, nowMs);
+  return [
+    "🔒 **该命令需要您的审批**",
+    "",
+    "```",
+    command,
+    "```",
+    cwdLine ? cwdLine.replace(/^\n/, "") : "",
+    expireLine ? expireLine.replace(/^\n/, "") : "",
+    "",
+    "_请通过下方按钮批准或拒绝_",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+export function buildPluginApprovalCardBody(request: PluginApprovalRequest, nowMs: number): string {
+  const payload = request.request;
+  const tool = payload.toolName || "(unknown tool)";
+  const expireLine = formatExpireHint(request.expiresAtMs, nowMs);
+  return [
+    "🔒 **插件操作需要您的审批**",
+    "",
+    `**工具**：\`${tool}\``,
+    payload.description ? payload.description : "",
+    expireLine ? expireLine.replace(/^\n/, "") : "",
+    "",
+    "_请通过下方按钮批准或拒绝_",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
 export function buildPluginApprovalMarkdown(request: PluginApprovalRequest, nowMs: number): string {
   const payload = request.request;
   const allowed = normalizePluginAllowedDecisions(payload.allowedDecisions);

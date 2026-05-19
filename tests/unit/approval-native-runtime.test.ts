@@ -15,6 +15,8 @@ vi.mock("../../src/approval/approval-card-patcher", () => ({
 vi.mock("../../src/approval/approval-markdown-render", () => ({
   buildExecApprovalMarkdown: vi.fn(() => "exec-md"),
   buildPluginApprovalMarkdown: vi.fn(() => "plugin-md"),
+  buildExecApprovalCardBody: vi.fn(() => "exec-card-body"),
+  buildPluginApprovalCardBody: vi.fn(() => "plugin-card-body"),
 }));
 vi.mock("../../src/card/card-run-registry", () => ({
   resolveCardRun: vi.fn(),
@@ -113,7 +115,11 @@ describe("approval-native-runtime", () => {
         nowMs: Date.now(),
         view: {} as never,
       }),
-    )).resolves.toEqual({ approvalId: "abc123", markdownText: "exec-md" });
+    )).resolves.toEqual({
+      approvalId: "abc123",
+      markdownText: "exec-md",
+      cardBodyMarkdown: "exec-card-body",
+    });
   });
 
   it("prepareTarget returns the required { dedupeKey, target } wrapper for card route", () => {
@@ -183,11 +189,21 @@ describe("approval-native-runtime", () => {
       },
       request: request(),
       approvalKind: "exec",
-      pendingPayload: { approvalId: "abc123", markdownText: "md" },
+      pendingPayload: {
+        approvalId: "abc123",
+        markdownText: "md",
+        cardBodyMarkdown: "card-body",
+      },
       view: {} as never,
     } as never);
 
-    expect(mockPending).toHaveBeenCalledWith("ot1", "abc123", "tok", expect.objectContaining({ clientId: "x" }));
+    expect(mockPending).toHaveBeenCalledWith(
+      "ot1",
+      "abc123",
+      "tok",
+      expect.objectContaining({ clientId: "x" }),
+      "card-body",
+    );
     expect(entry).toEqual({ mode: "card", approvalId: "abc123", accountId: "default", outTrackId: "ot1" });
   });
 

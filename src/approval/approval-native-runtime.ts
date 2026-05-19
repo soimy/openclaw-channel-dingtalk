@@ -18,14 +18,21 @@ import {
 } from "./approval-card-patcher";
 import { getExecApprovalsConfig, listExecApprovers } from "./approval-config";
 import {
+  buildExecApprovalCardBody,
   buildExecApprovalMarkdown,
+  buildPluginApprovalCardBody,
   buildPluginApprovalMarkdown,
 } from "./approval-markdown-render";
 import { normalizeApprovalTargetTo } from "./approval-target-resolver";
 
 export type DingTalkApprovalPendingPayload = {
   approvalId: string;
+  /** Markdown body used for the fallback markdown route (sendProactive). */
   markdownText: string;
+  /** Friendly card-body markdown used for the v3-card route — overrides the
+   *  upstream tool-result text the agent reply pipeline streamed in so the
+   *  user sees a concise approval prompt above the native button group. */
+  cardBodyMarkdown: string;
 };
 
 export type DingTalkApprovalPreparedTarget = {
@@ -126,12 +133,17 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
         getLogger()?.info?.(
           `[DingTalk][Approval][buildPendingPayload] approval=${request.id} kind=${approvalKind}`,
         );
+        if (approvalKind === "plugin") {
+          return {
+            approvalId: request.id,
+            markdownText: buildPluginApprovalMarkdown(request as never, nowMs),
+            cardBodyMarkdown: buildPluginApprovalCardBody(request as never, nowMs),
+          };
+        }
         return {
           approvalId: request.id,
-          markdownText:
-            approvalKind === "plugin"
-              ? buildPluginApprovalMarkdown(request as never, nowMs)
-              : buildExecApprovalMarkdown(request as never, nowMs),
+          markdownText: buildExecApprovalMarkdown(request as never, nowMs),
+          cardBodyMarkdown: buildExecApprovalCardBody(request as never, nowMs),
         };
       },
       buildResolvedResult: ({ resolved }) => ({
@@ -193,6 +205,7 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
               pendingPayload.approvalId,
               token,
               dtConfig,
+              pendingPayload.cardBodyMarkdown,
             );
             return {
               mode: "card",
