@@ -8,7 +8,7 @@
  * routing per card callback when using the stop button feature.
  */
 import type { CardDraftController } from "../card-draft-controller";
-import type { AICardInstance } from "../types";
+import { AICardStatus, type AICardInstance } from "../types";
 
 export interface CardRunRecord {
   outTrackId: string;
@@ -90,6 +90,27 @@ export function attachCardRunController(outTrackId: string, controller: CardDraf
 
 export function resolveCardRun(outTrackId: string): CardRunRecord | null {
   return records.get(outTrackId.trim()) ?? null;
+}
+
+export function isActiveCardRun(record: CardRunRecord): boolean {
+  const state = record.card?.state;
+  return state === AICardStatus.PROCESSING || state === AICardStatus.INPUTING;
+}
+
+export function resolveActiveCardRunBySession(
+  accountId: string,
+  sessionKey: string,
+): CardRunRecord | null {
+  let latest: CardRunRecord | null = null;
+  for (const record of records.values()) {
+    if (record.accountId !== accountId) { continue; }
+    if (record.sessionKey !== sessionKey) { continue; }
+    if (!isActiveCardRun(record)) { continue; }
+    if (!latest || record.registeredAt > latest.registeredAt) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 /**
