@@ -257,6 +257,25 @@
             "type": "boolean",
             "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
           },
+          "execApprovals": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Native OpenClaw exec/plugin approval configuration. v1 intentionally rejects v2 future fields.",
+            "properties": {
+              "enabled": {
+                "anyOf": [
+                  { "type": "boolean" },
+                  { "type": "string", "const": "auto" }
+                ],
+                "description": "Enable native approval delivery. true to force on, false to disable, or \"auto\" to follow upstream host capability."
+              },
+              "approvers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Approver staffIds (supports dingtalk:, dd:, ding: prefixes). Falls back to commands.ownerAllowFrom when empty."
+              }
+            }
+          },
           "learningAutoApply": {
             "type": "boolean",
             "description": "Automatically apply generated learning output into session notes or global rules when available."
@@ -563,6 +582,25 @@
                   "type": "boolean",
                   "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
                 },
+                "execApprovals": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Native OpenClaw exec/plugin approval configuration. v1 intentionally rejects v2 future fields.",
+                  "properties": {
+                    "enabled": {
+                      "anyOf": [
+                        { "type": "boolean" },
+                        { "type": "string", "const": "auto" }
+                      ],
+                      "description": "Enable native approval delivery. true to force on, false to disable, or \"auto\" to follow upstream host capability."
+                    },
+                    "approvers": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Approver staffIds (supports dingtalk:, dd:, ding: prefixes). Falls back to commands.ownerAllowFrom when empty."
+                    }
+                  }
+                },
                 "learningAutoApply": {
                   "type": "boolean",
                   "description": "Automatically apply generated learning output into session notes or global rules when available."
@@ -781,6 +819,10 @@
         "learningEnabled": {
           "label": "Learning Enabled",
           "help": "Enable the local feedback-learning loop for notes, reflections, and learning commands."
+        },
+        "execApprovals": {
+          "label": "Exec Approvals",
+          "help": "Approver staffIds and toggle for native exec/plugin approval delivery. Falls back to commands.ownerAllowFrom when approvers is empty."
         },
         "learningAutoApply": {
           "label": "Learning Auto Apply",
