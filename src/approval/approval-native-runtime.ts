@@ -86,26 +86,54 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
         getExecApprovalsConfig({ cfg, accountId: accountId ?? "default" }).isNativeDeliveryEnabled,
       shouldHandle: ({ cfg, accountId, request }) => {
         const resolvedAccountId = accountId ?? "default";
+        const log = getLogger(resolvedAccountId);
+        const tsc = request.request.turnSourceChannel;
+        const tst = request.request.turnSourceTo;
+        const reqId = request.id;
         if (!getExecApprovalsConfig({ cfg, accountId: resolvedAccountId }).isNativeDeliveryEnabled) {
+          log?.info?.(
+            `[DingTalk][Approval][shouldHandle] skip approval=${reqId} reason=native-delivery-disabled account=${resolvedAccountId}`,
+          );
           return false;
         }
-        if (request.request.turnSourceChannel !== "dingtalk") {
+        if (tsc !== "dingtalk") {
+          log?.info?.(
+            `[DingTalk][Approval][shouldHandle] skip approval=${reqId} reason=turnSourceChannel-mismatch got=${String(tsc)}`,
+          );
           return false;
         }
-        if (!request.request.turnSourceTo) {
+        if (!tst) {
+          log?.info?.(
+            `[DingTalk][Approval][shouldHandle] skip approval=${reqId} reason=missing-turnSourceTo`,
+          );
           return false;
         }
-        return listExecApprovers({ cfg, accountId: resolvedAccountId }).length > 0;
+        const approvers = listExecApprovers({ cfg, accountId: resolvedAccountId }).length;
+        if (approvers === 0) {
+          log?.info?.(
+            `[DingTalk][Approval][shouldHandle] skip approval=${reqId} reason=no-approvers account=${resolvedAccountId}`,
+          );
+          return false;
+        }
+        log?.info?.(
+          `[DingTalk][Approval][shouldHandle] accept approval=${reqId} account=${resolvedAccountId} approvers=${approvers}`,
+        );
+        return true;
       },
     },
     presentation: {
-      buildPendingPayload: ({ request, approvalKind, nowMs }) => ({
-        approvalId: request.id,
-        markdownText:
-          approvalKind === "plugin"
-            ? buildPluginApprovalMarkdown(request as never, nowMs)
-            : buildExecApprovalMarkdown(request as never, nowMs),
-      }),
+      buildPendingPayload: ({ request, approvalKind, nowMs }) => {
+        getLogger()?.info?.(
+          `[DingTalk][Approval][buildPendingPayload] approval=${request.id} kind=${approvalKind}`,
+        );
+        return {
+          approvalId: request.id,
+          markdownText:
+            approvalKind === "plugin"
+              ? buildPluginApprovalMarkdown(request as never, nowMs)
+              : buildExecApprovalMarkdown(request as never, nowMs),
+        };
+      },
       buildResolvedResult: ({ resolved }) => ({
         kind: "update",
         payload: { phase: "resolved", decision: resolved.decision },
@@ -120,6 +148,7 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
         const target = plannedTarget.target as { to: string; accountId?: string | null };
         const resolvedAccountId =
           target.accountId ?? accountId ?? request.request.turnSourceAccountId ?? "default";
+        const log = getLogger(resolvedAccountId);
         const to = normalizeApprovalTargetTo(target.to);
         const activeCard = findActiveAgentCard({
           cfg,
@@ -128,6 +157,9 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
           approvalId: request.id,
         });
         if (activeCard) {
+          log?.info?.(
+            `[DingTalk][Approval][prepareTarget] route=card approval=${request.id} account=${resolvedAccountId} to=${to} outTrackId=${activeCard.outTrackId}`,
+          );
           return {
             dedupeKey: `dingtalk:${resolvedAccountId}:${to}:${activeCard.outTrackId}:${request.id}`,
             target: {
@@ -138,6 +170,9 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
             },
           };
         }
+        log?.info?.(
+          `[DingTalk][Approval][prepareTarget] route=markdown approval=${request.id} account=${resolvedAccountId} to=${to} reason=no-active-card sessionKey=${request.request.sessionKey ?? "<empty>"}`,
+        );
         return {
           dedupeKey: `dingtalk:${resolvedAccountId}:${to}:markdown:${request.id}`,
           target: {
