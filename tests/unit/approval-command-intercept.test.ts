@@ -132,12 +132,17 @@ describe("tryInterceptApproveCommand", () => {
     );
   });
 
-  it("does not DM for gateway errors", async () => {
+  it("sends a retry DM for gateway errors", async () => {
     mockResolveApproval.mockResolvedValue({ ok: false, reason: "gateway-error" });
 
     await tryInterceptApproveCommand({ ...base, text: "/approve abc deny" });
 
-    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.anything(),
+      "user:staffA",
+      expect.stringMatching(/暂时处理失败.*稍后重试/),
+      expect.objectContaining({ forceMarkdown: true }),
+    );
   });
 
   it("does not throw when sending a DM fails", async () => {

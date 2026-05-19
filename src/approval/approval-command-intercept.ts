@@ -81,6 +81,8 @@ export async function tryInterceptApproveCommand(
     );
   } else if (result.reason === "not-found" || result.reason === "already-resolved") {
     await sendDirectHint(input, `ℹ️ 审批 ${parsed.approvalId} 已处理或已过期，无需再次操作。`);
+  } else if (result.reason === "gateway-error") {
+    await sendDirectHint(input, `ℹ️ 审批 ${parsed.approvalId} 暂时处理失败，请稍后重试。`);
   }
 
   input.log?.info?.(`[DingTalk][Approval] /approve resolver returned ${result.reason}`);

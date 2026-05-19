@@ -55,6 +55,20 @@ function resolveApprovalId(analysis: CardCallbackAnalysis): string | null {
   return resolveCardRun(analysis.outTrackId)?.pendingApprovalId ?? null;
 }
 
+async function patchCardBestEffort(params: {
+  dtConfig: ReturnType<typeof getConfig>;
+  log?: Logger;
+  failureMessage: string;
+  patch: (token: string) => Promise<void>;
+}): Promise<void> {
+  try {
+    const token = await getAccessToken(params.dtConfig, params.log);
+    await params.patch(token);
+  } catch (error) {
+    params.log?.warn?.(`${params.failureMessage}: ${String(error)}`);
+  }
+}
+
 async function sendPrivateHint(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -88,14 +102,19 @@ export async function tryHandleApprovalCallback(
   }
 
   const dtConfig = getConfig(input.cfg, input.accountId);
-  const token = await getAccessToken(dtConfig, input.log);
   const run = resolveCardRun(input.analysis.outTrackId);
   const cardStillActive = run ? isActiveCardRun(run) : false;
   const approvalId = resolveApprovalId(input.analysis);
 
   if (!approvalId) {
-    await applyExpiredPatch(input.analysis.outTrackId, token, cardStillActive, dtConfig).catch((error) => {
-      input.log?.warn?.(`[DingTalk][Approval] Failed to expire callback without approvalId: ${String(error)}`);
+    if (!isApprovalDecision(input.analysis.cardPrivateData?.params?.action)) {
+      return { handled: false };
+    }
+    await patchCardBestEffort({
+      dtConfig,
+      log: input.log,
+      failureMessage: "[DingTalk][Approval] Failed to expire callback without approvalId",
+      patch: (token) => applyExpiredPatch(input.analysis.outTrackId!, token, cardStillActive, dtConfig),
     });
     return { handled: true, reason: "missing-approval-id" };
   }
@@ -110,14 +129,18 @@ export async function tryHandleApprovalCallback(
   });
 
   if (result.ok) {
-    await applyResolvedPatch(
-      input.analysis.outTrackId,
-      decision,
-      token,
-      cardStillActive,
+    await patchCardBestEffort({
       dtConfig,
-    ).catch((error) => {
-      input.log?.warn?.(`[DingTalk][Approval] Failed to patch resolved card: ${String(error)}`);
+      log: input.log,
+      failureMessage: "[DingTalk][Approval] Failed to patch resolved card",
+      patch: (token) =>
+        applyResolvedPatch(
+          input.analysis.outTrackId!,
+          decision,
+          token,
+          cardStillActive,
+          dtConfig,
+        ),
     });
     return { handled: true, reason: "resolved" };
   }
@@ -147,8 +170,22 @@ export async function tryHandleApprovalCallback(
     return { handled: true, reason: result.reason };
   }
 
-  await applyExpiredPatch(input.analysis.outTrackId, token, cardStillActive, dtConfig).catch((error) => {
-    input.log?.warn?.(`[DingTalk][Approval] Failed to patch expired card: ${String(error)}`);
+  if (result.reason === "gateway-error") {
+    await sendPrivateHint({
+      cfg: input.cfg,
+      accountId: input.accountId,
+      userId: input.analysis.userId,
+      text: `ℹ️ 审批暂时处理失败，请稍后重试（${approvalId}）。`,
+      log: input.log,
+    });
+    return { handled: true, reason: result.reason };
+  }
+
+  await patchCardBestEffort({
+    dtConfig,
+    log: input.log,
+    failureMessage: "[DingTalk][Approval] Failed to patch expired card",
+    patch: (token) => applyExpiredPatch(input.analysis.outTrackId!, token, cardStillActive, dtConfig),
   });
   return { handled: true, reason: result.reason };
 }

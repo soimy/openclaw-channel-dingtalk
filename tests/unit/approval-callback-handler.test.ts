@@ -123,6 +123,21 @@ describe("approval-callback-handler", () => {
     expect(mockResolve).not.toHaveBeenCalled();
   });
 
+  it("does not claim generic decision actionIds without an approval id", async () => {
+    mockResolveCard.mockReturnValue(null);
+
+    const result = await tryHandleApprovalCallback({
+      ...base,
+      analysis: analysis({
+        cardPrivateData: { actionIds: ["deny"], params: {} },
+      }),
+    });
+
+    expect(result).toEqual({ handled: false });
+    expect(mockResolve).not.toHaveBeenCalled();
+    expect(mockApplyExpired).not.toHaveBeenCalled();
+  });
+
   it("uses action id fallback for decision", async () => {
     await tryHandleApprovalCallback({
       ...base,
@@ -174,7 +189,7 @@ describe("approval-callback-handler", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it.each(["already-resolved", "not-found", "gateway-error"] as const)(
+  it.each(["already-resolved", "not-found"] as const)(
     "expires the card for %s",
     async (reason) => {
       mockResolve.mockResolvedValue({ ok: false, reason });
@@ -184,4 +199,32 @@ describe("approval-callback-handler", () => {
       expect(mockApplyExpired).toHaveBeenCalled();
     },
   );
+
+  it("keeps card pending and sends a private retry hint for gateway errors", async () => {
+    mockResolve.mockResolvedValue({ ok: false, reason: "gateway-error" });
+
+    await tryHandleApprovalCallback({ ...base, analysis: analysis() });
+
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.anything(),
+      "user:staffA",
+      expect.stringContaining("稍后重试"),
+      expect.objectContaining({ forceMarkdown: true }),
+    );
+    expect(mockApplyResolved).not.toHaveBeenCalled();
+    expect(mockApplyExpired).not.toHaveBeenCalled();
+  });
+
+  it("resolves upstream approval even when DingTalk token lookup fails", async () => {
+    mockResolve.mockResolvedValue({ ok: true });
+    mockGetAccessToken.mockRejectedValueOnce(new Error("token unavailable"));
+
+    const result = await tryHandleApprovalCallback({ ...base, analysis: analysis() });
+
+    expect(result).toEqual({ handled: true, reason: "resolved" });
+    expect(mockResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalId: "abc123", decision: "allow-once" }),
+    );
+    expect(mockApplyResolved).not.toHaveBeenCalled();
+  });
 });

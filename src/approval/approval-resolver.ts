@@ -78,6 +78,8 @@ function deriveGatewayParams(params: {
   if (params.execAuthorized && params.pluginAuthorized) {
     return { allowPluginFallback: true };
   }
+  // Reserved for v2 if plugin approvers diverge from exec approvers.
+  // In v1, isPluginAuthorizedSender intentionally aliases isExecAuthorizedSender.
   if (params.pluginAuthorized) {
     return { resolveMethod: "plugin" };
   }
