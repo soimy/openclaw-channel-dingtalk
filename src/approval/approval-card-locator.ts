@@ -5,6 +5,7 @@ export interface FindActiveAgentCardInput {
   cfg: OpenClawConfig;
   accountId: string;
   sessionKey: string;
+  approvalId?: string;
 }
 
 export interface ActiveAgentCardLocation {
@@ -18,6 +19,9 @@ export function findActiveAgentCard(input: FindActiveAgentCardInput): ActiveAgen
   }
   const record = resolveActiveCardRunBySession(input.accountId, input.sessionKey);
   if (!record) {
+    return null;
+  }
+  if (record.pendingApprovalId && record.pendingApprovalId !== input.approvalId) {
     return null;
   }
   return { outTrackId: record.outTrackId, sessionKey: record.sessionKey };

@@ -130,7 +130,7 @@ describe("approval-native-runtime", () => {
     } as never);
 
     expect(prepared).toEqual({
-      dedupeKey: "dingtalk:default:group:cid_xxx:ot1",
+      dedupeKey: "dingtalk:default:group:cid_xxx:ot1:abc123",
       target: {
         route: "card",
         to: "group:cid_xxx",
@@ -138,6 +138,36 @@ describe("approval-native-runtime", () => {
         activeCardOutTrackId: "ot1",
       },
     });
+    expect(mockFindActiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalId: "abc123" }),
+    );
+  });
+
+  it("includes approval id in card dedupeKey so concurrent approvals on one card stay distinct", () => {
+    mockFindActiveCard.mockReturnValue({ outTrackId: "ot1", sessionKey: "session-A" });
+
+    const first = runtime.transport.prepareTarget({
+      cfg: {} as never,
+      accountId: "default",
+      plannedTarget: { surface: "origin", target: { to: "group:cid_xxx" } },
+      request: request(),
+      approvalKind: "exec",
+      pendingPayload: { approvalId: "first", markdownText: "md" },
+      view: {} as never,
+    } as never);
+    const second = runtime.transport.prepareTarget({
+      cfg: {} as never,
+      accountId: "default",
+      plannedTarget: { surface: "origin", target: { to: "group:cid_xxx" } },
+      request: { ...request(), id: "second" },
+      approvalKind: "exec",
+      pendingPayload: { approvalId: "second", markdownText: "md" },
+      view: {} as never,
+    } as never);
+
+    expect(first?.dedupeKey).not.toBe(second?.dedupeKey);
+    expect(first?.dedupeKey).toBe("dingtalk:default:group:cid_xxx:ot1:abc123");
+    expect(second?.dedupeKey).toBe("dingtalk:default:group:cid_xxx:ot1:second");
   });
 
   it("delivers pending approval by patching active card", async () => {

@@ -59,9 +59,8 @@ function isExplicitHttpFailure(error: unknown): boolean {
   return (typeof status === "number" && status >= 400) || candidate?.code === "EBADREQ";
 }
 
-function isAmbiguousDeliveryFailure(error: unknown): boolean {
-  const code = (error as { code?: string } | null)?.code;
-  return code === "ETIMEDOUT" || code === "ECONNRESET" || code === "ECONNABORTED";
+function shouldFallbackToMarkdown(error: unknown): boolean {
+  return isExplicitHttpFailure(error);
 }
 
 function isSuccessfulSendResult(result: unknown): boolean {
@@ -126,10 +125,11 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
           cfg,
           accountId: resolvedAccountId,
           sessionKey: request.request.sessionKey ?? "",
+          approvalId: request.id,
         });
         if (activeCard) {
           return {
-            dedupeKey: `dingtalk:${resolvedAccountId}:${to}:${activeCard.outTrackId}`,
+            dedupeKey: `dingtalk:${resolvedAccountId}:${to}:${activeCard.outTrackId}:${request.id}`,
             target: {
               route: "card",
               to,
@@ -166,10 +166,7 @@ export function createDingTalkApprovalNativeRuntime(): ChannelApprovalNativeRunt
               outTrackId: preparedTarget.activeCardOutTrackId,
             };
           } catch (error) {
-            if (isAmbiguousDeliveryFailure(error)) {
-              return null;
-            }
-            if (!isExplicitHttpFailure(error)) {
+            if (!shouldFallbackToMarkdown(error)) {
               return null;
             }
           }

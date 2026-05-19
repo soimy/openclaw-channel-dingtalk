@@ -8,8 +8,8 @@ import type { ApprovalDecision } from "../types";
 const ALL_DECISIONS: readonly ApprovalDecision[] = ["allow-once", "allow-always", "deny"];
 
 const DECISION_LABEL: Record<ApprovalDecision, string> = {
-  "allow-once": "批准（仅一次）",
-  "allow-always": "批准（总是）",
+  "allow-once": "允许一次",
+  "allow-always": "总是允许",
   deny: "拒绝",
 };
 

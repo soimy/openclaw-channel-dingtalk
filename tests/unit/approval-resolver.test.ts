@@ -86,6 +86,20 @@ describe("approval-resolver · method derivation", () => {
     expect(result).toEqual({ ok: false, reason: "unauthorized" });
     expect(mockGateway).not.toHaveBeenCalled();
   });
+
+  it("returns unauthorized for plugin-prefixed approval IDs when neither auth check passes", async () => {
+    mockExecAuth.mockReturnValue(false);
+    mockPluginAuth.mockReturnValue(false);
+
+    const result = await resolveApproval({
+      ...base,
+      approvalId: "plugin:abc",
+      decision: "allow-once",
+    });
+
+    expect(result).toEqual({ ok: false, reason: "unauthorized" });
+    expect(mockGateway).not.toHaveBeenCalled();
+  });
 });
 
 describe("approval-resolver · error classification", () => {

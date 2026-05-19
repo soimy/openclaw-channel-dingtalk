@@ -66,6 +66,7 @@ export function isExecAuthorizedSender({
 export function isPluginAuthorizedSender(
   query: ApprovalConfigQuery & { senderId: string },
 ): boolean {
+  // v1 intentionally shares the exec approver list for plugin approvals.
   return isExecAuthorizedSender(query);
 }
 

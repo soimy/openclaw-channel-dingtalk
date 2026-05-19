@@ -74,6 +74,7 @@ Approvers can also send `/approve` manually in DingTalk:
 ```
 
 The command path is intercepted before the normal agent session lock, so it can resolve a pending approval while the original agent turn is paused.
+Decision aliases are also accepted: `allow`, `once`, and `allowonce` map to `allow-once`; `always` and `allowalways` map to `allow-always`; `reject` and `block` map to `deny`.
 
 ## Configuration
 

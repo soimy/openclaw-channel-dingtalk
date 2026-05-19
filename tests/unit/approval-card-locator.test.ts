@@ -37,6 +37,40 @@ describe("approval-card-locator", () => {
     expect(mockResolveActiveCardRunBySession).not.toHaveBeenCalled();
   });
 
+  it("returns null when the active card already has a different pending approval", () => {
+    mockResolveActiveCardRunBySession.mockReturnValue({
+      outTrackId: "ai_card_xxx",
+      sessionKey: "session-A",
+      pendingApprovalId: "approval-old",
+    } as never);
+
+    expect(
+      findActiveAgentCard({
+        cfg: {} as never,
+        accountId: "default",
+        sessionKey: "session-A",
+        approvalId: "approval-new",
+      }),
+    ).toBeNull();
+  });
+
+  it("allows retrying the same pending approval on the active card", () => {
+    mockResolveActiveCardRunBySession.mockReturnValue({
+      outTrackId: "ai_card_xxx",
+      sessionKey: "session-A",
+      pendingApprovalId: "approval-old",
+    } as never);
+
+    expect(
+      findActiveAgentCard({
+        cfg: {} as never,
+        accountId: "default",
+        sessionKey: "session-A",
+        approvalId: "approval-old",
+      }),
+    ).toEqual({ outTrackId: "ai_card_xxx", sessionKey: "session-A" });
+  });
+
   it("passes accountId through to the registry", () => {
     mockResolveActiveCardRunBySession.mockReturnValue(null);
 

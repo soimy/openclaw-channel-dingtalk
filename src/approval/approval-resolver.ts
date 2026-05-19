@@ -69,6 +69,9 @@ function deriveGatewayParams(params: {
 }):
   | { resolveMethod?: "plugin"; allowPluginFallback?: boolean }
   | null {
+  if (!params.execAuthorized && !params.pluginAuthorized) {
+    return null;
+  }
   if (params.approvalId.startsWith("plugin:")) {
     return { resolveMethod: "plugin" };
   }
@@ -78,10 +81,7 @@ function deriveGatewayParams(params: {
   if (params.pluginAuthorized) {
     return { resolveMethod: "plugin" };
   }
-  if (params.execAuthorized) {
-    return { allowPluginFallback: false };
-  }
-  return null;
+  return { allowPluginFallback: false };
 }
 
 export async function resolveApproval(input: ResolveApprovalInput): Promise<ResolverResult> {
