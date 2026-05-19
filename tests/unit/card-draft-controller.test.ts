@@ -168,6 +168,45 @@ describe("card-draft-controller", () => {
         });
     });
 
+    it("preserves code-fence integrity in tool blocks", async () => {
+        // Regression: approval reply payloads contain multi-line ```lang ... ```
+        // code fences. The previous per-line <font> wrap split the fence open/close
+        // across separate <font> wrappers, breaking DingTalk markdown parsing and
+        // leaking raw <font> tags into the rendered card.
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 }) as any;
+
+        const input = [
+            "Approval required.",
+            "Run:",
+            "```txt",
+            "/approve 0d673f7b allow-once",
+            "```",
+            "Pending command:",
+            "```sh",
+            "ls -la /root/.openclaw/workspace",
+            "```",
+        ].join("\n");
+
+        await ctrl.updateTool(input);
+        await vi.advanceTimersByTimeAsync(0);
+
+        const sentContent = updateAICardBlockListMock.mock.calls[0]?.[1] as string;
+        const blocks = parseBlocks(sentContent);
+        const markdown = blocks[0]?.markdown ?? "";
+
+        expect(markdown).toContain("> ```txt");
+        expect(markdown).toContain("> ```sh");
+        expect(markdown).toContain("> /approve 0d673f7b allow-once");
+        expect(markdown).toContain("> ls -la /root/.openclaw/workspace");
+        expect(markdown).toMatch(/^> <font [^>]+>Approval required\.<\/font>/m);
+        expect(markdown).toMatch(/^> <font [^>]+>Run:<\/font>/m);
+        expect(markdown).toMatch(/^> <font [^>]+>Pending command:<\/font>/m);
+        expect(markdown).not.toMatch(/<font [^>]+>```/);
+        expect(markdown).not.toMatch(/<font [^>]+>\/approve/);
+        expect(markdown).not.toMatch(/<font [^>]+>ls -la/);
+    });
+
     it("answer rendering keeps the latest thinking block in the same timeline", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });

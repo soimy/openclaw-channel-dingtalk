@@ -6,7 +6,12 @@ import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
 import { APPROVAL_CARD_INITIAL } from "./approval/approval-card-state";
-import { markCardRunDeferredFinalize, resolveCardRun } from "./card/card-run-registry";
+import {
+  clearCardRunDeferredFinalize,
+  markCardRunDeferredFinalize,
+  removeCardRun,
+  resolveCardRun,
+} from "./card/card-run-registry";
 import { getLogger } from "./logger-context";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
@@ -1103,6 +1108,39 @@ export async function finalizeAICardStreamingLifecycleIfNeeded(
     const message = err instanceof Error ? err.message : String(err);
     log?.warn?.(`[DingTalk][AICard] Streaming lifecycle finalize failed; continuing instances finalize: ${message}`);
   }
+}
+
+/**
+ * Complete the deferred finalize for a card whose commitAICardBlocks ran while
+ * an approval was pending. Closes DingTalk's streaming lifecycle (which the
+ * commit deferred too), transitions the in-memory card state to FINISHED,
+ * drops the pending-card persistence row, clears the deferredFinalize flag,
+ * and removes the card-run registry entry so subsequent lookups treat the run
+ * as fully closed. No-op when no card-run record exists or deferredFinalize
+ * is not set.
+ */
+export async function completeDeferredAICardFinalize(
+  outTrackId: string,
+  log?: Logger,
+): Promise<void> {
+  const record = resolveCardRun(outTrackId);
+  if (!record?.deferredFinalize) {
+    if (record) {
+      clearCardRunDeferredFinalize(outTrackId);
+    }
+    return;
+  }
+  if (record.card) {
+    await finalizeAICardStreamingLifecycleIfNeeded(record.card, log);
+    record.card.state = AICardStatus.FINISHED;
+    record.card.lastUpdated = Date.now();
+    removePendingCard(record.card, log);
+  }
+  clearCardRunDeferredFinalize(outTrackId);
+  removeCardRun(outTrackId);
+  log?.info?.(
+    `[DingTalk][AICard] Deferred finalize completed: outTrackId=${outTrackId} state=FINISHED`,
+  );
 }
 
 /**

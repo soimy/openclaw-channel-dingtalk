@@ -4,10 +4,13 @@ vi.mock("../../src/card-callback-service", () => ({
   updateCardVariables: vi.fn().mockResolvedValue(200),
 }));
 
+vi.mock("../../src/card-service", () => ({
+  completeDeferredAICardFinalize: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../../src/card/card-run-registry", () => ({
   markCardRunPendingApproval: vi.fn(),
   clearCardRunPendingApproval: vi.fn(),
-  clearCardRunDeferredFinalize: vi.fn(),
   resolveCardRun: vi.fn(),
 }));
 
@@ -15,42 +18,85 @@ const { applyExpiredPatch, applyPendingPatch, applyResolvedPatch } = await impor
   "../../src/approval/approval-card-patcher"
 );
 const { updateCardVariables } = await import("../../src/card-callback-service");
+const { completeDeferredAICardFinalize } = await import("../../src/card-service");
 const {
-  clearCardRunDeferredFinalize,
   clearCardRunPendingApproval,
   markCardRunPendingApproval,
   resolveCardRun,
 } = await import("../../src/card/card-run-registry");
-const { AICardStatus } = await import("../../src/types");
 
 const mockUpdate = vi.mocked(updateCardVariables);
+const mockComplete = vi.mocked(completeDeferredAICardFinalize);
 const mockMark = vi.mocked(markCardRunPendingApproval);
 const mockClear = vi.mocked(clearCardRunPendingApproval);
-const mockClearDeferred = vi.mocked(clearCardRunDeferredFinalize);
 const mockResolveRun = vi.mocked(resolveCardRun);
 
 describe("approval-card-patcher", () => {
   beforeEach(() => {
     mockUpdate.mockReset().mockResolvedValue(200);
+    mockComplete.mockReset().mockResolvedValue(undefined);
     mockMark.mockReset();
     mockClear.mockReset();
-    mockClearDeferred.mockReset();
     mockResolveRun.mockReset().mockReturnValue(null);
   });
 
-  it("applies pending card variables and records fallback approval id", async () => {
+  it("pre-marks the run pending before issuing the PUT (CR-2 race fix)", async () => {
+    const callOrder: string[] = [];
+    mockMark.mockImplementation(() => {
+      callOrder.push("mark");
+    });
+    mockUpdate.mockImplementation(async () => {
+      callOrder.push("put");
+      return 200;
+    });
+
     await applyPendingPatch("ot1", "abc123", "tok", { bypassProxyForSend: true });
 
+    expect(callOrder).toEqual(["mark", "put"]);
+    expect(mockMark).toHaveBeenCalledWith("ot1", "abc123");
     expect(mockUpdate).toHaveBeenCalledWith(
       "ot1",
       { show_approve_btns: "true", approveId: "abc123", hasAction: "false" },
       "tok",
       { bypassProxyForSend: true },
     );
-    expect(mockMark).toHaveBeenCalledWith("ot1", "abc123");
   });
 
-  it("applies resolved variables and clears fallback approval id", async () => {
+  it("rolls back pending mark when the PUT fails", async () => {
+    mockUpdate.mockRejectedValueOnce(new Error("network down"));
+
+    await expect(applyPendingPatch("ot1", "abc123", "tok", {})).rejects.toThrow("network down");
+
+    expect(mockMark).toHaveBeenCalledWith("ot1", "abc123");
+    expect(mockClear).toHaveBeenCalledWith("ot1");
+  });
+
+  it("rescues a deferred-finalize card when the pending PUT fails after commit deferred", async () => {
+    // Simulate the race: commit deferred while our PUT was in flight.
+    mockResolveRun.mockReturnValue({
+      outTrackId: "ot1",
+      accountId: "default",
+      sessionKey: "session:abc",
+      agentId: "main",
+      registeredAt: Date.now(),
+      deferredFinalize: true,
+    });
+    mockUpdate.mockRejectedValueOnce(new Error("network down"));
+
+    await expect(applyPendingPatch("ot1", "abc123", "tok", {})).rejects.toThrow("network down");
+
+    // Rollback ran, and the rescue terminal PUT fired (the second updateCardVariables call).
+    expect(mockClear).toHaveBeenCalledWith("ot1");
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "ot1",
+      { show_approve_btns: "false", approveId: "", hasAction: "false", flowStatus: 3 },
+      "tok",
+      {},
+    );
+    expect(mockComplete).toHaveBeenCalledWith("ot1");
+  });
+
+  it("applies resolved variables and delegates terminal completion", async () => {
     await applyResolvedPatch("ot1", "allow-once", "tok", true, {});
 
     expect(mockUpdate).toHaveBeenCalledWith(
@@ -60,7 +106,7 @@ describe("approval-card-patcher", () => {
       {},
     );
     expect(mockClear).toHaveBeenCalledWith("ot1");
-    expect(mockClearDeferred).toHaveBeenCalledWith("ot1");
+    expect(mockComplete).toHaveBeenCalledWith("ot1");
   });
 
   it("does not restore stop action for inactive resolved cards", async () => {
@@ -82,10 +128,6 @@ describe("approval-card-patcher", () => {
       agentId: "main",
       registeredAt: Date.now(),
       deferredFinalize: true,
-      card: {
-        state: AICardStatus.INPUTING,
-        lastUpdated: 0,
-      } as never,
     });
 
     await applyResolvedPatch("ot1", "allow-once", "tok", true, {});
@@ -96,30 +138,10 @@ describe("approval-card-patcher", () => {
       "tok",
       {},
     );
-    expect(mockClearDeferred).toHaveBeenCalledWith("ot1");
+    expect(mockComplete).toHaveBeenCalledWith("ot1");
   });
 
-  it("transitions in-memory card state to FINISHED when completing a deferred finalize", async () => {
-    const cardRef = {
-      state: AICardStatus.INPUTING,
-      lastUpdated: 0,
-    } as never;
-    mockResolveRun.mockReturnValue({
-      outTrackId: "ot1",
-      accountId: "default",
-      sessionKey: "session:abc",
-      agentId: "main",
-      registeredAt: Date.now(),
-      deferredFinalize: true,
-      card: cardRef,
-    });
-
-    await applyResolvedPatch("ot1", "deny", "tok", false, {});
-
-    expect((cardRef as { state: number }).state).toBe(AICardStatus.FINISHED);
-  });
-
-  it("applies expired variables using the same cleared field set", async () => {
+  it("applies expired variables and delegates terminal completion", async () => {
     await applyExpiredPatch("ot1", "tok", false, {});
 
     expect(mockUpdate).toHaveBeenCalledWith(
@@ -129,6 +151,6 @@ describe("approval-card-patcher", () => {
       {},
     );
     expect(mockClear).toHaveBeenCalledWith("ot1");
-    expect(mockClearDeferred).toHaveBeenCalledWith("ot1");
+    expect(mockComplete).toHaveBeenCalledWith("ot1");
   });
 });

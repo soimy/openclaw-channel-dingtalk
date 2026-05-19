@@ -49,3 +49,6 @@ output/
 .vercel
 .env*.local
 .gitnexus
+
+# pnpm pack output (local-only tarball used for ad-hoc deploys)
+*.tgz

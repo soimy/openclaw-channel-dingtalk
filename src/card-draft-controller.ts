@@ -91,10 +91,34 @@ function normalizeAnswerText(text: string | undefined): string {
 }
 
 function wrapProcessBlockMarkdown(text: string): string {
-    const lines = text.split("\n").filter((line) => line.trim());
-    return lines
-        .map((line) => `> <font sizeToken=${PROCESS_BLOCK_FONT_SIZE_TOKEN} colorTokenV2=${PROCESS_BLOCK_FONT_COLOR_TOKEN_V2}>${line}</font>`)
-        .join("\n");
+    // Per-line `> <font sizeToken=...>` wrap renders the process block as DingTalk's
+    // small-grey quoted style. Code fences (```lang ... ```) must be emitted as a
+    // single contiguous block — splitting font tags across fence boundaries
+    // breaks the renderer and leaks raw <font> markup. Fence content lines and
+    // the fence delimiters themselves keep the `> ` blockquote prefix to preserve
+    // the surrounding quote continuity but skip the <font> wrap.
+    const lines = text.split("\n");
+    const result: string[] = [];
+    let insideFence = false;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("```")) {
+            insideFence = !insideFence;
+            result.push(`> ${line}`);
+            continue;
+        }
+        if (insideFence) {
+            result.push(`> ${line}`);
+            continue;
+        }
+        if (!trimmed) {
+            continue;
+        }
+        result.push(
+            `> <font sizeToken=${PROCESS_BLOCK_FONT_SIZE_TOKEN} colorTokenV2=${PROCESS_BLOCK_FONT_COLOR_TOKEN_V2}>${line}</font>`,
+        );
+    }
+    return result.join("\n");
 }
 
 export function createCardDraftController(params: {

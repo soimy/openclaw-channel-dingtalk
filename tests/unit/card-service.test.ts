@@ -1276,4 +1276,158 @@ describe('commitAICardBlocks · approval lifecycle ownership', () => {
         expect(paramMap.show_approve_btns).toBeUndefined();
         expect(paramMap.approveId).toBeUndefined();
     });
+
+    it('defers finalize when an approval is pending (no flowStatus=3, state stays INPUTING, deferredFinalize flag set)', async () => {
+        const { commitAICardBlocks } = await import('../../src/card-service');
+        const {
+            registerCardRun,
+            markCardRunPendingApproval,
+            resolveCardRun,
+        } = await import('../../src/card/card-run-registry');
+        registerCardRun('track_defer', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        markCardRunPendingApproval('track_defer', 'approval-defer');
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const card = {
+            cardInstanceId: 'card_defer',
+            outTrackId: 'track_defer',
+            accessToken: 'tok',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'done' }]),
+            content: 'done',
+        });
+
+        const paramMap = mockedAxios.put.mock.calls[0][1].cardData.cardParamMap;
+        // No flowStatus=3 PUT — the deferred state keeps the card in PROCESSING/INPUTING
+        // so DingTalk continues rendering the approve_btns ButtonGroup.
+        expect(paramMap.flowStatus).toBeUndefined();
+        // Card state NOT transitioned to FINISHED yet.
+        expect(card.state).toBe(AICardStatus.INPUTING);
+        // deferredFinalize flag set so applyResolvedPatch / applyExpiredPatch can
+        // complete the finalize at resolve/expire time.
+        expect(resolveCardRun('track_defer')?.deferredFinalize).toBe(true);
+    });
+
+    it('finalizes normally (flowStatus=3, state FINISHED, deferredFinalize unset) when no approval pending', async () => {
+        const { commitAICardBlocks } = await import('../../src/card-service');
+        const { registerCardRun, resolveCardRun } = await import(
+            '../../src/card/card-run-registry'
+        );
+        registerCardRun('track_normal', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const card = {
+            cardInstanceId: 'card_normal',
+            outTrackId: 'track_normal',
+            accessToken: 'tok',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        } as any;
+        await commitAICardBlocks(card, {
+            blockListJson: JSON.stringify([{ type: 0, markdown: 'done' }]),
+            content: 'done',
+        });
+
+        const paramMap = mockedAxios.put.mock.calls[0][1].cardData.cardParamMap;
+        // cardParamMap is string-serialized by updateCardVariables, so flowStatus
+        // arrives as "3" rather than 3.
+        expect(String(paramMap.flowStatus)).toBe('3');
+        expect(card.state).toBe(AICardStatus.FINISHED);
+        expect(resolveCardRun('track_normal')?.deferredFinalize).toBeFalsy();
+    });
+});
+
+describe('completeDeferredAICardFinalize', () => {
+    beforeEach(async () => {
+        mockedAxios.mockReset();
+        mockedAxios.post.mockReset();
+        mockedAxios.put.mockReset();
+        mockedGetAccessToken.mockReset();
+        mockedGetAccessToken.mockResolvedValue('token_abc');
+        const { clearCardRunRegistryForTest } = await import('../../src/card/card-run-registry');
+        clearCardRunRegistryForTest();
+    });
+
+    it('transitions a deferred card to FINISHED and removes its registry entry', async () => {
+        const {
+            completeDeferredAICardFinalize,
+        } = await import('../../src/card-service');
+        const {
+            registerCardRun,
+            markCardRunPendingApproval,
+            markCardRunDeferredFinalize,
+            resolveCardRun,
+            attachCardRunController,
+        } = await import('../../src/card/card-run-registry');
+
+        const card: any = {
+            cardInstanceId: 'card_finalize',
+            outTrackId: 'track_finalize',
+            accessToken: 'tok',
+            conversationId: 'cid_1',
+            state: AICardStatus.INPUTING,
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+            // streamLifecycleOpened intentionally falsy so the lifecycle PUT is
+            // skipped — keeps the test free of extra HTTP mocks while still
+            // exercising the rest of the cleanup path.
+            streamLifecycleOpened: false,
+            config: { clientId: 'id', clientSecret: 'sec' } as any,
+        };
+        registerCardRun('track_finalize', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        const record = resolveCardRun('track_finalize');
+        // Attach the card to the registry record so the helper finds it.
+        if (record) {
+            record.card = card;
+        }
+        // Plausible mid-life state: still has pendingApprovalId AND deferredFinalize.
+        markCardRunPendingApproval('track_finalize', 'approval-x');
+        markCardRunDeferredFinalize('track_finalize');
+        // Avoid an unused-binding warning from attachCardRunController import.
+        void attachCardRunController;
+
+        await completeDeferredAICardFinalize('track_finalize');
+
+        expect(card.state).toBe(AICardStatus.FINISHED);
+        // Record removed from registry — no longer resolvable.
+        expect(resolveCardRun('track_finalize')).toBeNull();
+    });
+
+    it('is a no-op when the run has no deferredFinalize flag set', async () => {
+        const { completeDeferredAICardFinalize } = await import('../../src/card-service');
+        const { registerCardRun, resolveCardRun } = await import(
+            '../../src/card/card-run-registry'
+        );
+
+        registerCardRun('track_noop', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        await completeDeferredAICardFinalize('track_noop');
+
+        // Record still present (we did not remove it because nothing was deferred).
+        expect(resolveCardRun('track_noop')).not.toBeNull();
+    });
 });

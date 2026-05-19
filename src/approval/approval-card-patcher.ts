@@ -1,16 +1,15 @@
 import { updateCardVariables } from "../card-callback-service";
-import { finalizeAICardStreamingLifecycleIfNeeded } from "../card-service";
+import { completeDeferredAICardFinalize } from "../card-service";
 import {
   buildApprovalClearedCardParams,
   buildApprovalPendingCardParams,
 } from "./approval-card-state";
 import {
-  clearCardRunDeferredFinalize,
   clearCardRunPendingApproval,
   markCardRunPendingApproval,
   resolveCardRun,
 } from "../card/card-run-registry";
-import { AICardStatus, type DingTalkConfig } from "../types";
+import type { DingTalkConfig } from "../types";
 
 export async function applyPendingPatch(
   outTrackId: string,
@@ -18,15 +17,26 @@ export async function applyPendingPatch(
   token: string,
   config?: Pick<DingTalkConfig, "bypassProxyForSend">,
 ): Promise<void> {
-  await updateCardVariables(outTrackId, buildApprovalPendingCardParams(approvalId), token, config);
+  // Pre-mark the run so a concurrent commitAICardBlocks that fires while the
+  // pending PUT is in flight defers the finalize (it keys the decision on
+  // pendingApprovalId). On PUT failure we roll back the mark and, if commit
+  // already deferred, rescue the card by terminalizing via applyExpiredPatch.
   markCardRunPendingApproval(outTrackId, approvalId);
+  try {
+    await updateCardVariables(outTrackId, buildApprovalPendingCardParams(approvalId), token, config);
+  } catch (err) {
+    clearCardRunPendingApproval(outTrackId);
+    if (resolveCardRun(outTrackId)?.deferredFinalize) {
+      await applyExpiredPatch(outTrackId, token, false, config);
+    }
+    throw err;
+  }
 }
 
 /**
- * Resolve or expire an approval that lives on a DingTalk AI card. If the card
- * was deferred-finalized (commitAICardBlocks skipped flowStatus=3 while the
- * approval was pending), include flowStatus=3 in the PUT so the card finishes
- * now that the buttons no longer need to render.
+ * Build terminal-state cardParamMap for an approval that has resolved or
+ * expired. When the run was deferred-finalize while the approval pended,
+ * include flowStatus=3 so DingTalk completes the card in the same PUT.
  */
 function buildTerminalPatchParams(
   outTrackId: string,
@@ -39,19 +49,6 @@ function buildTerminalPatchParams(
     params.flowStatus = 3;
   }
   return params;
-}
-
-async function completeDeferredFinalize(outTrackId: string): Promise<void> {
-  const record = resolveCardRun(outTrackId);
-  if (record?.deferredFinalize && record.card) {
-    // commitAICardBlocks skipped the DingTalk streaming-lifecycle close when
-    // it deferred this finalize. Close it now so DingTalk treats the card as
-    // fully finished (in addition to flowStatus=3 the caller already PUT).
-    await finalizeAICardStreamingLifecycleIfNeeded(record.card).catch(() => {});
-    record.card.state = AICardStatus.FINISHED;
-    record.card.lastUpdated = Date.now();
-  }
-  clearCardRunDeferredFinalize(outTrackId);
 }
 
 export async function applyResolvedPatch(
@@ -68,7 +65,7 @@ export async function applyResolvedPatch(
     config,
   );
   clearCardRunPendingApproval(outTrackId);
-  await completeDeferredFinalize(outTrackId);
+  await completeDeferredAICardFinalize(outTrackId);
 }
 
 export async function applyExpiredPatch(
@@ -84,5 +81,5 @@ export async function applyExpiredPatch(
     config,
   );
   clearCardRunPendingApproval(outTrackId);
-  await completeDeferredFinalize(outTrackId);
+  await completeDeferredAICardFinalize(outTrackId);
 }
