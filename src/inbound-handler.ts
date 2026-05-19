@@ -7,6 +7,7 @@ import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { tryInterceptApproveCommand } from "./approval/approval-command-intercept";
+import { APPROVE_COMMAND_RE } from "./approval/approval-command-parser";
 import { getAccessToken } from "./auth";
 import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
 import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
@@ -777,7 +778,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   });
 
   const approveCommandText = stripLeadingMentions(extractedContent.text).trim();
-  if (/^\/?approve(?:\s|$)/i.test(approveCommandText)) {
+  if (APPROVE_COMMAND_RE.test(approveCommandText)) {
     const intercepted = await tryInterceptApproveCommand({
       cfg,
       accountId,

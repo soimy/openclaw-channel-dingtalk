@@ -2,7 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getConfig } from "../config";
 import { sendProactiveTextOrMarkdown } from "../send-service";
 import type { Logger } from "../types";
-import { parseApproveCommand } from "./approval-command-parser";
+import { APPROVE_COMMAND_RE, parseApproveCommand } from "./approval-command-parser";
 import { resolveApproval } from "./approval-resolver";
 
 export interface ApproveCommandInterceptInput {
@@ -12,8 +12,6 @@ export interface ApproveCommandInterceptInput {
   senderId: string;
   log?: Logger;
 }
-
-const APPROVE_COMMAND_RE = /^\/?approve(?:\s|$)/i;
 
 async function sendDirectHint(
   input: Pick<ApproveCommandInterceptInput, "cfg" | "accountId" | "senderId" | "log">,

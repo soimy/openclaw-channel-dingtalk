@@ -6,6 +6,7 @@ import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
 import { APPROVAL_CARD_INITIAL } from "./approval/approval-card-state";
+import { resolveCardRun } from "./card/card-run-registry";
 import { resolveRobotCode, stripTargetPrefix } from "./config";
 import { resolveOriginalPeerId } from "./peer-id-registry";
 import {
@@ -46,6 +47,13 @@ const CARD_CACHE_MAX_CONVERSATIONS = 500;
 const DYNAMIC_SUMMARY_EXTENSION = { dynamicSummary: "true" } as const;
 
 const aicardDegradeByAccount = new Map<string, { untilMs: number; reason: string }>();
+
+// Approval lifecycle owns show_approve_btns / approveId while a request is in flight.
+// Returning `{}` here lets the approval-card-patcher remain the single writer of those
+// keys until applyResolvedPatch / applyExpiredPatch clears them.
+function approvalParamsForTerminal(outTrackId: string): Partial<typeof APPROVAL_CARD_INITIAL> {
+  return resolveCardRun(outTrackId)?.pendingApprovalId ? {} : APPROVAL_CARD_INITIAL;
+}
 
 export async function hideCardStopButton(
   outTrackId: string,
@@ -1135,7 +1143,7 @@ export async function commitAICardBlocks(
     [template.streamingKey]: options.content, // markdown content for display
     [template.copyContentKey]: options.content, // same markdown as String type for card copy action
     flowStatus: 3, // completed state - V2 template hides stop button automatically
-    ...APPROVAL_CARD_INITIAL,
+    ...approvalParamsForTerminal(card.outTrackId || card.cardInstanceId),
   };
 
   // Optional fields
@@ -1431,7 +1439,7 @@ export async function finalizeStoppedAICard(
         [template.streamingKey]: payload.content,
         [template.copyContentKey]: payload.content,
         flowStatus: 3,
-        ...APPROVAL_CARD_INITIAL,
+        ...approvalParamsForTerminal(card.outTrackId || card.cardInstanceId),
       },
       card.accessToken,
       card.config,

@@ -1,6 +1,6 @@
 import type { ApprovalDecision } from "../types";
 
-const APPROVE_COMMAND_RE = /^\/?approve(?:\s|$)/i;
+export const APPROVE_COMMAND_RE = /^\/?approve(?:\s|$)/i;
 
 const DECISION_ALIASES: Record<string, ApprovalDecision> = {
   allow: "allow-once",

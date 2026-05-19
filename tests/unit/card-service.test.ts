@@ -1197,3 +1197,83 @@ describe('token refresh', () => {
         expect(mockedAxios.put.mock.calls[0][0]).toContain('/v1.0/card/instances');
     });
 });
+
+describe('commitAICardBlocks · approval lifecycle ownership', () => {
+    beforeEach(async () => {
+        mockedAxios.mockReset();
+        mockedAxios.post.mockReset();
+        mockedAxios.put.mockReset();
+        mockedGetAccessToken.mockReset();
+        mockedGetAccessToken.mockResolvedValue('token_abc');
+        const { clearCardRunRegistryForTest } = await import('../../src/card/card-run-registry');
+        clearCardRunRegistryForTest();
+    });
+
+    it('clears show_approve_btns/approveId when no approval is pending', async () => {
+        const { commitAICardBlocks } = await import('../../src/card-service');
+        const { registerCardRun } = await import('../../src/card/card-run-registry');
+        registerCardRun('track_no_pending', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(
+            {
+                cardInstanceId: 'card_no_pending',
+                outTrackId: 'track_no_pending',
+                accessToken: 'tok',
+                conversationId: 'cid_1',
+                state: AICardStatus.INPUTING,
+                createdAt: Date.now(),
+                lastUpdated: Date.now(),
+                config: { clientId: 'id', clientSecret: 'sec' } as any,
+            } as any,
+            {
+                blockListJson: JSON.stringify([{ type: 0, markdown: 'done' }]),
+                content: 'done',
+            },
+        );
+
+        const paramMap = mockedAxios.put.mock.calls[0][1].cardData.cardParamMap;
+        expect(paramMap.show_approve_btns).toBe('false');
+        expect(paramMap.approveId).toBe('');
+    });
+
+    it('preserves show_approve_btns/approveId when an approval is still pending', async () => {
+        const { commitAICardBlocks } = await import('../../src/card-service');
+        const {
+            registerCardRun,
+            markCardRunPendingApproval,
+        } = await import('../../src/card/card-run-registry');
+        registerCardRun('track_pending', {
+            accountId: 'main',
+            sessionKey: 's1',
+            agentId: 'a1',
+        });
+        markCardRunPendingApproval('track_pending', 'approval-123');
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        await commitAICardBlocks(
+            {
+                cardInstanceId: 'card_pending',
+                outTrackId: 'track_pending',
+                accessToken: 'tok',
+                conversationId: 'cid_1',
+                state: AICardStatus.INPUTING,
+                createdAt: Date.now(),
+                lastUpdated: Date.now(),
+                config: { clientId: 'id', clientSecret: 'sec' } as any,
+            } as any,
+            {
+                blockListJson: JSON.stringify([{ type: 0, markdown: 'done' }]),
+                content: 'done',
+            },
+        );
+
+        const paramMap = mockedAxios.put.mock.calls[0][1].cardData.cardParamMap;
+        expect(paramMap.show_approve_btns).toBeUndefined();
+        expect(paramMap.approveId).toBeUndefined();
+    });
+});
