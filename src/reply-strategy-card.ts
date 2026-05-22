@@ -347,7 +347,7 @@ export function createCardReplyStrategy(
         continue;
       }
 
-      if (processedMediaUrls.has(candidate.url)) {
+      if (processedMediaUrls.has(candidate.url.trim())) {
         const placeholder = buildImagePlaceholderText({ alt: candidate.alt, url: candidate.url });
         nextText = `${nextText.slice(0, candidate.start)}${placeholder}${nextText.slice(candidate.end)}`;
         continue;
@@ -369,7 +369,7 @@ export function createCardReplyStrategy(
           continue;
         }
 
-        processedMediaUrls.add(candidate.url);
+        processedMediaUrls.add(candidate.url.trim());
         const placeholder = buildImagePlaceholderText({ alt: candidate.alt, url: candidate.url });
         const blockText = candidate.alt.trim() || placeholder.replace(/^见下图/, "").trim() || "图片";
         successfulReroutes.push({
@@ -486,7 +486,8 @@ export function createCardReplyStrategy(
         // Inline media upload → image blocks in card; defer non-image attachments
         if (payload.mediaUrls.length > 0) {
           for (const url of payload.mediaUrls) {
-            if (processedMediaUrls.has(url)) {
+            const normalizedUrl = url.trim();
+            if (processedMediaUrls.has(normalizedUrl)) {
               continue;
             }
             try {
@@ -504,7 +505,7 @@ export function createCardReplyStrategy(
               const result = await uploadMedia(config, prepared.path, "image", log);
               await prepared.cleanup?.();
               if (result?.mediaId) {
-                processedMediaUrls.add(url);
+                processedMediaUrls.add(normalizedUrl);
                 await controller.appendImageBlock(result.mediaId);
               }
             } catch (err: unknown) {
@@ -568,7 +569,8 @@ export function createCardReplyStrategy(
       // ---- block: only handle reasoning/media (other text blocks are unused) ----
       if (payload.mediaUrls.length > 0) {
         for (const url of payload.mediaUrls) {
-          if (processedMediaUrls.has(url)) {
+          const normalizedUrl = url.trim();
+          if (processedMediaUrls.has(normalizedUrl)) {
             continue;
           }
           try {
@@ -583,7 +585,7 @@ export function createCardReplyStrategy(
             const result = await uploadMedia(config, prepared.path, "image", log);
             await prepared.cleanup?.();
             if (result?.mediaId) {
-              processedMediaUrls.add(url);
+              processedMediaUrls.add(normalizedUrl);
               await controller.appendImageBlock(result.mediaId);
             }
           } catch (err: unknown) {

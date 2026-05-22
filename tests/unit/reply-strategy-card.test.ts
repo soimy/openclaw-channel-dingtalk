@@ -1537,5 +1537,30 @@ describe("reply-strategy-card", () => {
             const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
             expect(commitPayload?.content).not.toContain("file:///");
         });
+
+        it("dedupes mediaUrls with trailing whitespace", async () => {
+            const card = makeCard();
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Non-final deliver with URL having trailing whitespace
+            await strategy.deliver({
+                text: "",
+                mediaUrls: ["file:///test/image.png  "],
+                kind: "block",
+            });
+
+            // Final deliver with same URL without whitespace
+            await strategy.deliver({
+                text: "",
+                mediaUrls: ["file:///test/image.png"],
+                kind: "final",
+            });
+
+            await strategy.finalize();
+
+            // uploadMedia should be called only once (trim-normalized dedup)
+            expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+        });
     });
 });
