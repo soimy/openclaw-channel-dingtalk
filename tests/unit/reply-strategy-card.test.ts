@@ -1533,6 +1533,9 @@ describe("reply-strategy-card", () => {
 
             // uploadMedia should be called only once (deduped across both paths)
             expect(uploadMediaMock).toHaveBeenCalledTimes(1);
+            // The final card content should not contain the raw file:/// path
+            const commitPayload = commitAICardBlocksMock.mock.calls[0]?.[1];
+            expect(commitPayload?.content).not.toContain("file:///");
         });
     });
 });

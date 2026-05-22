@@ -348,6 +348,8 @@ export function createCardReplyStrategy(
       }
 
       if (processedMediaUrls.has(candidate.url)) {
+        const placeholder = buildImagePlaceholderText({ alt: candidate.alt, url: candidate.url });
+        nextText = `${nextText.slice(0, candidate.start)}${placeholder}${nextText.slice(candidate.end)}`;
         continue;
       }
 
