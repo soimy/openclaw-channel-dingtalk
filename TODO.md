@@ -38,7 +38,6 @@
 
 ### 2. AI Card 发送链路一致性
 相关 Issues：
-- [#538 [问题反馈] 当 assistant message 只有 thinking 无 text 时，channel 静默丢弃，用户无感知](https://github.com/soimy/openclaw-channel-dingtalk/issues/538)（状态：已关闭；本轮按超过 2 周无评论/mention 活动自动关闭）
 
 任务：
 - [ ] 复盘 `#363` 关闭未合并方案与当前主线差异，确认其风险点已被后续修复覆盖
