@@ -417,7 +417,7 @@
 - [ ] （拟完成，请评估）跟进 `#519` 的 CLI 子命令加载噪音：循环依赖已拆除，待补一次发布后 CLI 子命令真实安装路径回归确认噪音已消失
   - [x] [#521 fix: break 3 circular import cycles causing CLI RangeError](https://github.com/soimy/openclaw-channel-dingtalk/pull/521)（状态：合并）
 - [ ] 合并 `#520` 的 SDK 兼容结论：明确 `message send` 在 PR `#499` 之后依赖 `openclaw >= 2026.4.5`，补版本矩阵、升级提示与低版本保护策略
-- [ ] 增补“Markdown 表格渲染差异”说明（客户端差异 + 自定义机器人 vs 应用机器人）（#192/#358）
+- [ ] 增补“Markdown 表格渲染差异”说明（客户端差异 + 自定义机器人 vs 应用机器人；`#192` 已按 stale 治理关闭，`#358` 已关闭）
 - [ ] 补充 `gatewayToken` 缺失/错误时的配置排障指引与默认回退行为说明（#370）
 - [ ] （拟完成，请评估）跟进 `#402/#404/#405` 安装失败闭环：补版本兼容矩阵与升级指引，并同步已由 `#406` 修复的范围边界
   - [x] [#406 fix: avoid omitting openclaw during plugin install](https://github.com/soimy/openclaw-channel-dingtalk/pull/406)（状态：合并）
