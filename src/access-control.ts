@@ -32,7 +32,7 @@ export function isSenderAllowed(params: {
 }): boolean {
   const { allow, senderId } = params;
   if (!allow.hasEntries) {
-    return true;
+    return false;
   }
   if (allow.hasWildcard) {
     return true;

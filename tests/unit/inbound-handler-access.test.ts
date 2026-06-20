@@ -195,6 +195,35 @@ describe("inbound-handler access control", () => {
     expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("访问受限");
   });
 
+  it("dmPolicy allowlist with empty allowFrom blocks senders", async () => {
+    await handleDingTalkMessage({
+      cfg: {} as Record<string, unknown>,
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        clientId: "id",
+        clientSecret: "sec",
+        dmPolicy: "allowlist",
+        allowFrom: [],
+      } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m2_empty_allow",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_blocked",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+    });
+
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("访问受限");
+  });
+
   it("groupPolicy allowlist blocks group not in allowFrom or groups", async () => {
     await handleDingTalkMessage({
       cfg: {} as Record<string, unknown>,
