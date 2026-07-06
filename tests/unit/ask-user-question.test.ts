@@ -16,6 +16,9 @@ describe("AskUserQuestionSchema", () => {
     expect(schema.properties.fields.description).toContain("Advanced DingTalk form variable protocol");
     expect(schema.properties.fields.items.properties.type.enum).toContain("DATETIME");
     expect(schema.properties.fields.items.properties.type.enum).toContain("MULTI_CHECKBOX_GROUP");
+    expect(schema.properties.fields.items.properties.defautValue.description).toContain(
+      "Compatibility alias",
+    );
     expect(questionSchema.question.description).toBe("The question to ask the user");
     expect(questionSchema.header.description).toContain("Short label");
     expect(questionSchema.options.description).toContain("Leave empty ([]) for free-text input");

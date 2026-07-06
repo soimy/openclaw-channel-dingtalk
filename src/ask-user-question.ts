@@ -51,6 +51,7 @@ type FormFieldType =
 type RawValue = string | number | boolean;
 type SelectValue = { index: number; value: RawValue };
 type MultiSelectValue = { index: number[]; value: RawValue[] };
+type AnswerEntry = { question: string; answer: string };
 
 type AskUserQuestionContext = {
   cfg: HandleDingTalkMessageParams["cfg"];
@@ -72,6 +73,7 @@ type FormField = {
   placeholder?: string;
   format?: string;
   defaultValue?: RawValue | RawValue[] | SelectValue | MultiSelectValue;
+  // DingTalk form protocol documentation also exposes this misspelled key.
   defautValue?: RawValue | RawValue[] | SelectValue | MultiSelectValue;
   options?: Array<{ value: string; text: string }>;
   minRows?: number;
@@ -424,8 +426,8 @@ function formatAnswerText(
   return labels.join(", ");
 }
 
-function buildAnswerMessage(ctx: PendingQuestion, answers: Record<string, string>): string {
-  const lines = Object.entries(answers).map(([question, answer]) => `- ${question}: ${answer}`);
+function buildAnswerMessage(ctx: PendingQuestion, answers: AnswerEntry[]): string {
+  const lines = answers.map(({ question, answer }) => `- ${question}: ${answer}`);
   return `用户回答了你的问题:\n${lines.join("\n")}`;
 }
 
@@ -527,18 +529,18 @@ export async function handleDingTalkAskUserCardCallback(params: {
     return { handled: true };
   }
 
-  const answers: Record<string, string> = {};
+  const answers: AnswerEntry[] = [];
   const selectedValues: string[] = [];
   for (const question of ctx.questions) {
     const values = readFormAnswer(form[question.fieldName]);
     selectedValues.push(...values);
     const answerText = formatAnswerText(question, values);
     if (answerText) {
-      answers[question.title] = answerText;
+      answers.push({ question: question.title, answer: answerText });
     }
   }
 
-  if (Object.keys(answers).length === 0) {
+  if (answers.length === 0) {
     ctx.submitted = false;
     params.log?.warn?.(
       `[DingTalk][AskUser] Empty form answer question=${ctx.questionId} form=${JSON.stringify(form)}`,
@@ -546,7 +548,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
     return { handled: true };
   }
 
-  const selectedText = Object.values(answers).join(", ");
+  const selectedText = answers.map(({ answer }) => answer).join(", ");
   await updateQuestionCard(ctx, {
     card_status: "submitted",
     question_desc: `已选择：${selectedText}。`,
@@ -661,7 +663,10 @@ const AskUserQuestionSchema = {
           placeholder: { type: "string" },
           format: { type: "string" },
           defaultValue: {},
-          defautValue: {},
+          defautValue: {
+            description:
+              "Compatibility alias for DingTalk form protocol documentation typo; prefer defaultValue when possible.",
+          },
           options: {
             type: "array",
             items: {
