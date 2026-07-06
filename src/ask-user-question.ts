@@ -688,7 +688,14 @@ export function getAskUserQuestionSchemaForTest(): typeof AskUserQuestionSchema 
 }
 
 export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): void {
-  api.registerTool({
+  const registerTool = (api as OpenClawPluginApi & { registerTool?: OpenClawPluginApi["registerTool"] })
+    .registerTool;
+  if (typeof registerTool !== "function") {
+    api.logger?.debug?.(`${TOOL_NAME}: registerTool unavailable, skipping tool registration`);
+    return;
+  }
+
+  registerTool.call(api, {
     name: TOOL_NAME,
     label: "Ask User Question",
     description:
