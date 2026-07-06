@@ -1,10 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearPendingQuestionsForTest,
   buildQuestionFormFromFields,
   buildQuestionForm,
   getAskUserQuestionSchemaForTest,
+  handleDingTalkAskUserCardCallback,
   parseAskUserCardCallback,
+  registerPendingQuestionForTest,
 } from "../../src/ask-user-question";
+import { updateCardVariables } from "../../src/card-callback-service";
+import { handleDingTalkMessage } from "../../src/inbound-handler";
+
+vi.mock("../../src/auth", () => ({
+  getAccessToken: vi.fn(async () => "access-token"),
+}));
+
+vi.mock("../../src/card-callback-service", () => ({
+  updateCardVariables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../../src/inbound-handler", () => ({
+  handleDingTalkMessage: vi.fn(async () => undefined),
+}));
+
+afterEach(() => {
+  clearPendingQuestionsForTest();
+  vi.clearAllMocks();
+});
 
 describe("AskUserQuestionSchema", () => {
   it("guides the assistant to provide a small question DSL instead of DingTalk form fields", () => {
@@ -264,5 +286,97 @@ describe("parseAskUserCardCallback", () => {
       outTrackId: "ask_3",
       hasBusinessPayload: false,
     });
+  });
+});
+
+describe("handleDingTalkAskUserCardCallback", () => {
+  it("consumes optional fields submissions even when every answer is empty", async () => {
+    registerPendingQuestionForTest({
+      cfg: {} as any,
+      accountId: "default",
+      data: {
+        msgId: "msg_1",
+        msgtype: "text",
+        createAt: Date.now(),
+        text: { content: "ask" },
+        conversationType: "1",
+        conversationId: "conv_1",
+        senderId: "sender_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://example.com/webhook",
+      },
+      sessionWebhook: "https://example.com/webhook",
+      dingtalkConfig: {} as any,
+      questionId: "q_empty",
+      outTrackId: "ask_empty",
+      title: "补充执行参数",
+      questions: [
+        {
+          fieldName: "optional_reason",
+          title: "执行原因",
+          options: [],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    const result = await handleDingTalkAskUserCardCallback({
+      payload: {
+        outTrackId: "ask_empty",
+        content: JSON.stringify({
+          cardPrivateData: {
+            actionIds: ["q_empty"],
+            params: {
+              form: {
+                optional_reason: "",
+              },
+            },
+          },
+        }),
+      },
+      cfg: {} as any,
+      accountId: "default",
+      config: {} as any,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(result).toEqual({ handled: true });
+    expect(updateCardVariables).toHaveBeenCalledWith(
+      "ask_empty",
+      expect.objectContaining({
+        card_status: "submitted",
+        question_desc: "已提交，未填写任何内容。",
+        selected_text: "",
+        selected_values: "[]",
+        form_btn_text: "已提交",
+      }),
+      "access-token",
+      {},
+    );
+    expect(handleDingTalkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          text: { content: "用户提交了空表单: 补充执行参数" },
+        }),
+      }),
+    );
+
+    await expect(
+      handleDingTalkAskUserCardCallback({
+        payload: {
+          outTrackId: "ask_empty",
+          content: JSON.stringify({
+            cardPrivateData: {
+              actionIds: ["q_empty"],
+              params: { form: { optional_reason: "" } },
+            },
+          }),
+        },
+        cfg: {} as any,
+        accountId: "default",
+        config: {} as any,
+      }),
+    ).resolves.toEqual({ handled: false });
   });
 });

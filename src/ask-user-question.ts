@@ -334,9 +334,7 @@ function storePendingQuestion(ctx: PendingQuestion): void {
         `问题已超时，请重新发起: ${ctx.title}`,
         "expired",
       ).catch((err) => {
-        ctx.log?.error?.(
-          `[DingTalk][AskUser] Failed to inject expiration message: ${String(err)}`,
-        );
+        ctx.log?.error?.(`[DingTalk][AskUser] Failed to inject expiration message: ${String(err)}`);
       });
     });
   }, PENDING_QUESTION_TTL_MS);
@@ -453,6 +451,10 @@ function buildAnswerMessage(ctx: PendingQuestion, answers: AnswerEntry[]): strin
   return `用户回答了你的问题:\n${lines.join("\n")}`;
 }
 
+function buildEmptyAnswerMessage(ctx: PendingQuestion): string {
+  return `用户提交了空表单: ${ctx.title}`;
+}
+
 async function injectAnswerSyntheticMessage(
   ctx: PendingQuestion,
   text: string,
@@ -563,10 +565,24 @@ export async function handleDingTalkAskUserCardCallback(params: {
   }
 
   if (answers.length === 0) {
-    ctx.submitted = false;
     params.log?.warn?.(
       `[DingTalk][AskUser] Empty form answer question=${ctx.questionId} form=${JSON.stringify(form)}`,
     );
+    await updateQuestionCardBestEffort(ctx, {
+      card_status: "submitted",
+      question_desc: "已提交，未填写任何内容。",
+      selected_text: "",
+      selected_values: "[]",
+      form_btn_text: "已提交",
+    });
+    consumePendingQuestion(ctx);
+    setImmediate(() => {
+      void injectAnswerSyntheticMessage(ctx, buildEmptyAnswerMessage(ctx), "empty").catch((err) => {
+        params.log?.error?.(
+          `[DingTalk][AskUser] Failed to inject empty answer message: ${String(err)}`,
+        );
+      });
+    });
     return { handled: true };
   }
 
@@ -627,7 +643,8 @@ const AskUserQuestionSchema = {
                 label: { type: "string", description: "Display text for this option" },
                 value: {
                   type: "string",
-                  description: "Machine-readable value returned to the assistant; omit to use label",
+                  description:
+                    "Machine-readable value returned to the assistant; omit to use label",
                 },
                 description: {
                   type: "string",
@@ -722,9 +739,29 @@ export function getAskUserQuestionSchemaForTest(): typeof AskUserQuestionSchema 
   return AskUserQuestionSchema;
 }
 
+export function registerPendingQuestionForTest(
+  ctx: Omit<PendingQuestion, "ttlTimer" | "submitted"> & { submitted?: boolean },
+): void {
+  storePendingQuestion({
+    ...ctx,
+    submitted: Boolean(ctx.submitted),
+  });
+}
+
+export function clearPendingQuestionsForTest(): void {
+  for (const ctx of pendingQuestionsByTrackId.values()) {
+    if (ctx.ttlTimer) {
+      clearTimeout(ctx.ttlTimer);
+    }
+  }
+  pendingQuestionsByTrackId.clear();
+  pendingQuestionsByQuestionId.clear();
+}
+
 export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): void {
-  const registerTool = (api as OpenClawPluginApi & { registerTool?: OpenClawPluginApi["registerTool"] })
-    .registerTool;
+  const registerTool = (
+    api as OpenClawPluginApi & { registerTool?: OpenClawPluginApi["registerTool"] }
+  ).registerTool;
   if (typeof registerTool !== "function") {
     api.logger?.debug?.(`${TOOL_NAME}: registerTool unavailable, skipping tool registration`);
     return;
