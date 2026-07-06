@@ -21,6 +21,7 @@
 - 支持文本、图片、语音、视频、文件和钉钉文档/文件卡片
 - 支持引用消息恢复和常见文本附件正文抽取
 - 支持 Markdown 回复与 AI 卡片流式回复（v2 结构化 block 渲染、taskInfo 元数据、图片内联）
+- 支持通过 `dingtalk_ask_user_question` 发送钉钉原生交互表单卡片，向用户确认、单选、多选或收集表单字段后再继续会话
 - 支持多 Agent、多机器人绑定和实验性的 `@多助手路由`
 - 支持 `/btw` 旁路问答，绕过主会话锁立即获得独立快答
 - 支持 DingTalk Device Flow 自动注册，扫码授权后自动获取凭证，无需手动复制
@@ -137,6 +138,17 @@ openclaw configure --section channels
 - [配置指南](docs/user/getting-started/configure.md)
 - [钉钉权限与凭证](docs/user/getting-started/permissions.md)
 - [配置项参考](docs/user/reference/configuration.md)
+
+## 交互式提问卡片
+
+安装并允许 `dingtalk` 插件后，OpenClaw 可向模型暴露 `dingtalk_ask_user_question` 工具。模型在钉钉会话中遇到必须由用户确认或补充信息后才能继续的场景时，可以发送一张钉钉原生互动卡片；用户提交或取消后，插件会把结果作为新的会话消息注入，驱动原任务继续执行。
+
+该能力支持两种入参：
+
+- `questions`：轻量问题 DSL，适合确认、单选、多选和简单文本输入。
+- `fields`：钉钉表单变量协议，适合 `TEXT_AREA`、`NUMBER`、`SELECT`、`MULTI_SELECT`、`DATE`、`TIME`、`DATETIME`、`CHECKBOX`、`SWITCH`、`CHECKBOX_GROUP`、`MULTI_CHECKBOX_GROUP` 等高级表单字段。
+
+使用该能力无需额外配置模板 ID；插件内置钉钉互动卡片模板。若当前 OpenClaw 运行时不支持工具注册，插件会跳过该工具注册，不影响既有钉钉消息收发、AI 卡片和反馈学习能力。
 
 ## 重要功能文档
 

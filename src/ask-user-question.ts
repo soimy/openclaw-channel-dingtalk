@@ -349,6 +349,19 @@ async function updateQuestionCard(
   await updateCardVariables(ctx.outTrackId, variables, token, ctx.dingtalkConfig);
 }
 
+async function updateQuestionCardBestEffort(
+  ctx: PendingQuestion,
+  variables: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await updateQuestionCard(ctx, variables);
+  } catch (err) {
+    ctx.log?.warn?.(
+      `[DingTalk][AskUser] Failed to update question card ${ctx.questionId}: ${String(err)}`,
+    );
+  }
+}
+
 function parseEmbeddedJson(value: unknown): unknown {
   if (typeof value !== "string") {
     return value;
@@ -502,7 +515,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
   ctx.submitted = true;
 
   if (isCancel) {
-    await updateQuestionCard(ctx, {
+    await updateQuestionCardBestEffort(ctx, {
       card_status: "cancelled",
       question_desc: "已取消。",
       form_btn_text: "已取消",
@@ -549,7 +562,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
   }
 
   const selectedText = answers.map(({ answer }) => answer).join(", ");
-  await updateQuestionCard(ctx, {
+  await updateQuestionCardBestEffort(ctx, {
     card_status: "submitted",
     question_desc: `已选择：${selectedText}。`,
     selected_text: selectedText,
