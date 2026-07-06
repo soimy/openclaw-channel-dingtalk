@@ -323,12 +323,21 @@ function storePendingQuestion(ctx: PendingQuestion): void {
       return;
     }
     consumePendingQuestion(ctx);
-    void updateQuestionCard(ctx, {
+    void updateQuestionCardBestEffort(ctx, {
       card_status: "expired",
       question_desc: "问题已失效，请重新发起。",
       form_btn_text: "已失效",
-    }).catch((err) => {
-      ctx.log?.warn?.(`[DingTalk][AskUser] Failed to expire question card: ${String(err)}`);
+    });
+    setImmediate(() => {
+      void injectAnswerSyntheticMessage(
+        ctx,
+        `问题已超时，请重新发起: ${ctx.title}`,
+        "expired",
+      ).catch((err) => {
+        ctx.log?.error?.(
+          `[DingTalk][AskUser] Failed to inject expiration message: ${String(err)}`,
+        );
+      });
     });
   }, PENDING_QUESTION_TTL_MS);
 }
