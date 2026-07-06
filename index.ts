@@ -1,5 +1,6 @@
 import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
+import { registerDingTalkAskUserQuestionTool } from "./src/ask-user-question";
 import { getAccessToken } from "./src/auth";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig, listDingTalkAccountIds, resolveDingTalkAccount } from "./src/config";
@@ -288,6 +289,7 @@ export default defineChannelPluginEntry({
   registerFull(api) {
     registerDingTalkDocsGatewayMethods(api);
     registerDingTalkConnectorCompatibilityGatewayMethods(api);
+    registerDingTalkAskUserQuestionTool(api);
 
     api.on(
       "llm_output",

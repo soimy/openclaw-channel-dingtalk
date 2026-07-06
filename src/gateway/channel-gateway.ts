@@ -1,4 +1,8 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
+import {
+  handleDingTalkAskUserCardCallback,
+  withDingTalkQuestionContext,
+} from "../ask-user-question";
 import { analyzeCardCallback } from "../card-callback-service";
 import { handleCardAction } from "../card/card-action-handler";
 import {
@@ -260,14 +264,25 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
               stats.noMessageId += 1;
               acknowledge();
-              await handleDingTalkMessage({
-                cfg,
-                accountId: account.accountId,
-                data,
-                sessionWebhook: data.sessionWebhook,
-                log: pluginLog,
-                dingtalkConfig: config,
-              });
+              await withDingTalkQuestionContext(
+                {
+                  cfg,
+                  accountId: account.accountId,
+                  data,
+                  sessionWebhook: data.sessionWebhook,
+                  log: pluginLog,
+                  dingtalkConfig: config,
+                },
+                () =>
+                  handleDingTalkMessage({
+                    cfg,
+                    accountId: account.accountId,
+                    data,
+                    sessionWebhook: data.sessionWebhook,
+                    log: pluginLog,
+                    dingtalkConfig: config,
+                  }),
+              );
               stats.processed += 1;
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(pluginLog, account.accountId, "periodic");
@@ -304,14 +319,25 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
             acknowledge();
             processingDedupKeys.set(dedupKey, Date.now());
             try {
-              await handleDingTalkMessage({
-                cfg,
-                accountId: account.accountId,
-                data,
-                sessionWebhook: data.sessionWebhook,
-                log: pluginLog,
-                dingtalkConfig: config,
-              });
+              await withDingTalkQuestionContext(
+                {
+                  cfg,
+                  accountId: account.accountId,
+                  data,
+                  sessionWebhook: data.sessionWebhook,
+                  log: pluginLog,
+                  dingtalkConfig: config,
+                },
+                () =>
+                  handleDingTalkMessage({
+                    cfg,
+                    accountId: account.accountId,
+                    data,
+                    sessionWebhook: data.sessionWebhook,
+                    log: pluginLog,
+                    dingtalkConfig: config,
+                  }),
+              );
               stats.processed += 1;
               markMessageProcessed(dedupKey);
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
@@ -348,6 +374,17 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
             pluginLog?.info?.(
               `[${account.accountId}] [DingTalk][CardCallback] action=${analysis.summary} raw=${JSON.stringify(payload)}`,
             );
+
+            const askUserResult = await handleDingTalkAskUserCardCallback({
+              payload,
+              cfg,
+              accountId: account.accountId,
+              config,
+              log: pluginLog,
+            });
+            if (askUserResult.handled) {
+              return;
+            }
 
             if (analysis.feedbackTarget && analysis.feedbackAckText) {
               recordExplicitFeedbackLearning({

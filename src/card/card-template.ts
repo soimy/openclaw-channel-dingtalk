@@ -8,6 +8,8 @@ export const BUILTIN_DINGTALK_CARD_TEMPLATE_ID =
 export const BUILTIN_DINGTALK_CARD_CONTENT_KEY = "content";
 export const BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY = "blockList";
 export const BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY = "copy_content";
+export const BUILTIN_DINGTALK_ASK_USER_CARD_TEMPLATE_ID =
+  "89d0c6fe-3822-44c8-950e-e950f562546d.schema";
 
 export interface DingTalkCardTemplateContract {
   templateId: string;
@@ -20,6 +22,10 @@ export interface DingTalkCardTemplateContract {
   copyContentKey: string;
 }
 
+export interface DingTalkAskUserCardTemplateContract {
+  templateId: string;
+}
+
 /** Frozen singleton — no allocation on every call. */
 export const DINGTALK_CARD_TEMPLATE: Readonly<DingTalkCardTemplateContract> = Object.freeze({
   templateId: BUILTIN_DINGTALK_CARD_TEMPLATE_ID,
@@ -29,3 +35,7 @@ export const DINGTALK_CARD_TEMPLATE: Readonly<DingTalkCardTemplateContract> = Ob
   copyContentKey: BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY,
 });
 
+export const DINGTALK_ASK_USER_CARD_TEMPLATE: Readonly<DingTalkAskUserCardTemplateContract> =
+  Object.freeze({
+    templateId: BUILTIN_DINGTALK_ASK_USER_CARD_TEMPLATE_ID,
+  });
