@@ -649,7 +649,14 @@ const AskUserQuestionSchema = {
     fields: {
       type: "array",
       description:
-        "Advanced DingTalk form variable protocol. Use this when you need field types beyond the simple questions DSL, such as TEXT_AREA, NUMBER, SELECT, MULTI_SELECT, DATE, TIME, DATETIME, CHECKBOX, SWITCH, TEXT_ARRAY, CHECKBOX_GROUP, or MULTI_CHECKBOX_GROUP.",
+        "Advanced DingTalk form fields. Use top-level fields when collecting multiple inputs " +
+        "or when you need field types beyond the simple questions DSL. The plugin will send " +
+        "these fields as the DingTalk card variable form.fields. Do not wrap fields inside form. " +
+        "For simple confirmation, single-select, or multi-select questions, prefer questions. " +
+        "For choice fields (SELECT, MULTI_SELECT, CHECKBOX_GROUP, MULTI_CHECKBOX_GROUP), " +
+        "provide options as { value, text }. Use TEXT for single-line text, TEXT_AREA for " +
+        "multi-line text, NUMBER for numeric input, DATE/TIME/DATETIME for date or time inputs, " +
+        "and CHECKBOX or SWITCH for boolean inputs.",
       minItems: 1,
       maxItems: 20,
       items: {
@@ -683,7 +690,6 @@ const AskUserQuestionSchema = {
           requiredMsg: { type: "string" },
           readOnly: { type: "boolean" },
           placeholder: { type: "string" },
-          format: { type: "string" },
           defaultValue: {},
           defautValue: {
             description:
@@ -691,6 +697,8 @@ const AskUserQuestionSchema = {
           },
           options: {
             type: "array",
+            description:
+              "Required for SELECT, MULTI_SELECT, CHECKBOX_GROUP, and MULTI_CHECKBOX_GROUP. Each option must be { value, text }.",
             items: {
               type: "object",
               additionalProperties: false,

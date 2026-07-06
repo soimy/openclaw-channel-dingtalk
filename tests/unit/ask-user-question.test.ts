@@ -13,9 +13,16 @@ describe("AskUserQuestionSchema", () => {
 
     expect(schema.properties.questions.description).toContain("Blocking question");
     expect(schema.properties.questions.description).toContain("Do not use for explanations");
-    expect(schema.properties.fields.description).toContain("Advanced DingTalk form variable protocol");
+    expect(schema.properties.fields.description).toContain("Advanced DingTalk form fields");
+    expect(schema.properties.fields.description).toContain("form.fields");
+    expect(schema.properties.fields.description).toContain("Do not wrap fields inside form");
+    expect(schema.properties.fields.description).toContain("{ value, text }");
     expect(schema.properties.fields.items.properties.type.enum).toContain("DATETIME");
     expect(schema.properties.fields.items.properties.type.enum).toContain("MULTI_CHECKBOX_GROUP");
+    expect(schema.properties.fields.items.properties).not.toHaveProperty("format");
+    expect(schema.properties.fields.items.properties.options.description).toContain(
+      "Each option must be { value, text }",
+    );
     expect(schema.properties.fields.items.properties.defautValue.description).toContain(
       "Compatibility alias",
     );
@@ -100,6 +107,41 @@ describe("buildQuestionFormFromFields", () => {
         multiSelect: false,
       },
       { fieldName: "notify", title: "完成后通知", options: [], multiSelect: false },
+    ]);
+  });
+
+  it("preserves native date and time fields without requiring format", () => {
+    const form = buildQuestionFormFromFields({
+      title: "高级表单",
+      fields: [
+        {
+          name: "exec_time",
+          label: "执行时间",
+          type: "TIME",
+          required: true,
+        },
+        {
+          name: "run_date",
+          label: "执行日期",
+          type: "DATE",
+          required: true,
+        },
+      ],
+    });
+
+    expect(form.fields).toEqual([
+      {
+        name: "exec_time",
+        label: "执行时间",
+        type: "TIME",
+        required: true,
+      },
+      {
+        name: "run_date",
+        label: "执行日期",
+        type: "DATE",
+        required: true,
+      },
     ]);
   });
 });
