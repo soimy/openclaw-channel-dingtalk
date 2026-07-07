@@ -145,8 +145,8 @@ openclaw configure --section channels
 
 该能力支持两种入参：
 
-- `questions`：轻量问题 DSL，适合确认、单选、多选和简单文本输入。
-- `fields`：钉钉表单变量协议，适合 `TEXT_AREA`、`NUMBER`、`SELECT`、`MULTI_SELECT`、`DATE`、`TIME`、`DATETIME`、`CHECKBOX`、`SWITCH`、`CHECKBOX_GROUP`、`MULTI_CHECKBOX_GROUP` 等高级表单字段。
+- `questions`：轻量问题 DSL，仅适合简单确认、单选、多选和简单文本输入。
+- `fields`：钉钉表单变量协议，适合多字段收集、复杂表单、日期时间、数字、布尔开关，以及 `TEXT_AREA`、`NUMBER`、`SELECT`、`MULTI_SELECT`、`DATE`、`TIME`、`DATETIME`、`CHECKBOX`、`SWITCH`、`CHECKBOX_GROUP`、`MULTI_CHECKBOX_GROUP` 等高级表单字段。
 
 使用该能力无需额外配置模板 ID；插件内置钉钉互动卡片模板。若当前 OpenClaw 运行时不支持工具注册，插件会跳过该工具注册，不影响既有钉钉消息收发、AI 卡片和反馈学习能力。
 

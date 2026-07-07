@@ -11,6 +11,7 @@ const shared = vi.hoisted(() => ({
   finishAICardMock: vi.fn(),
   commitAICardBlocksMock: vi.fn(),
   recallAICardMessageMock: vi.fn(),
+  dispatchDingTalkCardStopCommandMock: vi.fn(),
   isCardInTerminalStateMock: vi.fn(),
   updateAICardBlockListMock: vi.fn(),
   streamAICardMock: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock("../../src/card-service", () => ({
   updateAICardBlockList: shared.updateAICardBlockListMock,
   streamAICardContent: vi.fn(),
   clearAICardStreamingContent: vi.fn(),
+}));
+
+vi.mock("../../src/command/card-stop-command", () => ({
+  dispatchDingTalkCardStopCommand: shared.dispatchDingTalkCardStopCommandMock,
 }));
 
 vi.mock("../../src/session-lock", () => ({
@@ -166,6 +171,8 @@ describe("inbound-handler card lifecycle", () => {
     shared.createAICardMock.mockReset();
     shared.finishAICardMock.mockReset();
     shared.commitAICardBlocksMock.mockReset();
+    shared.dispatchDingTalkCardStopCommandMock.mockReset();
+    shared.dispatchDingTalkCardStopCommandMock.mockResolvedValue({ ok: true });
     shared.recallAICardMessageMock.mockReset().mockImplementation(async (card: { state?: string }) => {
       card.state = "3";
       return true;
@@ -454,6 +461,14 @@ describe("inbound-handler card lifecycle", () => {
     } as unknown as { data: unknown; dingtalkConfig: unknown });
 
     expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.dispatchDingTalkCardStopCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "main",
+        agentId: "main",
+        targetSessionKey: "s1",
+        clickerUserId: "user_1",
+      }),
+    );
     expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
     const markdownFallbackCalls = shared.sendMessageMock.mock.calls.filter(
       (call: unknown[]) => (call as unknown[])?.[3]?.forceMarkdown === true,
@@ -461,7 +476,7 @@ describe("inbound-handler card lifecycle", () => {
     expect(markdownFallbackCalls).toHaveLength(0);
   });
 
-  it("keeps the normal AI reply path when question card takeover cannot recall the existing AI card", async () => {
+  it("still suppresses normal AI replies when question card takeover cannot recall the existing AI card", async () => {
     const card = {
       cardInstanceId: "card_question_recall_failed",
       state: "1",
@@ -504,10 +519,15 @@ describe("inbound-handler card lifecycle", () => {
     } as unknown as { data: unknown; dingtalkConfig: unknown });
 
     expect(shared.recallAICardMessageMock).toHaveBeenCalledTimes(1);
-    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
-    expect(shared.commitAICardBlocksMock.mock.calls[0][1]?.content).toContain(
-      "normal final after recall failed",
+    expect(shared.dispatchDingTalkCardStopCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "main",
+        agentId: "main",
+        targetSessionKey: "s1",
+        clickerUserId: "user_1",
+      }),
     );
+    expect(shared.commitAICardBlocksMock).not.toHaveBeenCalled();
   });
 
   it("keeps the normal AI reply path when a DingTalk question card is not sent successfully", async () => {

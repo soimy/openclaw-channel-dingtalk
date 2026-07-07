@@ -22,6 +22,7 @@ export async function handleCardAction(params: {
     cfg: params.cfg,
     accountId: params.accountId,
     config: params.config,
+    clickerUserId: params.analysis.userId,
     log: params.log,
   });
   if (askUserResult.handled) {

@@ -13,6 +13,7 @@ export type DingTalkQuestionContext = {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  questionScopeKey?: string;
   onQuestionCardSent?: (event: { questionId: string; outTrackId: string }) => void | Promise<void>;
 };
 

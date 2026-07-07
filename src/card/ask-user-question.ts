@@ -16,6 +16,7 @@ import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card-template";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 const PENDING_QUESTION_TTL_MS = 5 * 60 * 1000;
+const HANDLED_CALLBACK_TOMBSTONE_TTL_MS = 30 * 60 * 1000;
 const TOOL_NAME = "dingtalk_ask_user_question";
 const ANSWER_FIELD_PREFIX = "answer";
 
@@ -82,7 +83,15 @@ type PendingQuestion = DingTalkQuestionContext & {
     multiSelect: boolean;
   }>;
   submitted: boolean;
+  ownerUserId?: string;
   ttlTimer?: ReturnType<typeof setTimeout>;
+};
+
+type HandledQuestionTombstone = {
+  outTrackId: string;
+  questionId: string;
+  reason: "superseded" | "expired" | "submitted" | "cancelled" | "empty";
+  timer?: ReturnType<typeof setTimeout>;
 };
 
 type ParsedCardCallback = {
@@ -94,6 +103,9 @@ type ParsedCardCallback = {
 
 const pendingQuestionsByTrackId = new Map<string, PendingQuestion>();
 const pendingQuestionsByQuestionId = new Map<string, PendingQuestion>();
+const pendingOutTrackIdsByScopeKey = new Map<string, Set<string>>();
+const handledQuestionTombstonesByTrackId = new Map<string, HandledQuestionTombstone>();
+const handledQuestionTombstonesByQuestionId = new Map<string, HandledQuestionTombstone>();
 
 function jsonToolResult(payload: unknown): {
   content: Array<{ type: "text"; text: string }>;
@@ -115,6 +127,33 @@ function stringifyCardData(data: Record<string, unknown>): Record<string, string
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeUserId(value: unknown): string | undefined {
+  return readString(value);
+}
+
+function resolvePendingQuestionOwner(ctx: PendingQuestion): string | undefined {
+  return (
+    normalizeUserId(ctx.ownerUserId) ??
+    normalizeUserId(ctx.data.senderStaffId) ??
+    normalizeUserId(ctx.data.senderId)
+  );
+}
+
+function isOwnerClick(ctx: PendingQuestion, clickerUserId?: string): boolean {
+  const ownerUserId = resolvePendingQuestionOwner(ctx);
+  if (!ownerUserId) {
+    return true;
+  }
+  const clicker = normalizeUserId(clickerUserId);
+  if (!clicker) {
+    return false;
+  }
+  const allowed = [ownerUserId, ctx.data.senderStaffId, ctx.data.senderId]
+    .map((value) => normalizeUserId(value)?.toLowerCase())
+    .filter((value): value is string => Boolean(value));
+  return allowed.includes(clicker.toLowerCase());
 }
 
 function normalizeOption(option: AskUserOption, index: number): { value: string; text: string } {
@@ -297,15 +336,123 @@ async function createAndDeliverQuestionCard(params: {
   }
 }
 
+function removeScopeIndex(ctx: PendingQuestion): void {
+  const scopeKey = readString(ctx.questionScopeKey);
+  if (!scopeKey) {
+    return;
+  }
+  const set = pendingOutTrackIdsByScopeKey.get(scopeKey);
+  if (!set) {
+    return;
+  }
+  set.delete(ctx.outTrackId);
+  if (set.size === 0) {
+    pendingOutTrackIdsByScopeKey.delete(scopeKey);
+  }
+}
+
+function addScopeIndex(ctx: PendingQuestion): void {
+  const scopeKey = readString(ctx.questionScopeKey);
+  if (!scopeKey) {
+    return;
+  }
+  let set = pendingOutTrackIdsByScopeKey.get(scopeKey);
+  if (!set) {
+    set = new Set();
+    pendingOutTrackIdsByScopeKey.set(scopeKey, set);
+  }
+  set.add(ctx.outTrackId);
+}
+
+function deleteHandledQuestionTombstone(tombstone: HandledQuestionTombstone): void {
+  if (handledQuestionTombstonesByTrackId.get(tombstone.outTrackId) === tombstone) {
+    handledQuestionTombstonesByTrackId.delete(tombstone.outTrackId);
+  }
+  if (handledQuestionTombstonesByQuestionId.get(tombstone.questionId) === tombstone) {
+    handledQuestionTombstonesByQuestionId.delete(tombstone.questionId);
+  }
+  if (tombstone.timer) {
+    clearTimeout(tombstone.timer);
+  }
+}
+
+function addHandledQuestionTombstone(
+  ctx: PendingQuestion,
+  reason: HandledQuestionTombstone["reason"],
+): void {
+  const existingByTrack = handledQuestionTombstonesByTrackId.get(ctx.outTrackId);
+  if (existingByTrack) {
+    deleteHandledQuestionTombstone(existingByTrack);
+  }
+  const existingByQuestion = handledQuestionTombstonesByQuestionId.get(ctx.questionId);
+  if (existingByQuestion && existingByQuestion !== existingByTrack) {
+    deleteHandledQuestionTombstone(existingByQuestion);
+  }
+  const tombstone: HandledQuestionTombstone = {
+    outTrackId: ctx.outTrackId,
+    questionId: ctx.questionId,
+    reason,
+  };
+  tombstone.timer = setTimeout(() => {
+    deleteHandledQuestionTombstone(tombstone);
+  }, HANDLED_CALLBACK_TOMBSTONE_TTL_MS);
+  if (typeof tombstone.timer === "object" && "unref" in tombstone.timer) {
+    tombstone.timer.unref();
+  }
+  handledQuestionTombstonesByTrackId.set(ctx.outTrackId, tombstone);
+  handledQuestionTombstonesByQuestionId.set(ctx.questionId, tombstone);
+}
+
+function findHandledQuestionTombstone(
+  parsed: ParsedCardCallback,
+): HandledQuestionTombstone | undefined {
+  return (
+    (parsed.outTrackId ? handledQuestionTombstonesByTrackId.get(parsed.outTrackId) : undefined) ??
+    (parsed.actionId ? handledQuestionTombstonesByQuestionId.get(parsed.actionId) : undefined)
+  );
+}
+
+function supersedePendingQuestionsInScope(ctx: PendingQuestion): void {
+  const scopeKey = readString(ctx.questionScopeKey);
+  if (!scopeKey) {
+    return;
+  }
+  const set = pendingOutTrackIdsByScopeKey.get(scopeKey);
+  if (!set) {
+    return;
+  }
+  for (const outTrackId of [...set]) {
+    if (outTrackId === ctx.outTrackId) {
+      continue;
+    }
+    const oldCtx = pendingQuestionsByTrackId.get(outTrackId);
+    if (!oldCtx || oldCtx.submitted) {
+      continue;
+    }
+    oldCtx.submitted = true;
+    consumePendingQuestion(oldCtx);
+    addHandledQuestionTombstone(oldCtx, "superseded");
+    void updateQuestionCardBestEffort(oldCtx, {
+      card_status: "expired",
+      question_desc: "已有新的问题卡片，请回答最新卡片。",
+      form_btn_text: "已失效",
+    });
+  }
+}
+
 function storePendingQuestion(ctx: PendingQuestion): void {
+  ctx.ownerUserId = resolvePendingQuestionOwner(ctx);
+  supersedePendingQuestionsInScope(ctx);
   pendingQuestionsByTrackId.set(ctx.outTrackId, ctx);
   pendingQuestionsByQuestionId.set(ctx.questionId, ctx);
+  addScopeIndex(ctx);
   ctx.ttlTimer = setTimeout(() => {
     if (!pendingQuestionsByTrackId.has(ctx.outTrackId) || ctx.submitted) {
       return;
     }
     ctx.submitted = true;
     consumePendingQuestion(ctx);
+    addHandledQuestionTombstone(ctx, "expired");
     void updateQuestionCardBestEffort(ctx, {
       card_status: "expired",
       question_desc: "问题已失效，请重新发起。",
@@ -326,6 +473,7 @@ function storePendingQuestion(ctx: PendingQuestion): void {
 function consumePendingQuestion(ctx: PendingQuestion): void {
   pendingQuestionsByTrackId.delete(ctx.outTrackId);
   pendingQuestionsByQuestionId.delete(ctx.questionId);
+  removeScopeIndex(ctx);
   if (ctx.ttlTimer) {
     clearTimeout(ctx.ttlTimer);
   }
@@ -431,19 +579,41 @@ function formatAnswerText(
 
 function buildAnswerMessage(ctx: PendingQuestion, answers: AnswerEntry[]): string {
   const lines = answers.map(({ question, answer }) => `- ${question}: ${answer}`);
-  return `用户回答了你的问题:\n${lines.join("\n")}`;
+  return [
+    "用户回答了交互卡片:",
+    `- question_id: ${ctx.questionId}`,
+    `- question_title: ${ctx.title}`,
+    "- status: submitted",
+    "- answers:",
+    ...lines.map((line) => `  ${line}`),
+  ].join("\n");
 }
 
 function buildEmptyAnswerMessage(ctx: PendingQuestion): string {
-  return `用户提交了空表单: ${ctx.title}`;
+  return [
+    "用户提交了空交互卡片:",
+    `- question_id: ${ctx.questionId}`,
+    `- question_title: ${ctx.title}`,
+    "- status: submitted",
+  ].join("\n");
 }
 
 function buildCancelledAnswerMessage(ctx: PendingQuestion): string {
-  return `用户取消了问题: ${ctx.title}`;
+  return [
+    "用户取消了交互卡片:",
+    `- question_id: ${ctx.questionId}`,
+    `- question_title: ${ctx.title}`,
+    "- status: cancelled",
+  ].join("\n");
 }
 
 function buildExpiredAnswerMessage(ctx: PendingQuestion): string {
-  return `问题已超时: ${ctx.title}`;
+  return [
+    "交互卡片已超时:",
+    `- question_id: ${ctx.questionId}`,
+    `- question_title: ${ctx.title}`,
+    "- status: expired",
+  ].join("\n");
 }
 
 async function injectAnswerSyntheticMessage(
@@ -491,14 +661,29 @@ export async function handleDingTalkAskUserCardCallback(params: {
   cfg: DingTalkQuestionContext["cfg"];
   accountId: string;
   config: DingTalkConfig;
+  clickerUserId?: string;
   log?: Logger;
 }): Promise<{ handled: boolean }> {
   const parsed = parseAskUserCardCallback(params.payload);
+  const tombstone = findHandledQuestionTombstone(parsed);
+  if (tombstone) {
+    params.log?.debug?.(
+      `[DingTalk][AskUser] Ignoring handled callback question=${tombstone.questionId} reason=${tombstone.reason}`,
+    );
+    return { handled: true };
+  }
   const ctx =
     (parsed.outTrackId ? pendingQuestionsByTrackId.get(parsed.outTrackId) : undefined) ??
     (parsed.actionId ? pendingQuestionsByQuestionId.get(parsed.actionId) : undefined);
   if (!ctx) {
     return { handled: false };
+  }
+
+  if (!isOwnerClick(ctx, params.clickerUserId)) {
+    params.log?.info?.(
+      `[DingTalk][AskUser] rejected: clicker=${params.clickerUserId ?? "unknown"} owner=${resolvePendingQuestionOwner(ctx) ?? "unknown"} question=${ctx.questionId}`,
+    );
+    return { handled: true };
   }
 
   if (!parsed.hasBusinessPayload) {
@@ -523,6 +708,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
       form_btn_text: "已取消",
     });
     consumePendingQuestion(ctx);
+    addHandledQuestionTombstone(ctx, "cancelled");
     setImmediate(() => {
       void injectAnswerSyntheticMessage(ctx, buildCancelledAnswerMessage(ctx), "cancelled").catch(
         (err) => {
@@ -567,6 +753,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
       form_btn_text: "已提交",
     });
     consumePendingQuestion(ctx);
+    addHandledQuestionTombstone(ctx, "empty");
     setImmediate(() => {
       void injectAnswerSyntheticMessage(ctx, buildEmptyAnswerMessage(ctx), "empty").catch((err) => {
         params.log?.error?.(
@@ -586,6 +773,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
     form_btn_text: "已提交",
   });
   consumePendingQuestion(ctx);
+  addHandledQuestionTombstone(ctx, "submitted");
 
   const message = buildAnswerMessage(ctx, answers);
   setImmediate(() => {
@@ -612,7 +800,8 @@ const AskUserQuestionSchema = {
     questions: {
       type: "array",
       description:
-        "Blocking question(s) that must be answered by the DingTalk user before the assistant can continue. Prefer exactly one question per card. " +
+        "Lightweight blocking question DSL for simple confirmation, single-select, multi-select, or simple free-text prompts. Prefer exactly one question per card. " +
+        "Do not use questions for complex forms, multiple structured fields, date/time inputs, numeric inputs, boolean switches, or mixed input collection; use top-level fields for those cases. " +
         "Do not use for explanations, status updates, capability introductions, or retrospective questions.",
       minItems: 1,
       maxItems: 6,
@@ -659,6 +848,7 @@ const AskUserQuestionSchema = {
       description:
         "Advanced DingTalk form fields. Use top-level fields when collecting multiple inputs, " +
         "when the user asks to fill a form, or when you would otherwise list required parameters in markdown. " +
+        "Use one fields card to collect all missing inputs for the current turn; do not split related fields into multiple cards. " +
         "Do not answer with a markdown checklist when these fields are needed. The plugin will send " +
         "these fields as the DingTalk card variable form, shaped as { fields }. Do not wrap fields inside form. " +
         "For simple confirmation, single-select, or multi-select questions, prefer questions. Do not mix fields with questions. " +
@@ -746,8 +936,20 @@ export function clearPendingQuestionsForTest(): void {
       clearTimeout(ctx.ttlTimer);
     }
   }
+  const tombstones = new Set([
+    ...handledQuestionTombstonesByTrackId.values(),
+    ...handledQuestionTombstonesByQuestionId.values(),
+  ]);
+  for (const tombstone of tombstones) {
+    if (tombstone.timer) {
+      clearTimeout(tombstone.timer);
+    }
+  }
   pendingQuestionsByTrackId.clear();
   pendingQuestionsByQuestionId.clear();
+  pendingOutTrackIdsByScopeKey.clear();
+  handledQuestionTombstonesByTrackId.clear();
+  handledQuestionTombstonesByQuestionId.clear();
 }
 
 export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): void {
@@ -770,8 +972,8 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       "Returns immediately after sending the card. " +
       "The user's answer will arrive as a new message in the conversation. " +
       "Do NOT poll or re-call this tool — just wait for the response message. " +
-      "For selection questions, provide options. " +
-      "For free-text input, set options to an empty array. " +
+      "Use questions only for simple confirmation, single-select, multi-select, or simple free-text prompts. " +
+      "For simple selection questions, provide options; for simple free-text input, set options to an empty array. " +
       "When collecting multiple missing values, when the user asks for a form, or when you would otherwise list required parameters for the user to fill, call this tool with top-level fields instead of replying with a markdown checklist. " +
       "Do not call this tool for normal explanations, why/how questions, capability introductions, or cases where you can answer directly.",
     parameters: AskUserQuestionSchema as any,

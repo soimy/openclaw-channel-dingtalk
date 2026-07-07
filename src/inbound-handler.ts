@@ -7,10 +7,19 @@ import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { getAccessToken } from "./auth";
-import { createAICard, commitAICardBlocks, isCardInTerminalState, recallAICardMessage } from "./card-service";
-import { getDingTalkQuestionContext, withDingTalkQuestionContext } from "./card/ask-user-question-context";
+import {
+  createAICard,
+  commitAICardBlocks,
+  isCardInTerminalState,
+  recallAICardMessage,
+} from "./card-service";
+import {
+  getDingTalkQuestionContext,
+  withDingTalkQuestionContext,
+} from "./card/ask-user-question-context";
 import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
 import { renderStatusLine } from "./card/statusline-renderer";
+import { dispatchDingTalkCardStopCommand } from "./command/card-stop-command";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import {
   resolveAckReactionSetting,
@@ -824,6 +833,10 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
     });
   }
+  const questionContext = getDingTalkQuestionContext();
+  if (questionContext) {
+    questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
+  }
 
   // @Sub-Agent routing: dispatch @mention-targeted messages to their agent(s).
   // Both content (`@agent <message>`) and commands (`@agent /new`) re-enter
@@ -948,28 +961,42 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   let questionCardTookOver = false;
 
   let cardFlightKey: string | undefined;
-  const questionContext = getDingTalkQuestionContext();
   if (questionContext) {
     questionContext.onQuestionCardSent = async ({ questionId, outTrackId }) => {
+      questionCardTookOver = true;
+      if (cardFlightKey) {
+        cardCreationInFlight.delete(cardFlightKey);
+        cardFlightKey = undefined;
+      }
+      try {
+        await dispatchDingTalkCardStopCommand({
+          cfg,
+          accountId,
+          agentId: route.agentId,
+          targetSessionKey: route.sessionKey,
+          clickerUserId: senderId || "unknown",
+          log,
+        });
+        log?.info?.(
+          `[DingTalk][AskUser] Dispatched targeted stop after question card sent question=${questionId} outTrackId=${outTrackId} targetSessionKey=${route.sessionKey}`,
+        );
+      } catch (err) {
+        log?.warn?.(
+          `[DingTalk][AskUser] Question card sent, but targeted stop failed question=${questionId} outTrackId=${outTrackId} targetSessionKey=${route.sessionKey}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       if (!currentAICard) {
-        questionCardTookOver = true;
         return;
       }
       if (isCardInTerminalState(currentAICard.state)) {
-        questionCardTookOver = true;
         return;
       }
       const recalled = await recallAICardMessage(currentAICard, log);
       if (!recalled) {
         log?.warn?.(
-          `[DingTalk][AskUser] Question card sent, but AI card recall failed; keeping normal reply fallback question=${questionId} outTrackId=${outTrackId}`,
+          `[DingTalk][AskUser] Question card sent, but AI card recall failed; normal replies remain suppressed question=${questionId} outTrackId=${outTrackId}`,
         );
         return;
-      }
-      questionCardTookOver = true;
-      if (cardFlightKey) {
-        cardCreationInFlight.delete(cardFlightKey);
-        cardFlightKey = undefined;
       }
       log?.info?.(
         `[DingTalk][AskUser] Recalled empty AI card after question card sent question=${questionId} outTrackId=${outTrackId}`,
@@ -2265,7 +2292,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             bufferedFinalPayload.text.trim().length > 0;
           if (hasBufferedText || mediaUrls.length > 0) {
             if (questionCardTookOver) {
-              log?.info?.("[DingTalk][AskUser] Suppressed buffered final after question card took over");
+              log?.info?.(
+                "[DingTalk][AskUser] Suppressed buffered final after question card took over",
+              );
             } else {
               await strategy.deliver({
                 text: inlineReplyPayload.text,
@@ -2285,7 +2314,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       }
 
       if (questionCardTookOver) {
-        log?.info?.("[DingTalk][AskUser] Skipping normal AI card finalize after question card took over");
+        log?.info?.(
+          "[DingTalk][AskUser] Skipping normal AI card finalize after question card took over",
+        );
         return;
       }
       await strategy.finalize();
