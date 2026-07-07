@@ -6,7 +6,7 @@ import { resolveRobotCode } from "../config";
 import axios from "../http-client";
 import { handleDingTalkMessage } from "../inbound-handler";
 import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "../types";
-import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "../utils";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption, parseBooleanLike } from "../utils";
 import {
   getDingTalkQuestionContext,
   type DingTalkQuestionContext,
@@ -392,7 +392,7 @@ export function parseAskUserCardCallback(payload: unknown): ParsedCardCallback {
     outTrackId,
     actionId,
     params,
-    hasBusinessPayload: Boolean(params.form || params.user_cancel || params.user_cacel),
+    hasBusinessPayload: Boolean(params.form || params.user_cancel),
   };
 }
 
@@ -513,7 +513,7 @@ export async function handleDingTalkAskUserCardCallback(params: {
     return { handled: true };
   }
 
-  const isCancel = parsed.params.user_cancel === "true" || parsed.params.user_cacel === "true";
+  const isCancel = parseBooleanLike(parsed.params.user_cancel) === true;
   ctx.submitted = true;
 
   if (isCancel) {

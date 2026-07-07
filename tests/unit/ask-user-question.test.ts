@@ -258,7 +258,7 @@ describe("parseAskUserCardCallback", () => {
         content: JSON.stringify({
           cardPrivateData: {
             params: {
-              user_cancel: "true",
+              user_cancel: true,
             },
           },
         }),
@@ -266,7 +266,7 @@ describe("parseAskUserCardCallback", () => {
     ).toMatchObject({
       outTrackId: "ask_2",
       params: {
-        user_cancel: "true",
+        user_cancel: true,
       },
       hasBusinessPayload: true,
     });
