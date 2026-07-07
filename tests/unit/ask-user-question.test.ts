@@ -665,7 +665,6 @@ describe("handleDingTalkAskUserCardCallback", () => {
     });
 
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-    await vi.runOnlyPendingTimersAsync();
 
     expect(updateCardVariables).toHaveBeenCalledWith(
       "ask_expire",
@@ -676,21 +675,6 @@ describe("handleDingTalkAskUserCardCallback", () => {
       }),
       "access-token",
       {},
-    );
-    expect(handleDingTalkMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          msgId: "msg_expire:ask-user-expired:q_expire",
-          text: {
-            content: [
-              "交互卡片已超时:",
-              "- question_id: q_expire",
-              "- question_title: 补充执行参数",
-              "- status: expired",
-            ].join("\n"),
-          },
-        }),
-      }),
     );
 
     await expect(
@@ -709,6 +693,23 @@ describe("handleDingTalkAskUserCardCallback", () => {
         config: {} as any,
       }),
     ).resolves.toEqual({ handled: true });
+
+    await vi.advanceTimersToNextTimerAsync();
+    expect(handleDingTalkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          msgId: "msg_expire:ask-user-expired:q_expire",
+          text: {
+            content: [
+              "交互卡片已超时:",
+              "- question_id: q_expire",
+              "- question_title: 补充执行参数",
+              "- status: expired",
+            ].join("\n"),
+          },
+        }),
+      }),
+    );
   });
 
   it("consumes optional fields submissions even when every answer is empty", async () => {
