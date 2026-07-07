@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { updateCardVariables } from "../../src/card-callback-service";
 import {
   clearPendingQuestionsForTest,
   buildQuestionFormFromFields,
@@ -7,8 +8,7 @@ import {
   handleDingTalkAskUserCardCallback,
   parseAskUserCardCallback,
   registerPendingQuestionForTest,
-} from "../../src/ask-user-question";
-import { updateCardVariables } from "../../src/card-callback-service";
+} from "../../src/card/ask-user-question";
 import { handleDingTalkMessage } from "../../src/inbound-handler";
 
 vi.mock("../../src/auth", () => ({
@@ -24,6 +24,7 @@ vi.mock("../../src/inbound-handler", () => ({
 }));
 
 afterEach(() => {
+  vi.useRealTimers();
   clearPendingQuestionsForTest();
   vi.clearAllMocks();
 });
@@ -36,7 +37,8 @@ describe("AskUserQuestionSchema", () => {
     expect(schema.properties.questions.description).toContain("Blocking question");
     expect(schema.properties.questions.description).toContain("Do not use for explanations");
     expect(schema.properties.fields.description).toContain("Advanced DingTalk form fields");
-    expect(schema.properties.fields.description).toContain("form.fields");
+    expect(schema.properties.fields.description).toContain("top-level fields");
+    expect(schema.properties.fields.description).toContain("shaped as { fields }");
     expect(schema.properties.fields.description).toContain("Do not wrap fields inside form");
     expect(schema.properties.fields.description).toContain("{ value, text }");
     expect(schema.properties.fields.items.properties.type.enum).toContain("DATETIME");
@@ -290,6 +292,148 @@ describe("parseAskUserCardCallback", () => {
 });
 
 describe("handleDingTalkAskUserCardCallback", () => {
+  it("updates cancelled cards and injects a cancellation message", async () => {
+    registerPendingQuestionForTest({
+      cfg: {} as any,
+      accountId: "default",
+      data: {
+        msgId: "msg_cancel",
+        msgtype: "text",
+        createAt: Date.now(),
+        text: { content: "ask" },
+        conversationType: "1",
+        conversationId: "conv_1",
+        senderId: "sender_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://example.com/webhook",
+      },
+      sessionWebhook: "https://example.com/webhook",
+      dingtalkConfig: {} as any,
+      questionId: "q_cancel",
+      outTrackId: "ask_cancel",
+      title: "补充执行参数",
+      questions: [
+        {
+          fieldName: "answer_0",
+          title: "确认",
+          options: [],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    const result = await handleDingTalkAskUserCardCallback({
+      payload: {
+        outTrackId: "ask_cancel",
+        content: JSON.stringify({
+          cardPrivateData: {
+            actionIds: ["q_cancel"],
+            params: {
+              user_cancel: "true",
+            },
+          },
+        }),
+      },
+      cfg: {} as any,
+      accountId: "default",
+      config: {} as any,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(result).toEqual({ handled: true });
+    expect(updateCardVariables).toHaveBeenCalledWith(
+      "ask_cancel",
+      expect.objectContaining({
+        card_status: "cancelled",
+        question_desc: "已取消。",
+        form_btn_text: "已取消",
+      }),
+      "access-token",
+      {},
+    );
+    expect(handleDingTalkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          msgId: "msg_cancel:ask-user-cancelled:q_cancel",
+          text: { content: "用户取消了问题: 补充执行参数" },
+        }),
+      }),
+    );
+  });
+
+  it("expires pending questions and injects a timeout message", async () => {
+    vi.useFakeTimers();
+    registerPendingQuestionForTest({
+      cfg: {} as any,
+      accountId: "default",
+      data: {
+        msgId: "msg_expire",
+        msgtype: "text",
+        createAt: Date.now(),
+        text: { content: "ask" },
+        conversationType: "1",
+        conversationId: "conv_1",
+        senderId: "sender_1",
+        senderStaffId: "staff_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://example.com/webhook",
+      },
+      sessionWebhook: "https://example.com/webhook",
+      dingtalkConfig: {} as any,
+      questionId: "q_expire",
+      outTrackId: "ask_expire",
+      title: "补充执行参数",
+      questions: [
+        {
+          fieldName: "answer_0",
+          title: "确认",
+          options: [],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(updateCardVariables).toHaveBeenCalledWith(
+      "ask_expire",
+      expect.objectContaining({
+        card_status: "expired",
+        question_desc: "问题已失效，请重新发起。",
+        form_btn_text: "已失效",
+      }),
+      "access-token",
+      {},
+    );
+    expect(handleDingTalkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          msgId: "msg_expire:ask-user-expired:q_expire",
+          text: { content: "问题已超时: 补充执行参数" },
+        }),
+      }),
+    );
+
+    await expect(
+      handleDingTalkAskUserCardCallback({
+        payload: {
+          outTrackId: "ask_expire",
+          content: JSON.stringify({
+            cardPrivateData: {
+              actionIds: ["q_expire"],
+              params: { form: { answer_0: "late" } },
+            },
+          }),
+        },
+        cfg: {} as any,
+        accountId: "default",
+        config: {} as any,
+      }),
+    ).resolves.toEqual({ handled: false });
+  });
+
   it("consumes optional fields submissions even when every answer is empty", async () => {
     registerPendingQuestionForTest({
       cfg: {} as any,

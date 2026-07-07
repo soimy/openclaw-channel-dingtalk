@@ -1,19 +1,18 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { getAccessToken } from "./auth";
-import { updateCardVariables } from "./card-callback-service";
-import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card/card-template";
-import { resolveRobotCode } from "./config";
-import axios from "./http-client";
-import { handleDingTalkMessage } from "./inbound-handler";
-import type {
-  DingTalkConfig,
-  DingTalkInboundMessage,
-  HandleDingTalkMessageParams,
-  Logger,
-} from "./types";
-import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
+import { getAccessToken } from "../auth";
+import { updateCardVariables } from "../card-callback-service";
+import { resolveRobotCode } from "../config";
+import axios from "../http-client";
+import { handleDingTalkMessage } from "../inbound-handler";
+import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "../types";
+import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "../utils";
+import {
+  getDingTalkQuestionContext,
+  type DingTalkQuestionContext,
+  withDingTalkQuestionContext,
+} from "./ask-user-question-context";
+import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card-template";
 
 const DINGTALK_API = "https://api.dingtalk.com";
 const PENDING_QUESTION_TTL_MS = 5 * 60 * 1000;
@@ -53,15 +52,6 @@ type SelectValue = { index: number; value: RawValue };
 type MultiSelectValue = { index: number[]; value: RawValue[] };
 type AnswerEntry = { question: string; answer: string };
 
-type AskUserQuestionContext = {
-  cfg: HandleDingTalkMessageParams["cfg"];
-  accountId: string;
-  data: DingTalkInboundMessage;
-  sessionWebhook: string;
-  log?: Logger;
-  dingtalkConfig: DingTalkConfig;
-};
-
 type FormField = {
   name: string;
   label?: string;
@@ -81,7 +71,7 @@ type FormField = {
   addText?: string;
 };
 
-type PendingQuestion = AskUserQuestionContext & {
+type PendingQuestion = DingTalkQuestionContext & {
   questionId: string;
   outTrackId: string;
   title: string;
@@ -102,7 +92,6 @@ type ParsedCardCallback = {
   hasBusinessPayload: boolean;
 };
 
-const questionContextStorage = new AsyncLocalStorage<AskUserQuestionContext>();
 const pendingQuestionsByTrackId = new Map<string, PendingQuestion>();
 const pendingQuestionsByQuestionId = new Map<string, PendingQuestion>();
 
@@ -114,13 +103,6 @@ function jsonToolResult(payload: unknown): {
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
     details: payload,
   };
-}
-
-export function withDingTalkQuestionContext<T>(
-  context: AskUserQuestionContext,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return questionContextStorage.run(context, fn);
 }
 
 function stringifyCardData(data: Record<string, unknown>): Record<string, string> {
@@ -322,6 +304,7 @@ function storePendingQuestion(ctx: PendingQuestion): void {
     if (!pendingQuestionsByTrackId.has(ctx.outTrackId) || ctx.submitted) {
       return;
     }
+    ctx.submitted = true;
     consumePendingQuestion(ctx);
     void updateQuestionCardBestEffort(ctx, {
       card_status: "expired",
@@ -329,13 +312,13 @@ function storePendingQuestion(ctx: PendingQuestion): void {
       form_btn_text: "已失效",
     });
     setImmediate(() => {
-      void injectAnswerSyntheticMessage(
-        ctx,
-        `问题已超时，请重新发起: ${ctx.title}`,
-        "expired",
-      ).catch((err) => {
-        ctx.log?.error?.(`[DingTalk][AskUser] Failed to inject expiration message: ${String(err)}`);
-      });
+      void injectAnswerSyntheticMessage(ctx, buildExpiredAnswerMessage(ctx), "expired").catch(
+        (err) => {
+          ctx.log?.error?.(
+            `[DingTalk][AskUser] Failed to inject expired answer message: ${String(err)}`,
+          );
+        },
+      );
     });
   }, PENDING_QUESTION_TTL_MS);
 }
@@ -455,6 +438,14 @@ function buildEmptyAnswerMessage(ctx: PendingQuestion): string {
   return `用户提交了空表单: ${ctx.title}`;
 }
 
+function buildCancelledAnswerMessage(ctx: PendingQuestion): string {
+  return `用户取消了问题: ${ctx.title}`;
+}
+
+function buildExpiredAnswerMessage(ctx: PendingQuestion): string {
+  return `问题已超时: ${ctx.title}`;
+}
+
 async function injectAnswerSyntheticMessage(
   ctx: PendingQuestion,
   text: string,
@@ -497,7 +488,7 @@ async function injectAnswerSyntheticMessage(
 
 export async function handleDingTalkAskUserCardCallback(params: {
   payload: unknown;
-  cfg: HandleDingTalkMessageParams["cfg"];
+  cfg: DingTalkQuestionContext["cfg"];
   accountId: string;
   config: DingTalkConfig;
   log?: Logger;
@@ -533,10 +524,10 @@ export async function handleDingTalkAskUserCardCallback(params: {
     });
     consumePendingQuestion(ctx);
     setImmediate(() => {
-      void injectAnswerSyntheticMessage(ctx, `用户取消了问题: ${ctx.title}`, "cancelled").catch(
+      void injectAnswerSyntheticMessage(ctx, buildCancelledAnswerMessage(ctx), "cancelled").catch(
         (err) => {
           params.log?.error?.(
-            `[DingTalk][AskUser] Failed to inject cancellation message: ${String(err)}`,
+            `[DingTalk][AskUser] Failed to inject cancelled answer message: ${String(err)}`,
           );
         },
       );
@@ -666,10 +657,11 @@ const AskUserQuestionSchema = {
     fields: {
       type: "array",
       description:
-        "Advanced DingTalk form fields. Use top-level fields when collecting multiple inputs " +
-        "or when you need field types beyond the simple questions DSL. The plugin will send " +
-        "these fields as the DingTalk card variable form.fields. Do not wrap fields inside form. " +
-        "For simple confirmation, single-select, or multi-select questions, prefer questions. " +
+        "Advanced DingTalk form fields. Use top-level fields when collecting multiple inputs, " +
+        "when the user asks to fill a form, or when you would otherwise list required parameters in markdown. " +
+        "Do not answer with a markdown checklist when these fields are needed. The plugin will send " +
+        "these fields as the DingTalk card variable form, shaped as { fields }. Do not wrap fields inside form. " +
+        "For simple confirmation, single-select, or multi-select questions, prefer questions. Do not mix fields with questions. " +
         "For choice fields (SELECT, MULTI_SELECT, CHECKBOX_GROUP, MULTI_CHECKBOX_GROUP), " +
         "provide options as { value, text }. Use TEXT for single-line text, TEXT_AREA for " +
         "multi-line text, NUMBER for numeric input, DATE/TIME/DATETIME for date or time inputs, " +
@@ -762,8 +754,11 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
   const registerTool = (
     api as OpenClawPluginApi & { registerTool?: OpenClawPluginApi["registerTool"] }
   ).registerTool;
+  api.logger?.debug?.(
+    `${TOOL_NAME}: register hook invoked, mode=${api.registrationMode ?? "unknown"}, registerTool=${typeof registerTool}`,
+  );
   if (typeof registerTool !== "function") {
-    api.logger?.debug?.(`${TOOL_NAME}: registerTool unavailable, skipping tool registration`);
+    api.logger?.warn?.(`${TOOL_NAME}: registerTool unavailable, skipping tool registration`);
     return;
   }
 
@@ -771,16 +766,17 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
     name: TOOL_NAME,
     label: "Ask User Question",
     description:
-      "Ask the user a blocking question via an interactive DingTalk card when the current task cannot continue without the user's answer. " +
+      "Ask the user a blocking question or collect structured input via an interactive DingTalk form card when the current task cannot continue without the user's answer. " +
       "Returns immediately after sending the card. " +
       "The user's answer will arrive as a new message in the conversation. " +
       "Do NOT poll or re-call this tool — just wait for the response message. " +
       "For selection questions, provide options. " +
       "For free-text input, set options to an empty array. " +
+      "When collecting multiple missing values, when the user asks for a form, or when you would otherwise list required parameters for the user to fill, call this tool with top-level fields instead of replying with a markdown checklist. " +
       "Do not call this tool for normal explanations, why/how questions, capability introductions, or cases where you can answer directly.",
     parameters: AskUserQuestionSchema as any,
     async execute(_toolCallId: string, params: unknown) {
-      const context = questionContextStorage.getStore();
+      const context = getDingTalkQuestionContext();
       if (!context) {
         return jsonToolResult({
           status: "failed",
@@ -842,15 +838,26 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
           error: detail || (err instanceof Error ? err.message : String(err)),
         });
       }
-
-      storePendingQuestion({
+      const pendingContext: DingTalkQuestionContext = {
         ...context,
+        onQuestionCardSent: undefined,
+      };
+      storePendingQuestion({
+        ...pendingContext,
         questionId,
         outTrackId,
         title,
         questions: parsed,
         submitted: false,
       });
+
+      try {
+        await context.onQuestionCardSent?.({ questionId, outTrackId });
+      } catch (err) {
+        context.log?.warn?.(
+          `[DingTalk][AskUser] onQuestionCardSent hook failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
 
       context.log?.info?.(
         `[DingTalk][AskUser] question card sent question=${questionId} outTrackId=${outTrackId}`,

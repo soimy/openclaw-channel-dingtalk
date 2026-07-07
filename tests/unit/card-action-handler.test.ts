@@ -64,6 +64,7 @@ describe('card-action-handler', () => {
         attachCardRunController('track_1', controller);
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',
@@ -114,6 +115,7 @@ describe('card-action-handler', () => {
         });
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',
@@ -150,6 +152,7 @@ describe('card-action-handler', () => {
         });
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',
@@ -171,6 +174,7 @@ describe('card-action-handler', () => {
 
     it('returns handled=false for non-stop action ids', async () => {
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'feedback_up',
                 actionId: 'feedback_up',
@@ -201,6 +205,7 @@ describe('card-action-handler', () => {
         });
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',
@@ -236,6 +241,7 @@ describe('card-action-handler', () => {
         });
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',
@@ -277,6 +283,7 @@ describe('card-action-handler', () => {
         attachCardRunController('track_err', controller);
 
         const result = await handleCardAction({
+            payload: {},
             analysis: {
                 summary: 'btn_stop',
                 actionId: 'btn_stop',

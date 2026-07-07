@@ -1,7 +1,7 @@
 import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
-import { registerDingTalkAskUserQuestionTool } from "./src/ask-user-question";
 import { getAccessToken } from "./src/auth";
+import { registerDingTalkAskUserQuestionTool } from "./src/card/ask-user-question";
 import { dingtalkPlugin } from "./src/channel";
 import { getConfig, listDingTalkAccountIds, resolveDingTalkAccount } from "./src/config";
 import {
@@ -280,7 +280,7 @@ function registerDingTalkConnectorCompatibilityGatewayMethods(api: OpenClawPlugi
 export { dingtalkPlugin } from "./src/channel";
 export { setDingTalkRuntime } from "./src/runtime";
 
-export default defineChannelPluginEntry({
+const dingtalkEntry = defineChannelPluginEntry({
   id: "dingtalk",
   name: "DingTalk Channel",
   description: "DingTalk (钉钉) messaging channel via Stream mode",
@@ -310,3 +310,18 @@ export default defineChannelPluginEntry({
     );
   },
 });
+
+export default {
+  ...dingtalkEntry,
+  register(api: OpenClawPluginApi) {
+    const registrationMode = api.registrationMode as string | undefined;
+    if (registrationMode === "tool-discovery") {
+      registerDingTalkAskUserQuestionTool(api);
+      return;
+    }
+    if (registrationMode === "discovery") {
+      registerDingTalkAskUserQuestionTool(api);
+    }
+    dingtalkEntry.register(api);
+  },
+};
