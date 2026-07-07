@@ -421,7 +421,7 @@ function supersedePendingQuestionsInScope(ctx: PendingQuestion): void {
   if (!set) {
     return;
   }
-  for (const outTrackId of [...set]) {
+  for (const outTrackId of Array.from(set)) {
     if (outTrackId === ctx.outTrackId) {
       continue;
     }
