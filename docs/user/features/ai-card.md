@@ -127,5 +127,6 @@ AI 卡片生命周期：
 ## 相关文档
 
 - [回复模式](reply-modes.md)
+- [表单互动卡片](form-interactive-card.md)
 - [API 消耗说明](../reference/api-usage-and-cost.md)
 - [配置项参考](../reference/configuration.md)

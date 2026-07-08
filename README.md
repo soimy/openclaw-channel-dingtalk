@@ -150,6 +150,8 @@ openclaw configure --section channels
 
 使用该能力无需额外配置模板 ID；插件内置钉钉互动卡片模板。若当前 OpenClaw 运行时不支持工具注册，插件会跳过该工具注册，不影响既有钉钉消息收发、AI 卡片和反馈学习能力。
 
+使用说明见 [表单互动卡片](docs/user/features/form-interactive-card.md)。
+
 ## 重要功能文档
 
 - [消息类型支持](docs/user/features/message-types.md)

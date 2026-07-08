@@ -138,6 +138,7 @@ export default defineConfig({
             { text: '消息类型支持', link: '/user/features/message-types' },
             { text: '回复模式', link: '/user/features/reply-modes' },
             { text: 'AI 卡片', link: '/user/features/ai-card' },
+            { text: '表单互动卡片', link: '/user/features/form-interactive-card' },
             { text: '钉钉文档 API', link: '/user/features/dingtalk-docs-api' },
             { text: '反馈学习', link: '/user/features/feedback-learning' },
             { text: '多 Agent 与多机器人绑定', link: '/user/features/multi-agent-bindings' },

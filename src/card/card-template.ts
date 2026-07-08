@@ -9,7 +9,7 @@ export const BUILTIN_DINGTALK_CARD_CONTENT_KEY = "content";
 export const BUILTIN_DINGTALK_CARD_BLOCK_LIST_KEY = "blockList";
 export const BUILTIN_DINGTALK_CARD_COPY_CONTENT_KEY = "copy_content";
 export const BUILTIN_DINGTALK_ASK_USER_CARD_TEMPLATE_ID =
-  "89d0c6fe-3822-44c8-950e-e950f562546d.schema";
+  "c2a6355b-9724-4f7e-9653-d33fcb3311bb.schema";
 
 export interface DingTalkCardTemplateContract {
   templateId: string;
