@@ -51,6 +51,9 @@ describe("task-model-metadata", () => {
   });
 
   it("returns empty metadata when no configured model exists", () => {
-    expect(resolveConfiguredTaskModelMetadata({ cfg: {} as any, agentId: "main" })).toEqual({});
+    expect(resolveConfiguredTaskModelMetadata({ cfg: {} as any, agentId: "main" })).toEqual({
+      model: undefined,
+      effort: undefined,
+    });
   });
 });
