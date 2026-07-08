@@ -10,7 +10,6 @@ import { formatDingTalkErrorPayloadLog, getProxyBypassOption, parseBooleanLike }
 import {
   getDingTalkQuestionContext,
   type DingTalkQuestionContext,
-  withDingTalkQuestionContext,
 } from "./ask-user-question-context";
 import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card-template";
 
@@ -622,6 +621,9 @@ async function injectAnswerSyntheticMessage(
   suffix: string,
 ): Promise<void> {
   const syntheticData: DingTalkInboundMessage = {
+    // Keep this origin-derived synthetic id stable and unique. If inbound
+    // dedup/self-filter/auth gates move here later, reinjected ask-user answers
+    // must still pass or the waiting session can hang.
     msgId: `${ctx.data.msgId || ctx.outTrackId}:ask-user-${suffix}:${ctx.questionId}`,
     msgtype: "text",
     createAt: Date.now(),
@@ -635,25 +637,14 @@ async function injectAnswerSyntheticMessage(
     chatbotUserId: ctx.data.chatbotUserId,
     sessionWebhook: ctx.data.sessionWebhook,
   };
-  await withDingTalkQuestionContext(
-    {
-      cfg: ctx.cfg,
-      accountId: ctx.accountId,
-      data: syntheticData,
-      sessionWebhook: ctx.sessionWebhook,
-      log: ctx.log,
-      dingtalkConfig: ctx.dingtalkConfig,
-    },
-    () =>
-      handleDingTalkMessage({
-        cfg: ctx.cfg,
-        accountId: ctx.accountId,
-        data: syntheticData,
-        sessionWebhook: ctx.sessionWebhook,
-        log: ctx.log,
-        dingtalkConfig: ctx.dingtalkConfig,
-      }),
-  );
+  await handleDingTalkMessage({
+    cfg: ctx.cfg,
+    accountId: ctx.accountId,
+    data: syntheticData,
+    sessionWebhook: ctx.sessionWebhook,
+    log: ctx.log,
+    dingtalkConfig: ctx.dingtalkConfig,
+  });
 }
 
 export async function handleDingTalkAskUserCardCallback(params: {

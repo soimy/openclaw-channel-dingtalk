@@ -558,6 +558,9 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
+  // Keep context creation inside this public inbound entry. Ask-user synthetic
+  // reinjections call handleDingTalkMessage directly, so moving this wrapper to
+  // gateway callbacks would lose per-message isolation for reinjected answers.
   return withDingTalkQuestionContext(
     {
       cfg: params.cfg,
