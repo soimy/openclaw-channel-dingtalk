@@ -228,6 +228,40 @@ describe("inbound-handler card lifecycle", () => {
     expect(mockedUpsertInboundMessageContext).toHaveBeenCalled();
   });
 
+  it("passes configured agent model into initial AI card statusLine on first request", async () => {
+    await handleDingTalkMessage({
+      cfg: {
+        agents: {
+          defaults: {
+            model: "deepseek/deepseek-v4-pro",
+            thinkingDefault: "high",
+          },
+          list: [{ id: "main" }],
+        },
+      },
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: { dmPolicy: "open", messageType: "card" } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m_initial_model",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid_initial_model",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as unknown as { data: unknown; dingtalkConfig: unknown });
+
+    expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+    const options = shared.createAICardMock.mock.calls[0][3] as { statusLine?: string };
+    expect(options.statusLine).toContain("deepseek-v4-pro");
+    expect(options.statusLine).toContain("high");
+  });
+
   it("handleDingTalkMessage falls back to markdown when card creation or finalization fails", async () => {
     // This merged test covers three failure scenarios:
     // 1. createAICard returns null (card not created)
