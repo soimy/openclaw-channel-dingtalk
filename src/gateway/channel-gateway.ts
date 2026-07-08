@@ -1,10 +1,7 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import { analyzeCardCallback } from "../card-callback-service";
+import { finalizeActiveCardsForAccount, recoverPendingCardsForAccount } from "../card-service";
 import { handleCardAction } from "../card/card-action-handler";
-import {
-  finalizeActiveCardsForAccount,
-  recoverPendingCardsForAccount,
-} from "../card-service";
 import { resolveRobotCode, resolveRuntimeConfig } from "../config";
 import { ConnectionManager } from "../connection-manager";
 import { isMessageProcessed, markMessageProcessed } from "../dedup";
@@ -381,6 +378,7 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               }
             }
             const actionResult = await handleCardAction({
+              payload,
               analysis,
               cfg,
               accountId: account.accountId,
@@ -500,7 +498,9 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               lastStartAt: getCurrentTimestamp(),
               lastError: null,
             });
-            pluginLog?.info?.(`[${account.accountId}] DingTalk Stream client connected successfully`);
+            pluginLog?.info?.(
+              `[${account.accountId}] DingTalk Stream client connected successfully`,
+            );
             await nativeStopPromise;
           }
         } catch (err: any) {

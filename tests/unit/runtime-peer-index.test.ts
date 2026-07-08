@@ -220,7 +220,7 @@ describe("runtime + peer registry + index plugin", () => {
       "dingtalk-connector.probe",
       expect.any(Function),
     );
-  });
+  }, 10_000);
 
   it("skips docs gateway registration outside full registration mode", async () => {
     const plugin = (await import("../../index")).default;

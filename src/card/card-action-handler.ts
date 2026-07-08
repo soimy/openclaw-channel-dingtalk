@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { CardCallbackAnalysis } from "../card-callback-service";
 import type { DingTalkConfig, Logger } from "../types";
+import { handleDingTalkAskUserCardCallback } from "./ask-user-question";
 import { resolveCardRun } from "./card-run-registry";
 import { stopCardRun } from "./card-stop-handler";
 
@@ -9,12 +10,25 @@ export interface CardActionResult {
 }
 
 export async function handleCardAction(params: {
+  payload: unknown;
   analysis: CardCallbackAnalysis;
   cfg: OpenClawConfig;
   accountId: string;
   config: DingTalkConfig;
   log?: Logger;
 }): Promise<CardActionResult> {
+  const askUserResult = await handleDingTalkAskUserCardCallback({
+    payload: params.payload,
+    cfg: params.cfg,
+    accountId: params.accountId,
+    config: params.config,
+    clickerUserId: params.analysis.userId,
+    log: params.log,
+  });
+  if (askUserResult.handled) {
+    return askUserResult;
+  }
+
   if (params.analysis.actionId !== "btn_stop") {
     return { handled: false };
   }

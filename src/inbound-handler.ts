@@ -7,9 +7,19 @@ import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
 import { getAccessToken } from "./auth";
-import { createAICard, commitAICardBlocks, isCardInTerminalState } from "./card-service";
+import {
+  createAICard,
+  commitAICardBlocks,
+  isCardInTerminalState,
+  recallAICardMessage,
+} from "./card-service";
+import {
+  getDingTalkQuestionContext,
+  withDingTalkQuestionContext,
+} from "./card/ask-user-question-context";
 import { isCardRunStopRequested, registerCardRun, removeCardRun } from "./card/card-run-registry";
 import { renderStatusLine } from "./card/statusline-renderer";
+import { dispatchDingTalkCardStopCommand } from "./command/card-stop-command";
 import { handleInboundCommandDispatch } from "./command/inbound-command-dispatch-service";
 import {
   resolveAckReactionSetting,
@@ -548,6 +558,23 @@ export async function downloadMedia(
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
+  // Keep context creation inside this public inbound entry. Ask-user synthetic
+  // reinjections call handleDingTalkMessage directly, so moving this wrapper to
+  // gateway callbacks would lose per-message isolation for reinjected answers.
+  return withDingTalkQuestionContext(
+    {
+      cfg: params.cfg,
+      accountId: params.accountId,
+      data: params.data,
+      sessionWebhook: params.sessionWebhook,
+      log: params.log,
+      dingtalkConfig: params.dingtalkConfig,
+    },
+    () => handleDingTalkMessageInner(params),
+  );
+}
+
+async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): Promise<void> {
   const {
     cfg,
     accountId,
@@ -809,6 +836,10 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
     });
   }
+  const questionContext = getDingTalkQuestionContext();
+  if (questionContext) {
+    questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
+  }
 
   // @Sub-Agent routing: dispatch @mention-targeted messages to their agent(s).
   // Both content (`@agent <message>`) and commands (`@agent /new`) re-enter
@@ -930,8 +961,52 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // sending a separate plain-text message.
   let useCardMode = dingtalkConfig.messageType === "card";
   let currentAICard: import("./types").AICardInstance | undefined;
+  let questionCardTookOver = false;
 
   let cardFlightKey: string | undefined;
+  if (questionContext) {
+    questionContext.onQuestionCardSent = async ({ questionId, outTrackId }) => {
+      questionCardTookOver = true;
+      if (cardFlightKey) {
+        cardCreationInFlight.delete(cardFlightKey);
+        cardFlightKey = undefined;
+      }
+      try {
+        await dispatchDingTalkCardStopCommand({
+          cfg,
+          accountId,
+          agentId: route.agentId,
+          targetSessionKey: route.sessionKey,
+          clickerUserId: senderId || "unknown",
+          log,
+        });
+        log?.info?.(
+          `[DingTalk][AskUser] Dispatched targeted stop after question card sent question=${questionId} outTrackId=${outTrackId} targetSessionKey=${route.sessionKey}`,
+        );
+      } catch (err) {
+        log?.warn?.(
+          `[DingTalk][AskUser] Question card sent, but targeted stop failed question=${questionId} outTrackId=${outTrackId} targetSessionKey=${route.sessionKey}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!currentAICard) {
+        return;
+      }
+      if (isCardInTerminalState(currentAICard.state)) {
+        return;
+      }
+      const recalled = await recallAICardMessage(currentAICard, log);
+      if (!recalled) {
+        log?.warn?.(
+          `[DingTalk][AskUser] Question card sent, but AI card recall failed; normal replies remain suppressed question=${questionId} outTrackId=${outTrackId}`,
+        );
+        return;
+      }
+      log?.info?.(
+        `[DingTalk][AskUser] Recalled empty AI card after question card sent question=${questionId} outTrackId=${outTrackId}`,
+      );
+    };
+  }
+
   if (useCardMode && !isBtwBypass) {
     const key = `${accountId}:${to}`;
     if (cardCreationInFlight.has(key)) {
@@ -2163,11 +2238,18 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
                 const inlineReplyPayload = parseInlineReplyPayloadText(payload.text);
                 const mediaUrls = extractMediaUrls(payload, inlineReplyPayload);
                 const richPayload = payload as ReplyStreamPayload & { isReasoning?: boolean };
+                const replyKind = (info?.kind as DeliverPayload["kind"]) || "block";
+                if (questionCardTookOver) {
+                  log?.info?.(
+                    `[DingTalk][AskUser] Suppressed ${replyKind} reply after question card took over`,
+                  );
+                  return;
+                }
                 await strategy.deliver({
                   text: inlineReplyPayload.text,
                   mediaUrls,
                   audioAsVoice: extractSharedAudioAsVoice(payload, inlineReplyPayload),
-                  kind: (info?.kind as DeliverPayload["kind"]) || "block",
+                  kind: replyKind,
                   isReasoning: richPayload.isReasoning === true,
                 });
               } catch (err: unknown) {
@@ -2212,13 +2294,19 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
             typeof bufferedFinalPayload.text === "string" &&
             bufferedFinalPayload.text.trim().length > 0;
           if (hasBufferedText || mediaUrls.length > 0) {
-            await strategy.deliver({
-              text: inlineReplyPayload.text,
-              mediaUrls,
-              audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
-              kind: "final",
-              isReasoning: bufferedFinalPayload.isReasoning === true,
-            });
+            if (questionCardTookOver) {
+              log?.info?.(
+                "[DingTalk][AskUser] Suppressed buffered final after question card took over",
+              );
+            } else {
+              await strategy.deliver({
+                text: inlineReplyPayload.text,
+                mediaUrls,
+                audioAsVoice: extractSharedAudioAsVoice(bufferedFinalPayload, inlineReplyPayload),
+                kind: "final",
+                isReasoning: bufferedFinalPayload.isReasoning === true,
+              });
+            }
           }
         }
       } catch (dispatchErr: unknown) {
@@ -2228,6 +2316,12 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
         throw dispatchErr;
       }
 
+      if (questionCardTookOver) {
+        log?.info?.(
+          "[DingTalk][AskUser] Skipping normal AI card finalize after question card took over",
+        );
+        return;
+      }
       await strategy.finalize();
     } finally {
       // Only remove the registry entry if no stop was requested. When a stop is
