@@ -25,6 +25,7 @@
     "dist/**/*.d.ts.map",
     "index.ts",
     "src/**/*.ts",
+    "docs/assets/dingtalk-ask-user-card-template.json",
     "openclaw.plugin.json",
     "README.md",
     "LICENSE"
