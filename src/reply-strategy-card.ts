@@ -472,7 +472,15 @@ export function createCardReplyStrategy(
       if (payload.kind === "final") {
         // OpenClaw can append a non-terminal tool warning after a valid final.
         // Do not let that plain-text warning replace the answer already captured by the card.
-        if (payload.isError === true && sawFinalDelivery && payload.mediaUrls.length === 0) {
+        const hasPreservableReply = Boolean(
+          finalTextForFallback?.trim() || controller.getFinalAnswerContent().trim(),
+        ) || processedMediaUrls.size > 0 || pendingNonImageMedia.length > 0;
+        if (
+          payload.isError === true
+          && sawFinalDelivery
+          && payload.mediaUrls.length === 0
+          && hasPreservableReply
+        ) {
           log?.debug?.("[DingTalk][Finalize] Ignoring late error final after answer delivery");
           return;
         }
