@@ -946,11 +946,12 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     cfg,
     agentId: route.agentId,
   });
-  const sessionTaskState = initSessionState(
+  const sessionTaskStateScope = {
     accountId,
-    taskInfoConversationId,
-    configuredTaskMetadata,
-  );
+    conversationId: taskInfoConversationId,
+    agentId: route.agentId,
+  };
+  const sessionTaskState = initSessionState(sessionTaskStateScope, configuredTaskMetadata);
   const initialStatusLine =
     renderStatusLine(
       {
@@ -2185,7 +2186,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         legacyCardStreamReasoning === undefined
           ? dingtalkConfig
           : { ...dingtalkConfig, cardStreamReasoning: legacyCardStreamReasoning };
-      const sessionTaskState = getSessionState(accountId, taskInfoConversationId);
+      const sessionTaskState = getSessionState(sessionTaskStateScope);
       const taskMeta = {
         model: sessionTaskState?.model,
         effort: sessionTaskState?.effort,

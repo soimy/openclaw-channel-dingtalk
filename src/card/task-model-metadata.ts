@@ -30,10 +30,10 @@ export function resolveConfiguredTaskModelMetadata(params: {
   cfg: OpenClawConfig;
   agentId?: string | null;
 }): InitialTaskModelMetadata {
-  const agents = (params.cfg as any)?.agents;
+  const agents = params.cfg.agents;
   const agentId = String(params.agentId || "").trim();
   const agent = Array.isArray(agents?.list)
-    ? agents.list.find((entry: any) => String(entry?.id || "").trim() === agentId)
+    ? agents.list.find((entry) => String(entry.id || "").trim() === agentId)
     : undefined;
 
   const modelRef = readPrimaryModelRef(agent?.model) ?? readPrimaryModelRef(agents?.defaults?.model);

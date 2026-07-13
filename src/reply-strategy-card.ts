@@ -49,6 +49,14 @@ export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
+  const sessionTaskStateScope =
+    card.accountId && card.conversationId && ctx.sessionAgentId
+      ? {
+          accountId: card.accountId,
+          conversationId: card.contextConversationId || card.conversationId,
+          agentId: ctx.sessionAgentId,
+        }
+      : undefined;
 
   const buildStatusLine = (): string | undefined => {
     if (!ctx.taskMeta) {
@@ -61,8 +69,8 @@ export function createCardReplyStrategy(
           ? ctx.taskMeta.usage
           : undefined;
 
-    const sessionTaskTimeSeconds = card.accountId && card.conversationId
-      ? getTaskTimeSeconds(card.accountId, card.contextConversationId || card.conversationId)
+    const sessionTaskTimeSeconds = sessionTaskStateScope
+      ? getTaskTimeSeconds(sessionTaskStateScope)
       : undefined;
     const cardElapsedMs = Math.max(0, Date.now() - card.createdAt);
     const sessionElapsedMs = typeof sessionTaskTimeSeconds === "number"
@@ -439,10 +447,12 @@ export function createCardReplyStrategy(
           if (!card.accountId || !card.conversationId) {
             return;
           }
-          updateSessionState(card.accountId, card.contextConversationId || card.conversationId, {
-            model: selected.model,
-            effort: selected.thinkLevel,
-          });
+          if (sessionTaskStateScope) {
+            updateSessionState(sessionTaskStateScope, {
+              model: selected.model,
+              effort: selected.thinkLevel,
+            });
+          }
           if (ctx.taskMeta) {
             ctx.taskMeta.model = selected.model;
             ctx.taskMeta.effort = selected.thinkLevel;

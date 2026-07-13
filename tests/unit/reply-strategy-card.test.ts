@@ -84,6 +84,7 @@ function buildCtx(
         senderId: "sender_1",
         isDirect: true,
         accountId: "main",
+        sessionAgentId: "main",
         storePath: "/tmp/store.json",
         log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
         deliverMedia: vi.fn(),
@@ -1142,7 +1143,12 @@ describe("reply-strategy-card", () => {
         });
 
         it("keeps taskTime isolated to the card even if the session timer resets later", async () => {
-            initSessionState("main", "cid_1");
+            const sessionTaskStateScope = {
+                accountId: "main",
+                conversationId: "cid_1",
+                agentId: "main",
+            };
+            initSessionState(sessionTaskStateScope);
             await vi.advanceTimersByTimeAsync(4000);
 
             const card = makeCard({
@@ -1157,7 +1163,7 @@ describe("reply-strategy-card", () => {
                 },
             }));
 
-            initSessionState("main", "cid_1");
+            initSessionState(sessionTaskStateScope);
 
             await strategy.deliver({ kind: "final", text: "回复内容", mediaUrls: [] });
             await strategy.finalize();
@@ -1218,6 +1224,27 @@ describe("reply-strategy-card", () => {
             expect(statusLine).toContain("gpt-5.4");
             expect(statusLine).toContain("medium");
             expect(statusLine).toContain("代码专家");
+        });
+
+        it("updates the current card when sessionAgentId is unavailable", () => {
+            const card = makeCard({
+                accountId: "main",
+                conversationId: "cid_1",
+                contextConversationId: "cid_1",
+            });
+            const ctx = buildCtx(card, {
+                sessionAgentId: undefined,
+                taskMeta: { agent: "代码专家" },
+            });
+            const strategy = createCardReplyStrategy(ctx);
+
+            strategy.getReplyOptions().onModelSelected?.({
+                model: "gpt-5.4",
+                thinkLevel: "medium",
+            } as any);
+
+            expect(updateAICardStatusLineMock).toHaveBeenCalledTimes(1);
+            expect(updateAICardStatusLineMock.mock.calls[0]?.[1]).toContain("gpt-5.4");
         });
 
         it("includes partial statusLine in early onModelSelected update", async () => {

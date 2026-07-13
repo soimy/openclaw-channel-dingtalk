@@ -4,12 +4,18 @@ interface SessionState {
   taskStartTime: number;
 }
 
+interface SessionStateScope {
+  accountId: string;
+  conversationId: string;
+  agentId: string;
+}
+
 type SessionStateInitialMetadata = Partial<Pick<SessionState, "model" | "effort">>;
 
 const sessionStore = new Map<string, SessionState>();
 
-function sessionKey(accountId: string, conversationId: string): string {
-  return `${accountId}:${conversationId}`;
+function sessionKey(scope: SessionStateScope): string {
+  return `${scope.accountId}:${scope.agentId}:${scope.conversationId}`;
 }
 
 function normalizeMetadataValue(value: string | undefined): string | undefined {
@@ -32,11 +38,10 @@ function seedMissingSessionStateMetadata(
 }
 
 export function initSessionState(
-  accountId: string,
-  conversationId: string,
+  scope: SessionStateScope,
   metadata?: SessionStateInitialMetadata,
 ): SessionState {
-  const key = sessionKey(accountId, conversationId);
+  const key = sessionKey(scope);
   const existing = sessionStore.get(key);
   if (existing) {
     existing.taskStartTime = Date.now();
@@ -51,16 +56,15 @@ export function initSessionState(
   return state;
 }
 
-export function getSessionState(accountId: string, conversationId: string): SessionState | undefined {
-  return sessionStore.get(sessionKey(accountId, conversationId));
+export function getSessionState(scope: SessionStateScope): SessionState | undefined {
+  return sessionStore.get(sessionKey(scope));
 }
 
 export function updateSessionState(
-  accountId: string,
-  conversationId: string,
+  scope: SessionStateScope,
   patch: Partial<Pick<SessionState, "model" | "effort">>,
 ): void {
-  const state = sessionStore.get(sessionKey(accountId, conversationId));
+  const state = sessionStore.get(sessionKey(scope));
   if (!state) {
     return;
   }
@@ -72,16 +76,16 @@ export function updateSessionState(
   }
 }
 
-export function getTaskTimeSeconds(accountId: string, conversationId: string): number | undefined {
-  const state = sessionStore.get(sessionKey(accountId, conversationId));
+export function getTaskTimeSeconds(scope: SessionStateScope): number | undefined {
+  const state = sessionStore.get(sessionKey(scope));
   if (!state) {
     return undefined;
   }
   return Math.round((Date.now() - state.taskStartTime) / 1000);
 }
 
-export function clearSessionState(accountId: string, conversationId: string): void {
-  sessionStore.delete(sessionKey(accountId, conversationId));
+export function clearSessionState(scope: SessionStateScope): void {
+  sessionStore.delete(sessionKey(scope));
 }
 
 export function clearAllSessionStatesForTest(): void {
