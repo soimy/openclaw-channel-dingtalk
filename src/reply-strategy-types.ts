@@ -30,6 +30,7 @@ export interface DeliverPayload {
    */
   audioAsVoice?: boolean;
   kind: "block" | "final" | "tool";
+  isError?: boolean;
   isReasoning?: boolean;
 }
 

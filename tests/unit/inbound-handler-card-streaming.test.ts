@@ -816,8 +816,60 @@ describe("inbound-handler card streaming", () => {
       const content = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
       // The last final overwrites earlier ones
       expect(content).toContain("晚到 final 覆盖答案");
+      expect(content).not.toContain("首个最终答案");
       // Tool output should be in the block list
       expect(blockListJson).toContain("late tool output");
+    });
+
+    it("card flow preserves a normal final when a later error final arrives", async () => {
+      const runtime = buildRuntime();
+      runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+        .fn()
+        .mockImplementation(async ({ dispatcherOptions }) => {
+          await dispatcherOptions.deliver({ text: "正常最终答案" }, { kind: "final" });
+          await dispatcherOptions.deliver(
+            { text: "⚠️ 🛠️ Exec failed: ledger", isError: true },
+            { kind: "final" },
+          );
+          return { queuedFinal: false };
+        });
+      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+      const card = {
+        cardInstanceId: "card_error_final_after_answer",
+        state: "1",
+        lastUpdated: Date.now(),
+      } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
+      shared.createAICardMock.mockResolvedValueOnce(card);
+      shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          dmPolicy: "open",
+          messageType: "card",
+          ackReaction: "",
+          cardStreamingMode: "off",
+        } as unknown as DingTalkConfig,
+        data: {
+          msgId: "m_card_error_final_after_answer",
+          msgtype: "text",
+          text: { content: "hello" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as unknown as { data: unknown });
+
+      const content = shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
+      expect(content).toContain("正常最终答案");
+      expect(content).not.toContain("Exec failed");
     });
 
     it("card flow inserts late tool before frozen final answer when the answer turn was sealed before first final", async () => {
