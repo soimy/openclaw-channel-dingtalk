@@ -428,6 +428,7 @@ function buildGroupTurnContextPrompt(params: {
 
 type ReplyStreamPayload = {
   text?: string;
+  isError?: boolean;
   isReasoning?: boolean;
   mediaUrl?: string;
   mediaUrls?: string[];
@@ -2250,6 +2251,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
                   mediaUrls,
                   audioAsVoice: extractSharedAudioAsVoice(payload, inlineReplyPayload),
                   kind: replyKind,
+                  isError: payload.isError === true,
                   isReasoning: richPayload.isReasoning === true,
                 });
               } catch (err: unknown) {

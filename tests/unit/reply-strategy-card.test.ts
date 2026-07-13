@@ -736,6 +736,21 @@ describe("reply-strategy-card", () => {
             expect(strategy.getFinalText()).toBe("✅ Done");
         });
 
+        it.each(["off", "answer"] as const)("shows a late error after an empty final in %s mode", async (cardStreamingMode) => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(buildCtx(card, {
+                config: { clientId: "id", clientSecret: "s", messageType: "card", cardStreamingMode } as any,
+            }));
+
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            await strategy.deliver({ text: "⚠️ Exec failed", mediaUrls: [], kind: "final", isError: true });
+            await strategy.finalize();
+
+            const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
+            expect(rendered).toContain("⚠️ Exec failed");
+            expect(rendered).not.toContain("✅ Done");
+        });
+
         it("ignores all callbacks and deliveries after finalize seals the card lifecycle", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));
@@ -972,12 +987,15 @@ describe("reply-strategy-card", () => {
             }));
 
             await strategy.deliver({ text: "最终答案", mediaUrls: [], kind: "block" });
+            await strategy.deliver({ text: "", mediaUrls: [], kind: "final" });
+            await strategy.deliver({ text: "⚠️ Exec failed", mediaUrls: [], kind: "final", isError: true });
             await strategy.finalize();
 
             expect(commitAICardBlocksMock).toHaveBeenCalledTimes(1);
             const rendered = commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content ?? "";
             expect(rendered).toContain("最终答案");
             expect(rendered).not.toContain("✅ Done");
+            expect(rendered).not.toContain("Exec failed");
         });
 
         it("finalize prefers the final answer snapshot over an earlier partial answer", async () => {
