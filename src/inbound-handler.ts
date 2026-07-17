@@ -13,6 +13,7 @@ import {
   isCardInTerminalState,
   recallAICardMessage,
 } from "./card-service";
+import { invalidateAskUserQuestionsForScope } from "./card/ask-user-question";
 import {
   getDingTalkQuestionContext,
   withDingTalkQuestionContext,
@@ -584,6 +585,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     sessionWebhook,
     log,
     dingtalkConfig,
+    inboundOrigin = "stream",
     subAgentOptions,
     preDownloadedMedia,
   } = params;
@@ -841,6 +843,24 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   const questionContext = getDingTalkQuestionContext();
   if (questionContext) {
     questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
+    questionContext.storePath = accountStorePath;
+  }
+  if (!subAgentOptions && inboundOrigin !== "ask-user") {
+    const questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
+    try {
+      await invalidateAskUserQuestionsForScope({
+        storePath: accountStorePath,
+        accountId,
+        questionScopeKey,
+        config: dingtalkConfig,
+        reason: "superseded_by_message",
+        log,
+      });
+    } catch (err) {
+      log?.warn?.(
+        `[DingTalk][AskUser] Failed to invalidate pending cards before inbound dispatch scope=${questionScopeKey}: ${String(err)}`,
+      );
+    }
   }
 
   // @Sub-Agent routing: dispatch @mention-targeted messages to their agent(s).
@@ -978,7 +998,6 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   let cardFlightKey: string | undefined;
   if (questionContext) {
     questionContext.onQuestionCardSent = async ({ questionId, outTrackId }) => {
-      questionCardTookOver = true;
       if (cardFlightKey) {
         cardCreationInFlight.delete(cardFlightKey);
         cardFlightKey = undefined;
@@ -999,23 +1018,34 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         log?.warn?.(
           `[DingTalk][AskUser] Question card sent, but targeted stop failed question=${questionId} outTrackId=${outTrackId} targetSessionKey=${route.sessionKey}: ${err instanceof Error ? err.message : String(err)}`,
         );
+        return false;
       }
+      questionCardTookOver = true;
       if (!currentAICard) {
-        return;
+        return true;
       }
       if (isCardInTerminalState(currentAICard.state)) {
-        return;
+        return true;
       }
-      const recalled = await recallAICardMessage(currentAICard, log);
+      let recalled = false;
+      try {
+        recalled = await recallAICardMessage(currentAICard, log);
+      } catch (err) {
+        log?.warn?.(
+          `[DingTalk][AskUser] Question card took over, but AI card recall errored question=${questionId} outTrackId=${outTrackId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return true;
+      }
       if (!recalled) {
         log?.warn?.(
           `[DingTalk][AskUser] Question card sent, but AI card recall failed; normal replies remain suppressed question=${questionId} outTrackId=${outTrackId}`,
         );
-        return;
+        return true;
       }
       log?.info?.(
         `[DingTalk][AskUser] Recalled empty AI card after question card sent question=${questionId} outTrackId=${outTrackId}`,
       );
+      return true;
     };
   }
 

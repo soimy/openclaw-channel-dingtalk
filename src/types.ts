@@ -472,6 +472,8 @@ export interface HandleDingTalkMessageParams {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  /** Distinguishes real Stream messages from Ask User callback reinjection. */
+  inboundOrigin?: "stream" | "ask-user";
   /**
    * When set, routes message to the specified sub-agent instead of main agent.
    * This enables reuse of the main message handling logic for sub-agents.

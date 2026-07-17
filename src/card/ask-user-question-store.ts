@@ -1,5 +1,5 @@
-import type { Logger } from "../types";
 import { readNamespaceJson, writeNamespaceJsonAtomic } from "../persistence-store";
+import type { Logger } from "../types";
 
 const ASK_USER_LIFECYCLE_NAMESPACE = "cards.ask-user.lifecycle";
 const ACTIVE_TTL_MS = 5 * 60 * 1_000;
@@ -70,6 +70,10 @@ function isActiveState(state: AskUserLifecycleRecord["state"]): state is AskUser
   return state === "reserved" || state === "pending" || state === "dispatching";
 }
 
+function isAnswerableState(state: AskUserLifecycleRecord["state"]): boolean {
+  return state === "reserved" || state === "pending";
+}
+
 function loadState(options: AskUserStoreOptions): AskUserLifecycleState {
   const timestamp = now(options);
   const state = readNamespaceJson<AskUserLifecycleState>(ASK_USER_LIFECYCLE_NAMESPACE, {
@@ -109,7 +113,7 @@ function toTerminal(
 function cleanupState(state: AskUserLifecycleState, timestamp: number): boolean {
   let changed = false;
   for (const record of state.records) {
-    if (isActiveState(record.state) && record.expiresAt <= timestamp) {
+    if (isAnswerableState(record.state) && record.expiresAt <= timestamp) {
       toTerminal(record, "expired", timestamp);
       changed = true;
     }
@@ -136,11 +140,16 @@ function findRecord(
   state: AskUserLifecycleState,
   identifier: AskUserQuestionIdentifier,
 ): AskUserLifecycleRecord | undefined {
-  return state.records.find(
-    (record) =>
-      (identifier.questionId && record.questionId === identifier.questionId) ||
-      (identifier.outTrackId && record.outTrackId === identifier.outTrackId),
-  );
+  if (identifier.outTrackId) {
+    const byTrackId = state.records.find((record) => record.outTrackId === identifier.outTrackId);
+    if (byTrackId) {
+      return byTrackId;
+    }
+  }
+  if (identifier.questionId) {
+    return state.records.find((record) => record.questionId === identifier.questionId);
+  }
+  return undefined;
 }
 
 export function reserveAskUserQuestion(
@@ -183,7 +192,7 @@ export function activateAskUserQuestion(
   for (const candidate of state.records) {
     if (
       candidate !== record &&
-      isActiveState(candidate.state) &&
+      isAnswerableState(candidate.state) &&
       candidate.questionScopeKey === record.questionScopeKey
     ) {
       toTerminal(candidate, "superseded_by_question", timestamp);
@@ -239,7 +248,7 @@ export function invalidateAskUserQuestionsInScope(
   const state = readCleanState(options);
   const invalidated: AskUserLifecycleRecord[] = [];
   for (const record of state.records) {
-    if (isActiveState(record.state) && record.questionScopeKey === questionScopeKey) {
+    if (isAnswerableState(record.state) && record.questionScopeKey === questionScopeKey) {
       toTerminal(record, reason, timestamp);
       invalidated.push({ ...record });
     }
@@ -262,7 +271,12 @@ export function recoverAskUserQuestionsAfterRestart(
   options: AskUserStoreOptions,
 ): AskUserLifecycleRecord[] {
   const timestamp = now(options);
-  const state = readCleanState(options);
+  const state = loadState(options);
+  const retained = state.records.filter(
+    (record) => record.state !== "terminal" || record.expiresAt > timestamp,
+  );
+  const removedExpiredTombstones = retained.length !== state.records.length;
+  state.records = retained;
   const recovered: AskUserLifecycleRecord[] = [];
   for (const record of state.records) {
     if (!isActiveState(record.state)) {
@@ -273,7 +287,7 @@ export function recoverAskUserQuestionsAfterRestart(
     toTerminal(record, reason, timestamp);
     recovered.push({ ...record });
   }
-  if (recovered.length > 0) {
+  if (recovered.length > 0 || removedExpiredTombstones) {
     persistState(options, state);
   }
   return recovered;

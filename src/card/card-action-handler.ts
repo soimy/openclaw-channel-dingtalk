@@ -14,6 +14,7 @@ export async function handleCardAction(params: {
   analysis: CardCallbackAnalysis;
   cfg: OpenClawConfig;
   accountId: string;
+  storePath?: string;
   config: DingTalkConfig;
   log?: Logger;
 }): Promise<CardActionResult> {
@@ -21,6 +22,7 @@ export async function handleCardAction(params: {
     payload: params.payload,
     cfg: params.cfg,
     accountId: params.accountId,
+    storePath: params.storePath,
     config: params.config,
     clickerUserId: params.analysis.userId,
     log: params.log,

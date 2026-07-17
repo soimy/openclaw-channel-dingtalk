@@ -11,6 +11,18 @@ import {
   getDingTalkQuestionContext,
   type DingTalkQuestionContext,
 } from "./ask-user-question-context";
+import {
+  activateAskUserQuestion,
+  claimAskUserQuestion,
+  invalidateAskUserQuestionsInScope as invalidateAskUserQuestionsInStore,
+  recoverAskUserQuestionsAfterRestart,
+  reserveAskUserQuestion,
+  resolveAskUserQuestion,
+  terminateAskUserQuestion,
+  type AskUserLifecycleRecord,
+  type AskUserStoreOptions,
+  type AskUserTerminalReason,
+} from "./ask-user-question-store";
 import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card-template";
 
 const DINGTALK_API = "https://api.dingtalk.com";
@@ -439,9 +451,14 @@ function supersedePendingQuestionsInScope(ctx: PendingQuestion): void {
   }
 }
 
-function storePendingQuestion(ctx: PendingQuestion): void {
+function storePendingQuestion(
+  ctx: PendingQuestion,
+  options: { supersedeExisting?: boolean } = {},
+): void {
   ctx.ownerUserId = resolvePendingQuestionOwner(ctx);
-  supersedePendingQuestionsInScope(ctx);
+  if (options.supersedeExisting !== false) {
+    supersedePendingQuestionsInScope(ctx);
+  }
   pendingQuestionsByTrackId.set(ctx.outTrackId, ctx);
   pendingQuestionsByQuestionId.set(ctx.questionId, ctx);
   addScopeIndex(ctx);
@@ -449,7 +466,9 @@ function storePendingQuestion(ctx: PendingQuestion): void {
     if (!pendingQuestionsByTrackId.has(ctx.outTrackId) || ctx.submitted) {
       return;
     }
-    ctx.submitted = true;
+    if (!claimPendingQuestionForDispatch(ctx)) {
+      return;
+    }
     consumePendingQuestion(ctx);
     addHandledQuestionTombstone(ctx, "expired");
     void updateQuestionCardBestEffort(ctx, {
@@ -457,14 +476,12 @@ function storePendingQuestion(ctx: PendingQuestion): void {
       question_desc: "问题已失效，请重新发起。",
       form_btn_text: "已失效",
     });
-    setImmediate(() => {
-      void injectAnswerSyntheticMessage(ctx, buildExpiredAnswerMessage(ctx), "expired").catch(
-        (err) => {
-          ctx.log?.error?.(
-            `[DingTalk][AskUser] Failed to inject expired answer message: ${String(err)}`,
-          );
-        },
-      );
+    dispatchSyntheticAnswer({
+      ctx,
+      text: buildExpiredAnswerMessage(ctx),
+      suffix: "expired",
+      successReason: "expired",
+      log: ctx.log,
     });
   }, PENDING_QUESTION_TTL_MS);
 }
@@ -497,6 +514,171 @@ async function updateQuestionCardBestEffort(
       `[DingTalk][AskUser] Failed to update question card ${ctx.questionId}: ${String(err)}`,
     );
   }
+}
+
+function getAskUserStoreOptions(
+  params: Pick<DingTalkQuestionContext, "storePath" | "accountId" | "log">,
+): AskUserStoreOptions | undefined {
+  if (!params.storePath) {
+    return undefined;
+  }
+  return {
+    storePath: params.storePath,
+    accountId: params.accountId,
+    log: params.log,
+  };
+}
+
+function terminalCardVariables(reason: AskUserTerminalReason): Record<string, unknown> {
+  const descriptions: Record<AskUserTerminalReason, string> = {
+    delivery_failed: "问题卡片发送失败。",
+    superseded_by_question: "已有新的问题卡片，请回答最新卡片。",
+    superseded_by_message: "你在问题卡片发出后发送了新消息，此卡已失效。请重新发起需要填写的问题。",
+    expired: "问题已失效，请重新发起。",
+    cancelled: "已取消。",
+    empty: "已提交，未填写任何内容。",
+    submitted: "已提交。",
+    pause_failed: "当前任务未能暂停，此卡已失效，请重新发起。",
+    restart_invalidated: "服务已重启，原问题上下文已失效，请重新发起。",
+    restart_during_dispatch: "服务在处理回答期间重启，本次处理结果可能未完成，请发送新消息继续。",
+    dispatch_failed: "回答已收到，但未能继续会话，请发送一条普通消息继续。",
+  };
+  return {
+    card_status:
+      reason === "cancelled"
+        ? "cancelled"
+        : reason === "submitted" || reason === "empty"
+          ? "submitted"
+          : "expired",
+    question_desc: descriptions[reason],
+    form_btn_text:
+      reason === "cancelled"
+        ? "已取消"
+        : reason === "submitted" || reason === "empty"
+          ? "已提交"
+          : "已失效",
+  };
+}
+
+async function updateLifecycleRecordCardBestEffort(params: {
+  record: AskUserLifecycleRecord;
+  config: DingTalkConfig;
+  log?: Logger;
+}): Promise<void> {
+  const reason = params.record.terminalReason;
+  if (!reason || reason === "delivery_failed") {
+    return;
+  }
+  try {
+    const token = await getAccessToken(params.config, params.log);
+    await updateCardVariables(
+      params.record.outTrackId,
+      terminalCardVariables(reason),
+      token,
+      params.config,
+    );
+  } catch (err) {
+    params.log?.warn?.(
+      `[DingTalk][AskUser] Failed to update lifecycle card ${params.record.questionId}: ${String(err)}`,
+    );
+  }
+}
+
+function consumeLifecyclePendingContext(
+  record: AskUserLifecycleRecord,
+): PendingQuestion | undefined {
+  const ctx =
+    pendingQuestionsByQuestionId.get(record.questionId) ??
+    pendingQuestionsByTrackId.get(record.outTrackId);
+  if (!ctx) {
+    return undefined;
+  }
+  ctx.submitted = true;
+  consumePendingQuestion(ctx);
+  addHandledQuestionTombstone(ctx, record.terminalReason === "expired" ? "expired" : "superseded");
+  return ctx;
+}
+
+export async function invalidateAskUserQuestionsForScope(params: {
+  storePath: string;
+  accountId: string;
+  questionScopeKey: string;
+  config: DingTalkConfig;
+  reason: "superseded_by_message";
+  log?: Logger;
+}): Promise<AskUserLifecycleRecord[]> {
+  const invalidated = invalidateAskUserQuestionsInStore(
+    {
+      storePath: params.storePath,
+      accountId: params.accountId,
+      log: params.log,
+    },
+    params.questionScopeKey,
+    params.reason,
+  );
+  for (const record of invalidated) {
+    const ctx = consumeLifecyclePendingContext(record);
+    if (ctx) {
+      await updateQuestionCardBestEffort(ctx, terminalCardVariables(params.reason));
+    } else {
+      await updateLifecycleRecordCardBestEffort({
+        record,
+        config: params.config,
+        log: params.log,
+      });
+    }
+  }
+  return invalidated;
+}
+
+export async function recoverAskUserQuestionsForAccount(params: {
+  storePath?: string;
+  accountId: string;
+  config: DingTalkConfig;
+  log?: Logger;
+}): Promise<number> {
+  if (!params.storePath) {
+    return 0;
+  }
+  const recovered = recoverAskUserQuestionsAfterRestart({
+    storePath: params.storePath,
+    accountId: params.accountId,
+    log: params.log,
+  });
+  for (const record of recovered) {
+    consumeLifecyclePendingContext(record);
+    await updateLifecycleRecordCardBestEffort({
+      record,
+      config: params.config,
+      log: params.log,
+    });
+  }
+  return recovered.length;
+}
+
+async function terminatePendingQuestion(params: {
+  ctx: PendingQuestion;
+  reason: AskUserTerminalReason;
+}): Promise<void> {
+  const storeOptions = getAskUserStoreOptions(params.ctx);
+  if (storeOptions) {
+    terminateAskUserQuestion(storeOptions, params.ctx.questionId, params.reason);
+  }
+  params.ctx.submitted = true;
+  consumePendingQuestion(params.ctx);
+  addHandledQuestionTombstone(
+    params.ctx,
+    params.reason === "cancelled"
+      ? "cancelled"
+      : params.reason === "empty"
+        ? "empty"
+        : params.reason === "submitted"
+          ? "submitted"
+          : params.reason === "expired"
+            ? "expired"
+            : "superseded",
+  );
+  await updateQuestionCardBestEffort(params.ctx, terminalCardVariables(params.reason));
 }
 
 function parseEmbeddedJson(value: unknown): unknown {
@@ -644,13 +826,57 @@ async function injectAnswerSyntheticMessage(
     sessionWebhook: ctx.sessionWebhook,
     log: ctx.log,
     dingtalkConfig: ctx.dingtalkConfig,
+    inboundOrigin: "ask-user",
   });
+}
+
+function claimPendingQuestionForDispatch(ctx: PendingQuestion): boolean {
+  const storeOptions = getAskUserStoreOptions(ctx);
+  if (storeOptions) {
+    return Boolean(
+      claimAskUserQuestion(storeOptions, {
+        questionId: ctx.questionId,
+        outTrackId: ctx.outTrackId,
+      }),
+    );
+  }
+  if (ctx.submitted) {
+    return false;
+  }
+  ctx.submitted = true;
+  return true;
+}
+
+function dispatchSyntheticAnswer(params: {
+  ctx: PendingQuestion;
+  text: string;
+  suffix: string;
+  successReason: "submitted" | "cancelled" | "empty" | "expired";
+  log?: Logger;
+}): void {
+  const storeOptions = getAskUserStoreOptions(params.ctx);
+  void injectAnswerSyntheticMessage(params.ctx, params.text, params.suffix)
+    .then(() => {
+      if (storeOptions) {
+        terminateAskUserQuestion(storeOptions, params.ctx.questionId, params.successReason);
+      }
+    })
+    .catch((err) => {
+      if (storeOptions) {
+        terminateAskUserQuestion(storeOptions, params.ctx.questionId, "dispatch_failed");
+      }
+      void updateQuestionCardBestEffort(params.ctx, terminalCardVariables("dispatch_failed"));
+      params.log?.error?.(
+        `[DingTalk][AskUser] Failed to inject ${params.suffix} answer message: ${String(err)}`,
+      );
+    });
 }
 
 export async function handleDingTalkAskUserCardCallback(params: {
   payload: unknown;
   cfg: DingTalkQuestionContext["cfg"];
   accountId: string;
+  storePath?: string;
   config: DingTalkConfig;
   clickerUserId?: string;
   log?: Logger;
@@ -663,10 +889,49 @@ export async function handleDingTalkAskUserCardCallback(params: {
     );
     return { handled: true };
   }
+  const storeOptions = params.storePath
+    ? {
+        storePath: params.storePath,
+        accountId: params.accountId,
+        log: params.log,
+      }
+    : undefined;
+  const lifecycleRecord = storeOptions
+    ? resolveAskUserQuestion(storeOptions, {
+        questionId: parsed.actionId,
+        outTrackId: parsed.outTrackId,
+      })
+    : undefined;
+  if (lifecycleRecord?.state === "terminal") {
+    params.log?.debug?.(
+      `[DingTalk][AskUser] Ignoring terminal callback question=${lifecycleRecord.questionId} reason=${lifecycleRecord.terminalReason ?? "unknown"}`,
+    );
+    await updateLifecycleRecordCardBestEffort({
+      record: lifecycleRecord,
+      config: params.config,
+      log: params.log,
+    });
+    return { handled: true };
+  }
   const ctx =
     (parsed.outTrackId ? pendingQuestionsByTrackId.get(parsed.outTrackId) : undefined) ??
     (parsed.actionId ? pendingQuestionsByQuestionId.get(parsed.actionId) : undefined);
   if (!ctx) {
+    if (lifecycleRecord && storeOptions) {
+      const recovered = terminateAskUserQuestion(
+        storeOptions,
+        lifecycleRecord.questionId,
+        lifecycleRecord.state === "dispatching" ? "restart_during_dispatch" : "restart_invalidated",
+      );
+      if (recovered) {
+        await updateLifecycleRecordCardBestEffort({
+          record: recovered,
+          config: params.config,
+          log: params.log,
+        });
+      }
+      return { handled: true };
+    }
     return { handled: false };
   }
 
@@ -684,15 +949,17 @@ export async function handleDingTalkAskUserCardCallback(params: {
     return { handled: true };
   }
 
-  if (ctx.submitted) {
+  if (ctx.submitted || lifecycleRecord?.state === "dispatching") {
     params.log?.debug?.(`[DingTalk][AskUser] Duplicate submit ignored question=${ctx.questionId}`);
     return { handled: true };
   }
 
   const isCancel = parseBooleanLike(parsed.params.user_cancel) === true;
-  ctx.submitted = true;
 
   if (isCancel) {
+    if (!claimPendingQuestionForDispatch(ctx)) {
+      return { handled: true };
+    }
     await updateQuestionCardBestEffort(ctx, {
       card_status: "cancelled",
       question_desc: "已取消。",
@@ -700,24 +967,25 @@ export async function handleDingTalkAskUserCardCallback(params: {
     });
     consumePendingQuestion(ctx);
     addHandledQuestionTombstone(ctx, "cancelled");
-    setImmediate(() => {
-      void injectAnswerSyntheticMessage(ctx, buildCancelledAnswerMessage(ctx), "cancelled").catch(
-        (err) => {
-          params.log?.error?.(
-            `[DingTalk][AskUser] Failed to inject cancelled answer message: ${String(err)}`,
-          );
-        },
-      );
+    dispatchSyntheticAnswer({
+      ctx,
+      text: buildCancelledAnswerMessage(ctx),
+      suffix: "cancelled",
+      successReason: "cancelled",
+      log: params.log,
     });
     return { handled: true };
   }
 
   const form = asRecord(parsed.params.form);
   if (!form) {
-    ctx.submitted = false;
     params.log?.warn?.(
       `[DingTalk][AskUser] Missing form payload question=${ctx.questionId} params=${JSON.stringify(parsed.params)}`,
     );
+    return { handled: true };
+  }
+
+  if (!claimPendingQuestionForDispatch(ctx)) {
     return { handled: true };
   }
 
@@ -745,12 +1013,12 @@ export async function handleDingTalkAskUserCardCallback(params: {
     });
     consumePendingQuestion(ctx);
     addHandledQuestionTombstone(ctx, "empty");
-    setImmediate(() => {
-      void injectAnswerSyntheticMessage(ctx, buildEmptyAnswerMessage(ctx), "empty").catch((err) => {
-        params.log?.error?.(
-          `[DingTalk][AskUser] Failed to inject empty answer message: ${String(err)}`,
-        );
-      });
+    dispatchSyntheticAnswer({
+      ctx,
+      text: buildEmptyAnswerMessage(ctx),
+      suffix: "empty",
+      successReason: "empty",
+      log: params.log,
     });
     return { handled: true };
   }
@@ -767,10 +1035,12 @@ export async function handleDingTalkAskUserCardCallback(params: {
   addHandledQuestionTombstone(ctx, "submitted");
 
   const message = buildAnswerMessage(ctx, answers);
-  setImmediate(() => {
-    void injectAnswerSyntheticMessage(ctx, message, "submitted").catch((err) => {
-      params.log?.error?.(`[DingTalk][AskUser] Failed to inject answer message: ${String(err)}`);
-    });
+  dispatchSyntheticAnswer({
+    ctx,
+    text: message,
+    suffix: "submitted",
+    successReason: "submitted",
+    log: params.log,
   });
   return { handled: true };
 }
@@ -1010,6 +1280,16 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
         selected_values: "[]",
         form: { fields },
       };
+      const storeOptions = getAskUserStoreOptions(context);
+      const canPersistLifecycle = Boolean(storeOptions && context.questionScopeKey);
+      if (storeOptions && context.questionScopeKey) {
+        reserveAskUserQuestion(storeOptions, {
+          questionId,
+          questionScopeKey: context.questionScopeKey,
+          outTrackId,
+          title,
+        });
+      }
 
       try {
         await createAndDeliverQuestionCard({
@@ -1025,6 +1305,9 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
           log: context.log,
         });
       } catch (err) {
+        if (storeOptions && canPersistLifecycle) {
+          terminateAskUserQuestion(storeOptions, questionId, "delivery_failed");
+        }
         const detail = formatDingTalkErrorPayloadLog("ask_user_create", err, "[DingTalk]");
         return jsonToolResult({
           status: "failed",
@@ -1035,21 +1318,56 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
         ...context,
         onQuestionCardSent: undefined,
       };
-      storePendingQuestion({
+      const pendingQuestion: PendingQuestion = {
         ...pendingContext,
         questionId,
         outTrackId,
         title,
         questions: parsed,
         submitted: false,
+      };
+      storePendingQuestion(pendingQuestion, {
+        supersedeExisting: !canPersistLifecycle,
       });
+      if (storeOptions && canPersistLifecycle) {
+        const activation = activateAskUserQuestion(storeOptions, questionId);
+        for (const superseded of activation.superseded) {
+          const supersededContext = consumeLifecyclePendingContext(superseded);
+          if (supersededContext) {
+            void updateQuestionCardBestEffort(
+              supersededContext,
+              terminalCardVariables("superseded_by_question"),
+            );
+          } else {
+            void updateLifecycleRecordCardBestEffort({
+              record: superseded,
+              config: context.dingtalkConfig,
+              log: context.log,
+            });
+          }
+        }
+      }
 
+      let takeoverSucceeded: boolean | void = undefined;
       try {
-        await context.onQuestionCardSent?.({ questionId, outTrackId });
+        takeoverSucceeded = await context.onQuestionCardSent?.({ questionId, outTrackId });
       } catch (err) {
         context.log?.warn?.(
           `[DingTalk][AskUser] onQuestionCardSent hook failed: ${err instanceof Error ? err.message : String(err)}`,
         );
+        takeoverSucceeded = false;
+      }
+      if (takeoverSucceeded === false) {
+        await terminatePendingQuestion({
+          ctx: pendingQuestion,
+          reason: "pause_failed",
+        });
+        return jsonToolResult({
+          status: "failed",
+          questionId,
+          outTrackId,
+          error: "当前任务未能暂停，此卡已失效，请重新发起。",
+        });
       }
 
       context.log?.info?.(

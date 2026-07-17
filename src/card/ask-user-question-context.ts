@@ -13,8 +13,12 @@ export type DingTalkQuestionContext = {
   sessionWebhook: string;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
+  storePath?: string;
   questionScopeKey?: string;
-  onQuestionCardSent?: (event: { questionId: string; outTrackId: string }) => void | Promise<void>;
+  onQuestionCardSent?: (event: {
+    questionId: string;
+    outTrackId: string;
+  }) => boolean | void | Promise<boolean | void>;
 };
 
 const questionContextStorage = new AsyncLocalStorage<DingTalkQuestionContext>();

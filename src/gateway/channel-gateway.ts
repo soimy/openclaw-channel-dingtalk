@@ -1,6 +1,7 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import { analyzeCardCallback } from "../card-callback-service";
 import { finalizeActiveCardsForAccount, recoverPendingCardsForAccount } from "../card-service";
+import { recoverAskUserQuestionsForAccount } from "../card/ask-user-question";
 import { handleCardAction } from "../card/card-action-handler";
 import { resolveRobotCode, resolveRuntimeConfig } from "../config";
 import { ConnectionManager } from "../connection-manager";
@@ -199,6 +200,23 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
           `[${account.accountId}] Failed to recover unfinished cards: ${err.message}`,
         );
       }
+      try {
+        const recoveredQuestions = await recoverAskUserQuestionsForAccount({
+          storePath: accountStorePath,
+          accountId: account.accountId,
+          config,
+          log: pluginLog,
+        });
+        if (recoveredQuestions > 0) {
+          pluginLog?.info?.(
+            `[${account.accountId}] Invalidated ${recoveredQuestions} unfinished Ask User card(s) from previous runtime`,
+          );
+        }
+      } catch (err: any) {
+        pluginLog?.warn?.(
+          `[${account.accountId}] Failed to recover Ask User cards: ${err.message}`,
+        );
+      }
 
       const useConnectionManager = config.useConnectionManager ?? true;
       const applyStatusPatch = (patch: Record<string, unknown>) => {
@@ -382,6 +400,7 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               analysis,
               cfg,
               accountId: account.accountId,
+              storePath: accountStorePath,
               config,
               log: pluginLog,
             });

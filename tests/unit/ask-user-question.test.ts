@@ -477,9 +477,9 @@ describe("handleDingTalkAskUserCardCallback", () => {
         clickerUserId: "staff_1",
       }),
     ).resolves.toEqual({ handled: true });
-    await new Promise((resolve) => setImmediate(resolve));
     expect(handleDingTalkMessage).toHaveBeenCalledWith(
       expect.objectContaining({
+        inboundOrigin: "ask-user",
         data: expect.objectContaining({
           msgId: "msg_multi:ask-user-submitted:q_new",
           text: {
