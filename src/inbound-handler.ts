@@ -85,7 +85,13 @@ import {
   upsertObservedUserTarget,
 } from "./targeting/target-directory-store";
 import { AICardStatus } from "./types";
-import type { DingTalkConfig, HandleDingTalkMessageParams, Logger, MediaFile } from "./types";
+import type {
+  DingTalkConfig,
+  HandleDingTalkMessageParams,
+  Logger,
+  MediaFile,
+  ResolvedDingTalkRoute,
+} from "./types";
 import {
   formatDingTalkErrorPayloadLog,
   getErrorMessage,
@@ -816,74 +822,42 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     ? null
     : resolveMessageTarget({ extractedContent, cfg, isGroup });
 
-  let route: { agentId: string; sessionKey: string; mainSessionKey: string };
-  if (routeOverride) {
-    route = routeOverride;
-  } else if (subAgentOptions) {
-    // Recursive sub-agent dispatch (content or targeted command): route to the
-    // agent's own session. A missing host helper throws here and is caught by
-    // dispatchSubAgents in the parent call.
-    route = {
-      agentId: subAgentOptions.agentId,
-      sessionKey: buildAgentSessionKey({
-        rt,
-        cfg,
-        accountId,
-        agentId: subAgentOptions.agentId,
-        peerKind: sessionPeer.kind,
-        peerId: sessionPeer.peerId,
-      }),
-      mainSessionKey: "",
-    };
-  } else {
-    // Default route. For subagent-content / subagent-command targets the
-    // dispatch below re-enters this function with subAgentOptions set, so this
-    // route is only consumed when the target is "default".
-    route = rt.channel.routing.resolveAgentRoute({
-      cfg,
-      channel: "dingtalk",
-      accountId,
-      peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
-    });
-  }
-  const questionContext = getDingTalkQuestionContext();
-  if (questionContext) {
-    questionContext.resolvedRoute = route;
-    questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
-    questionContext.storePath = accountStorePath;
-    questionContext.continuationSubAgentOptions = subAgentOptions
-      ? {
-          agentId: subAgentOptions.agentId,
-          responsePrefix: subAgentOptions.responsePrefix,
-          matchedName: subAgentOptions.matchedName,
-        }
-      : undefined;
-  }
-  if (!subAgentOptions && inboundOrigin !== "ask-user") {
-    const questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
-    try {
-      const invalidated = invalidateAskUserQuestionsForScope({
-        storePath: accountStorePath,
-        accountId,
-        questionScopeKey,
-        reason: "superseded_by_message",
-        log,
-      });
-      void syncInvalidatedAskUserQuestionCards({
-        records: invalidated,
-        config: dingtalkConfig,
-        log,
-      }).catch((err) => {
-        log?.warn?.(
-          `[DingTalk][AskUser] Card invalidation sync failed scope=${questionScopeKey}: ${String(err)}`,
-        );
-      });
-    } catch (err) {
-      log?.warn?.(
-        `[DingTalk][AskUser] Failed to invalidate pending cards before inbound dispatch scope=${questionScopeKey}: ${String(err)}`,
-      );
+  const invalidateQuestionRoutes = (routes: readonly ResolvedDingTalkRoute[]): void => {
+    if (inboundOrigin === "ask-user") {
+      return;
     }
-  }
+    const scopeKeys = new Set(
+      routes.map((resolvedRoute) => `${accountId}:${resolvedRoute.sessionKey}:${senderId}`),
+    );
+    const invalidatedRecords = [];
+    for (const questionScopeKey of scopeKeys) {
+      try {
+        invalidatedRecords.push(
+          ...invalidateAskUserQuestionsForScope({
+            storePath: accountStorePath,
+            accountId,
+            questionScopeKey,
+            reason: "superseded_by_message",
+            log,
+          }),
+        );
+      } catch (err) {
+        log?.warn?.(
+          `[DingTalk][AskUser] Failed to invalidate pending cards before inbound dispatch scope=${questionScopeKey}: ${String(err)}`,
+        );
+      }
+    }
+    if (invalidatedRecords.length === 0) {
+      return;
+    }
+    void syncInvalidatedAskUserQuestionCards({
+      records: invalidatedRecords,
+      config: dingtalkConfig,
+      log,
+    }).catch((err) => {
+      log?.warn?.(`[DingTalk][AskUser] Card invalidation sync failed: ${String(err)}`);
+    });
+  };
 
   // @Sub-Agent routing: dispatch @mention-targeted messages to their agent(s).
   // Both content (`@agent <message>`) and commands (`@agent /new`) re-enter
@@ -900,6 +874,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         dingtalkConfig,
         sessionWebhook,
         extractedContent,
+        sessionPeer,
+        onRoutesResolved: (targets) =>
+          invalidateQuestionRoutes(targets.map((target) => target.route)),
         handleMessage: handleDingTalkMessage,
         downloadMedia,
         log,
@@ -931,6 +908,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         dingtalkConfig,
         sessionWebhook,
         extractedContent,
+        sessionPeer,
+        onRoutesResolved: (targets) =>
+          invalidateQuestionRoutes(targets.map((target) => target.route)),
         handleMessage: handleDingTalkMessage,
         downloadMedia,
         log,
@@ -938,6 +918,47 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       return;
     }
     // Only invalid agent names and no match: fall through to the default route.
+  }
+
+  let route: ResolvedDingTalkRoute;
+  if (routeOverride) {
+    route = routeOverride;
+  } else if (subAgentOptions) {
+    route = {
+      agentId: subAgentOptions.agentId,
+      sessionKey: buildAgentSessionKey({
+        rt,
+        cfg,
+        accountId,
+        agentId: subAgentOptions.agentId,
+        peerKind: sessionPeer.kind,
+        peerId: sessionPeer.peerId,
+      }),
+      mainSessionKey: "",
+    };
+  } else {
+    route = rt.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "dingtalk",
+      accountId,
+      peer: { kind: sessionPeer.kind, id: sessionPeer.peerId },
+    });
+  }
+  const questionContext = getDingTalkQuestionContext();
+  if (questionContext) {
+    questionContext.resolvedRoute = route;
+    questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
+    questionContext.storePath = accountStorePath;
+    questionContext.continuationSubAgentOptions = subAgentOptions
+      ? {
+          agentId: subAgentOptions.agentId,
+          responsePrefix: subAgentOptions.responsePrefix,
+          matchedName: subAgentOptions.matchedName,
+        }
+      : undefined;
+  }
+  if (!subAgentOptions) {
+    invalidateQuestionRoutes([route]);
   }
 
   // Route resolved before media download for session context and routing metadata.

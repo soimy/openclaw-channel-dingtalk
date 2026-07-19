@@ -26,6 +26,14 @@ vi.mock("../../../src/send-service", () => ({
   sendBySession: vi.fn(),
 }));
 
+const runtimeShared = vi.hoisted(() => ({
+  getDingTalkRuntime: vi.fn(),
+}));
+
+vi.mock("../../../src/runtime", () => ({
+  getDingTalkRuntime: runtimeShared.getDingTalkRuntime,
+}));
+
 const KNOWN_COMMANDS = new Set([
   "/new",
   "/stop",
@@ -381,9 +389,18 @@ describe("dispatchSubAgents", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    runtimeShared.getDingTalkRuntime.mockReturnValue({
+      channel: {
+        routing: {
+          buildAgentSessionKey: ({ agentId }: { agentId: string }) => `session-${agentId}`,
+        },
+      },
+    });
   });
 
   it("surfaces helper-missing warnings from a typed routing error instead of message sniffing", async () => {
+    runtimeShared.getDingTalkRuntime.mockReturnValue({ channel: { routing: {} } });
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
     await dispatchSubAgents({
       matchedAgents: [{ agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" }],
       cfg,
@@ -404,13 +421,8 @@ describe("dispatchSubAgents", () => {
         text: "@Alpha助手 你好",
         messageType: "text",
       },
-      handleMessage: vi
-        .fn()
-        .mockRejectedValue(
-          new HostRoutingHelperUnavailableError(
-            "host helper unavailable without mentioning the old symbol",
-          ),
-        ),
+      sessionPeer: { kind: "group", peerId: "cid_group_1" },
+      handleMessage,
       downloadMedia: vi.fn().mockResolvedValue(null),
       log,
     });
@@ -424,9 +436,12 @@ describe("dispatchSubAgents", () => {
         log,
       }),
     );
+    expect(handleMessage).not.toHaveBeenCalled();
   });
 
   it("sends the helper-missing warning only once when multiple agents hit the same host limitation", async () => {
+    runtimeShared.getDingTalkRuntime.mockReturnValue({ channel: { routing: {} } });
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
     await dispatchSubAgents({
       matchedAgents: [
         { agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" },
@@ -450,13 +465,8 @@ describe("dispatchSubAgents", () => {
         text: "@Alpha助手 @Beta助手 你好",
         messageType: "text",
       },
-      handleMessage: vi
-        .fn()
-        .mockRejectedValue(
-          new HostRoutingHelperUnavailableError(
-            "host helper unavailable without mentioning the old symbol",
-          ),
-        ),
+      sessionPeer: { kind: "group", peerId: "cid_group_1" },
+      handleMessage,
       downloadMedia: vi.fn().mockResolvedValue(null),
       log,
     });
@@ -471,6 +481,7 @@ describe("dispatchSubAgents", () => {
         log,
       }),
     );
+    expect(handleMessage).not.toHaveBeenCalled();
   });
 
   it("threads commandText into subAgentOptions and drops the response prefix for targeted commands", async () => {
@@ -497,6 +508,7 @@ describe("dispatchSubAgents", () => {
         text: "@Alpha助手 /new",
         messageType: "text",
       },
+      sessionPeer: { kind: "direct", peerId: "user-001" },
       handleMessage,
       downloadMedia: vi.fn().mockResolvedValue(null),
       log,
@@ -510,6 +522,11 @@ describe("dispatchSubAgents", () => {
           responsePrefix: "",
           matchedName: "Alpha助手",
           commandText: "/new",
+        },
+        routeOverride: {
+          agentId: "agent-alpha",
+          sessionKey: "session-agent-alpha",
+          mainSessionKey: "",
         },
       }),
     );

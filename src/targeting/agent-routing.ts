@@ -20,9 +20,11 @@ import type {
   HandleDingTalkMessageParams,
   Logger,
   MessageContent,
+  ResolvedDingTalkRoute,
 } from "../types";
 import { getErrorMessage } from "../utils";
 import { resolveAtAgents } from "./agent-name-matcher";
+import type { ResolvedDingTalkSessionPeer } from "../session-routing";
 
 export class HostRoutingHelperUnavailableError extends Error {
   constructor(
@@ -83,6 +85,11 @@ export type MessageTarget =
       hasInvalidAgentNames: boolean;
     }
   | { kind: "subagent-command"; agent: AgentNameMatch; commandText: string };
+
+export interface ResolvedSubAgentTarget {
+  agent: AgentNameMatch;
+  route: ResolvedDingTalkRoute;
+}
 
 /**
  * Resolve how an inbound message should be routed.
@@ -198,6 +205,8 @@ export async function dispatchSubAgents(params: {
   dingtalkConfig: DingTalkConfig;
   sessionWebhook: string;
   extractedContent: MessageContent;
+  sessionPeer: ResolvedDingTalkSessionPeer;
+  onRoutesResolved?: (targets: readonly ResolvedSubAgentTarget[]) => void;
   handleMessage: (params: HandleDingTalkMessageParams) => Promise<void>;
   downloadMedia: (
     config: DingTalkConfig,
@@ -215,10 +224,63 @@ export async function dispatchSubAgents(params: {
     dingtalkConfig,
     sessionWebhook,
     extractedContent,
+    sessionPeer,
+    onRoutesResolved,
     handleMessage,
     downloadMedia: download,
     log,
   } = params;
+
+  let helperMissingWarningSent = false;
+  const sendHelperMissingWarning = async (): Promise<void> => {
+    if (helperMissingWarningSent) {
+      return;
+    }
+    helperMissingWarningSent = true;
+    try {
+      const isGroup = data.conversationType !== "1";
+      const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };
+      await sendBySession(
+        dingtalkConfig,
+        sessionWebhook,
+        "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
+        sendOptions,
+      );
+    } catch (notifyError: unknown) {
+      log?.debug?.(
+        `[DingTalk] Failed to send sub-agent helper-missing notice: ${getErrorMessage(notifyError)}`,
+      );
+    }
+  };
+
+  let resolvedTargets: ResolvedSubAgentTarget[];
+  try {
+    const rt = getDingTalkRuntime();
+    resolvedTargets = matchedAgents.map((agent) => ({
+      agent,
+      route: {
+        agentId: agent.agentId,
+        sessionKey: buildAgentSessionKey({
+          rt,
+          cfg,
+          accountId,
+          agentId: agent.agentId,
+          peerKind: sessionPeer.kind,
+          peerId: sessionPeer.peerId,
+        }),
+        mainSessionKey: "",
+      },
+    }));
+  } catch (error) {
+    const message = getErrorMessage(error);
+    log?.error?.(`[DingTalk] Failed to resolve sub-agent routes: ${message}`);
+    if (error instanceof HostRoutingHelperUnavailableError) {
+      await sendHelperMissingWarning();
+      return;
+    }
+    throw error;
+  }
+  onRoutesResolved?.(resolvedTargets);
 
   // Pre-download media once to avoid duplication across sub-agents
   let preDownloadedMedia:
@@ -255,9 +317,8 @@ export async function dispatchSubAgents(params: {
       };
     }
   }
-  let helperMissingWarningSent = false;
-
-  for (const agentMatch of matchedAgents) {
+  for (const target of resolvedTargets) {
+    const agentMatch = target.agent;
     try {
       await handleMessage({
         cfg,
@@ -266,6 +327,7 @@ export async function dispatchSubAgents(params: {
         sessionWebhook,
         log,
         dingtalkConfig,
+        routeOverride: target.route,
         subAgentOptions: {
           agentId: agentMatch.agentId,
           responsePrefix: commandText
@@ -279,22 +341,8 @@ export async function dispatchSubAgents(params: {
     } catch (error) {
       const message = getErrorMessage(error);
       log?.error?.(`[DingTalk] Sub-agent ${agentMatch.agentId} failed: ${message}`);
-      if (error instanceof HostRoutingHelperUnavailableError && !helperMissingWarningSent) {
-        helperMissingWarningSent = true;
-        try {
-          const isGroup = data.conversationType !== "1";
-          const sendOptions = isGroup ? { atUserId: data.senderId, log } : { log };
-          await sendBySession(
-            dingtalkConfig,
-            sessionWebhook,
-            "⚠️ 当前宿主版本不支持 DingTalk 子助手路由所需的 session helper，请升级 OpenClaw 后重试。",
-            sendOptions,
-          );
-        } catch (notifyError: unknown) {
-          log?.debug?.(
-            `[DingTalk] Failed to send sub-agent helper-missing notice: ${getErrorMessage(notifyError)}`,
-          );
-        }
+      if (error instanceof HostRoutingHelperUnavailableError) {
+        await sendHelperMissingWarning();
       }
     }
   }

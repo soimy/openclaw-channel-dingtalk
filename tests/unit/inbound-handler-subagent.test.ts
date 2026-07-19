@@ -490,11 +490,11 @@ describe("@sub-agent feature", () => {
     expect(webhookCalls[1].responsePrefix).toContain("**Agent2**");
   });
 
-  it("falls back to resolveAgentRoute with agentId suffix when buildAgentSessionKey is unavailable", async () => {
+  it("fails closed instead of routing a sub-agent message through the default agent when the helper is unavailable", async () => {
     const runtime = buildRuntime();
     // Remove buildAgentSessionKey to trigger fallback path
     delete (runtime.channel.routing as any).buildAgentSessionKey;
-    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.getRuntimeMock.mockReturnValue(runtime);
     shared.extractMessageContentMock.mockReturnValue({
       text: "@expert1 help",
       messageType: "text",
@@ -517,7 +517,13 @@ describe("@sub-agent feature", () => {
       },
     } as any);
 
-    // resolveAgentRoute should be called (fallback path)
-    expect(runtime.channel.routing.resolveAgentRoute).toHaveBeenCalled();
+    expect(runtime.channel.routing.resolveAgentRoute).not.toHaveBeenCalled();
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(shared.sendBySessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "https://session.webhook",
+      expect.stringContaining("不支持 DingTalk 子助手路由所需的 session helper"),
+      expect.anything(),
+    );
   });
 });
