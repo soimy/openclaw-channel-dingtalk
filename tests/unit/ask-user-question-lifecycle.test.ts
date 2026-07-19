@@ -35,6 +35,7 @@ import {
   recoverAskUserQuestionsForAccount,
   registerPendingQuestionForTest,
   registerDingTalkAskUserQuestionTool,
+  syncInvalidatedAskUserQuestionCards,
 } from "../../src/card/ask-user-question";
 import { withDingTalkQuestionContext } from "../../src/card/ask-user-question-context";
 import {
@@ -77,12 +78,15 @@ describe("Ask User lifecycle integration", () => {
   it("invalidates a pending card with the exact newer-message explanation", async () => {
     seedQuestion({ questionId: "q_old", outTrackId: "ask_old" });
 
-    const invalidated = await invalidateAskUserQuestionsForScope({
+    const invalidated = invalidateAskUserQuestionsForScope({
       storePath,
       accountId: "main",
       questionScopeKey: "main:s1:user_1",
-      config: {} as any,
       reason: "superseded_by_message",
+    });
+    await syncInvalidatedAskUserQuestionCards({
+      records: invalidated,
+      config: {} as any,
     });
 
     expect(invalidated.map((record) => record.questionId)).toEqual(["q_old"]);
@@ -355,11 +359,10 @@ describe("Ask User lifecycle integration", () => {
 
   it("handles a late callback from a persisted tombstone without dispatching", async () => {
     seedQuestion({ questionId: "q_late", outTrackId: "ask_late" });
-    await invalidateAskUserQuestionsForScope({
+    invalidateAskUserQuestionsForScope({
       storePath,
       accountId: "main",
       questionScopeKey: "main:s1:user_1",
-      config: {} as any,
       reason: "superseded_by_message",
     });
     shared.handleDingTalkMessage.mockClear();

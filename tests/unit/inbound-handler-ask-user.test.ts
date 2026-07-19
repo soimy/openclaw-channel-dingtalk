@@ -16,7 +16,8 @@ const shared = vi.hoisted(() => ({
   updateAICardBlockListMock: vi.fn(),
   streamAICardMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
-  invalidateAskUserQuestionsForScopeMock: vi.fn().mockResolvedValue([]),
+  invalidateAskUserQuestionsForScopeMock: vi.fn().mockReturnValue([]),
+  syncInvalidatedAskUserQuestionCardsMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/auth", () => ({
@@ -57,6 +58,7 @@ vi.mock("../../src/command/card-stop-command", () => ({
 
 vi.mock("../../src/card/ask-user-question", () => ({
   invalidateAskUserQuestionsForScope: shared.invalidateAskUserQuestionsForScopeMock,
+  syncInvalidatedAskUserQuestionCards: shared.syncInvalidatedAskUserQuestionCardsMock,
 }));
 
 vi.mock("../../src/session-lock", () => ({
@@ -178,7 +180,8 @@ describe("inbound-handler card lifecycle", () => {
     shared.commitAICardBlocksMock.mockReset();
     shared.dispatchDingTalkCardStopCommandMock.mockReset();
     shared.dispatchDingTalkCardStopCommandMock.mockResolvedValue({ ok: true });
-    shared.invalidateAskUserQuestionsForScopeMock.mockReset().mockResolvedValue([]);
+    shared.invalidateAskUserQuestionsForScopeMock.mockReset().mockReturnValue([]);
+    shared.syncInvalidatedAskUserQuestionCardsMock.mockReset().mockResolvedValue(undefined);
     shared.recallAICardMessageMock.mockReset().mockImplementation(async (card: { state?: string }) => {
       card.state = "3";
       return true;
@@ -210,9 +213,17 @@ describe("inbound-handler card lifecycle", () => {
 
   it("invalidates the same-scope Ask User card before dispatching a newer real message", async () => {
     const order: string[] = [];
-    shared.invalidateAskUserQuestionsForScopeMock.mockImplementationOnce(async () => {
-      order.push("invalidate");
-      return [];
+    let finishCardSync: (() => void) | undefined;
+    const cardSyncPending = new Promise<void>((resolve) => {
+      finishCardSync = resolve;
+    });
+    shared.invalidateAskUserQuestionsForScopeMock.mockImplementationOnce(() => {
+      order.push("invalidate-local");
+      return [{ questionId: "q_old", outTrackId: "ask_old" }];
+    });
+    shared.syncInvalidatedAskUserQuestionCardsMock.mockImplementationOnce(async () => {
+      order.push("sync-start");
+      await cardSyncPending;
     });
     const runtime = buildRuntime();
     runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockImplementation(
@@ -251,7 +262,49 @@ describe("inbound-handler card lifecycle", () => {
         reason: "superseded_by_message",
       }),
     );
-    expect(order).toEqual(["invalidate", "dispatch"]);
+    expect(shared.syncInvalidatedAskUserQuestionCardsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        records: [{ questionId: "q_old", outTrackId: "ask_old" }],
+      }),
+    );
+    expect(order).toEqual(["invalidate-local", "sync-start", "dispatch"]);
+    finishCardSync?.();
+  });
+
+  it("keeps ordinary dispatch running when invalidated-card UI synchronization fails", async () => {
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    shared.invalidateAskUserQuestionsForScopeMock.mockReturnValueOnce([
+      { questionId: "q_old", outTrackId: "ask_old" },
+    ]);
+    shared.syncInvalidatedAskUserQuestionCardsMock.mockRejectedValueOnce(
+      new Error("card API unavailable"),
+    );
+    const runtime = buildRuntime();
+    shared.getRuntimeMock.mockReturnValueOnce(runtime);
+
+    await handleDingTalkMessage({
+      cfg: {},
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log,
+      dingtalkConfig: { dmPolicy: "open", messageType: "markdown" } as DingTalkConfig,
+      data: {
+        msgId: "newer_message_with_sync_failure",
+        msgtype: "text",
+        text: { content: "continue anyway" },
+        conversationType: "1",
+        conversationId: "cid_ok",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      },
+    } as any);
+
+    await vi.waitFor(() => {
+      expect(shared.syncInvalidatedAskUserQuestionCardsMock).toHaveBeenCalledTimes(1);
+    });
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
   });
 
   it("does not invalidate the question card for its own synthetic answer", async () => {
@@ -283,4 +336,3 @@ describe("inbound-handler card lifecycle", () => {
 
 
 });
-

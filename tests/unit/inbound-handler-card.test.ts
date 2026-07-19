@@ -17,6 +17,7 @@ const shared = vi.hoisted(() => ({
   streamAICardMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
   invalidateAskUserQuestionsForScopeMock: vi.fn().mockResolvedValue([]),
+  syncInvalidatedAskUserQuestionCardsMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/auth", () => ({
@@ -57,6 +58,7 @@ vi.mock("../../src/command/card-stop-command", () => ({
 
 vi.mock("../../src/card/ask-user-question", () => ({
   invalidateAskUserQuestionsForScope: shared.invalidateAskUserQuestionsForScopeMock,
+  syncInvalidatedAskUserQuestionCards: shared.syncInvalidatedAskUserQuestionCardsMock,
 }));
 
 vi.mock("../../src/session-lock", () => ({
@@ -179,6 +181,7 @@ describe("inbound-handler card lifecycle", () => {
     shared.dispatchDingTalkCardStopCommandMock.mockReset();
     shared.dispatchDingTalkCardStopCommandMock.mockResolvedValue({ ok: true });
     shared.invalidateAskUserQuestionsForScopeMock.mockReset().mockResolvedValue([]);
+    shared.syncInvalidatedAskUserQuestionCardsMock.mockReset().mockResolvedValue(undefined);
     shared.recallAICardMessageMock.mockReset().mockImplementation(async (card: { state?: string }) => {
       card.state = "3";
       return true;

@@ -599,14 +599,13 @@ function consumeLifecyclePendingContext(
   return ctx;
 }
 
-export async function invalidateAskUserQuestionsForScope(params: {
+export function invalidateAskUserQuestionsForScope(params: {
   storePath: string;
   accountId: string;
   questionScopeKey: string;
-  config: DingTalkConfig;
   reason: "superseded_by_message";
   log?: Logger;
-}): Promise<AskUserLifecycleRecord[]> {
+}): AskUserLifecycleRecord[] {
   const invalidated = invalidateAskUserQuestionsInStore(
     {
       storePath: params.storePath,
@@ -617,18 +616,25 @@ export async function invalidateAskUserQuestionsForScope(params: {
     params.reason,
   );
   for (const record of invalidated) {
-    const ctx = consumeLifecyclePendingContext(record);
-    if (ctx) {
-      await updateQuestionCardBestEffort(ctx, terminalCardVariables(params.reason));
-    } else {
-      await updateLifecycleRecordCardBestEffort({
+    consumeLifecyclePendingContext(record);
+  }
+  return invalidated;
+}
+
+export async function syncInvalidatedAskUserQuestionCards(params: {
+  records: AskUserLifecycleRecord[];
+  config: DingTalkConfig;
+  log?: Logger;
+}): Promise<void> {
+  await Promise.allSettled(
+    params.records.map((record) =>
+      updateLifecycleRecordCardBestEffort({
         record,
         config: params.config,
         log: params.log,
-      });
-    }
-  }
-  return invalidated;
+      }),
+    ),
+  );
 }
 
 export async function recoverAskUserQuestionsForAccount(params: {

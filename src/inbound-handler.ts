@@ -13,7 +13,10 @@ import {
   isCardInTerminalState,
   recallAICardMessage,
 } from "./card-service";
-import { invalidateAskUserQuestionsForScope } from "./card/ask-user-question";
+import {
+  invalidateAskUserQuestionsForScope,
+  syncInvalidatedAskUserQuestionCards,
+} from "./card/ask-user-question";
 import {
   getDingTalkQuestionContext,
   withDingTalkQuestionContext,
@@ -859,13 +862,21 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   if (!subAgentOptions && inboundOrigin !== "ask-user") {
     const questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
     try {
-      await invalidateAskUserQuestionsForScope({
+      const invalidated = invalidateAskUserQuestionsForScope({
         storePath: accountStorePath,
         accountId,
         questionScopeKey,
-        config: dingtalkConfig,
         reason: "superseded_by_message",
         log,
+      });
+      void syncInvalidatedAskUserQuestionCards({
+        records: invalidated,
+        config: dingtalkConfig,
+        log,
+      }).catch((err) => {
+        log?.warn?.(
+          `[DingTalk][AskUser] Card invalidation sync failed scope=${questionScopeKey}: ${String(err)}`,
+        );
       });
     } catch (err) {
       log?.warn?.(
