@@ -1339,6 +1339,26 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       });
       if (storeOptions && canPersistLifecycle) {
         const activation = activateAskUserQuestion(storeOptions, questionId);
+        if (activation.record?.state !== "pending") {
+          const terminalReason = activation.record?.terminalReason ?? "superseded_by_message";
+          if (activation.record) {
+            consumeLifecyclePendingContext(activation.record);
+          } else {
+            pendingQuestion.submitted = true;
+            consumePendingQuestion(pendingQuestion);
+            addHandledQuestionTombstone(pendingQuestion, "superseded");
+          }
+          await updateQuestionCardBestEffort(
+            pendingQuestion,
+            terminalCardVariables(terminalReason),
+          );
+          return jsonToolResult({
+            status: "failed",
+            questionId,
+            outTrackId,
+            error: "问题卡片在发送期间已失效，请重新发起。",
+          });
+        }
         for (const superseded of activation.superseded) {
           const supersededContext = consumeLifecyclePendingContext(superseded);
           if (supersededContext) {
