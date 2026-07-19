@@ -208,6 +208,89 @@ describe("Ask User lifecycle integration", () => {
     );
   });
 
+  it("reinjects a sub-agent answer through the captured route without replaying a command", async () => {
+    seedQuestion({ questionId: "q_route", outTrackId: "ask_route" });
+    registerPendingQuestionForTest({
+      cfg: {} as any,
+      accountId: "main",
+      storePath,
+      questionScopeKey: "main:agent:expert:dingtalk:direct:user_1:user_1",
+      resolvedRoute: {
+        agentId: "expert",
+        sessionKey: "agent:expert:dingtalk:direct:user_1",
+        mainSessionKey: "",
+      },
+      continuationSubAgentOptions: {
+        agentId: "expert",
+        responsePrefix: "> 🤖 **Expert**:\n\n",
+        matchedName: "Expert",
+      },
+      data: {
+        msgId: "msg_route",
+        msgtype: "text",
+        createAt: Date.now(),
+        text: { content: "ask expert" },
+        conversationType: "1",
+        conversationId: "cid_1",
+        senderId: "user_1",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://example.com/webhook",
+      },
+      sessionWebhook: "https://example.com/webhook",
+      dingtalkConfig: {} as any,
+      questionId: "q_route",
+      outTrackId: "ask_route",
+      title: "需要确认",
+      questions: [
+        {
+          fieldName: "answer_0",
+          title: "确认",
+          options: [{ value: "yes", text: "确认" }],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    await expect(
+      handleDingTalkAskUserCardCallback({
+        payload: {
+          outTrackId: "ask_route",
+          content: JSON.stringify({
+            cardPrivateData: {
+              actionIds: ["q_route"],
+              params: { form: { answer_0: "yes" } },
+            },
+          }),
+        },
+        cfg: {} as any,
+        accountId: "main",
+        storePath,
+        config: {} as any,
+        clickerUserId: "user_1",
+      }),
+    ).resolves.toEqual({ handled: true });
+
+    await vi.waitFor(() => expect(shared.handleDingTalkMessage).toHaveBeenCalledTimes(1));
+    expect(shared.handleDingTalkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundOrigin: "ask-user",
+        routeOverride: {
+          agentId: "expert",
+          sessionKey: "agent:expert:dingtalk:direct:user_1",
+          mainSessionKey: "",
+        },
+        subAgentOptions: {
+          agentId: "expert",
+          responsePrefix: "> 🤖 **Expert**:\n\n",
+          matchedName: "Expert",
+        },
+      }),
+    );
+    expect(shared.handleDingTalkMessage.mock.calls[0]?.[0]?.subAgentOptions).not.toHaveProperty(
+      "commandText",
+    );
+  });
+
   it("keeps a duplicate callback terminally handled while the first answer is dispatching", async () => {
     seedQuestion({ questionId: "q_duplicate", outTrackId: "ask_duplicate" });
     registerPendingQuestionForTest({

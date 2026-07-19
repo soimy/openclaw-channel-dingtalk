@@ -827,6 +827,8 @@ async function injectAnswerSyntheticMessage(
     log: ctx.log,
     dingtalkConfig: ctx.dingtalkConfig,
     inboundOrigin: "ask-user",
+    routeOverride: ctx.resolvedRoute,
+    subAgentOptions: ctx.continuationSubAgentOptions,
   });
 }
 

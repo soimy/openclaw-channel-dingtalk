@@ -4,6 +4,8 @@ import type {
   DingTalkInboundMessage,
   HandleDingTalkMessageParams,
   Logger,
+  ResolvedDingTalkRoute,
+  SubAgentOptions,
 } from "../types";
 
 export type DingTalkQuestionContext = {
@@ -15,6 +17,8 @@ export type DingTalkQuestionContext = {
   dingtalkConfig: DingTalkConfig;
   storePath?: string;
   questionScopeKey?: string;
+  resolvedRoute?: ResolvedDingTalkRoute;
+  continuationSubAgentOptions?: Omit<SubAgentOptions, "commandText">;
   onQuestionCardSent?: (event: {
     questionId: string;
     outTrackId: string;

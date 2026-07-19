@@ -586,6 +586,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     log,
     dingtalkConfig,
     inboundOrigin = "stream",
+    routeOverride,
     subAgentOptions,
     preDownloadedMedia,
   } = params;
@@ -813,7 +814,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     : resolveMessageTarget({ extractedContent, cfg, isGroup });
 
   let route: { agentId: string; sessionKey: string; mainSessionKey: string };
-  if (subAgentOptions) {
+  if (routeOverride) {
+    route = routeOverride;
+  } else if (subAgentOptions) {
     // Recursive sub-agent dispatch (content or targeted command): route to the
     // agent's own session. A missing host helper throws here and is caught by
     // dispatchSubAgents in the parent call.
@@ -842,8 +845,16 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   }
   const questionContext = getDingTalkQuestionContext();
   if (questionContext) {
+    questionContext.resolvedRoute = route;
     questionContext.questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;
     questionContext.storePath = accountStorePath;
+    questionContext.continuationSubAgentOptions = subAgentOptions
+      ? {
+          agentId: subAgentOptions.agentId,
+          responsePrefix: subAgentOptions.responsePrefix,
+          matchedName: subAgentOptions.matchedName,
+        }
+      : undefined;
   }
   if (!subAgentOptions && inboundOrigin !== "ask-user") {
     const questionScopeKey = `${accountId}:${route.sessionKey}:${senderId}`;

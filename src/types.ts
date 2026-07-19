@@ -463,6 +463,16 @@ export interface SubAgentOptions {
 }
 
 /**
+ * A trusted route resolved by the plugin before recursive or synthetic inbound handling.
+ * It is runtime-only and must never be populated from DingTalk callback payload fields.
+ */
+export interface ResolvedDingTalkRoute {
+  agentId: string;
+  sessionKey: string;
+  mainSessionKey: string;
+}
+
+/**
  * Message handler parameters
  */
 export interface HandleDingTalkMessageParams {
@@ -474,6 +484,8 @@ export interface HandleDingTalkMessageParams {
   dingtalkConfig: DingTalkConfig;
   /** Distinguishes real Stream messages from Ask User callback reinjection. */
   inboundOrigin?: "stream" | "ask-user";
+  /** Reuses an already-resolved trusted route for recursive or synthetic handling. */
+  routeOverride?: ResolvedDingTalkRoute;
   /**
    * When set, routes message to the specified sub-agent instead of main agent.
    * This enables reuse of the main message handling logic for sub-agents.
