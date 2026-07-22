@@ -20,6 +20,12 @@ describe('access-control', () => {
         expect(isSenderAllowed({ allow: wildcardAllow, senderId: 'whatever' })).toBe(true);
     });
 
+    it('blocks senders for an empty allowlist', () => {
+        const emptyAllow = normalizeAllowFrom([]);
+
+        expect(isSenderAllowed({ allow: emptyAllow, senderId: 'user_a' })).toBe(false);
+    });
+
     it('checks group allow list with case-insensitive comparison', () => {
         const allow = normalizeAllowFrom(['cidABC123']);
 
