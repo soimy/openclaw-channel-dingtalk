@@ -224,6 +224,44 @@ describe("inbound-handler access control", () => {
     expect(shared.sendBySessionMock.mock.calls[0]?.[2]).toContain("访问受限");
   });
 
+  it("dmPolicy allowlist with wildcard allowFrom allows any sender", async () => {
+    const rt = buildRuntime();
+    shared.getRuntimeMock.mockReturnValue(rt);
+
+    await handleDingTalkMessage({
+      cfg: {} as Record<string, unknown>,
+      accountId: "main",
+      sessionWebhook: "https://session.webhook",
+      log: undefined,
+      dingtalkConfig: {
+        clientId: "id",
+        clientSecret: "sec",
+        dmPolicy: "allowlist",
+        allowFrom: ["*"],
+      } as unknown as DingTalkConfig,
+      data: {
+        msgId: "m2_wildcard_allow",
+        msgtype: "text",
+        text: { content: "hello" },
+        conversationType: "1",
+        conversationId: "cid1",
+        senderId: "user_anyone",
+        chatbotUserId: "bot_1",
+        sessionWebhook: "https://session.webhook",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+    });
+
+    // Should not send deny message
+    const denyCalls = shared.sendBySessionMock.mock.calls.filter(
+      (call) => typeof call[2] === "string" && call[2].includes("访问受限"),
+    );
+    expect(denyCalls.length).toBe(0);
+    // Positive assertion: the message actually entered the reply dispatch flow
+    // (guards against a false pass where the wildcard path silently short-circuits).
+    expect(rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
+  });
+
   it("groupPolicy allowlist blocks group not in allowFrom or groups", async () => {
     await handleDingTalkMessage({
       cfg: {} as Record<string, unknown>,
