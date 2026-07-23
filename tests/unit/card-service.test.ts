@@ -1111,6 +1111,60 @@ describe('token refresh', () => {
         expect(card.accessToken).toBe('current_token');
     });
 
+    it('retains a terminal-only recovery record when the instances update fails', async () => {
+        const persistedStateFile = resolveNamespacePath('cards.active.pending', {
+            storePath,
+            format: 'json',
+        });
+        mockedAxios.post.mockResolvedValueOnce({
+            status: 200,
+            data: { result: { deliverResults: [{ carrierId: 'carrier_finalize_failure' }] } },
+        });
+        // Initial streaming lifecycle open during card creation.
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        const card = await createAICard(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'cid_finalize_failure',
+            undefined,
+            { accountId: 'main', storePath },
+        );
+        expect(card).toBeTruthy();
+        expect(JSON.parse(fs.readFileSync(persistedStateFile, 'utf-8')).pendingCards).toHaveLength(1);
+        // Isolate the terminal instances request itself; the streaming
+        // lifecycle's optional finalize has separate retry semantics.
+        card!.streamLifecycleOpened = false;
+
+        mockedAxios.put.mockRejectedValueOnce({
+            isAxiosError: true,
+            response: { status: 401 },
+            message: 'instances finalize unauthorized',
+        });
+        await expect(
+            commitAICardBlocks(card!, {
+                blockListJson: JSON.stringify([{ type: 0, markdown: '处理中' }]),
+                content: '处理中',
+            }),
+        ).rejects.toMatchObject({ response: { status: 401 } });
+
+        expect(card?.state).toBe(AICardStatus.FAILED);
+        expect(JSON.parse(fs.readFileSync(persistedStateFile, 'utf-8')).pendingCards).toMatchObject([
+            {
+                cardInstanceId: card?.cardInstanceId,
+                state: AICardStatus.FAILED,
+                recoveryAction: 'finalize',
+            },
+        ]);
+
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'main',
+            storePath,
+        );
+        expect(recovered).toBe(1);
+        expect(JSON.parse(fs.readFileSync(persistedStateFile, 'utf-8')).pendingCards).toEqual([]);
+    });
+
     it('clears and finalizes the streaming lifecycle before committing blocks when streaming was opened', async () => {
         const card = {
             cardInstanceId: 'card_stream_finalize',
