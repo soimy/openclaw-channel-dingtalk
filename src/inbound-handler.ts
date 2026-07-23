@@ -2431,8 +2431,30 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             `[DingTalk] Reply session still conflicted after retries for session=${route.sessionKey}; ` +
               `sending "processing" acknowledgement instead of dropping the message.`,
           );
+          const ackText = "收到，上一轮还在处理中，请稍候再试。";
+          // A card may already be visible (including the card created while a
+          // gateway-queued message waited). Put the busy acknowledgement into
+          // that same delivery strategy and finalize it normally. Calling
+          // `strategy.abort()` after a separate acknowledgement would overwrite
+          // the visible card with "❌ 处理失败", which contradicts the actual
+          // recoverable-busy state.
+          if (replyMode === "card") {
+            try {
+              await strategy.deliver({
+                text: ackText,
+                mediaUrls: [],
+                kind: "final",
+                isReasoning: false,
+              });
+              await strategy.finalize();
+              return;
+            } catch (cardAckErr: unknown) {
+              log?.warn?.(
+                `[DingTalk] Processing acknowledgement card finalize failed: ${getErrorMessage(cardAckErr)}`,
+              );
+            }
+          }
           try {
-            const ackText = "收到，上一轮还在处理中，请稍候再试。";
             if (sessionWebhook) {
               await sendBySession(dingtalkConfig, sessionWebhook, ackText, {
                 log,

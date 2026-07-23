@@ -28,6 +28,7 @@ const shared = vi.hoisted(() => ({
   sendMessageMock: vi.fn(),
   dispatchMock: vi.fn(),
   createAICardMock: vi.fn(),
+  commitAICardBlocksMock: vi.fn(),
   finishAICardMock: vi.fn(),
   isCardInTerminalStateMock: vi.fn(),
   streamAICardMock: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock("../../src/media-utils", async () => {
 
 vi.mock("../../src/card-service", () => ({
   createAICard: shared.createAICardMock,
+  commitAICardBlocks: shared.commitAICardBlocksMock,
   finishAICard: shared.finishAICardMock,
   formatContentForCard: shared.formatContentForCardMock,
   isCardInTerminalState: shared.isCardInTerminalStateMock,
@@ -205,6 +207,8 @@ describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regress
     shared.createAICardMock.mockReset();
     // No card → markdown reply mode, keeps the assertion surface small.
     shared.createAICardMock.mockResolvedValue(null);
+    shared.commitAICardBlocksMock.mockReset();
+    shared.commitAICardBlocksMock.mockResolvedValue(undefined);
     shared.finishAICardMock.mockReset();
     shared.isCardInTerminalStateMock.mockReset();
     shared.extractAttachmentTextMock.mockReset();
@@ -249,6 +253,32 @@ describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regress
     expect(ackText).toContain("处理中");
     // No proactive sendMessage fallback used because sessionWebhook was set.
     expect(shared.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("finalizes the busy acknowledgement on an AI Card instead of overwriting it with failure", async () => {
+    shared.dispatchMock.mockRejectedValue(REPLY_SESSION_CONFLICT_ERROR);
+    shared.createAICardMock.mockResolvedValue({
+      cardInstanceId: "card_busy_conflict",
+      outTrackId: "card_busy_conflict",
+      state: "INPUTING",
+      storePath: STORE_PATH,
+      lastStreamedContent: "",
+      lastUpdated: Date.now(),
+    });
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+
+    const msg = buildConfirmMessage();
+    msg.dingtalkConfig.messageType = "card";
+    const pending = handleDingTalkMessage(msg);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await pending;
+
+    expect(shared.dispatchMock).toHaveBeenCalledTimes(4);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    expect(shared.commitAICardBlocksMock.mock.calls[0][1].content).toContain("处理中");
+    expect(shared.commitAICardBlocksMock.mock.calls[0][1].content).not.toContain("处理失败");
+    expect(shared.sendBySessionMock).not.toHaveBeenCalled();
   });
 
   it("falls back to proactive sendMessage when no sessionWebhook is available", async () => {
