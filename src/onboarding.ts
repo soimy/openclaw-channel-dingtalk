@@ -20,6 +20,10 @@ import type { DingTalkConfig, DingTalkChannelConfig } from "./types.js";
 
 const channel = "dingtalk" as const;
 
+type DingTalkSetupInput = ChannelSetupInput & {
+  password?: string;
+};
+
 function isConfigured(account: DingTalkConfig): boolean {
   return Boolean(account.clientId && hasConfiguredSecretInput(account.clientSecret));
 }
@@ -349,7 +353,7 @@ function applyAccountConfig(params: {
 function applyGenericSetupInput(params: {
   cfg: OpenClawConfig;
   accountId: string;
-  input: ChannelSetupInput;
+  input: DingTalkSetupInput;
 }): OpenClawConfig {
   return applyAccountConfig({
     cfg: params.cfg,
@@ -547,7 +551,7 @@ export const dingtalkSetupAdapter: ChannelSetupAdapter = {
     applyGenericSetupInput({
       cfg,
       accountId,
-      input,
+      input: input as DingTalkSetupInput,
     }),
 };
 
