@@ -61,6 +61,7 @@ import {
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
 import { createReplyStrategy } from "./reply-strategy";
+import { isReplySessionConflictError, withReplySessionConflictRetry } from "./reply-session-conflict";
 import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage, sendProactiveMedia } from "./send-service";
@@ -2298,9 +2299,12 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         taskMeta,
       });
 
-      try {
-        let deliveredFinalCount = 0;
-        const dispatchResult = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      let deliveredFinalCount = 0;
+      // Extracted as a thunk so reply-session init conflicts (raised by the
+      // core when an active run still occupies this session) can be retried
+      // with backoff instead of dropping the inbound message.
+      const runDispatch = () =>
+        rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
           ctx,
           cfg,
           dispatcherOptions: {
@@ -2345,6 +2349,12 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             },
           },
           replyOptions: strategy.getReplyOptions(),
+        });
+
+      try {
+        const dispatchResult = await withReplySessionConflictRetry(runDispatch, {
+          log,
+          sessionKey: route.sessionKey,
         });
 
         const bufferedFinal =
@@ -2394,6 +2404,41 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       } catch (dispatchErr: unknown) {
         const error =
           dispatchErr instanceof Error ? dispatchErr : new Error(getErrorMessage(dispatchErr));
+        if (isReplySessionConflictError(error)) {
+          // Fallback (兜底): the active run for this session did not drain within
+          // the retry budget, so dispatching the inbound message still conflicts.
+          // Rather than silently dropping it (outcome=error, no reply — the
+          // "钉钉确认消息无响应" regression), send an immediate acknowledgement so
+          // the user knows the message was received while the prior turn is still
+          // busy; they can re-send once it finishes.
+          log?.warn?.(
+            `[DingTalk] Reply session still conflicted after retries for session=${route.sessionKey}; ` +
+              `sending "processing" acknowledgement instead of dropping the message.`,
+          );
+          try {
+            const ackText = "收到，上一轮还在处理中，请稍候再试。";
+            if (sessionWebhook) {
+              await sendBySession(dingtalkConfig, sessionWebhook, ackText, {
+                log,
+                accountId,
+                storePath: accountStorePath,
+              });
+            } else {
+              await sendMessage(dingtalkConfig, to, ackText, {
+                log,
+                accountId,
+                storePath: accountStorePath,
+                conversationId: groupId,
+              });
+            }
+          } catch (ackErr: unknown) {
+            log?.warn?.(
+              `[DingTalk] Processing acknowledgement delivery failed: ${getErrorMessage(ackErr)}`,
+            );
+          }
+          await strategy.abort(error);
+          return;
+        }
         await strategy.abort(error);
         throw dispatchErr;
       }
