@@ -60,8 +60,11 @@ import {
   clearProactiveRiskObservationsForTest,
   getProactiveRiskObservationForAny,
 } from "./proactive-risk-registry";
+import {
+  isReplySessionConflictError,
+  withReplySessionConflictRetry,
+} from "./reply-session-conflict";
 import { createReplyStrategy } from "./reply-strategy";
-import { isReplySessionConflictError, withReplySessionConflictRetry } from "./reply-session-conflict";
 import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
 import { sendBySession, sendMessage, sendProactiveMedia } from "./send-service";
@@ -574,6 +577,14 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
   // Keep context creation inside this public inbound entry. Ask-user synthetic
   // reinjections call handleDingTalkMessage directly, so moving this wrapper to
   // gateway callbacks would lose per-message isolation for reinjected answers.
+  //
+  // Per-conversation serialization (so a message arriving while another is being
+  // processed is QUEUED and auto-reprocessed instead of dropped on a reply-
+  // session conflict) lives in the gateway dispatcher
+  // (`src/inbound-session-queue-dispatcher.ts`), which wraps the gateway's call
+  // to this function. Direct callers — ask-user reinjections and unit tests —
+  // bypass that queue, which is intentional: ask-user happens inside an
+  // already-active run, and unit tests drive the handler in isolation.
   return withDingTalkQuestionContext(
     {
       cfg: params.cfg,
@@ -1093,7 +1104,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     };
   }
 
-  if (useCardMode && !isBtwBypass) {
+  if (useCardMode && !isBtwBypass && !params.preCreatedCard) {
     const key = `${accountId}:${to}`;
     if (cardCreationInFlight.has(key)) {
       useCardMode = false;
@@ -1116,13 +1127,18 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       // Use rawInboundText ( preserved before sub-agent rewriting) to avoid
       // showing internal routing context like "[你被 @ 为...]" in the card UI.
       const inboundQuoteText = rawInboundText.slice(0, 200);
-      const aiCard = await createAICard(dingtalkConfig, to, log, {
-        accountId,
-        storePath: accountStorePath,
-        contextConversationId: groupId,
-        quoteContent: inboundQuoteText,
-        statusLine: initialStatusLine,
-      });
+      // Reuse the pre-created card (shown while this message was queued behind
+      // an active run) instead of creating a new one: the real reply streams
+      // INTO the same card (in-place update).
+      const aiCard =
+        params.preCreatedCard ??
+        (await createAICard(dingtalkConfig, to, log, {
+          accountId,
+          storePath: accountStorePath,
+          contextConversationId: groupId,
+          quoteContent: inboundQuoteText,
+          statusLine: initialStatusLine,
+        }));
       if (aiCard) {
         currentAICard = aiCard;
         if (aiCard.outTrackId) {

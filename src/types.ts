@@ -501,6 +501,15 @@ export interface HandleDingTalkMessageParams {
     mediaPaths?: string[];
     mediaTypes?: string[];
   };
+  /**
+   * A pre-created AI Card to reuse instead of creating a new one. Set by the
+   * inbound session-queue dispatcher when a message was queued behind an active
+   * run: the card was already created and is showing a "已排队" acknowledgement,
+   * so the handler streams the real reply INTO this same card (in-place update)
+   * rather than spawning a second card. When unset, the handler creates a fresh
+   * card as usual.
+   */
+  preCreatedCard?: AICardInstance;
 }
 
 /**
