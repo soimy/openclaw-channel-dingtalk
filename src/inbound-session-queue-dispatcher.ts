@@ -21,8 +21,14 @@
 // task so the gateway's per-message dedup stays correct).
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { attachNativeAckReaction } from "./ack-reaction-service";
-import { createAICard, streamAICard } from "./card-service";
+import {
+  createAICard,
+  isCardInTerminalState,
+  recallAICardMessage,
+  streamAICard,
+} from "./card-service";
 import {
   chainInboundSessionTask,
   deriveInboundQueueKey,
@@ -48,6 +54,58 @@ export interface InboundQueueDispatchInput {
 
 const QUEUE_FULL_ACK = "当前消息较多，已达到本会话排队上限；请等待上一轮完成后再发送。";
 const QUEUE_WAIT_TIMEOUT_ACK = "上一轮处理时间较长，这条消息未执行；请稍后重新发送。";
+const QUEUE_DUPLICATE_ACK = "这条相同消息已经在处理中或队列中，无需重复发送。";
+const MIN_QUEUE_ACK_CARD_VISIBLE_MS = 750;
+
+// DingTalk retries keep the same msgId and are already handled by gateway dedup.
+// This set handles a user manually resending the same meaningful text with a new
+// msgId while its earlier copy is still active or queued.
+const activeMessageFingerprints = new Set<string>();
+const queuedAckVisibleAt = new WeakMap<AICardInstance, number>();
+
+function resolveMessageFingerprint(input: InboundQueueDispatchInput, queueKey: string): string | undefined {
+  const text = extractMessageContent(input.data)?.text?.trim().replace(/\s+/g, " ");
+  return text ? `${queueKey}\u0000${text}` : undefined;
+}
+
+function shouldPrepareQueueAckCard(input: InboundQueueDispatchInput): boolean {
+  if (input.dingtalkConfig.messageType !== "card") {
+    return false;
+  }
+  const text = extractMessageContent(input.data)?.text || "";
+  // These paths deliberately do not consume the normal reply card.
+  return !isBtwRequestText(text) && !isAbortRequestText(text);
+}
+
+async function keepQueueAckCardVisible(card: AICardInstance): Promise<void> {
+  const visibleAt = queuedAckVisibleAt.get(card);
+  if (!visibleAt) {
+    return;
+  }
+  const remainingMs = MIN_QUEUE_ACK_CARD_VISIBLE_MS - (Date.now() - visibleAt);
+  if (remainingMs > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
+  }
+}
+
+async function settleUnusedQueueAckCard(
+  input: InboundQueueDispatchInput,
+  card: AICardInstance,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    return;
+  }
+  try {
+    if (await recallAICardMessage(card, input.log)) {
+      return;
+    }
+  } catch (err: unknown) {
+    input.log?.warn?.(
+      `[DingTalk] Failed to recall unused queue acknowledgement card: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  await sendQueueTerminalAck(input, "已结束排队确认，请以本次实际回复为准。", card);
+}
 
 /**
  * Serialize an inbound message per conversation, then invoke `handler` (which
@@ -69,18 +127,26 @@ export async function dispatchInboundViaSessionQueue<T>(
     // No stable conversation identity → cannot queue; run directly.
     return handler(undefined);
   }
+  const wasBusy = isInboundSessionQueueBusy(queueKey);
+  const fingerprint = resolveMessageFingerprint(input, queueKey);
+  if (wasBusy && fingerprint && activeMessageFingerprints.has(fingerprint)) {
+    await sendQueueTerminalAck(input, QUEUE_DUPLICATE_ACK);
+    return undefined as T;
+  }
   if (getInboundSessionQueueDepth(queueKey) >= MAX_INBOUND_SESSION_QUEUE_DEPTH) {
     await sendQueueTerminalAck(input, QUEUE_FULL_ACK);
     return undefined as T;
   }
   // Detect busyness BEFORE chaining: this call is "busy" only if a PRIOR task
   // for this conversation is still running.
-  const wasBusy = isInboundSessionQueueBusy(queueKey);
+  if (fingerprint) {
+    activeMessageFingerprints.add(fingerprint);
+  }
   // Start preparing a busy ACK without awaiting it before we reserve a queue
   // slot below. Otherwise a burst of inbound messages can all observe the
   // same pre-await depth and each pass the cap check.
   let queuedAckState: "queued" | "timed-out" = "queued";
-  const preCreatedCardPromise = wasBusy
+  const preCreatedCardPromise = wasBusy && shouldPrepareQueueAckCard(input)
     ? tryPrepareQueueAckCard(input, () =>
         queuedAckState === "timed-out"
           ? { content: QUEUE_WAIT_TIMEOUT_ACK, finished: true }
@@ -94,10 +160,20 @@ export async function dispatchInboundViaSessionQueue<T>(
   try {
     return await chainInboundSessionTask(
       queueKey,
-      () =>
-        preCreatedCardPromise
-          ? preCreatedCardPromise.then((preCreatedCard) => handler(preCreatedCard))
-          : handler(undefined),
+      async () => {
+        const preCreatedCard = preCreatedCardPromise
+          ? await preCreatedCardPromise
+          : undefined;
+        if (!preCreatedCard) {
+          return handler(undefined);
+        }
+        await keepQueueAckCardVisible(preCreatedCard);
+        try {
+          return await handler(preCreatedCard);
+        } finally {
+          await settleUnusedQueueAckCard(input, preCreatedCard);
+        }
+      },
       {
         maxQueueWaitMs: wasBusy ? MAX_INBOUND_SESSION_QUEUE_WAIT_MS : undefined,
       },
@@ -113,6 +189,10 @@ export async function dispatchInboundViaSessionQueue<T>(
       return undefined as T;
     }
     throw err;
+  } finally {
+    if (fingerprint) {
+      activeMessageFingerprints.delete(fingerprint);
+    }
   }
 }
 
@@ -158,6 +238,9 @@ async function tryPrepareQueueAckCard(
     }
     const { content, finished } = ack();
     await streamAICard(card, content, finished, log);
+    if (!finished) {
+      queuedAckVisibleAt.set(card, Date.now());
+    }
     if (finished) {
       return card;
     }
