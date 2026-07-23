@@ -2452,6 +2452,14 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
               log?.warn?.(
                 `[DingTalk] Processing acknowledgement card finalize failed: ${getErrorMessage(cardAckErr)}`,
               );
+              // The card was already the reply surface for this inbound
+              // message. If its busy acknowledgement cannot be committed,
+              // do not emit a second text acknowledgement and then abort the
+              // card: abort renders "❌ 处理失败", which contradicts the
+              // recoverable busy state and leaves two visible outcomes.
+              // Keep the existing card untouched and let the next inbound
+              // message / normal card lifecycle recover it instead.
+              return;
             }
           }
           try {

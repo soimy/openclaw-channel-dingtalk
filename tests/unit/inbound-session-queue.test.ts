@@ -3,6 +3,7 @@ import {
   QUEUE_BUSY_ACK_PHRASES,
   chainInboundSessionTask,
   deriveInboundQueueKey,
+  getInboundSessionQueueDepth,
   inboundSessionQueueBusyKeysForTest,
   isInboundSessionQueueBusy,
   pickQueueBusyAckPhrase,
@@ -111,6 +112,21 @@ describe("chainInboundSessionTask", () => {
     expect(order).toEqual(["a-start", "a-end", "b-start", "b-end"]);
   });
 
+  it("tracks active and queued depth independently per conversation", async () => {
+    let resolveA: () => void = () => {};
+    const aGate = new Promise<void>((resolve) => {
+      resolveA = resolve;
+    });
+    const a = chainInboundSessionTask("s1", () => aGate);
+    const b = chainInboundSessionTask("s1", async () => undefined);
+
+    expect(getInboundSessionQueueDepth("s1")).toBe(2);
+    resolveA();
+    await Promise.all([a, b]);
+    await flushMicrotasks();
+    expect(getInboundSessionQueueDepth("s1")).toBe(0);
+  });
+
   it("runs independent queues in parallel (different keys)", async () => {
     let resolveA: () => void = () => {};
     let resolveB: () => void = () => {};
@@ -170,5 +186,31 @@ describe("chainInboundSessionTask", () => {
     const result = await chainInboundSessionTask("s1", async () => 42);
     expect(result).toBe(42);
     await flushMicrotasks();
+  });
+
+  it("times out a waiting task without aborting the active task or running the expired work", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveA: () => void = () => {};
+      const aGate = new Promise<void>((resolve) => {
+        resolveA = resolve;
+      });
+      const runB = vi.fn();
+      const a = chainInboundSessionTask("s1", () => aGate);
+      const b = chainInboundSessionTask("s1", async () => runB(), { maxQueueWaitMs: 1_000 });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(b).rejects.toMatchObject({ name: "InboundSessionQueueWaitTimeoutError" });
+      expect(runB).not.toHaveBeenCalled();
+      expect(getInboundSessionQueueDepth("s1")).toBe(2);
+
+      resolveA();
+      await a;
+      await flushMicrotasks();
+      expect(runB).not.toHaveBeenCalled();
+      expect(getInboundSessionQueueDepth("s1")).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

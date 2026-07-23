@@ -120,8 +120,13 @@ import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 // mocked — we exercise the real promise-chain serializer + real per-session lock.
 import { handleDingTalkMessage } from "../../src/inbound-handler";
 import { resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
-import { resetInboundSessionQueueForTest } from "../../src/inbound-session-queue";
-import { QUEUE_BUSY_ACK_PHRASES } from "../../src/inbound-session-queue";
+import {
+  chainInboundSessionTask,
+  MAX_INBOUND_SESSION_QUEUE_DEPTH,
+  MAX_INBOUND_SESSION_QUEUE_WAIT_MS,
+  QUEUE_BUSY_ACK_PHRASES,
+  resetInboundSessionQueueForTest,
+} from "../../src/inbound-session-queue";
 import { dispatchInboundViaSessionQueue } from "../../src/inbound-session-queue-dispatcher";
 import * as messageContextStore from "../../src/message-context-store";
 import { clearTargetDirectoryStateCache } from "../../src/targeting/target-directory-store";
@@ -321,6 +326,80 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       (call: any[]) => call[3]?.quoteContent === "确认",
     );
     expect(bAckCreateCall).toBeTruthy();
+  });
+
+  it("expires a queued message with a terminal card update without running its handler", async () => {
+    shared.createAICardMock.mockImplementation(async () => ({
+      cardInstanceId: `card_${(cardSerial += 1)}`,
+      outTrackId: `card_${cardSerial}`,
+      state: "INPUTING",
+      storePath: STORE_PATH,
+      lastStreamedContent: "",
+      lastUpdated: Date.now(),
+    }));
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    shared.extractMessageContentMock.mockImplementation((data: any) => ({
+      text: data?.text?.content,
+      messageType: "text",
+    }));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+
+    let resolveADispatch: () => void = () => {};
+    const aDispatchGate = new Promise<void>((resolve) => {
+      resolveADispatch = resolve;
+    });
+    shared.dispatchMock.mockImplementation(() =>
+      aDispatchGate.then(() => ({ queuedFinal: undefined })),
+    );
+
+    const aPromise = dispatch(buildMessage("查询A", "msg_timeout_a"));
+    await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(1));
+    const bPromise = dispatch(buildMessage("确认", "msg_timeout_b"));
+    await vi.waitFor(() => expect(shared.createAICardMock).toHaveBeenCalledTimes(2));
+
+    await vi.advanceTimersByTimeAsync(MAX_INBOUND_SESSION_QUEUE_WAIT_MS);
+    await bPromise;
+
+    expect(shared.dispatchMock).toHaveBeenCalledTimes(1);
+    const timeoutUpdate = shared.streamAICardMock.mock.calls.find(
+      (call: any[]) => call[1].includes("这条消息未执行") && call[2] === true,
+    );
+    expect(timeoutUpdate).toBeTruthy();
+
+    resolveADispatch();
+    await aPromise;
+    // The expired task stays in the serialized tail only long enough to skip
+    // itself; it must never dispatch after the active run finishes.
+    expect(shared.dispatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a message beyond the per-conversation depth cap without invoking its handler", async () => {
+    shared.createAICardMock.mockResolvedValue(null);
+    let releaseActive: () => void = () => {};
+    const activeGate = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const queued = [chainInboundSessionTask("main:cid_queue_1", () => activeGate)];
+    for (let index = 1; index < MAX_INBOUND_SESSION_QUEUE_DEPTH; index += 1) {
+      queued.push(chainInboundSessionTask("main:cid_queue_1", async () => undefined));
+    }
+    const rejectedHandler = vi.fn(async () => undefined);
+    await dispatchInboundViaSessionQueue(
+      {
+        cfg: {},
+        accountId: "main",
+        data: buildMessage("确认", "msg_queue_full").data,
+        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      },
+      rejectedHandler,
+    );
+
+    expect(rejectedHandler).not.toHaveBeenCalled();
+    expect(shared.sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendMessageMock.mock.calls[0][2]).toContain("排队上限");
+
+    releaseActive();
+    await Promise.all(queued);
   });
 
   it("ask-user reinjections BYPASS the queue (no queue-busy ACK card prepared)", async () => {

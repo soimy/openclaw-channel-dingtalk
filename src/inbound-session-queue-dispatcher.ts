@@ -26,11 +26,16 @@ import { createAICard, streamAICard } from "./card-service";
 import {
   chainInboundSessionTask,
   deriveInboundQueueKey,
+  getInboundSessionQueueDepth,
+  InboundSessionQueueWaitTimeoutError,
   isInboundSessionQueueBusy,
+  MAX_INBOUND_SESSION_QUEUE_DEPTH,
+  MAX_INBOUND_SESSION_QUEUE_WAIT_MS,
   pickQueueBusyAckPhrase,
 } from "./inbound-session-queue";
 import { extractMessageContent } from "./message-utils";
 import { getDingTalkRuntime } from "./runtime";
+import { sendMessage } from "./send-service";
 import type { AICardInstance, DingTalkConfig, DingTalkInboundMessage, Logger } from "./types";
 
 export interface InboundQueueDispatchInput {
@@ -40,6 +45,9 @@ export interface InboundQueueDispatchInput {
   dingtalkConfig: DingTalkConfig;
   log?: Logger;
 }
+
+const QUEUE_FULL_ACK = "当前消息较多，已达到本会话排队上限；请等待上一轮完成后再发送。";
+const QUEUE_WAIT_TIMEOUT_ACK = "上一轮处理时间较长，这条消息未执行；请稍后重新发送。";
 
 /**
  * Serialize an inbound message per conversation, then invoke `handler` (which
@@ -61,15 +69,31 @@ export async function dispatchInboundViaSessionQueue<T>(
     // No stable conversation identity → cannot queue; run directly.
     return handler(undefined);
   }
+  if (getInboundSessionQueueDepth(queueKey) >= MAX_INBOUND_SESSION_QUEUE_DEPTH) {
+    await sendQueueTerminalAck(input, QUEUE_FULL_ACK);
+    return undefined as T;
+  }
   // Detect busyness BEFORE chaining: this call is "busy" only if a PRIOR task
   // for this conversation is still running.
   const wasBusy = isInboundSessionQueueBusy(queueKey);
-  const preCreatedCard = wasBusy ? await tryPrepareQueueBusyAckCard(input) : undefined;
+  const preCreatedCard = wasBusy
+    ? await tryPrepareQueueAckCard(input, pickQueueBusyAckPhrase(), false)
+    : undefined;
   // Chain onto the prior task for this conversation and AWAIT. Awaiting (rather
   // than fire-and-forget) preserves the gateway's per-message dedup:
   // `markMessageProcessed` runs only after this message truly completes, so a
   // still-queued message is never marked processed.
-  return chainInboundSessionTask(queueKey, () => handler(preCreatedCard));
+  try {
+    return await chainInboundSessionTask(queueKey, () => handler(preCreatedCard), {
+      maxQueueWaitMs: wasBusy ? MAX_INBOUND_SESSION_QUEUE_WAIT_MS : undefined,
+    });
+  } catch (err: unknown) {
+    if (err instanceof InboundSessionQueueWaitTimeoutError) {
+      await sendQueueTerminalAck(input, QUEUE_WAIT_TIMEOUT_ACK, preCreatedCard);
+      return undefined as T;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -78,8 +102,10 @@ export async function dispatchInboundViaSessionQueue<T>(
  * to stream the real reply in place. Best-effort: any failure returns
  * undefined and the handler falls back to creating a fresh card (or markdown).
  */
-async function tryPrepareQueueBusyAckCard(
+async function tryPrepareQueueAckCard(
   input: InboundQueueDispatchInput,
+  content: string,
+  finished: boolean,
 ): Promise<AICardInstance | undefined> {
   const { dingtalkConfig, data, log } = input;
   if (!data) {
@@ -111,7 +137,10 @@ async function tryPrepareQueueBusyAckCard(
     if (!card) {
       return undefined;
     }
-    await streamAICard(card, pickQueueBusyAckPhrase(), false, log);
+    await streamAICard(card, content, finished, log);
+    if (finished) {
+      return card;
+    }
     // Best-effort thinking reaction; failures must not block the queue.
     void attachNativeAckReaction(
       dingtalkConfig,
@@ -131,5 +160,43 @@ async function tryPrepareQueueBusyAckCard(
       `[DingTalk] Queue-busy ACK card prepare failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     return undefined;
+  }
+}
+
+async function sendQueueTerminalAck(
+  input: InboundQueueDispatchInput,
+  content: string,
+  preCreatedCard?: AICardInstance,
+): Promise<void> {
+  const { dingtalkConfig, data, log } = input;
+  try {
+    if (preCreatedCard) {
+      await streamAICard(preCreatedCard, content, true, log);
+      return;
+    }
+    const card = await tryPrepareQueueAckCard(input, content, true);
+    if (card) {
+      return;
+    }
+    const isDirect = data.conversationType === "1";
+    const to = isDirect
+      ? (data.senderStaffId || data.senderId || "").trim()
+      : (data.conversationId || "").trim();
+    if (!to) {
+      return;
+    }
+    const result = await sendMessage(dingtalkConfig, to, content, {
+      sessionWebhook: data.sessionWebhook,
+      log,
+      accountId: input.accountId,
+      conversationId: data.conversationId,
+    });
+    if (!result.ok) {
+      log?.warn?.(`[DingTalk] Queue terminal acknowledgement failed: ${result.error || "unknown"}`);
+    }
+  } catch (err: unknown) {
+    log?.warn?.(
+      `[DingTalk] Queue terminal acknowledgement delivery failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

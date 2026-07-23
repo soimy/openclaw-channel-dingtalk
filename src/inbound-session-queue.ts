@@ -28,10 +28,23 @@
 
 const SESSION_QUEUE_TTL_MS = 5 * 60 * 1000;
 const SESSION_QUEUE_CLEANUP_INTERVAL_MS = 60 * 1000;
+// Bound one conversation independently so one hung core run cannot retain an
+// unbounded number of user messages in memory. The active task counts toward
+// this limit, so at most seven messages may wait behind a running task.
+export const MAX_INBOUND_SESSION_QUEUE_DEPTH = 8;
+export const MAX_INBOUND_SESSION_QUEUE_WAIT_MS = 15 * 60 * 1000;
 
 const sessionQueues = new Map<string, Promise<void>>();
 const sessionLastActivity = new Map<string, number>();
+const sessionQueueDepths = new Map<string, number>();
 let cleanupTimer: NodeJS.Timeout | null = null;
+
+export class InboundSessionQueueWaitTimeoutError extends Error {
+  constructor(queueKey: string) {
+    super(`Inbound session queue wait timed out for ${queueKey}`);
+    this.name = "InboundSessionQueueWaitTimeoutError";
+  }
+}
 
 function ensureCleanupTimer(): void {
   if (cleanupTimer) {
@@ -74,18 +87,71 @@ export function isInboundSessionQueueBusy(queueKey: string): boolean {
   return sessionQueues.has(queueKey);
 }
 
+/** Number of active + queued tasks for one conversation. */
+export function getInboundSessionQueueDepth(queueKey: string): number {
+  return sessionQueueDepths.get(queueKey) ?? 0;
+}
+
+export interface InboundSessionTaskOptions {
+  /** Maximum time this task may wait before it starts. Does not abort a running task. */
+  maxQueueWaitMs?: number;
+}
+
 /**
  * Chain `task` onto the previous task for `queueKey`. Returns a promise that
  * settles with `task`'s own outcome (so the caller observes the real result /
  * error), while the stored chain tail is rejection-safe so one failed message
  * never blocks the next queued one.
  */
-export function chainInboundSessionTask<T>(queueKey: string, task: () => Promise<T>): Promise<T> {
+export function chainInboundSessionTask<T>(
+  queueKey: string,
+  task: () => Promise<T>,
+  options: InboundSessionTaskOptions = {},
+): Promise<T> {
+  const hadPriorTask = sessionQueues.has(queueKey);
   const previousTail = sessionQueues.get(queueKey) ?? Promise.resolve();
   sessionLastActivity.set(queueKey, Date.now());
+  sessionQueueDepths.set(queueKey, getInboundSessionQueueDepth(queueKey) + 1);
   ensureCleanupTimer();
 
-  const current = previousTail.then(() => task());
+  let timedOut = false;
+  let timeout: NodeJS.Timeout | undefined;
+  let resolveWaitingCaller: ((value: T) => void) | undefined;
+  let rejectWaitingCaller: ((error: Error) => void) | undefined;
+  const maxQueueWaitMs = Math.max(0, options.maxQueueWaitMs ?? 0);
+  const caller =
+    maxQueueWaitMs > 0 && hadPriorTask
+      ? new Promise<T>((resolve, reject) => {
+          resolveWaitingCaller = resolve;
+          rejectWaitingCaller = reject;
+          timeout = setTimeout(() => {
+            timedOut = true;
+            reject(new InboundSessionQueueWaitTimeoutError(queueKey));
+          }, maxQueueWaitMs);
+          if (typeof timeout.unref === "function") {
+            timeout.unref();
+          }
+        })
+      : undefined;
+
+  // A queue timeout can fire while the gateway is still between awaits. Mark
+  // this caller-visible rejection as observed immediately so Node/Vitest does
+  // not report a transient unhandled rejection; returning `caller` below
+  // preserves the same rejection for the gateway to handle normally.
+  if (caller) {
+    void caller.catch(() => undefined);
+  }
+
+  const current = previousTail.then(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+    if (timedOut) {
+      throw new InboundSessionQueueWaitTimeoutError(queueKey);
+    }
+    return task();
+  });
   const tail: Promise<void> = current.then(
     () => undefined,
     () => {
@@ -106,13 +172,38 @@ export function chainInboundSessionTask<T>(queueKey: string, task: () => Promise
   // surfacing as an unhandled rejection. `.then(fn, fn)` returns a promise that
   // resolves once cleanup finishes, so no rejection escapes.
   const cleanup = (): void => {
+    const nextDepth = Math.max(0, getInboundSessionQueueDepth(queueKey) - 1);
+    if (nextDepth) {
+      sessionQueueDepths.set(queueKey, nextDepth);
+    } else {
+      sessionQueueDepths.delete(queueKey);
+    }
     if (sessionQueues.get(queueKey) === tail) {
       sessionQueues.delete(queueKey);
       sessionLastActivity.delete(queueKey);
     }
   };
   void current.then(cleanup, cleanup);
-  return current;
+  if (!caller) {
+    return current;
+  }
+  void current.then(
+    (value) => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      // The timeout may already have rejected this promise; subsequent resolve
+      // is intentionally ignored by Promise semantics.
+      resolveWaitingCaller?.(value);
+    },
+    (error: Error) => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      rejectWaitingCaller?.(error);
+    },
+  );
+  return caller;
 }
 
 /**
@@ -145,6 +236,7 @@ export function inboundSessionQueueBusyKeysForTest(): string[] {
 export function resetInboundSessionQueueForTest(): void {
   sessionQueues.clear();
   sessionLastActivity.clear();
+  sessionQueueDepths.clear();
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;

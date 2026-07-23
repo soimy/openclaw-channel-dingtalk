@@ -114,16 +114,16 @@ vi.mock("../../src/messaging/quoted-file-service", () => ({
   resolveQuotedFile: shared.resolveQuotedFileMock,
 }));
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
 // NOTE: session-lock and reply-session-conflict are NOT mocked — we exercise
 // the real retry helper + real per-session lock, exactly as in production.
 import { handleDingTalkMessage } from "../../src/inbound-handler";
 import { resetProactivePermissionHintStateForTest } from "../../src/inbound-handler";
-import { clearCardRunRegistryForTest } from "../../src/card/card-run-registry";
-import { clearTargetDirectoryStateCache } from "../../src/targeting/target-directory-store";
 import * as messageContextStore from "../../src/message-context-store";
-import path from "node:path";
-import fs from "node:fs";
-import os from "node:os";
+import { clearTargetDirectoryStateCache } from "../../src/targeting/target-directory-store";
 
 const TEST_TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-conflict-int-"));
 const STORE_PATH = path.join(TEST_TMP_DIR, "store-conflict.json");
@@ -188,7 +188,7 @@ function buildConfirmMessage() {
   } as any;
 }
 
-describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regression)", () => {
+describe('inbound reply-session init conflict (钉钉"确认"无响应 regression)', () => {
   beforeEach(() => {
     clearTargetDirectoryStateCache();
     fs.rmSync(path.join(TEST_TMP_DIR, "dingtalk-state"), { recursive: true, force: true });
@@ -233,7 +233,7 @@ describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regress
     vi.useRealTimers();
   });
 
-  it("retries the dispatch on reply-session conflict, then sends 处理中 ack (no silent drop)", async () => {
+  it("retries the dispatch on reply-session conflict, then sends exactly one markdown 处理中 ack (no silent drop or failure follow-up)", async () => {
     // Every dispatch attempt conflicts (simulates an active run that never
     // drains within the retry budget — the worst case from the incident).
     shared.dispatchMock.mockRejectedValue(REPLY_SESSION_CONFLICT_ERROR);
@@ -251,6 +251,12 @@ describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regress
     const [config, webhook, ackText] = shared.sendBySessionMock.mock.calls[0];
     expect(webhook).toBe("https://session.webhook/confirm");
     expect(ackText).toContain("处理中");
+    expect(ackText).not.toContain("处理失败");
+    expect(
+      shared.sendBySessionMock.mock.calls.some(
+        (call) => typeof call[2] === "string" && call[2].includes("处理失败"),
+      ),
+    ).toBe(false);
     // No proactive sendMessage fallback used because sessionWebhook was set.
     expect(shared.sendMessageMock).not.toHaveBeenCalled();
   });
@@ -279,6 +285,39 @@ describe("inbound reply-session init conflict (钉钉\"确认\"无响应 regress
     expect(shared.commitAICardBlocksMock.mock.calls[0][1].content).toContain("处理中");
     expect(shared.commitAICardBlocksMock.mock.calls[0][1].content).not.toContain("处理失败");
     expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not emit a text ack or abort the card when the card busy acknowledgement write fails", async () => {
+    shared.dispatchMock.mockRejectedValue(REPLY_SESSION_CONFLICT_ERROR);
+    shared.createAICardMock.mockResolvedValue({
+      cardInstanceId: "card_busy_conflict_write_failure",
+      outTrackId: "card_busy_conflict_write_failure",
+      state: "INPUTING",
+      storePath: STORE_PATH,
+      lastStreamedContent: "",
+      lastUpdated: Date.now(),
+    });
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    shared.commitAICardBlocksMock.mockRejectedValueOnce(new Error("card API unavailable"));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+
+    const msg = buildConfirmMessage();
+    msg.dingtalkConfig.messageType = "card";
+    const pending = handleDingTalkMessage(msg);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await pending;
+
+    expect(shared.dispatchMock).toHaveBeenCalledTimes(4);
+    expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
+    // A failed card write must not downgrade into a separate busy text plus
+    // `abort()`'s visible "处理失败" card.
+    expect(shared.sendBySessionMock).not.toHaveBeenCalled();
+    expect(shared.sendMessageMock).not.toHaveBeenCalled();
+    expect(
+      shared.commitAICardBlocksMock.mock.calls.some((call) =>
+        call[1]?.content?.includes("处理失败"),
+      ),
+    ).toBe(false);
   });
 
   it("falls back to proactive sendMessage when no sessionWebhook is available", async () => {
