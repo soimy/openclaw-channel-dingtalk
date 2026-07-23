@@ -76,20 +76,40 @@ export async function dispatchInboundViaSessionQueue<T>(
   // Detect busyness BEFORE chaining: this call is "busy" only if a PRIOR task
   // for this conversation is still running.
   const wasBusy = isInboundSessionQueueBusy(queueKey);
-  const preCreatedCard = wasBusy
-    ? await tryPrepareQueueAckCard(input, pickQueueBusyAckPhrase(), false)
+  // Start preparing a busy ACK without awaiting it before we reserve a queue
+  // slot below. Otherwise a burst of inbound messages can all observe the
+  // same pre-await depth and each pass the cap check.
+  let queuedAckState: "queued" | "timed-out" = "queued";
+  const preCreatedCardPromise = wasBusy
+    ? tryPrepareQueueAckCard(input, () =>
+        queuedAckState === "timed-out"
+          ? { content: QUEUE_WAIT_TIMEOUT_ACK, finished: true }
+          : { content: pickQueueBusyAckPhrase(), finished: false },
+      )
     : undefined;
   // Chain onto the prior task for this conversation and AWAIT. Awaiting (rather
   // than fire-and-forget) preserves the gateway's per-message dedup:
   // `markMessageProcessed` runs only after this message truly completes, so a
   // still-queued message is never marked processed.
   try {
-    return await chainInboundSessionTask(queueKey, () => handler(preCreatedCard), {
-      maxQueueWaitMs: wasBusy ? MAX_INBOUND_SESSION_QUEUE_WAIT_MS : undefined,
-    });
+    return await chainInboundSessionTask(
+      queueKey,
+      () =>
+        preCreatedCardPromise
+          ? preCreatedCardPromise.then((preCreatedCard) => handler(preCreatedCard))
+          : handler(undefined),
+      {
+        maxQueueWaitMs: wasBusy ? MAX_INBOUND_SESSION_QUEUE_WAIT_MS : undefined,
+      },
+    );
   } catch (err: unknown) {
     if (err instanceof InboundSessionQueueWaitTimeoutError) {
-      await sendQueueTerminalAck(input, QUEUE_WAIT_TIMEOUT_ACK, preCreatedCard);
+      queuedAckState = "timed-out";
+      await sendQueueTerminalAck(
+        input,
+        QUEUE_WAIT_TIMEOUT_ACK,
+        preCreatedCardPromise ? await preCreatedCardPromise : undefined,
+      );
       return undefined as T;
     }
     throw err;
@@ -104,8 +124,7 @@ export async function dispatchInboundViaSessionQueue<T>(
  */
 async function tryPrepareQueueAckCard(
   input: InboundQueueDispatchInput,
-  content: string,
-  finished: boolean,
+  ack: () => { content: string; finished: boolean },
 ): Promise<AICardInstance | undefined> {
   const { dingtalkConfig, data, log } = input;
   if (!data) {
@@ -137,6 +156,7 @@ async function tryPrepareQueueAckCard(
     if (!card) {
       return undefined;
     }
+    const { content, finished } = ack();
     await streamAICard(card, content, finished, log);
     if (finished) {
       return card;
@@ -174,7 +194,7 @@ async function sendQueueTerminalAck(
       await streamAICard(preCreatedCard, content, true, log);
       return;
     }
-    const card = await tryPrepareQueueAckCard(input, content, true);
+    const card = await tryPrepareQueueAckCard(input, () => ({ content, finished: true }));
     if (card) {
       return;
     }

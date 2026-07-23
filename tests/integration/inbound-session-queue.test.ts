@@ -255,6 +255,14 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
   });
 
   it("queues a busy message, acks it on a pre-created card, then auto-reprocesses it (no drop, in-place card)", async () => {
+    let resolveFirstDispatchStarted: () => void = () => {};
+    const firstDispatchStarted = new Promise<void>((resolve) => {
+      resolveFirstDispatchStarted = resolve;
+    });
+    let resolveQueuedAckStreamed: () => void = () => {};
+    const queuedAckStreamed = new Promise<void>((resolve) => {
+      resolveQueuedAckStreamed = resolve;
+    });
     // Each createAICard call yields a distinct fake card so we can tell the
     // active run's card apart from the queued message's ACK card.
     shared.createAICardMock.mockImplementation(async () => ({
@@ -266,6 +274,11 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       lastUpdated: Date.now(),
     }));
     shared.isCardInTerminalStateMock.mockReturnValue(false);
+    shared.streamAICardMock.mockImplementation(async (_card: unknown, content: string) => {
+      if ((QUEUE_BUSY_ACK_PHRASES as readonly string[]).includes(content)) {
+        resolveQueuedAckStreamed();
+      }
+    });
     shared.extractMessageContentMock.mockImplementation((data: any) => ({
       text: data?.text?.content,
       messageType: "text",
@@ -280,6 +293,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     shared.dispatchMock.mockImplementation(() => {
       dispatchCallCount += 1;
       if (dispatchCallCount === 1) {
+        resolveFirstDispatchStarted();
         // A: hang until the test releases it.
         return aDispatchGate.then(() => ({ queuedFinal: undefined }));
       }
@@ -289,13 +303,13 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
 
     // A arrives first on an idle queue → runs immediately.
     const aPromise = dispatch(buildMessage("查询A", "msg_a"));
-    // Let A's handler progress up to its (hanging) dispatch.
-    await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(1));
+    // Wait on the actual handler call rather than timer polling: this is
+    // stable under CI worker contention.
+    await firstDispatchStarted;
 
     // While A is still running, B arrives on the SAME conversation.
     const bPromise = dispatch(buildMessage("确认", "msg_b"));
-    // Yield so the dispatcher can detect busyness and prepare B's ACK card.
-    await vi.waitFor(() => expect(shared.createAICardMock).toHaveBeenCalledTimes(2));
+    await queuedAckStreamed;
 
     // Assertion 1: B is QUEUED — its core dispatch has NOT started while A runs.
     expect(shared.dispatchMock).toHaveBeenCalledTimes(1);
@@ -329,6 +343,14 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
   });
 
   it("expires a queued message with a terminal card update without running its handler", async () => {
+    let resolveFirstDispatchStarted: () => void = () => {};
+    const firstDispatchStarted = new Promise<void>((resolve) => {
+      resolveFirstDispatchStarted = resolve;
+    });
+    let resolveQueuedAckStreamed: () => void = () => {};
+    const queuedAckStreamed = new Promise<void>((resolve) => {
+      resolveQueuedAckStreamed = resolve;
+    });
     shared.createAICardMock.mockImplementation(async () => ({
       cardInstanceId: `card_${(cardSerial += 1)}`,
       outTrackId: `card_${cardSerial}`,
@@ -338,6 +360,11 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       lastUpdated: Date.now(),
     }));
     shared.isCardInTerminalStateMock.mockReturnValue(false);
+    shared.streamAICardMock.mockImplementation(async (_card: unknown, content: string) => {
+      if ((QUEUE_BUSY_ACK_PHRASES as readonly string[]).includes(content)) {
+        resolveQueuedAckStreamed();
+      }
+    });
     shared.extractMessageContentMock.mockImplementation((data: any) => ({
       text: data?.text?.content,
       messageType: "text",
@@ -348,14 +375,15 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     const aDispatchGate = new Promise<void>((resolve) => {
       resolveADispatch = resolve;
     });
-    shared.dispatchMock.mockImplementation(() =>
-      aDispatchGate.then(() => ({ queuedFinal: undefined })),
-    );
+    shared.dispatchMock.mockImplementation(() => {
+      resolveFirstDispatchStarted();
+      return aDispatchGate.then(() => ({ queuedFinal: undefined }));
+    });
 
     const aPromise = dispatch(buildMessage("查询A", "msg_timeout_a"));
-    await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(1));
+    await firstDispatchStarted;
     const bPromise = dispatch(buildMessage("确认", "msg_timeout_b"));
-    await vi.waitFor(() => expect(shared.createAICardMock).toHaveBeenCalledTimes(2));
+    await queuedAckStreamed;
 
     await vi.advanceTimersByTimeAsync(MAX_INBOUND_SESSION_QUEUE_WAIT_MS);
     await bPromise;
@@ -402,7 +430,65 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     await Promise.all(queued);
   });
 
+  it("reserves depth before asynchronous ACK creation so a burst cannot over-admit", async () => {
+    // A null card keeps the ACK path asynchronous (one promise turn) while
+    // making terminal overflow replies fall back to sendMessage.
+    shared.createAICardMock.mockResolvedValue(null);
+    let releaseActive: () => void = () => {};
+    let resolveActiveStarted: () => void = () => {};
+    const activeGate = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const activeStarted = new Promise<void>((resolve) => {
+      resolveActiveStarted = resolve;
+    });
+    const active = dispatchInboundViaSessionQueue(
+      {
+        cfg: {},
+        accountId: "main",
+        data: buildMessage("查询A", "msg_burst_active").data,
+        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+      },
+      async () => {
+        resolveActiveStarted();
+        await activeGate;
+      },
+    );
+    await activeStarted;
+
+    const admittedHandlers = Array.from({ length: MAX_INBOUND_SESSION_QUEUE_DEPTH - 1 }, () =>
+      vi.fn(async () => undefined),
+    );
+    const overflowHandlers = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
+    const burst = [...admittedHandlers, ...overflowHandlers].map((handler, index) =>
+      dispatchInboundViaSessionQueue(
+        {
+          cfg: {},
+          accountId: "main",
+          data: buildMessage("确认", `msg_burst_${index}`).data,
+          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
+        },
+        handler,
+      ),
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(shared.sendMessageMock).toHaveBeenCalledTimes(2);
+    expect(admittedHandlers.every((handler) => handler.mock.calls.length === 0)).toBe(true);
+    expect(overflowHandlers.every((handler) => handler.mock.calls.length === 0)).toBe(true);
+
+    releaseActive();
+    await Promise.all([active, ...burst]);
+    expect(admittedHandlers.every((handler) => handler.mock.calls.length === 1)).toBe(true);
+    expect(overflowHandlers.every((handler) => handler.mock.calls.length === 0)).toBe(true);
+  });
+
   it("ask-user reinjections BYPASS the queue (no queue-busy ACK card prepared)", async () => {
+    let resolveFirstDispatchStarted: () => void = () => {};
+    const firstDispatchStarted = new Promise<void>((resolve) => {
+      resolveFirstDispatchStarted = resolve;
+    });
     shared.createAICardMock.mockImplementation(async () => ({
       cardInstanceId: `card_${(cardSerial += 1)}`,
       outTrackId: `card_${cardSerial}`,
@@ -427,13 +513,14 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     shared.dispatchMock.mockImplementation(() => {
       dispatchCallCount += 1;
       if (dispatchCallCount === 1) {
+        resolveFirstDispatchStarted();
         return aDispatchGate.then(() => ({ queuedFinal: undefined }));
       }
       return Promise.resolve({ queuedFinal: undefined });
     });
 
     const aPromise = dispatch(buildMessage("提问", "msg_a"));
-    await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(1));
+    await firstDispatchStarted;
 
     // An ask-user answer is delivered by a DIRECT call to handleDingTalkMessage
     // (ask-user-question.ts does this) — it never enters the gateway dispatcher,
