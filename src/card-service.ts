@@ -363,6 +363,8 @@ interface PendingCardRecord {
   lastContent?: string;
   lastBlockListJson?: string;
   streamLifecycleOpened?: boolean;
+  /** A terminal update failed; startup may retry only the terminal close. */
+  recoveryAction?: "finalize";
 }
 
 interface PendingCardStateFile {
@@ -402,7 +404,8 @@ function normalizePendingState(parsed: Partial<PendingCardStateFile>): PendingCa
         typeof entry.conversationId === "string" &&
         (entry.lastContent === undefined || typeof entry.lastContent === "string") &&
         (entry.lastBlockListJson === undefined || typeof entry.lastBlockListJson === "string") &&
-        (entry.streamLifecycleOpened === undefined || typeof entry.streamLifecycleOpened === "boolean"),
+        (entry.streamLifecycleOpened === undefined || typeof entry.streamLifecycleOpened === "boolean") &&
+        (entry.recoveryAction === undefined || entry.recoveryAction === "finalize"),
       ),
     ),
   };
@@ -537,6 +540,29 @@ function removePendingCardById(cardInstanceId: string, storePath?: string, log?:
   state.pendingCards = remaining;
   state.updatedAt = Date.now();
   writePendingCardState(state, storePath, log);
+}
+
+function retainPendingCardForTerminalRetry(card: AICardInstance, log?: Logger): void {
+  if (!card.accountId || !card.storePath) {
+    return;
+  }
+  const state = readPendingCardState(card.storePath, log);
+  const index = state.pendingCards.findIndex((item) => item.cardInstanceId === card.cardInstanceId);
+  if (index < 0) {
+    return;
+  }
+  const existing = state.pendingCards[index];
+  state.pendingCards[index] = {
+    ...existing,
+    state: AICardStatus.FAILED,
+    lastUpdated: Date.now(),
+    lastContent: card.lastStreamedContent ?? existing.lastContent,
+    lastBlockListJson: card.lastBlockListJson ?? existing.lastBlockListJson,
+    streamLifecycleOpened: card.streamLifecycleOpened,
+    recoveryAction: "finalize",
+  };
+  state.updatedAt = Date.now();
+  writePendingCardState(state, card.storePath, log);
 }
 
 function listPendingCardsByAccount(
@@ -713,7 +739,7 @@ async function finalizePendingCardsByAccount(
   }
 
   const pendingCards = listPendingCardsByAccount(accountId, storePath, log).filter(
-    (item) => !isCardInTerminalState(item.state),
+    (item) => !isCardInTerminalState(item.state) || item.recoveryAction === "finalize",
   );
   if (pendingCards.length === 0) {
     return 0;
@@ -1163,12 +1189,11 @@ export async function commitAICardBlocks(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log?.error?.(`[DingTalk][AICard] Finalize via instances API failed: ${message}`);
-    // This card can no longer be finalized by the current inbound run. Do not
-    // leave it in the durable active-card set: recovery would later treat the
-    // failed terminal commit as a live reply and replay it after restart.
+    // The caller cannot finish this card now. Persist a terminal-only recovery
+    // marker so startup retries the neutral close, never the original reply.
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
-    removePendingCard(card, log);
+    retainPendingCardForTerminalRetry(card, log);
     throw err;
   }
 

@@ -1111,7 +1111,7 @@ describe('token refresh', () => {
         expect(card.accessToken).toBe('current_token');
     });
 
-    it('removes a persisted pending card when the terminal instances update fails', async () => {
+    it('retains a terminal-only recovery record when the instances update fails', async () => {
         const persistedStateFile = resolveNamespacePath('cards.active.pending', {
             storePath,
             format: 'json',
@@ -1147,6 +1147,21 @@ describe('token refresh', () => {
         ).rejects.toMatchObject({ response: { status: 401 } });
 
         expect(card?.state).toBe(AICardStatus.FAILED);
+        expect(JSON.parse(fs.readFileSync(persistedStateFile, 'utf-8')).pendingCards).toMatchObject([
+            {
+                cardInstanceId: card?.cardInstanceId,
+                state: AICardStatus.FAILED,
+                recoveryAction: 'finalize',
+            },
+        ]);
+
+        mockedAxios.put.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            'main',
+            storePath,
+        );
+        expect(recovered).toBe(1);
         expect(JSON.parse(fs.readFileSync(persistedStateFile, 'utf-8')).pendingCards).toEqual([]);
     });
 
