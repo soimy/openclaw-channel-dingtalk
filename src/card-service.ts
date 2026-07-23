@@ -1163,6 +1163,12 @@ export async function commitAICardBlocks(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log?.error?.(`[DingTalk][AICard] Finalize via instances API failed: ${message}`);
+    // This card can no longer be finalized by the current inbound run. Do not
+    // leave it in the durable active-card set: recovery would later treat the
+    // failed terminal commit as a live reply and replay it after restart.
+    card.state = AICardStatus.FAILED;
+    card.lastUpdated = Date.now();
+    removePendingCard(card, log);
     throw err;
   }
 
