@@ -60,12 +60,16 @@ const MIN_QUEUE_ACK_CARD_VISIBLE_MS = 750;
 // DingTalk retries keep the same msgId and are already handled by gateway dedup.
 // This set handles a user manually resending the same meaningful text with a new
 // msgId while its earlier copy is still active or queued.
-const activeMessageFingerprints = new Set<string>();
+const activeMessageFingerprints = new Map<string, string>();
 const queuedAckVisibleAt = new WeakMap<AICardInstance, number>();
 
-function resolveMessageFingerprint(input: InboundQueueDispatchInput, queueKey: string): string | undefined {
+function resolveManualResendFingerprint(
+  input: InboundQueueDispatchInput,
+  queueKey: string,
+): { contentKey: string; msgId: string } | undefined {
   const text = extractMessageContent(input.data)?.text?.trim().replace(/\s+/g, " ");
-  return text ? `${queueKey}\u0000${text}` : undefined;
+  const msgId = input.data?.msgId?.trim();
+  return text && msgId ? { contentKey: `${queueKey}\u0000${text}`, msgId } : undefined;
 }
 
 function shouldPrepareQueueAckCard(input: InboundQueueDispatchInput): boolean {
@@ -128,8 +132,13 @@ export async function dispatchInboundViaSessionQueue<T>(
     return handler(undefined);
   }
   const wasBusy = isInboundSessionQueueBusy(queueKey);
-  const fingerprint = resolveMessageFingerprint(input, queueKey);
-  if (wasBusy && fingerprint && activeMessageFingerprints.has(fingerprint)) {
+  const fingerprint = resolveManualResendFingerprint(input, queueKey);
+  if (
+    wasBusy &&
+    fingerprint &&
+    activeMessageFingerprints.get(fingerprint.contentKey) !== undefined &&
+    activeMessageFingerprints.get(fingerprint.contentKey) !== fingerprint.msgId
+  ) {
     await sendQueueTerminalAck(input, QUEUE_DUPLICATE_ACK);
     return undefined as T;
   }
@@ -140,7 +149,7 @@ export async function dispatchInboundViaSessionQueue<T>(
   // Detect busyness BEFORE chaining: this call is "busy" only if a PRIOR task
   // for this conversation is still running.
   if (fingerprint) {
-    activeMessageFingerprints.add(fingerprint);
+    activeMessageFingerprints.set(fingerprint.contentKey, fingerprint.msgId);
   }
   // Start preparing a busy ACK without awaiting it before we reserve a queue
   // slot below. Otherwise a burst of inbound messages can all observe the
@@ -190,8 +199,8 @@ export async function dispatchInboundViaSessionQueue<T>(
     }
     throw err;
   } finally {
-    if (fingerprint) {
-      activeMessageFingerprints.delete(fingerprint);
+    if (fingerprint && activeMessageFingerprints.get(fingerprint.contentKey) === fingerprint.msgId) {
+      activeMessageFingerprints.delete(fingerprint.contentKey);
     }
   }
 }
