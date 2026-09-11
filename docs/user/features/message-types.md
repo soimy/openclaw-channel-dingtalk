@@ -43,6 +43,7 @@
 - 不支持图片与 Markdown 或 AI 卡片正文的图文混排
 - 远程媒体 URL 下载默认带超时、大小限制与 SSRF 防护
 - `asVoice=true` 仍需要真实音频文件，不会自动把纯文本转语音
+- 发送本地媒体时，配置了 `mediaLocalRoots` 的主机文件读取会被限制在允许目录内，详见[出站媒体主机读取边界](../reference/security-policies.md#出站媒体主机读取边界-medialocalroots)
 
 ## 相关文档
 

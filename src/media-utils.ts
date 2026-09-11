@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
-import { promises as fsPromises } from "node:fs";
+import { constants as fsConstants, promises as fsPromises } from "node:fs";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import axios from "./http-client";
@@ -776,12 +776,74 @@ const FILE_SIZE_LIMITS: Record<DingTalkMediaType, number> = {
 };
 
 /**
+ * Returns true when `target` is `root` itself or a descendant of it.
+ * Uses `path.relative` so sibling paths sharing a prefix (for example
+ * `/allowed` vs `/allowed-evil`) are not treated as contained.
+ */
+function isPathWithinRoot(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+}
+
+/**
+ * Resolve a path for boundary comparison while tolerating paths that do not
+ * exist yet on the host (sandbox/container paths). Mirrors the runtime media
+ * bridge: prefer the fully resolved real path, fall back to resolving the
+ * parent directory, and only then fall back to a plain path resolution.
+ */
+async function resolveCanonicalMediaPath(mediaPath: string): Promise<string> {
+  try {
+    return await fsPromises.realpath(mediaPath);
+  } catch {
+    try {
+      const parent = await fsPromises.realpath(path.dirname(mediaPath));
+      return path.join(parent, path.basename(mediaPath));
+    } catch {
+      return path.resolve(mediaPath);
+    }
+  }
+}
+
+/** Canonicalize an allowed root, falling back to `path.resolve` when it is absent. */
+async function resolveCanonicalRoot(root: string): Promise<string> {
+  const resolved = path.resolve(root);
+  try {
+    return await fsPromises.realpath(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+/**
+ * Read an already-authorized file without following a final-component symlink.
+ * The caller passes a canonical real path, so this only guards against the path
+ * being swapped for a symlink between the boundary check and the read.
+ */
+async function readFileNoFollow(filePath: string): Promise<Buffer> {
+  const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
+  const handle = await fsPromises.open(filePath, fsConstants.O_RDONLY | noFollow);
+  try {
+    return await handle.readFile();
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/**
  * Read a media file, resolving sandbox/container paths via the runtime bridge
  * when direct host filesystem access fails.
  *
  * Precedence:
  *   1. Direct fs.readFile (works for host-local paths)
  *   2. rt.media.loadWebMedia (resolves sandbox workspace paths via bridge)
+ *
+ * When `mediaLocalRoots` is configured, a direct host read is only allowed for
+ * paths whose canonical (symlink-resolved) location lives inside one of those
+ * roots. Everything else goes through the runtime media bridge so the host
+ * boundary stays enforced.
  */
 async function readMediaBuffer(
   mediaPath: string,
@@ -789,14 +851,10 @@ async function readMediaBuffer(
   log?: Logger,
 ): Promise<{ buffer: Buffer; size: number }> {
   // Direct host reads are allowed only inside the caller-provided roots.
-  const resolvedPath = path.resolve(mediaPath);
   const roots = options?.mediaLocalRoots?.map((root) => path.resolve(root));
-  const canReadHost = !roots || roots.some((root) => {
-    const relative = path.relative(root, resolvedPath);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  });
 
-  if (canReadHost) {
+  if (!roots) {
+    // No boundary configured: preserve the historical direct host read.
     try {
       const buffer = await fsPromises.readFile(mediaPath);
       return { buffer, size: buffer.length };
@@ -805,15 +863,34 @@ async function readMediaBuffer(
       if (errno.code !== "ENOENT") {
         throw err; // Permission errors etc. should propagate immediately
       }
+      log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
+    }
+  } else {
+    // Compare canonical paths so a symlink inside an allowed root cannot
+    // redirect the read outside of it, then read the resolved path.
+    const [canonicalPath, canonicalRoots] = await Promise.all([
+      resolveCanonicalMediaPath(mediaPath),
+      Promise.all(roots.map((root) => resolveCanonicalRoot(root))),
+    ]);
+    if (canonicalRoots.some((root) => isPathWithinRoot(root, canonicalPath))) {
+      try {
+        const buffer = await readFileNoFollow(canonicalPath);
+        return { buffer, size: buffer.length };
+      } catch (err: unknown) {
+        const errno = err as NodeJS.ErrnoException;
+        if (errno.code !== "ENOENT") {
+          throw err; // Permission errors etc. should propagate immediately
+        }
+        log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
+      }
+    } else {
+      log?.debug?.(
+        `[DingTalk] Media path is outside configured local roots, using runtime media bridge: ${mediaPath}`,
+      );
     }
   }
 
-  if (roots) {
-    log?.debug?.(`[DingTalk] Media path is outside configured local roots, using runtime media bridge: ${mediaPath}`);
-  }
-
-  // File not found on host — try runtime media bridge (sandbox/container paths)
-  log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
+  // Fall back to runtime media bridge (sandbox/container paths)
   const rt = getDingTalkRuntime() as PluginRuntimeWithMedia;
   if (!rt.media?.loadWebMedia) {
     throw Object.assign(

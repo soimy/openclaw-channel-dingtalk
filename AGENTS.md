@@ -164,8 +164,8 @@ Planned domain summary:
 **Code Style:**
 
 - TypeScript strict mode enabled
-- ES2020 target, ESNext modules
-- 4-space indentation (Prettier)
+- ES2023 target, ESNext modules
+- 2-space indentation, no tabs (oxfmt)
 - Public low-level API exported from `src/channel.ts` (re-exported from service modules)
 
 **Naming:**
