@@ -87,12 +87,21 @@ SecretInput 对象字段：
 - 获取 DingTalk access token 时，如果 token 缓存未命中，会解析 `clientSecret`
 - 启动 Stream 连接时，会为每个账号解析一次运行时凭据
 - 状态展示、配置向导展示等路径只显示规范化引用，不会解析密钥
-- 运行时解析统一委托给 OpenClaw SecretInput provider
 
 安全边界：
 
-- 插件不会把 SecretInput 的 `id` 当作环境变量或本地路径直接读取
-- 环境变量 allowlist、文件路径和访问策略由 `secrets.providers` 控制
+- `env` 引用通过宿主只读路径授权校验后才读取，且**只读取该引用对应的单个环境变量**，插件不会把整个 `process.env` 交给解析器
+- 授权规则与宿主一致：
+  - `secrets.providers.<provider>` 声明为 `source: "env"` 且 `allowlist` 包含该 `id` → 授权通过
+  - `secrets.providers.<provider>` 声明为 `source: "env"` 但**未配置 `allowlist`** → 该 provider 会对**任意** `id` 放行，等效于不做白名单限制
+  - `provider` 指向内置默认 env provider（未声明 `secrets.providers` 中的同名项）→ 按宿主内置默认规则判定
+  - 以上都不满足 → 判定为未授权，插件在发起任何 DingTalk 请求前抛本地错误
+- 强烈建议显式配置 `allowlist`：省略它会让该 provider 授权所有环境变量，等于放弃白名单边界
+- 授权通过但对应环境变量未设置或为空 → 判定为未解析，失败原因会区分“未授权”与“已授权但未设置”，便于定位
+- `file` 引用由 `secrets.providers` 的文件 provider 读取，插件不会把 `id` 当作本地路径
+- 文件 Provider 的路径与权限要求由 OpenClaw 宿主校验（2026.8 起不再接受 `allowInsecurePath`，密钥文件应放在受信状态目录下）
+
+> **宿主版本要求**：本改动使用了 OpenClaw 2026.8.1 起提供的 `openclaw/plugin-sdk/secret-ref-readonly`。宿主版本低于 2026.8.1 时插件无法加载，请先升级 OpenClaw 宿主。
 
 如果 SecretInput 解析失败，插件会在发起 DingTalk API 请求前抛出本地错误，并在日志中带上 `source` / `provider` / `id` / 失败原因，方便定位配置问题。
 

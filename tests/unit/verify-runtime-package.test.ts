@@ -23,15 +23,7 @@ export { match };
 `);
 
         expect(() => {
-            execFileSync(process.execPath, [scriptPath], {
-                cwd: packageDir,
-                encoding: "utf8",
-                env: {
-                    ...process.env,
-                    npm_config_cache: join(packageDir, ".npm-cache"),
-                },
-                stdio: ["ignore", "pipe", "pipe"],
-            });
+            runVerification(packageDir);
         }).not.toThrow();
     });
 
@@ -41,15 +33,7 @@ exec("open https://example.com");
 `);
 
         expect(() => {
-            execFileSync(process.execPath, [scriptPath], {
-                cwd: packageDir,
-                encoding: "utf8",
-                env: {
-                    ...process.env,
-                    npm_config_cache: join(packageDir, ".npm-cache"),
-                },
-                stdio: ["ignore", "pipe", "pipe"],
-            });
+            runVerification(packageDir);
         }).toThrow("Runtime package must not include process execution calls");
     });
 
@@ -63,17 +47,51 @@ exec("open https://example.com");
         writeJson(join(packageDir, "package.json"), packageJson);
 
         expect(() => {
-            execFileSync(process.execPath, [scriptPath], {
-                cwd: packageDir,
-                encoding: "utf8",
-                env: {
-                    ...process.env,
-                    npm_config_cache: join(packageDir, ".npm-cache"),
-                },
-                stdio: ["ignore", "pipe", "pipe"],
-            });
+            runVerification(packageDir);
         }).toThrow("Runtime package must not include source maps");
     });
+
+    it("rejects passing the whole process.env to a secret resolver", () => {
+        const packageDir = createRuntimePackageFixture(`
+const resolved = await resolveConfiguredSecretInputString({
+  config: hostConfig,
+  env: process.env,
+  value,
+  path: "channels.dingtalk.clientSecret",
+});
+export { resolved };
+`);
+
+        expect(() => {
+            runVerification(packageDir);
+        }).toThrow("Runtime package must not pass the whole process.env to a secret resolver");
+    });
+
+    it("allows reading a single allowlisted environment variable", () => {
+        const packageDir = createRuntimePackageFixture(`
+const templateId = process.env.DINGTALK_CARD_TEMPLATE_ID || "builtin.schema";
+function readSecret(id) {
+  return process.env[id];
+}
+export { templateId, readSecret };
+`);
+
+        expect(() => {
+            runVerification(packageDir);
+        }).not.toThrow();
+    });
+
+    function runVerification(packageDir: string): void {
+        execFileSync(process.execPath, [scriptPath], {
+            cwd: packageDir,
+            encoding: "utf8",
+            env: {
+                ...process.env,
+                npm_config_cache: join(packageDir, ".npm-cache"),
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+    }
 
     function createRuntimePackageFixture(runtimeCode: string): string {
         tempDir = mkdtempSync(join(tmpdir(), "dingtalk-runtime-package-"));

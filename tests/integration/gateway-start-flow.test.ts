@@ -298,6 +298,37 @@ describe('gateway.startAccount lifecycle', () => {
         expect(resolveOriginalPeerId('cidunscoped+abc')).toBe('cidunscoped+abc');
     });
 
+    it('migrates sessions that only carry the canonical delivery state', async () => {
+        shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
+        shared.listSessionEntriesMock.mockReturnValue([
+            {
+                sessionKey: 'agent:main:dingtalk:group:cidcanonical+abc',
+                entry: {
+                    sessionId: 'canonical-session',
+                    updatedAt: 1000,
+                    delivery: {
+                        kind: 'external',
+                        route: { channel: 'dingtalk', accountId: 'main' },
+                        context: {
+                            channel: 'dingtalk',
+                            accountId: 'main',
+                            to: 'cidCanonical+AbC',
+                        },
+                        origin: {
+                            provider: 'dingtalk',
+                            surface: 'dingtalk',
+                            from: 'cidCanonical+AbC',
+                        },
+                    },
+                },
+            },
+        ]);
+
+        await startGatewayAccount(createStartContext().ctx);
+
+        expect(resolveOriginalPeerId('cidcanonical+abc')).toBe('cidCanonical+AbC');
+    });
+
     it('handles abort signal by stopping connection manager and setting stopped status', async () => {
         const controller = new AbortController();
         const { ctx, setStatusCalls } = createStartContext(controller.signal);

@@ -39,13 +39,24 @@ openclaw gateway restart
 
 使用推荐的独立仓库布局时，更新插件不需要改动本地 `openclaw` 主仓库。
 
+## 宿主版本要求
+
+插件已开始使用 OpenClaw `2026.8.1` 起提供的 `openclaw/plugin-sdk/secret-ref-readonly`，用于把 `clientSecret` 的 `env` 引用收敛为“只读取该引用对应的单个环境变量、读取前先做只读路径授权”。
+
+- 宿主低于 `2026.8.1`：插件会因缺少该 SDK 子路径而加载失败，请先升级 OpenClaw 宿主
+- 宿主为 `2026.8.1` 及以上：无需额外配置；使用 `env` 引用时**务必**在 `secrets.providers` 中显式配置 `allowlist`
+  - 省略 `allowlist` 会让该 env provider 授权**任意**环境变量名，等于没有白名单边界
+- 文件 provider 的密钥文件需要位于受信状态目录并满足宿主权限校验（2026.8 起不再接受 `allowInsecurePath`）
+
 ## 更新后建议检查
 
 1. 重新确认 `plugins.allow` 中仍包含 `dingtalk`
 2. 重启 gateway
 3. 查看变更说明或发布记录
+4. 如果使用了 `env` 类型的 SecretInput，确认 `secrets.providers` 中的 provider 已配置 `allowlist`，且覆盖了实际使用的变量名
 
 ## 相关文档
 
 - [配置](configure.md)
+- [安全策略](../reference/security-policies.md)
 - [发布记录](../../releases/index.md)

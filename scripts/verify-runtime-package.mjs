@@ -30,4 +30,16 @@ if (processExecutionCall.test(runtime)) {
     throw new Error("Runtime package must not include process execution calls");
 }
 
+// Secret resolvers must never receive the whole ambient environment: reading one
+// authorized variable at a time keeps credential ownership with the host.
+//
+// This is a shape heuristic against the exact fingerprint that ClawHub flagged
+// (Issue #608), not an exhaustive dataflow analysis: indirect forms such as
+// `env: { ...process.env }`, `const e = process.env; env: e`, or `env: process.env
+// as any` would not match, and a single-key read (`process.env[id]`) is allowed.
+const ambientEnvPassThrough = /\benv\s*:\s*process\.env\s*(?:,|\}|\))/u;
+if (ambientEnvPassThrough.test(runtime)) {
+    throw new Error("Runtime package must not pass the whole process.env to a secret resolver");
+}
+
 console.log(`Runtime package check passed: ${requiredFiles.join(", ")}`);
