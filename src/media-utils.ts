@@ -211,6 +211,26 @@ const DEFAULT_VOICE_DURATION_MS = 1000;
 const DINGTALK_VOICE_UPLOAD_EXTENSIONS = new Set([".ogg", ".amr"]);
 const DINGTALK_VOICE_INPUT_EXTENSIONS = new Set([".ogg", ".amr", ".mp3", ".wav"]);
 
+/**
+ * Temp files this module created itself (remote media downloads and voice
+ * transcodes). They live outside `mediaLocalRoots` by design but are
+ * plugin-owned, so they may still be read directly instead of being rejected
+ * by the roots-gated runtime media bridge.
+ */
+const trustedHostMediaPaths = new Set<string>();
+
+function markTrustedHostMediaPath(filePath: string): void {
+  trustedHostMediaPaths.add(path.resolve(filePath));
+}
+
+function unmarkTrustedHostMediaPath(filePath: string): void {
+  trustedHostMediaPaths.delete(path.resolve(filePath));
+}
+
+function isTrustedHostMediaPath(filePath: string): boolean {
+  return trustedHostMediaPaths.has(path.resolve(filePath));
+}
+
 async function getDurationMsWithFfprobe(filePath: string, log?: Logger): Promise<number> {
   try {
     const stdout = await runFfprobe([
@@ -262,10 +282,12 @@ async function prepareVoiceUploadPath(
   ]);
 
   log?.debug?.(`[DingTalk] Transcoded voice upload to OGG: ${mediaPath} -> ${outputPath}`);
+  markTrustedHostMediaPath(outputPath);
 
   return {
     path: outputPath,
     cleanup: async () => {
+      unmarkTrustedHostMediaPath(outputPath);
       await fsPromises.rm(outputPath, { force: true });
     },
   };
@@ -747,11 +769,13 @@ export async function prepareMediaInput(
     : Buffer.from(response.data as ArrayBuffer);
 
   await fsPromises.writeFile(tempPath, buffer);
+  markTrustedHostMediaPath(tempPath);
   log?.debug?.(`[DingTalk] Downloaded remote media to temp file: ${tempPath}`);
 
   return {
     path: tempPath,
     cleanup: async () => {
+      unmarkTrustedHostMediaPath(tempPath);
       try {
         await fsPromises.unlink(tempPath);
       } catch (err: unknown) {
@@ -857,6 +881,19 @@ async function readMediaBuffer(
     // No boundary configured: preserve the historical direct host read.
     try {
       const buffer = await fsPromises.readFile(mediaPath);
+      return { buffer, size: buffer.length };
+    } catch (err: unknown) {
+      const errno = err as NodeJS.ErrnoException;
+      if (errno.code !== "ENOENT") {
+        throw err; // Permission errors etc. should propagate immediately
+      }
+      log?.debug?.(`[DingTalk] File not found on host, trying runtime media bridge: ${mediaPath}`);
+    }
+  } else if (isTrustedHostMediaPath(mediaPath)) {
+    // Plugin-generated temp media (remote download / voice transcode) lives
+    // outside the roots but is not caller-controlled, so read it directly.
+    try {
+      const buffer = await readFileNoFollow(path.resolve(mediaPath));
       return { buffer, size: buffer.length };
     } catch (err: unknown) {
       const errno = err as NodeJS.ErrnoException;

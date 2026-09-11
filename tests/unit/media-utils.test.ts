@@ -568,6 +568,62 @@ describe('media-utils', () => {
         fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
     });
 
+    it('reads plugin-generated remote media temp files outside mediaLocalRoots', async () => {
+        const remoteContent = Buffer.from('remote-image-data');
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: remoteContent,
+            headers: { 'content-type': 'image/png' },
+            status: 200,
+        } as any);
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_remote_temp' } } as any);
+
+        const prepared = await prepareMediaInput('https://example.com/path/photo.png', { debug: vi.fn() } as any);
+        try {
+            // The configured root deliberately excludes the plugin's temp directory.
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                prepared.path,
+                'image',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: ['/workspace-only'] },
+            );
+
+            expect(result?.mediaId).toBe('media_remote_temp');
+            expect(result?.buffer.equals(remoteContent)).toBe(true);
+            // Plugin-owned temp media must be read directly, not via the roots-gated bridge.
+            expect(mockLoadWebMedia).not.toHaveBeenCalled();
+        } finally {
+            await prepared.cleanup?.();
+        }
+    });
+
+    it('reads plugin-generated voice transcode temp files outside mediaLocalRoots', async () => {
+        const wavPath = createTempFileWithExt(createSilentWavBuffer(1800), '.wav');
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_voice_temp' } } as any);
+        mockRunFfprobe.mockResolvedValueOnce('1.8\n');
+        mockRunFfmpeg.mockImplementationOnce(async (args: string[]) => {
+            const outputPath = args[args.length - 1];
+            fs.writeFileSync(outputPath, Buffer.from('OggS converted voice'));
+            return '';
+        });
+
+        const result = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            wavPath,
+            'voice',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+            { mediaLocalRoots: ['/workspace-only'] },
+        );
+
+        expect(result?.mediaId).toBe('media_voice_temp');
+        expect(result?.buffer.equals(Buffer.from('OggS converted voice'))).toBe(true);
+        // The transcoded temp file is plugin-owned and must not hit the bridge.
+        expect(mockLoadWebMedia).not.toHaveBeenCalled();
+        fs.rmSync(path.dirname(wavPath), { recursive: true, force: true });
+    });
+
     it('passes mediaLocalRoots to runtime media bridge', async () => {
         const sandboxPath = '/workspace/output.pdf';
         const fileContent = Buffer.from('pdf-data');
