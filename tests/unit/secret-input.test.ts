@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,15 +14,37 @@ import {
 
 describe("SecretInput support", () => {
   let tempDir: string | undefined;
+  let previousStateDir: string | undefined;
 
   afterEach(async () => {
     delete process.env.DINGTALK_TEST_SECRET;
+    if (previousStateDir === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR;
+    } else {
+      process.env.OPENCLAW_STATE_DIR = previousStateDir;
+    }
+    previousStateDir = undefined;
     if (tempDir) {
       const dir = tempDir;
       tempDir = undefined;
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * Host SDK 2026.8+ requires file SecretRef payloads to live under the trusted
+   * state dir with strict permissions (`allowInsecurePath` was removed), so the
+   * fixture points OPENCLAW_STATE_DIR at the temp dir instead of /tmp directly.
+   */
+  async function createSecureSecretFixture(): Promise<string> {
+    previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    tempDir = await mkdtemp(join(tmpdir(), "dingtalk-secret-input-"));
+    process.env.OPENCLAW_STATE_DIR = tempDir;
+    const secretPath = join(tempDir, "client-secret.txt");
+    await writeFile(secretPath, "secret-from-file\n", { encoding: "utf8", mode: 0o600 });
+    await chmod(secretPath, 0o600);
+    return secretPath;
+  }
 
   it("accepts SecretInput references in the DingTalk config schema", () => {
     const parsed = DingTalkConfigSchema.parse({
@@ -92,9 +114,7 @@ describe("SecretInput support", () => {
   });
 
   it("resolves file SecretInput values from a local file", async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "dingtalk-secret-input-"));
-    const secretPath = join(tempDir, "client-secret.txt");
-    await writeFile(secretPath, "secret-from-file\n", "utf8");
+    const secretPath = await createSecureSecretFixture();
 
     await expect(
       resolveSecretInputString(
@@ -111,7 +131,6 @@ describe("SecretInput support", () => {
                 source: "file",
                 path: secretPath,
                 mode: "singleValue",
-                allowInsecurePath: true,
               },
             },
           },
@@ -138,16 +157,63 @@ describe("SecretInput support", () => {
     );
 
     expect(result.value).toBeUndefined();
-    expect(result.failure).toEqual({
-      source: "env",
-      provider: "env",
-      id: "DINGTALK_MISSING_SECRET",
-      reason:
-        "channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET).",
-    });
-    expect(formatSecretInputResolutionFailure(result.failure!)).toBe(
-      "env:env:DINGTALK_MISSING_SECRET - channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET).",
+    expect(result.failure?.source).toBe("env");
+    expect(result.failure?.provider).toBe("env");
+    expect(result.failure?.id).toBe("DINGTALK_MISSING_SECRET");
+    // Allowlisted but unset must not be reported as a missing allowlist entry.
+    expect(result.failure?.reason).toBe(
+      "channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET). " +
+        `Environment variable "DINGTALK_MISSING_SECRET" is authorized but unset or empty.`,
     );
+    expect(formatSecretInputResolutionFailure(result.failure!)).toBe(
+      "env:env:DINGTALK_MISSING_SECRET - channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET). " +
+        `Environment variable "DINGTALK_MISSING_SECRET" is authorized but unset or empty.`,
+    );
+  });
+
+  it("resolves an allowlisted env SecretInput value from the environment", async () => {
+    process.env.DINGTALK_TEST_SECRET = "secret-from-env";
+
+    await expect(
+      resolveSecretInputString(
+        {
+          source: "env",
+          provider: "env",
+          id: "DINGTALK_TEST_SECRET",
+        },
+        undefined,
+        {
+          secrets: {
+            providers: {
+              env: { source: "env", allowlist: ["DINGTALK_TEST_SECRET"] },
+            },
+          },
+        } as any,
+      ),
+    ).resolves.toBe("secret-from-env");
+  });
+
+  it("refuses an env SecretInput value that the allowlist does not cover", async () => {
+    process.env.DINGTALK_TEST_SECRET = "ambient-secret";
+
+    const result = await resolveSecretInputStringWithFailure(
+      {
+        source: "env",
+        provider: "env",
+        id: "DINGTALK_TEST_SECRET",
+      },
+      undefined,
+      {
+        secrets: {
+          providers: {
+            env: { source: "env", allowlist: ["SOME_OTHER_SECRET"] },
+          },
+        },
+      } as any,
+    );
+
+    expect(result.value).toBeUndefined();
+    expect(result.failure?.reason).toContain("is not authorized for a read-only path");
   });
 
   it("does not treat a file SecretInput id as a local path", async () => {
