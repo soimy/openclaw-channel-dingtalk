@@ -66,6 +66,7 @@
 - **配置了 `mediaLocalRoots`**：仅当媒体文件的真实路径（解析符号链接后）位于其中某个允许目录内时才直接读取主机文件；允许目录内、但指向目录外的符号链接不会被跟随。
 - **路径在允许目录之外**：不直接读取主机文件，改由受控的 runtime media bridge 处理，并继续把 `mediaLocalRoots` 传给 bridge。
 - **未配置 `mediaLocalRoots`**：保持历史行为，先尝试直接读取主机文件，文件在主机上不存在时再回退到 runtime media bridge。
+- **插件自身生成的临时媒体**：远程 URL 下载和语音转码产生在系统临时目录下的文件由插件直接读取（读取后清理），不受 `mediaLocalRoots` 限制；这些路径不是调用方提供的路径。
 
 > `mediaLocalRoots` 由 OpenClaw 宿主提供，不是 `channels.dingtalk` 的配置项；如需调整允许范围，请在宿主侧的媒体访问配置中修改。
 
