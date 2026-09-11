@@ -98,13 +98,6 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       }
       return config.groupPolicy !== "open";
     },
-    resolveGroupIntroHint: ({ groupId, groupChannel }: any): string | undefined => {
-      const parts = [`conversationId=${groupId}`];
-      if (groupChannel) {
-        parts.push(`sessionKey=${groupChannel}`);
-      }
-      return `DingTalk IDs: ${parts.join(", ")}.`;
-    },
   },
   messaging: {
     normalizeTarget: (raw: string) => (raw ? normalizeDingTalkTarget(raw) : undefined),

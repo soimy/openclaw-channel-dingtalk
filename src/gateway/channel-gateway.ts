@@ -1,5 +1,12 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
 import { listAgentIds } from "openclaw/plugin-sdk/agent-runtime";
+import {
+  deliveryContextFromSession,
+  sessionDeliveryChannel,
+  sessionDeliveryOrigin,
+  sessionDeliveryRoute,
+} from "openclaw/plugin-sdk/session-store-runtime";
+import type { SessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import { analyzeCardCallback } from "../card-callback-service";
 import { finalizeActiveCardsForAccount, recoverPendingCardsForAccount } from "../card-service";
 import { recoverAskUserQuestionsForAccount } from "../card/ask-user-question";
@@ -46,6 +53,82 @@ type InstrumentedDWClient = {
   config?: Record<string, unknown> & { endpoint?: { endpoint?: string } | string };
   dw_url?: string;
 };
+
+/**
+ * Runtime read of a session entry that may still carry pre-`delivery`
+ * delivery fields.
+ *
+ * Session entries persist `origin` / `lastChannel` / `lastTo` / `lastAccountId`
+ * only until `openclaw doctor --fix` migrates them into the canonical
+ * `delivery` state, so both shapes can appear when the plugin scans an existing
+ * store. The index signature keeps legacy reads without reintroducing the
+ * retired fields into typed code paths.
+ */
+type SessionEntryWithLegacyDelivery = SessionEntry & Record<string, unknown>;
+
+function readLegacySessionString(
+  entry: SessionEntryWithLegacyDelivery,
+  key: string,
+): string | undefined {
+  const value = entry[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeOptionalSessionString(value: string | undefined): string | undefined {
+  return value && value.length > 0 ? value : undefined;
+}
+
+function readLegacySessionOrigin(
+  entry: SessionEntryWithLegacyDelivery,
+  key: "provider" | "surface" | "accountId" | "from" | "to",
+): string | undefined {
+  const origin = entry.origin;
+  if (!origin || typeof origin !== "object") {
+    return undefined;
+  }
+  const value = (origin as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Reads one session entry's delivery identity across canonical and legacy shapes. */
+function readSessionDeliveryIdentity(entry: SessionEntry): {
+  channels: Array<string | undefined>;
+  accountId: string | undefined;
+  peerIds: Array<string | undefined>;
+} {
+  const legacy = entry as SessionEntryWithLegacyDelivery;
+  const origin = sessionDeliveryOrigin(entry);
+  const context = deliveryContextFromSession(entry);
+  const route = sessionDeliveryRoute(entry);
+  return {
+    channels: [
+      sessionDeliveryChannel(entry),
+      route?.channel,
+      context?.channel,
+      readLegacySessionString(legacy, "lastChannel"),
+      readLegacySessionString(legacy, "channel"),
+      origin?.provider,
+      origin?.surface,
+      readLegacySessionOrigin(legacy, "provider"),
+      readLegacySessionOrigin(legacy, "surface"),
+    ],
+    // Canonical `delivery.context` wins, then the pre-`delivery` fields. Empty
+    // strings fall through so the chain matches the original `||` semantics.
+    accountId:
+      normalizeOptionalSessionString(context?.accountId) ??
+      normalizeOptionalSessionString(readLegacySessionString(legacy, "lastAccountId")) ??
+      normalizeOptionalSessionString(origin?.accountId) ??
+      normalizeOptionalSessionString(readLegacySessionOrigin(legacy, "accountId")),
+    peerIds: [
+      context?.to,
+      readLegacySessionString(legacy, "lastTo"),
+      origin?.from,
+      origin?.to,
+      readLegacySessionOrigin(legacy, "from"),
+      readLegacySessionOrigin(legacy, "to"),
+    ],
+  };
+}
 
 function attachConnectionErrorContext(
   err: unknown,
@@ -205,17 +288,12 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
             storePath: sessionStorePath,
             readConsistency: "latest",
           })) {
-            const isDingTalkSession = [
-              entry.lastChannel,
-              entry.channel,
-              entry.origin?.provider,
-              entry.origin?.surface,
-            ].some((value) => value === "dingtalk");
-            const sessionAccountId = entry.lastAccountId || entry.origin?.accountId;
-            if (!isDingTalkSession || sessionAccountId !== account.accountId) {
+            const identity = readSessionDeliveryIdentity(entry);
+            const isDingTalkSession = identity.channels.some((value) => value === "dingtalk");
+            if (!isDingTalkSession || identity.accountId !== account.accountId) {
               continue;
             }
-            for (const peerId of [entry.lastTo, entry.origin?.from, entry.origin?.to]) {
+            for (const peerId of identity.peerIds) {
               if (typeof peerId !== "string" || !peerId.startsWith("cid")) {
                 continue;
               }

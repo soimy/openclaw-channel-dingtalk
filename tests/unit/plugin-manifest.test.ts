@@ -140,9 +140,9 @@ describe("plugin manifest channel metadata", () => {
             };
         }>("package.json");
 
-        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.7.1-2");
-        expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.7.1-2");
-        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.7.1-2");
-        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.7.1-2");
+        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.8.1");
+        expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.8.1");
+        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.8.1");
+        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.8.1");
     });
 });
