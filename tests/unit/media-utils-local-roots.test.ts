@@ -262,13 +262,49 @@ describe('media-utils local roots', () => {
         }
     });
 
-    it('reads plugin-generated voice transcode temp files outside mediaLocalRoots', async () => {
-        const wavPath = createTempFileWithExt(createSilentWavBuffer(1800), '.wav');
+    it('stages a bridge-resolved voice source through a plugin-owned temp before transcoding', async () => {
+        const sourcePath = '/workspace-only/missing.wav';
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_voice_temp' } } as any);
+        // The boundary reader resolves the source once; the transcode temp is plugin-owned.
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: createSilentWavBuffer(1800),
+            fileName: 'missing.wav',
+        });
         mockRunFfprobe.mockResolvedValueOnce('1.8\n');
+        let ffmpegInput = '';
         mockRunFfmpeg.mockImplementationOnce(async (args: string[]) => {
+            ffmpegInput = args[args.indexOf('-i') + 1];
             const outputPath = args[args.length - 1];
             fs.writeFileSync(outputPath, Buffer.from('OggS converted voice'));
+            return '';
+        });
+
+        const result = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            sourcePath,
+            'voice',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+            { mediaLocalRoots: ['/workspace-only'] },
+        );
+
+        expect(result?.mediaId).toBe('media_voice_temp');
+        expect(result?.buffer.equals(Buffer.from('OggS converted voice'))).toBe(true);
+        // ffmpeg must read a staged temp, never the caller-supplied path.
+        expect(ffmpegInput).not.toBe(sourcePath);
+        expect(ffmpegInput.startsWith(os.tmpdir())).toBe(true);
+        // One bridge call for the source; the plugin-owned transcode temp is read directly.
+        expect(mockLoadWebMedia).toHaveBeenCalledTimes(1);
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(sourcePath, { localRoots: ['/workspace-only'] });
+    });
+
+    it('rejects an out-of-root voice source without invoking ffmpeg', async () => {
+        const wavPath = createTempFileWithExt(createSilentWavBuffer(1800), '.wav');
+        // The bridge cannot provide an out-of-root host path here.
+        mockLoadWebMedia.mockResolvedValueOnce(null);
+        const ffmpegSpy = vi.fn();
+        mockRunFfmpeg.mockImplementationOnce(async () => {
+            ffmpegSpy();
             return '';
         });
 
@@ -282,12 +318,59 @@ describe('media-utils local roots', () => {
                 { mediaLocalRoots: ['/workspace-only'] },
             );
 
-            expect(result?.mediaId).toBe('media_voice_temp');
-            expect(result?.buffer.equals(Buffer.from('OggS converted voice'))).toBe(true);
-            // The transcoded temp file is plugin-owned and must not hit the bridge.
-            expect(mockLoadWebMedia).not.toHaveBeenCalled();
+            expect(result).toBeNull();
+            // The out-of-root source must be routed through the boundary, not decoded by ffmpeg.
+            expect(ffmpegSpy).not.toHaveBeenCalled();
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(wavPath, { localRoots: ['/workspace-only'] });
         } finally {
             fs.rmSync(path.dirname(wavPath), { recursive: true, force: true });
+        }
+    });
+
+    // Windows needs Developer Mode / SeCreateSymbolicLinkPrivilege for file symlinks.
+    it.skipIf(process.platform === 'win32')('falls back to the bridge for a dangling symlink inside mediaLocalRoots', async () => {
+        const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-root-'));
+        const linkPath = path.join(allowedRoot, 'dangling.bin');
+        fs.symlinkSync(path.join(allowedRoot, 'missing-target.bin'), linkPath);
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('bridge-data'), fileName: 'dangling.bin' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_dangling' } } as any);
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                linkPath,
+                'file',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: [allowedRoot] },
+            );
+
+            expect(result?.mediaId).toBe('media_dangling');
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(linkPath, { localRoots: [allowedRoot] });
+        } finally {
+            fs.rmSync(allowedRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('treats a filesystem root entry as invalid and falls back to the bridge', async () => {
+        const mediaPath = createTempFile(Buffer.from('host-secret'));
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('bridge-data'), fileName: 'media.bin' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_root_slash' } } as any);
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                mediaPath,
+                'file',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: ['/'] },
+            );
+
+            expect(result?.mediaId).toBe('media_root_slash');
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(mediaPath, { localRoots: ['/'] });
+        } finally {
+            fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
         }
     });
 
