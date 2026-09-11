@@ -289,6 +289,9 @@ async function prepareVoiceUploadPath(
       "24k",
       outputPath,
     ]);
+  } catch (err) {
+    await fsPromises.rm(outputPath, { force: true }).catch(() => {});
+    throw err;
   } finally {
     unmarkTrustedHostMediaPath(inputPath);
     await fsPromises.rm(inputPath, { force: true }).catch(() => {});
