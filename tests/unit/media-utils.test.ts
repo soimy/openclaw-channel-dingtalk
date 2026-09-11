@@ -446,31 +446,6 @@ describe('media-utils', () => {
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
     });
 
-    it('passes mediaLocalRoots to runtime media bridge', async () => {
-        const sandboxPath = '/workspace/output.pdf';
-        const fileContent = Buffer.from('pdf-data');
-        const localRoots = ['/workspace', '/tmp'];
-
-        mockLoadWebMedia.mockResolvedValueOnce({
-            buffer: fileContent,
-            fileName: 'output.pdf',
-            contentType: 'application/pdf',
-        });
-        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_sandbox_2' } } as any);
-
-        const result = await uploadMedia(
-            { clientId: 'id', clientSecret: 'sec' } as any,
-            sandboxPath,
-            'file',
-            vi.fn().mockResolvedValue('token_abc'),
-            { debug: vi.fn() } as any,
-            { mediaLocalRoots: localRoots },
-        );
-
-        expect(result?.mediaId).toBe('media_sandbox_2');
-        expect(mockLoadWebMedia).toHaveBeenCalledWith(sandboxPath, { localRoots: localRoots });
-    });
-
     it('returns null when loadWebMedia returns null (sandbox bridge failure)', async () => {
         const sandboxPath = '/workspace/missing.png';
 

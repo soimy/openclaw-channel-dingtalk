@@ -415,7 +415,11 @@ export interface SendMessageOptions {
   /** Force markdown/text delivery even when messageType is "card". Bypasses card
    *  creation while preserving journal writes and other side-effects. */
   forceMarkdown?: boolean;
-  /** Allowed local roots for sandbox/container media path resolution. */
+  /**
+   * Host-provided allowlist of local media roots. When set, caller-supplied
+   * host paths whose canonical location is outside these roots are resolved
+   * through the runtime media bridge instead of being read directly.
+   */
   mediaLocalRoots?: string[];
 }
 

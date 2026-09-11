@@ -59,6 +59,20 @@
 - 单个 IP
 - CIDR 网段
 
+## 出站媒体主机读取边界 `mediaLocalRoots`
+
+发送本地媒体时，OpenClaw 宿主会把允许读取的沙箱目录通过 `mediaLocalRoots` 传给插件。插件按以下规则决定是否直接读取主机文件：
+
+- **配置了 `mediaLocalRoots`**：仅当媒体文件的真实路径（解析符号链接后）位于其中某个允许目录内时才直接读取主机文件；允许目录内、但指向目录外的符号链接不会被跟随。读取会在打开文件后再次校验边界，缩小「校验 → 打开」之间的符号链接替换窗口。
+- **路径在允许目录之外**：不直接读取主机文件，改由受控的 runtime media bridge 处理，并继续把 `mediaLocalRoots` 传给 bridge。
+- **未配置 `mediaLocalRoots`**：保持历史行为，先尝试直接读取主机文件，文件在主机上不存在时再回退到 runtime media bridge。
+- **插件自身生成的临时媒体**：远程 URL 下载和语音转码产生在系统临时目录下的文件由插件直接读取（读取后清理），不受 `mediaLocalRoots` 限制；这些路径不是调用方提供的路径。
+- **语音消息**：需要转码时先通过边界读取源文件字节，再写入插件自有临时文件交给 ffmpeg/ffprobe，因此越界的语音源不会被 ffmpeg 直接读取；bridge 无法提供时该次发送直接失败。
+- **空数组 `[]`**：表示不允许任何直接主机读取（全部走 runtime media bridge），与「未配置」不同。
+- **文件系统根 `/`**：作为允许根目录条目无效，会被忽略并回退到 runtime media bridge，避免授权整个主机文件系统。
+
+> `mediaLocalRoots` 由 OpenClaw 宿主提供，不是 `channels.dingtalk` 的配置项；如需调整允许范围，请在宿主侧的媒体访问配置中修改。
+
 ## 凭据解析（SecretInput）
 
 `clientSecret` 支持普通的 `env` / `file` SecretInput 引用，解析过程遵循以下边界：
