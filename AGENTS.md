@@ -165,7 +165,8 @@ Planned domain summary:
 
 - TypeScript strict mode enabled
 - ES2023 target, ESNext modules
-- 2-space indentation, no tabs (oxfmt)
+- `src/` uses 2-space indentation, no tabs (oxfmt via the `format` script)
+- `tests/` is outside the oxfmt `format` script; follow the per-file style already in use (many files use 4 spaces)
 - Public low-level API exported from `src/channel.ts` (re-exported from service modules)
 
 **Naming:**
