@@ -446,6 +446,27 @@ describe('media-utils', () => {
         expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
     });
 
+    it('does not read a host file outside mediaLocalRoots', async () => {
+        const mediaPath = createTempFile(Buffer.from('host-secret'));
+        const bridgeContent = Buffer.from('controlled-media');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: bridgeContent, fileName: 'media.bin' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_root_checked' } } as any);
+
+        const result = await uploadMedia(
+            { clientId: 'id', clientSecret: 'sec' } as any,
+            mediaPath,
+            'file',
+            vi.fn().mockResolvedValue('token_abc'),
+            { debug: vi.fn() } as any,
+            { mediaLocalRoots: ['/allowed'] },
+        );
+
+        expect(result?.mediaId).toBe('media_root_checked');
+        expect(mockLoadWebMedia).toHaveBeenCalledWith(mediaPath, { localRoots: ['/allowed'] });
+        expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
+        fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+    });
+
     it('passes mediaLocalRoots to runtime media bridge', async () => {
         const sandboxPath = '/workspace/output.pdf';
         const fileContent = Buffer.from('pdf-data');

@@ -788,15 +788,28 @@ async function readMediaBuffer(
   options?: { mediaLocalRoots?: string[] },
   log?: Logger,
 ): Promise<{ buffer: Buffer; size: number }> {
-  // Try direct host filesystem first
-  try {
-    const buffer = await fsPromises.readFile(mediaPath);
-    return { buffer, size: buffer.length };
-  } catch (err: unknown) {
-    const errno = err as NodeJS.ErrnoException;
-    if (errno.code !== "ENOENT") {
-      throw err; // Permission errors etc. should propagate immediately
+  // Direct host reads are allowed only inside the caller-provided roots.
+  const resolvedPath = path.resolve(mediaPath);
+  const roots = options?.mediaLocalRoots?.map((root) => path.resolve(root));
+  const canReadHost = !roots || roots.some((root) => {
+    const relative = path.relative(root, resolvedPath);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  });
+
+  if (canReadHost) {
+    try {
+      const buffer = await fsPromises.readFile(mediaPath);
+      return { buffer, size: buffer.length };
+    } catch (err: unknown) {
+      const errno = err as NodeJS.ErrnoException;
+      if (errno.code !== "ENOENT") {
+        throw err; // Permission errors etc. should propagate immediately
+      }
     }
+  }
+
+  if (roots) {
+    log?.debug?.(`[DingTalk] Media path is outside configured local roots, using runtime media bridge: ${mediaPath}`);
   }
 
   // File not found on host — try runtime media bridge (sandbox/container paths)
