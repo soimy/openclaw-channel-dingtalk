@@ -102,7 +102,30 @@ openclaw configure --section channels
 }
 ```
 
-插件把 SecretInput 交给 OpenClaw 宿主解析；文件路径来自 `secrets.providers`，不会把 `clientSecret.id` 当作路径读取。修改 provider 指向的文件后，建议重启 gateway，让 Stream 连接使用新的凭据。
+插件把 SecretInput 交给 OpenClaw 宿主解析；文件路径来自 `secrets.providers`，不会把 `clientSecret.id` 当作路径读取。
+
+`env` 引用会先经过宿主只读路径授权，插件只读取该引用对应的单个环境变量。推荐显式配置 `allowlist`：
+
+```json5
+{
+  "secrets": {
+    "providers": {
+      "env": {
+        "source": "env",
+        "allowlist": ["DINGTALK_CLIENT_SECRET"]
+      }
+    }
+  }
+}
+```
+
+**请务必配置 `allowlist`**：如果 env provider 省略 `allowlist`，宿主会认为它授权**任意**环境变量名。省略白名单不是更宽松的“默认拒绝”，而是“全量放行”。
+
+- 未授权（provider 不是 `source: "env"`，或 `allowlist` 存在但未包含该变量名）的 `env` 引用会在发起请求前直接报错
+- 已授权但变量未设置或为空同样会报错，失败原因会区分这两种情况
+- 修改 provider 指向的文件或 allowlist 后，建议重启 gateway，让 Stream 连接使用新的凭据
+
+> **宿主版本要求**：该解析路径依赖 OpenClaw `2026.8.1` 起的 `openclaw/plugin-sdk/secret-ref-readonly`，宿主低于该版本时插件无法加载。
 
 卡片模式示例：
 
