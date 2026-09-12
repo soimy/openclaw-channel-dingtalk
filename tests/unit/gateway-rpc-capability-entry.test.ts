@@ -1,0 +1,296 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+
+const INDEX_IMPORT_TIMEOUT_MS = 15_000;
+
+vi.mock("../../src/channel", () => ({
+  dingtalkPlugin: {},
+}));
+
+vi.mock("../../src/runtime", () => ({
+  setDingTalkRuntime: vi.fn(),
+}));
+
+// Only the handler-facing helpers are stubbed here. `resolveGatewayCapabilityConfig`
+// keeps its real implementation, and its internal `getConfig` call stays bound to the
+// real module, so the gate reads the `channels.dingtalk` fixture passed to `makeApi`.
+vi.mock("../../src/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config")>();
+  return {
+    ...actual,
+    getConfig: vi.fn(() => ({ clientId: "id", clientSecret: "secret" })),
+    listDingTalkAccountIds: vi.fn(() => []),
+    resolveDingTalkAccount: vi.fn(() => ({ configured: true, clientId: "id" })),
+  };
+});
+
+vi.mock("../../src/docs-service", () => ({
+  createDoc: vi.fn(async () => ({ docId: "doc1", title: "t", docType: "alidoc" })),
+  appendToDoc: vi.fn(async () => ({ success: true })),
+  searchDocs: vi.fn(async () => []),
+  listDocs: vi.fn(async () => []),
+  DocCreateAppendError: class extends Error {},
+}));
+
+vi.mock("../../src/send-service", () => ({
+  sendMessage: vi.fn(async () => ({ ok: true, messageId: "m1" })),
+}));
+
+vi.mock("../../src/auth", () => ({
+  getAccessToken: vi.fn(async () => "token"),
+}));
+
+vi.mock("../../src/card/ask-user-question", () => ({
+  registerDingTalkAskUserQuestionTool: vi.fn(),
+}));
+
+vi.mock("../../src/run-usage-store", () => ({
+  accumulateUsage: vi.fn(),
+}));
+
+type Handler = (args: {
+  context?: { cronStorePath?: string };
+  params: Record<string, unknown>;
+  respond: (ok: boolean, payload: unknown) => void;
+}) => Promise<void> | void;
+
+async function loadEntry() {
+  const mod = await import("../../index");
+  return mod.default;
+}
+
+function makeApi(cfg: Record<string, unknown>) {
+  const methods = new Map<string, Handler>();
+  const mockApi = {
+    config: cfg,
+    pluginConfig: {},
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    registerChannel: vi.fn(),
+    registerGatewayMethod: vi.fn((name: string, handler: Handler) => {
+      methods.set(name, handler);
+    }),
+    registrationMode: "full",
+    runtime: {},
+    on: vi.fn(),
+  } as unknown as OpenClawPluginApi;
+  return { mockApi, methods };
+}
+
+function callHandler(
+  handler: Handler,
+  params: Record<string, unknown>,
+): Promise<{ ok: boolean; payload: unknown }> {
+  return new Promise((resolve) => {
+    handler({
+      params,
+      respond: (ok, payload) => resolve({ ok, payload }),
+    });
+  });
+}
+
+function dingtalkCfg(gatewayRpc: unknown): Record<string, unknown> {
+  return { channels: { dingtalk: { gatewayRpc } } };
+}
+
+describe("gateway RPC capability gates (Issue #608 问题 3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("docs RPC works by default (no gatewayRpc config)", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk.docs.create")!, {
+      spaceId: "spaceA",
+      title: "T",
+    });
+    expect(res.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("docs RPC denied when gatewayRpc.tools.docs = false (canonical namespace)", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { docs: false } }));
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk.docs.create")!, {
+      spaceId: "spaceA",
+      title: "T",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("disabled by config");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("docs RPC denial applies to dingtalk-connector aliases too", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { docs: false } }));
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.docs.search")!, {
+      keyword: "k",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("disabled by config");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("docs RPC denied when spaceId outside allowedSpaceIds", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ docs: { allowedSpaceIds: ["spaceOk"] } }),
+    );
+    entry.register(mockApi);
+    const denied = await callHandler(methods.get("dingtalk.docs.list")!, { spaceId: "other" });
+    expect(denied.ok).toBe(false);
+    expect((denied.payload as { error: string }).error).toContain("allowedSpaceIds");
+    const allowed = await callHandler(methods.get("dingtalk.docs.list")!, { spaceId: "spaceOk" });
+    expect(allowed.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("proactive send denied when gatewayRpc.tools.proactiveSend = false", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { proactiveSend: false } }));
+    entry.register(mockApi);
+    for (const [method, params] of [
+      ["dingtalk-connector.sendToUser", { userId: "u1", content: "hi" }],
+      ["dingtalk-connector.sendToGroup", { openConversationId: "g1", content: "hi" }],
+      ["dingtalk-connector.send", { target: "user:u1", content: "hi" }],
+    ] as const) {
+      const res = await callHandler(methods.get(method)!, params);
+      expect(res.ok).toBe(false);
+      expect((res.payload as { error: string }).error).toContain("disabled by config");
+    }
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("proactive send denied when target outside allowedTargets", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ send: { allowedTargets: ["group:ok"] } }),
+    );
+    entry.register(mockApi);
+    const denied = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "user:u1",
+      content: "hi",
+    });
+    expect(denied.ok).toBe(false);
+    expect((denied.payload as { error: string }).error).toContain("allowedTargets");
+    const allowed = await callHandler(methods.get("dingtalk-connector.sendToGroup")!, {
+      openConversationId: "ok",
+      content: "hi",
+    });
+    expect(allowed.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("proactive send works by default (backward compatible)", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "user:u1",
+      content: "hi",
+    });
+    expect(res.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("denials log under [DingTalk][GatewayRPC][Denied]", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { docs: false } }));
+    entry.register(mockApi);
+    await callHandler(methods.get("dingtalk.docs.create")!, { spaceId: "s", title: "t" });
+    const warn = (mockApi.logger as { warn: ReturnType<typeof vi.fn> }).warn;
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("[DingTalk][GatewayRPC][Denied]"));
+  }, INDEX_IMPORT_TIMEOUT_MS);
+});
+
+describe("gateway capability gates review follow-ups", () => {
+  it("docs.append denied with explicit no-spaceId reason when allowlist configured", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ docs: { allowedSpaceIds: ["spaceOk"] } }),
+    );
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.docs.append")!, {
+      docId: "doc1",
+      content: "hello",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("carries no spaceId");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("docs.append works when no allowlist configured (regression)", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk.docs.append")!, {
+      docId: "doc1",
+      content: "hello",
+    });
+    expect(res.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("status and probe RPCs remain available when all tools disabled", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ tools: { docs: false, proactiveSend: false } }),
+    );
+    entry.register(mockApi);
+    const status = await callHandler(methods.get("dingtalk-connector.status")!, {});
+    expect(status.ok).toBe(true);
+    const probe = await callHandler(methods.get("dingtalk-connector.probe")!, {});
+    expect(probe.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("proactiveSend disabled answers structured deny even with missing required params", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { proactiveSend: false } }));
+    entry.register(mockApi);
+    // No userId/content at all — must be a structured deny, not a thrown param error
+    const res = await callHandler(methods.get("dingtalk-connector.sendToUser")!, {});
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("disabled by config");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("invalid connector target rejected after gate passes", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "foo:bar",
+      content: "hi",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("user: or group:");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("account-level gatewayRpc keeps channel-level allowlists in force", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({
+      channels: {
+        dingtalk: {
+          gatewayRpc: {
+            tools: { docs: false },
+            send: { allowedTargets: ["group:ok"] },
+          },
+          accounts: { bot2: { gatewayRpc: { tools: { docs: true } } } },
+        },
+      },
+    });
+    entry.register(mockApi);
+
+    // The account only loosens tools.docs; the channel-level send allowlist still applies.
+    const allowedDocs = await callHandler(methods.get("dingtalk.docs.list")!, {
+      spaceId: "spaceA",
+      accountId: "bot2",
+    });
+    expect(allowedDocs.ok).toBe(true);
+    const deniedSend = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "user:u1",
+      content: "hi",
+      accountId: "bot2",
+    });
+    expect(deniedSend.ok).toBe(false);
+    expect((deniedSend.payload as { error: string }).error).toContain("allowedTargets");
+
+    // The default account keeps the channel-level docs kill switch.
+    const deniedDefault = await callHandler(methods.get("dingtalk.docs.list")!, { spaceId: "spaceA" });
+    expect(deniedDefault.ok).toBe(false);
+    expect((deniedDefault.payload as { error: string }).error).toContain("disabled by config");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+});

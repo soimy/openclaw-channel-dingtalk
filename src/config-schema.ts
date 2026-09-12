@@ -12,6 +12,48 @@ const CardStreamingModeSchema = z.enum(["off", "answer", "all"]);
 const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
 
 /**
+ * Gateway RPC capability gates (Issue #608, 问题 3).
+ * Shape aligned with the official connector's `tools: { docs, media }` gate;
+ * all capabilities default to enabled for backward compatibility.
+ * Allowlists must list at least one entry when present: an empty list would be
+ * ambiguous, so it is rejected at config-validation time instead of silently
+ * disabling the restriction.
+ */
+const GatewayTargetListSchema = z
+  .array(z.string().regex(/^(user|group):\S+$/, "must be `user:<id>` or `group:<conversationId>`"))
+  .min(1)
+  .optional();
+
+const DingTalkGatewayConfigSchema = z
+  .object({
+    tools: z
+      .object({
+        /** Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs (default: true) */
+        docs: z.boolean().optional(),
+        /** Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs (default: true) */
+        proactiveSend: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    docs: z
+      .object({
+        /** When set, docs RPCs only accept these spaceId values (at least one entry) */
+        allowedSpaceIds: z.array(z.string().min(1)).min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    send: z
+      .object({
+        /** When set, proactive-send RPCs only accept these `user:*` / `group:*` targets (at least one entry) */
+        allowedTargets: GatewayTargetListSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .optional();
+
+/**
  * Runtime-parsed DingTalk account config.
  *
  * Compatibility note:
@@ -121,7 +163,13 @@ const DingTalkAccountConfigShape = {
       /** Show the proactive-send permission hint when the runtime detects missing DingTalk proactive permission. */
       enabled: z.boolean().optional().default(true),
       /** Minimum cooldown in hours before the same proactive permission hint can be shown again. */
-      cooldownHours: z.number().int().min(1).max(24 * 30).optional().default(24),
+      cooldownHours: z
+        .number()
+        .int()
+        .min(1)
+        .max(24 * 30)
+        .optional()
+        .default(24),
     })
     .optional()
     .default({ enabled: true, cooldownHours: 24 }),
@@ -139,7 +187,12 @@ const DingTalkAccountConfigShape = {
   cardStreamInterval: z.number().int().min(200).optional().default(1000),
 
   /** Cooldown window in milliseconds after AI card trigger errors. Replies fall back to non-card delivery during this period. */
-  aicardDegradeMs: z.number().int().min(60_000).optional().default(30 * 60 * 1000),
+  aicardDegradeMs: z
+    .number()
+    .int()
+    .min(60_000)
+    .optional()
+    .default(30 * 60 * 1000),
 
   /** Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. */
   learningEnabled: z.boolean().optional(),
@@ -175,7 +228,17 @@ const DingTalkAccountConfigShape = {
       dapiUsage: z.boolean().optional().default(false),
     })
     .optional()
-    .default({ model: true, effort: true, agent: true, taskTime: false, tokens: false, dapiUsage: false }),
+    .default({
+      model: true,
+      effort: true,
+      agent: true,
+      taskTime: false,
+      tokens: false,
+      dapiUsage: false,
+    }),
+
+  /** Gateway RPC capability gates and allowlists (docs RPCs + proactive-send RPCs); namespaced as `gatewayRpc` to avoid clashing with the host-level `gateway` config */
+  gatewayRpc: DingTalkGatewayConfigSchema,
 } as const;
 
 const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);

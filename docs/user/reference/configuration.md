@@ -37,6 +37,7 @@
 | `initialReconnectDelay` | number | `1000` | 初始重连延迟 |
 | `maxReconnectDelay` | number | `60000` | 最大重连延迟 |
 | `reconnectJitter` | number | `0.3` | 重连抖动因子 |
+| `gatewayRpc` | object | - | Gateway RPC 能力开关与白名单：`tools.docs` / `tools.proactiveSend` / `docs.allowedSpaceIds` / `send.allowedTargets`；默认全部开启 |
 
 ## 关于 `clientId` 与钉钉 `robotCode`
 
@@ -170,8 +171,20 @@ OpenClaw 2026.5.7 之后，群聊默认 `messages.groupChat.visibleReplies=messa
 
 **用户无需额外配置**。如果你在群聊中观察到回复丢失或出现空卡片 + 额外 fallback 消息，请确认插件版本不低于 v3.6.2。
 
+## 关于 `gatewayRpc`
+
+`gatewayRpc` 收窄 Gateway RPC 的影响面（Issue #608 问题 3），全部默认开启、不配置即保持现有行为：
+
+- `gatewayRpc.tools.docs` / `gatewayRpc.tools.proactiveSend`：分别关闭全部 docs RPC（`dingtalk.docs.*` 与 `dingtalk-connector.docs.*`）与全部主动发送 RPC（`dingtalk-connector.sendToUser/sendToGroup/send`）。
+- `gatewayRpc.docs.allowedSpaceIds`：文档空间白名单；配置后不携带 `spaceId` 的请求（例如 `docs.append`）也会被拒绝。
+- `gatewayRpc.send.allowedTargets`：主动发送目标白名单，每项为 `user:<id>` 或 `group:<conversationId>`。
+- 白名单配置后至少需要一项，空数组会被配置校验拒绝；多账号下账号级 `gatewayRpc` 与渠道级按子键合并，渠道级限制不会被账号级局部配置静默移除。
+
+这些 RPC 依赖宿主 Gateway 的信任模型（插件层不做二次调用方身份认证），完整说明、拒绝行为与所需钉钉权限见 [Gateway RPC 兼容层](gateway-rpc.md)。
+
 ## 相关文档
 
 - [配置](../getting-started/configure.md)
 - [安全策略](security-policies.md)
+- [Gateway RPC 兼容层](gateway-rpc.md)
 - [AI 卡片](../features/ai-card.md)
