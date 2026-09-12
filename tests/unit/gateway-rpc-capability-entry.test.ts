@@ -195,3 +195,64 @@ describe("gateway RPC capability gates (Issue #608 问题 3)", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[DingTalk][GatewayRPC][Denied]"));
   }, INDEX_IMPORT_TIMEOUT_MS);
 });
+
+describe("gateway capability gates review follow-ups", () => {
+  it("docs.append denied with explicit no-spaceId reason when allowlist configured", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ docs: { allowedSpaceIds: ["spaceOk"] } }),
+    );
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.docs.append")!, {
+      docId: "doc1",
+      content: "hello",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("does not take a spaceId");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("docs.append works when no allowlist configured (regression)", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk.docs.append")!, {
+      docId: "doc1",
+      content: "hello",
+    });
+    expect(res.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("status and probe RPCs remain available when all tools disabled", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(
+      dingtalkCfg({ tools: { docs: false, proactiveSend: false } }),
+    );
+    entry.register(mockApi);
+    const status = await callHandler(methods.get("dingtalk-connector.status")!, {});
+    expect(status.ok).toBe(true);
+    const probe = await callHandler(methods.get("dingtalk-connector.probe")!, {});
+    expect(probe.ok).toBe(true);
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("proactiveSend disabled answers structured deny even with missing required params", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi(dingtalkCfg({ tools: { proactiveSend: false } }));
+    entry.register(mockApi);
+    // No userId/content at all — must be a structured deny, not a thrown param error
+    const res = await callHandler(methods.get("dingtalk-connector.sendToUser")!, {});
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("disabled by config");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("invalid connector target rejected after gate passes", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({ channels: { dingtalk: {} } });
+    entry.register(mockApi);
+    const res = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "foo:bar",
+      content: "hi",
+    });
+    expect(res.ok).toBe(false);
+    expect((res.payload as { error: string }).error).toContain("user: or group:");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+});

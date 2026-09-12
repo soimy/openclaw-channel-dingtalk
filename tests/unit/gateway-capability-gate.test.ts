@@ -103,3 +103,24 @@ describe("checkProactiveSendGatewayCapability", () => {
     expect(checkProactiveSendGatewayCapability(caps, "group:g1")).toBeNull();
   });
 });
+
+describe("docs allowlist edge cases (review follow-up)", () => {
+  it("denies docs methods without spaceId with an explicit reason when allowlist configured", () => {
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayRpc: { docs: { allowedSpaceIds: ["spaceA"] } } }),
+    );
+    const denial = checkDocsGatewayCapability(caps, undefined);
+    expect(denial).toContain("does not take a spaceId");
+    // Distinguishable from the out-of-allowlist reason
+    const outOfList = checkDocsGatewayCapability(caps, "other");
+    expect(outOfList).toContain("not in");
+    expect(outOfList).not.toEqual(denial);
+  });
+
+  it("denies disabled proactiveSend even for empty target", () => {
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayRpc: { tools: { proactiveSend: false } } }),
+    );
+    expect(checkProactiveSendGatewayCapability(caps, "")).toContain("disabled by config");
+  });
+});

@@ -94,6 +94,15 @@ resolveGatewayCapabilityConfig(config): {
 - 不改动 `send` channel action（问题 2 的媒体路径边界由另一份方案覆盖）。
 - 不调整 `dmPolicy` / `groupPolicy` 默认值（问题 4 单独评估）。
 
+## 实现偏差说明
+
+实现时配置键由 spec 中的 `gateway` 更名为 **`gatewayRpc`**（`channels.dingtalk.gatewayRpc`）：宿主 `OpenClawConfig` 已存在顶层 `gateway` 配置（网络/发现/角色策略），插件级 `gateway` 字段会与其类型冲突。其余能力开关形态（`tools.docs` / `tools.proactiveSend`、`docs.allowedSpaceIds`、`send.allowedTargets`）与 spec 一致。
+
+另外两点审核后明确的边界（已写入用户文档）：
+
+- 账号级 `gatewayRpc` 覆盖是对象级整体替换（沿承渠道级配置的浅合并语义），不做子键深合并。
+- `docs.append` 不携带 `spaceId`；配置 `allowedSpaceIds` 后 append 会被显式拒绝（拒绝信息说明"方法不携带 spaceId"），未配置白名单时 append 不受影响。
+
 ## 实现 TODO
 
 - [ ] `src/config-schema.ts`：新增 `gateway.tools/docs/send` schema 与一致性校验（如 `allowedTargets` 项必须以 `user:`/`group:` 开头）。

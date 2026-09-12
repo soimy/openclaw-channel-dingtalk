@@ -173,8 +173,11 @@ export function checkDocsGatewayCapability(
     return "dingtalk docs Gateway RPC is disabled by config (gatewayRpc.tools.docs = false)";
   }
   if (caps.allowedSpaceIds && caps.allowedSpaceIds.length > 0) {
-    if (!spaceId || !caps.allowedSpaceIds.includes(spaceId)) {
-      return `spaceId is not in gatewayRpc.docs.allowedSpaceIds allowlist`;
+    if (!spaceId) {
+      return "this docs RPC method does not take a spaceId and is denied while gatewayRpc.docs.allowedSpaceIds is configured";
+    }
+    if (!caps.allowedSpaceIds.includes(spaceId)) {
+      return "spaceId is not in gatewayRpc.docs.allowedSpaceIds allowlist";
     }
   }
   return null;
@@ -193,7 +196,7 @@ export function checkProactiveSendGatewayCapability(
   }
   if (caps.allowedTargets && caps.allowedTargets.length > 0) {
     if (!caps.allowedTargets.includes(target)) {
-      return `target is not in gatewayRpc.send.allowedTargets allowlist`;
+      return "target is not in gatewayRpc.send.allowedTargets allowlist";
     }
   }
   return null;

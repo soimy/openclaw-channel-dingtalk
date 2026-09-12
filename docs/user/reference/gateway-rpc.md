@@ -50,7 +50,12 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
 - 所有开关默认开启，向后兼容；显式关闭后对应 RPC 返回 `error`，并在日志中打出 `[DingTalk][GatewayRPC][Denied]` 前缀。
 - `dingtalk.docs.*` 与 `dingtalk-connector.docs.*` 共享同一组 handler，能力开关对两个命名空间同时生效。
 - `allowedTargets` 中的每一项必须是 `user:<id>` 或 `group:<conversationId>`。
-- 多账号场景下，账号级 `gatewayRpc` 覆盖渠道级默认；未配置的账号继承渠道级设置。
+- 多账号场景下，账号级 `gatewayRpc` 覆盖渠道级默认；**覆盖是整个 `gatewayRpc` 对象级别的替换**（与渠道级其它配置键的合并语义一致）。账号级只要写了任意 `gatewayRpc` 子键，渠道级的 `allowedSpaceIds` / `allowedTargets` 不会自动继承，需要在账号级完整重新声明。
+
+`allowedSpaceIds` 的适用范围：
+
+- 配置白名单后，带 `spaceId` 的 docs 方法（`create` / `list` / 可选 `spaceId` 的 `search`）只接受白名单内的 `spaceId`。
+- `dingtalk.docs.append` / `dingtalk-connector.docs.append` 以 `docId` 为目标、不携带 `spaceId`；配置白名单后该方法会被拒绝，拒绝信息会明确说明"方法不携带 spaceId"。如需在白名单模式下继续使用 append，请不要配置 `allowedSpaceIds`（改为依赖 `tools.docs` 开关）。
 
 ## 所需钉钉应用权限
 
