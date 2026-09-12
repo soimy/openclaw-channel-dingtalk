@@ -98,24 +98,30 @@ resolveGatewayCapabilityConfig(config): {
 
 实现时配置键由 spec 中的 `gateway` 更名为 **`gatewayRpc`**（`channels.dingtalk.gatewayRpc`）：宿主 `OpenClawConfig` 已存在顶层 `gateway` 配置（网络/发现/角色策略），插件级 `gateway` 字段会与其类型冲突。其余能力开关形态（`tools.docs` / `tools.proactiveSend`、`docs.allowedSpaceIds`、`send.allowedTargets`）与 spec 一致。
 
-另外两点审核后明确的边界（已写入用户文档）：
+审核后明确的边界（均已写入用户文档）：
 
-- 账号级 `gatewayRpc` 覆盖是对象级整体替换（沿承渠道级配置的浅合并语义），不做子键深合并。
-- `docs.append` 不携带 `spaceId`；配置 `allowedSpaceIds` 后 append 会被显式拒绝（拒绝信息说明"方法不携带 spaceId"），未配置白名单时 append 不受影响。
+- 账号级 `gatewayRpc` 与渠道级 **按子键合并**（`tools` / `docs` / `send` 三组分别合并），而不是对象级整体替换：整体替换会让账号级的局部配置静默移除渠道级白名单（fail-open），与"能力开关是安全控制"的定位冲突。
+- 白名单 fail-closed：`allowedSpaceIds` / `allowedTargets` 配置后至少一项（空数组在 schema 层被拒绝）；运行时若仍拿到"已配置但为空"的数组，按全部拒绝处理。
+- `docs.append` 不携带 `spaceId`；配置 `allowedSpaceIds` 后 append 会被显式拒绝，未配置白名单时 append 不受影响。`docs.search` 的 `spaceId` 可选，配置白名单后不带 `spaceId` 的 search 同样被拒绝。
+- 新增配置键必须同步到 `openclaw.plugin.json` 的 `channelConfigs.dingtalk.schema`（顶层与 `accounts.*` 两处）：宿主用该 schema 校验 `channels.dingtalk`，且 channel schema 为 `additionalProperties: false`，漏配会导致配置校验失败、网关无法加载配置。
 
 ## 实现 TODO
 
-- [ ] `src/config-schema.ts`：新增 `gateway.tools/docs/send` schema 与一致性校验（如 `allowedTargets` 项必须以 `user:`/`group:` 开头）。
-- [ ] `src/config.ts`：`resolveGatewayCapabilityConfig` + 多账号继承 + 单测。
-- [ ] `index.ts`：handler 接入 gate；统一拒绝响应与日志前缀。
-- [ ] 单测：`tests/unit/` 覆盖 gate 默认开启、显式关闭、白名单命中/未命中、`dingtalk-connector.*` 别名同样受限。
-- [ ] `docs/user/` 更新；必要时更新 onboarding 提示。
-- [ ] `pnpm run type-check && pnpm lint && pnpm test`，然后 `pnpm run build:runtime` 重新构建 `dist/index.js`，重新发布并复查 ClawHub 审核结果。
+- [x] `src/config-schema.ts`：新增 `gatewayRpc.tools/docs/send` schema 与一致性校验（`allowedTargets` 项必须以 `user:`/`group:` 开头，白名单至少一项）。
+- [x] `src/config.ts`：`resolveGatewayCapabilityConfig` + 多账号按子键合并（`mergeGatewayRpcConfig`）+ 单测。
+- [x] `openclaw.plugin.json`：顶层与账号级 schema 同步 `gatewayRpc`（含 `uiHints`），并在 `tests/unit/plugin-manifest.test.ts` 加守护断言。
+- [x] `index.ts`：handler 接入 gate；统一拒绝响应与日志前缀；拒绝文案抽为 `config.ts` 常量，避免与 fast-path 漂移。
+- [x] 单测：`tests/unit/` 覆盖 gate 默认开启、显式关闭、白名单命中/未命中、空白名单 fail-closed、`dingtalk-connector.*` 别名同样受限、账号级合并。
+- [x] `docs/user/` 更新（`gateway-rpc.md`、`security-policies.md`、`configuration.md`）。
+- [x] `pnpm run type-check && pnpm lint && pnpm test`。
+- [ ] `pnpm run build:runtime` 重新构建 `dist/index.js`，重新发布并复查 ClawHub 审核结果。
 
 ## 验证 TODO
 
-- [ ] 关闭 `gateway.tools.docs` 后，`dingtalk.docs.create` 与 `dingtalk-connector.docs.create` 均返回禁用错误。
+- [ ] 关闭 `gatewayRpc.tools.docs` 后，`dingtalk.docs.create` 与 `dingtalk-connector.docs.create` 均返回禁用错误。
 - [ ] 配置 `allowedSpaceIds` 后，未列入的 spaceId 请求被拒绝；未配置时行为不变。
-- [ ] 关闭 `gateway.tools.proactiveSend` 后，`sendToUser/sendToGroup/send` 全部拒绝；聊天回复通道（inbound reply）不受影响。
+- [ ] 配置 `allowedSpaceIds` 后，`docs.append` 与不带 `spaceId` 的 `docs.search` 返回明确拒绝原因。
+- [ ] 关闭 `gatewayRpc.tools.proactiveSend` 后，`sendToUser/sendToGroup/send` 全部拒绝；聊天回复通道（inbound reply）不受影响。
+- [ ] 多账号：账号级只覆盖 `tools.docs` 时，渠道级 `allowedTargets` 仍然生效。
 - [ ] 现有 cron/agent 调用方在默认配置下无需改动即可继续工作（向后兼容验证）。
 - [ ] ClawHub 重新审核后 `gateway-docs-and-send-rpc` finding 降级或消除。

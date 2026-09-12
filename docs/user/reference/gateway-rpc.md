@@ -34,7 +34,7 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
           "proactiveSend": true   // 关闭后 dingtalk-connector.sendToUser/sendToGroup/send 全部拒绝
         },
         "docs": {
-          "allowedSpaceIds": ["spaceA"] // 配置后 docs RPC 只接受这些 spaceId；未配置不限制
+          "allowedSpaceIds": ["spaceA"] // 配置后 docs RPC 只接受这些 spaceId（至少一项）；未配置不限制
         },
         "send": {
           "allowedTargets": ["user:staff123", "group:cidXXXX"] // 配置后发送目标必须在列表内；未配置不限制
@@ -49,13 +49,15 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
 
 - 所有开关默认开启，向后兼容；显式关闭后对应 RPC 返回 `error`，并在日志中打出 `[DingTalk][GatewayRPC][Denied]` 前缀。
 - `dingtalk.docs.*` 与 `dingtalk-connector.docs.*` 共享同一组 handler，能力开关对两个命名空间同时生效。
-- `allowedTargets` 中的每一项必须是 `user:<id>` 或 `group:<conversationId>`。
-- 多账号场景下，账号级 `gatewayRpc` 覆盖渠道级默认；**覆盖是整个 `gatewayRpc` 对象级别的替换**（与渠道级其它配置键的合并语义一致）。账号级只要写了任意 `gatewayRpc` 子键，渠道级的 `allowedSpaceIds` / `allowedTargets` 不会自动继承，需要在账号级完整重新声明。
+- `allowedTargets` 中的每一项必须是 `user:<id>` 或 `group:<conversationId>`；`allowedSpaceIds` / `allowedTargets` 一旦配置就至少需要一项，空数组会被配置校验直接拒绝，避免"限制被静默取消"。
+- 白名单是 fail-closed 的：运行时若收到"已配置但为空"的白名单（例如绕过了配置校验），会按"全部拒绝"处理。
+- 多账号场景下，账号级 `gatewayRpc` **按子键与渠道级合并**（`tools` / `docs` / `send` 三组分别合并），同一子键以账号级为准。因此渠道级的 `tools.docs: false` 或渠道级白名单不会被账号级的局部配置静默移除；未配置的账号完全继承渠道级设置。
 
 `allowedSpaceIds` 的适用范围：
 
-- 配置白名单后，带 `spaceId` 的 docs 方法（`create` / `list` / 可选 `spaceId` 的 `search`）只接受白名单内的 `spaceId`。
-- `dingtalk.docs.append` / `dingtalk-connector.docs.append` 以 `docId` 为目标、不携带 `spaceId`；配置白名单后该方法会被拒绝，拒绝信息会明确说明"方法不携带 spaceId"。如需在白名单模式下继续使用 append，请不要配置 `allowedSpaceIds`（改为依赖 `tools.docs` 开关）。
+- 配置白名单后，带 `spaceId` 的 docs 方法（`create` / `list` / `search`）只接受白名单内的 `spaceId`。
+- `search` 的 `spaceId` 是可选的：配置白名单后，不传 `spaceId` 的 `search` 会被拒绝，因为无法确认它要访问哪个空间。
+- `dingtalk.docs.append` / `dingtalk-connector.docs.append` 以 `docId` 为目标、永远不携带 `spaceId`；配置白名单后该方法也会被拒绝，拒绝信息会说明"请求未携带 spaceId"。如需在白名单模式下继续使用 append，请不要配置 `allowedSpaceIds`（改为依赖 `tools.docs` 开关）。
 
 ## 所需钉钉应用权限
 

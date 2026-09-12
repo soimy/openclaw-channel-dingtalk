@@ -57,6 +57,33 @@ describe("resolveGatewayCapabilityConfig", () => {
     const caps = resolveGatewayCapabilityConfig(cfg, "bot2");
     expect(caps.docsEnabled).toBe(true);
   });
+
+  it("merges account-level gatewayRpc by sub-key so channel allowlists survive", () => {
+    const cfg = makeCfg({
+      gatewayRpc: {
+        tools: { docs: false },
+        docs: { allowedSpaceIds: ["spaceA"] },
+        send: { allowedTargets: ["group:g1"] },
+      },
+      accounts: { bot2: { gatewayRpc: { tools: { docs: true } } } },
+    }) as OpenClawConfig & { channels: { dingtalk: { accounts: Record<string, unknown> } } };
+    const caps = resolveGatewayCapabilityConfig(cfg, "bot2");
+    // Only tools.docs is overridden; the channel-level allowlists stay in force.
+    expect(caps.docsEnabled).toBe(true);
+    expect(caps.proactiveSendEnabled).toBe(true);
+    expect(caps.allowedSpaceIds).toEqual(["spaceA"]);
+    expect(caps.allowedTargets).toEqual(["group:g1"]);
+  });
+
+  it("keeps an account-level allowlist scoped to that account", () => {
+    const cfg = makeCfg({
+      accounts: {
+        bot2: { gatewayRpc: { send: { allowedTargets: ["user:u1"] } } },
+      },
+    }) as OpenClawConfig & { channels: { dingtalk: { accounts: Record<string, unknown> } } };
+    expect(resolveGatewayCapabilityConfig(cfg, "bot2").allowedTargets).toEqual(["user:u1"]);
+    expect(resolveGatewayCapabilityConfig(cfg).allowedTargets).toBeUndefined();
+  });
 });
 
 describe("checkDocsGatewayCapability", () => {
@@ -110,7 +137,7 @@ describe("docs allowlist edge cases (review follow-up)", () => {
       makeCfg({ gatewayRpc: { docs: { allowedSpaceIds: ["spaceA"] } } }),
     );
     const denial = checkDocsGatewayCapability(caps, undefined);
-    expect(denial).toContain("does not take a spaceId");
+    expect(denial).toContain("carries no spaceId");
     // Distinguishable from the out-of-allowlist reason
     const outOfList = checkDocsGatewayCapability(caps, "other");
     expect(outOfList).toContain("not in");
@@ -122,5 +149,29 @@ describe("docs allowlist edge cases (review follow-up)", () => {
       makeCfg({ gatewayRpc: { tools: { proactiveSend: false } } }),
     );
     expect(checkProactiveSendGatewayCapability(caps, "")).toContain("disabled by config");
+  });
+});
+
+describe("allowlist fail-closed semantics (review follow-up)", () => {
+  it("treats an empty allowedSpaceIds list as deny-all", () => {
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayRpc: { docs: { allowedSpaceIds: [] } } }),
+    );
+    expect(checkDocsGatewayCapability(caps, "spaceA")).toContain("allowedSpaceIds");
+    expect(checkDocsGatewayCapability(caps, undefined)).toContain("carries no spaceId");
+  });
+
+  it("treats an empty allowedTargets list as deny-all", () => {
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayRpc: { send: { allowedTargets: [] } } }),
+    );
+    expect(checkProactiveSendGatewayCapability(caps, "user:u1")).toContain("allowedTargets");
+    expect(checkProactiveSendGatewayCapability(caps, "group:g1")).toContain("allowedTargets");
+  });
+
+  it("unset allowlists stay unrestricted", () => {
+    const caps = resolveGatewayCapabilityConfig(makeCfg({ gatewayRpc: { tools: { docs: true } } }));
+    expect(checkDocsGatewayCapability(caps, "anySpace")).toBeNull();
+    expect(checkProactiveSendGatewayCapability(caps, "user:anyone")).toBeNull();
   });
 });

@@ -11,6 +11,9 @@ vi.mock("../../src/runtime", () => ({
   setDingTalkRuntime: vi.fn(),
 }));
 
+// Only the handler-facing helpers are stubbed here. `resolveGatewayCapabilityConfig`
+// keeps its real implementation, and its internal `getConfig` call stays bound to the
+// real module, so the gate reads the `channels.dingtalk` fixture passed to `makeApi`.
 vi.mock("../../src/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/config")>();
   return {
@@ -208,7 +211,7 @@ describe("gateway capability gates review follow-ups", () => {
       content: "hello",
     });
     expect(res.ok).toBe(false);
-    expect((res.payload as { error: string }).error).toContain("does not take a spaceId");
+    expect((res.payload as { error: string }).error).toContain("carries no spaceId");
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("docs.append works when no allowlist configured (regression)", async () => {
@@ -254,5 +257,40 @@ describe("gateway capability gates review follow-ups", () => {
     });
     expect(res.ok).toBe(false);
     expect((res.payload as { error: string }).error).toContain("user: or group:");
+  }, INDEX_IMPORT_TIMEOUT_MS);
+
+  it("account-level gatewayRpc keeps channel-level allowlists in force", async () => {
+    const entry = await loadEntry();
+    const { mockApi, methods } = makeApi({
+      channels: {
+        dingtalk: {
+          gatewayRpc: {
+            tools: { docs: false },
+            send: { allowedTargets: ["group:ok"] },
+          },
+          accounts: { bot2: { gatewayRpc: { tools: { docs: true } } } },
+        },
+      },
+    });
+    entry.register(mockApi);
+
+    // The account only loosens tools.docs; the channel-level send allowlist still applies.
+    const allowedDocs = await callHandler(methods.get("dingtalk.docs.list")!, {
+      spaceId: "spaceA",
+      accountId: "bot2",
+    });
+    expect(allowedDocs.ok).toBe(true);
+    const deniedSend = await callHandler(methods.get("dingtalk-connector.send")!, {
+      target: "user:u1",
+      content: "hi",
+      accountId: "bot2",
+    });
+    expect(deniedSend.ok).toBe(false);
+    expect((deniedSend.payload as { error: string }).error).toContain("allowedTargets");
+
+    // The default account keeps the channel-level docs kill switch.
+    const deniedDefault = await callHandler(methods.get("dingtalk.docs.list")!, { spaceId: "spaceA" });
+    expect(deniedDefault.ok).toBe(false);
+    expect((deniedDefault.payload as { error: string }).error).toContain("disabled by config");
   }, INDEX_IMPORT_TIMEOUT_MS);
 });

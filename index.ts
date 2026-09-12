@@ -12,6 +12,7 @@ import {
   checkProactiveSendGatewayCapability,
   getConfig,
   listDingTalkAccountIds,
+  PROACTIVE_SEND_GATE_DISABLED_REASON,
   resolveDingTalkAccount,
   resolveGatewayCapabilityConfig,
 } from "./src/config";
@@ -62,16 +63,9 @@ function withDocsGatewayCapability(
     const { respond, params } = args;
     const accountId = readStringParam(params, "accountId");
     const caps = resolveGatewayCapabilityConfig(api.config, accountId ?? undefined);
-    // Fast-path the capability switch before reading optional params so a
-    // disabled tool always answers with a structured deny.
-    if (!caps.docsEnabled) {
-      return denyGatewayCapability(
-        api,
-        method,
-        "dingtalk docs Gateway RPC is disabled by config (gatewayRpc.tools.docs = false)",
-        respond,
-      );
-    }
+    // `checkDocsGatewayCapability` evaluates the capability switch first, so a
+    // disabled tool answers with a structured deny before any method params
+    // (all optional for docs RPCs) are inspected.
     const spaceId = readStringParam(params, "spaceId") ?? undefined;
     const denial = checkDocsGatewayCapability(caps, spaceId);
     if (denial) {
@@ -99,12 +93,7 @@ function withProactiveSendGatewayCapability(
     // Fast-path the capability switch before resolving required params so a
     // disabled tool answers with a structured deny rather than a param error.
     if (!caps.proactiveSendEnabled) {
-      return denyGatewayCapability(
-        api,
-        method,
-        "dingtalk proactive-send Gateway RPC is disabled by config (gatewayRpc.tools.proactiveSend = false)",
-        respond,
-      );
+      return denyGatewayCapability(api, method, PROACTIVE_SEND_GATE_DISABLED_REASON, respond);
     }
     const target = resolveTarget(params) ?? "";
     const denial = checkProactiveSendGatewayCapability(caps, target);

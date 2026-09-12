@@ -442,4 +442,32 @@ describe('DingTalkConfigSchema', () => {
         expect(jsonSchema.properties?.proactivePermissionHint?.properties?.cooldownHours?.type).toBe('integer');
     });
 
+    it('validates gatewayRpc capability gates and rejects ambiguous empty allowlists', () => {
+        expect(
+            DingTalkConfigSchema.safeParse({
+                gatewayRpc: {
+                    tools: { docs: false, proactiveSend: true },
+                    docs: { allowedSpaceIds: ['spaceA'] },
+                    send: { allowedTargets: ['user:u1', 'group:g1'] },
+                },
+            }).success,
+        ).toBe(true);
+
+        // Unknown nested keys stay rejected so typos fail fast.
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayRpc: { tools: { doc: false } } }).success,
+        ).toBe(false);
+        // Empty allowlists are ambiguous, so they are rejected instead of silently disabling the restriction.
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayRpc: { docs: { allowedSpaceIds: [] } } }).success,
+        ).toBe(false);
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayRpc: { send: { allowedTargets: [] } } }).success,
+        ).toBe(false);
+        // Send targets must be user:* / group:*.
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayRpc: { send: { allowedTargets: ['nope'] } } }).success,
+        ).toBe(false);
+    });
+
 });

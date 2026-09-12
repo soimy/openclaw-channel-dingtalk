@@ -15,9 +15,13 @@ const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
  * Gateway RPC capability gates (Issue #608, 问题 3).
  * Shape aligned with the official connector's `tools: { docs, media }` gate;
  * all capabilities default to enabled for backward compatibility.
+ * Allowlists must list at least one entry when present: an empty list would be
+ * ambiguous, so it is rejected at config-validation time instead of silently
+ * disabling the restriction.
  */
 const GatewayTargetListSchema = z
   .array(z.string().regex(/^(user|group):\S+$/, "must be `user:<id>` or `group:<conversationId>`"))
+  .min(1)
   .optional();
 
 const DingTalkGatewayConfigSchema = z
@@ -33,14 +37,14 @@ const DingTalkGatewayConfigSchema = z
       .optional(),
     docs: z
       .object({
-        /** When set, docs RPCs only accept these spaceId values */
-        allowedSpaceIds: z.array(z.string().min(1)).optional(),
+        /** When set, docs RPCs only accept these spaceId values (at least one entry) */
+        allowedSpaceIds: z.array(z.string().min(1)).min(1).optional(),
       })
       .strict()
       .optional(),
     send: z
       .object({
-        /** When set, proactive-send RPCs only accept these `user:*` / `group:*` targets */
+        /** When set, proactive-send RPCs only accept these `user:*` / `group:*` targets (at least one entry) */
         allowedTargets: GatewayTargetListSchema,
       })
       .strict()
