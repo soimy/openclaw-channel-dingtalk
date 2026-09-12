@@ -26,6 +26,28 @@ export type CardStreamingMode = "off" | "answer" | "all";
 export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
 
 /**
+ * Gateway RPC capability configuration (Issue #608, 问题 3).
+ * Aligns with the official connector's `tools: { docs, media }` gate shape.
+ * All capabilities default to enabled for backward compatibility.
+ */
+export interface DingTalkGatewayCapabilityConfig {
+  tools?: {
+    /** Enable `dingtalk.docs.*` and `dingtalk-connector.docs.*` Gateway RPCs (default: true) */
+    docs?: boolean;
+    /** Enable proactive-send Gateway RPCs: `dingtalk-connector.sendToUser/sendToGroup/send` (default: true) */
+    proactiveSend?: boolean;
+  };
+  /** Optional doc-space allowlist; when set, docs RPCs only accept these `spaceId` values */
+  docs?: {
+    allowedSpaceIds?: string[];
+  };
+  /** Optional proactive-send target allowlist; entries must be `user:*` or `group:*` */
+  send?: {
+    allowedTargets?: string[];
+  };
+}
+
+/**
  * DingTalk channel configuration (extends base OpenClaw config)
  */
 export interface DingTalkConfig extends OpenClawConfig {
@@ -104,6 +126,8 @@ export interface DingTalkConfig extends OpenClawConfig {
     tokens?: boolean;
     dapiUsage?: boolean;
   };
+  /** Gateway RPC capability gates and allowlists (docs RPCs + proactive-send RPCs); namespaced as `gatewayRpc` to avoid clashing with the host-level `gateway` config */
+  gatewayRpc?: DingTalkGatewayCapabilityConfig;
 }
 
 /**
@@ -175,6 +199,8 @@ export interface DingTalkChannelConfig {
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
   cardAtSender?: string;
+  /** Gateway RPC capability gates and allowlists (docs RPCs + proactive-send RPCs); namespaced as `gatewayRpc` to avoid clashing with the host-level `gateway` config */
+  gatewayRpc?: DingTalkGatewayCapabilityConfig;
 }
 
 /**

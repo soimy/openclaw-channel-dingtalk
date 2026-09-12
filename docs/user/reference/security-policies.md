@@ -99,6 +99,19 @@
 
 除上述两类外，插件源码不直接读取宿主环境变量。底层库（例如 HTTP 客户端）可能会按自身约定读取代理类环境变量，这属于宿主既有行为，不受本插件控制。
 
+## Gateway RPC 能力边界
+
+插件暴露的 `dingtalk.docs.*`、`dingtalk-connector.docs.*` 文档 RPC 和 `dingtalk-connector.sendToUser/sendToGroup/send` 主动发送 RPC 依赖宿主 Gateway 信任模型：能调用这些 RPC 的，是已获得 OpenClaw Gateway 访问权的调用方；插件层不做二次调用方身份认证。
+
+可以通过 `channels.dingtalk.gatewayRpc` 收窄影响面：
+
+- `gatewayRpc.tools.docs = false`：关闭全部 docs RPC
+- `gatewayRpc.tools.proactiveSend = false`：关闭全部主动发送 RPC
+- `gatewayRpc.docs.allowedSpaceIds`：文档空间白名单
+- `gatewayRpc.send.allowedTargets`：主动发送目标白名单（`user:*` / `group:*`）
+
+详见 [Gateway RPC 兼容层](gateway-rpc.md)。
+
 ## 适用建议
 
 - 对生产环境，优先最小化开放范围

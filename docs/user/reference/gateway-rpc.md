@@ -19,3 +19,41 @@
 - `dingtalk-connector.docs.*`：与 `dingtalk.docs.*` 共享同一组 handler，只是兼容别名。
 
 这些兼容方法复用 canonical auth、send、docs、usage-tracking 和 outbound-context persistence 路径。后续如果某个兼容请求需要与 `dingtalk.*` 不同的行为，必须先在这里说明差异，再扩展适配层。
+
+## 能力开关与白名单 `gatewayRpc`
+
+docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文档读写和发消息。它们面向已获得 OpenClaw Gateway 访问权的调用方（插件层不做二次调用方身份认证）；如需进一步收窄，可通过 `channels.dingtalk.gatewayRpc` 配置：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "gatewayRpc": {
+        "tools": {
+          "docs": true,           // 关闭后 dingtalk.docs.* 与 dingtalk-connector.docs.* 全部拒绝
+          "proactiveSend": true   // 关闭后 dingtalk-connector.sendToUser/sendToGroup/send 全部拒绝
+        },
+        "docs": {
+          "allowedSpaceIds": ["spaceA"] // 配置后 docs RPC 只接受这些 spaceId；未配置不限制
+        },
+        "send": {
+          "allowedTargets": ["user:staff123", "group:cidXXXX"] // 配置后发送目标必须在列表内；未配置不限制
+        }
+      }
+    }
+  }
+}
+```
+
+行为说明：
+
+- 所有开关默认开启，向后兼容；显式关闭后对应 RPC 返回 `error`，并在日志中打出 `[DingTalk][GatewayRPC][Denied]` 前缀。
+- `dingtalk.docs.*` 与 `dingtalk-connector.docs.*` 共享同一组 handler，能力开关对两个命名空间同时生效。
+- `allowedTargets` 中的每一项必须是 `user:<id>` 或 `group:<conversationId>`。
+- 多账号场景下，账号级 `gatewayRpc` 覆盖渠道级默认；未配置的账号继承渠道级设置。
+
+## 所需钉钉应用权限
+
+- docs RPC：钉钉文档/知识库相关 OpenAPI 权限（文档空间读写，`Doc.*` 对应 scope）。
+- 主动发送 RPC：机器人消息发送权限（企业机器人 `oToMessages` / `groupMessages` 发送权限）。
+

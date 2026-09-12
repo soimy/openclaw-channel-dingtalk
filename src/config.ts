@@ -15,12 +15,14 @@ function normalizeLearningConfig(
 ): DingTalkConfig {
   return {
     ...config,
-    learningEnabled: options.applyDefaults ? config.learningEnabled ?? false : config.learningEnabled,
+    learningEnabled: options.applyDefaults
+      ? (config.learningEnabled ?? false)
+      : config.learningEnabled,
     learningAutoApply: options.applyDefaults
-      ? config.learningAutoApply ?? false
+      ? (config.learningAutoApply ?? false)
       : config.learningAutoApply,
     learningNoteTtlMs: options.applyDefaults
-      ? config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS
+      ? (config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS)
       : config.learningNoteTtlMs,
     cardStreamingMode: options.applyDefaults
       ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? "all" : "off"))
@@ -61,8 +63,10 @@ export function mergeAccountWithDefaults(
   channelCfg: DingTalkConfig,
   accountCfg: DingTalkConfig,
 ): DingTalkConfig {
-  const { accounts: _accounts, ...defaultCandidate } =
-    channelCfg as DingTalkConfig & { accounts?: unknown; verboseRealtimeStream?: unknown };
+  const { accounts: _accounts, ...defaultCandidate } = channelCfg as DingTalkConfig & {
+    accounts?: unknown;
+    verboseRealtimeStream?: unknown;
+  };
   const defaults = stripRemovedLegacyFields(defaultCandidate as DingTalkConfig);
   const normalizedAccountCfg = stripRemovedLegacyFields(
     normalizeLearningConfig(accountCfg, { applyDefaults: false }),
@@ -113,6 +117,88 @@ export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   return Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
 }
 
+/**
+ * Resolved Gateway RPC capability settings (Issue #608, 问题 3).
+ * All capabilities default to enabled; allowlists default to unrestricted.
+ */
+export interface ResolvedGatewayCapabilities {
+  /** `dingtalk.docs.*` / `dingtalk-connector.docs.*` RPCs enabled (default: true) */
+  docsEnabled: boolean;
+  /** `dingtalk-connector.sendToUser/sendToGroup/send` RPCs enabled (default: true) */
+  proactiveSendEnabled: boolean;
+  /** When set, docs RPCs only accept these spaceId values */
+  allowedSpaceIds?: string[];
+  /** When set, proactive-send RPCs only accept these `user:*` / `group:*` targets */
+  allowedTargets?: string[];
+}
+
+const DEFAULT_GATEWAY_CAPABILITIES: ResolvedGatewayCapabilities = {
+  docsEnabled: true,
+  proactiveSendEnabled: true,
+};
+
+/**
+ * Resolve Gateway RPC capability configuration for an account.
+ * Account-level `gateway` overrides inherit channel-level defaults via getConfig().
+ */
+export function resolveGatewayCapabilityConfig(
+  cfg: OpenClawConfig,
+  accountId?: string,
+): ResolvedGatewayCapabilities {
+  const config = getConfig(cfg, accountId);
+  const gatewayRpc = config.gatewayRpc;
+  if (!gatewayRpc) {
+    return DEFAULT_GATEWAY_CAPABILITIES;
+  }
+  const tools = gatewayRpc.tools ?? {};
+  const docs = gatewayRpc.docs ?? {};
+  const send = gatewayRpc.send ?? {};
+  return {
+    docsEnabled: tools.docs !== false,
+    proactiveSendEnabled: tools.proactiveSend !== false,
+    allowedSpaceIds: docs.allowedSpaceIds,
+    allowedTargets: send.allowedTargets,
+  };
+}
+
+/**
+ * Check a docs RPC request against the configured capability gates.
+ * Returns null when allowed, or a human-readable denial reason.
+ */
+export function checkDocsGatewayCapability(
+  caps: ResolvedGatewayCapabilities,
+  spaceId: string | undefined,
+): string | null {
+  if (!caps.docsEnabled) {
+    return "dingtalk docs Gateway RPC is disabled by config (gatewayRpc.tools.docs = false)";
+  }
+  if (caps.allowedSpaceIds && caps.allowedSpaceIds.length > 0) {
+    if (!spaceId || !caps.allowedSpaceIds.includes(spaceId)) {
+      return `spaceId is not in gatewayRpc.docs.allowedSpaceIds allowlist`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Check a proactive-send RPC request against the configured capability gates.
+ * Returns null when allowed, or a human-readable denial reason.
+ */
+export function checkProactiveSendGatewayCapability(
+  caps: ResolvedGatewayCapabilities,
+  target: string,
+): string | null {
+  if (!caps.proactiveSendEnabled) {
+    return "dingtalk proactive-send Gateway RPC is disabled by config (gatewayRpc.tools.proactiveSend = false)";
+  }
+  if (caps.allowedTargets && caps.allowedTargets.length > 0) {
+    if (!caps.allowedTargets.includes(target)) {
+      return `target is not in gatewayRpc.send.allowedTargets allowlist`;
+    }
+  }
+  return null;
+}
+
 export async function resolveRuntimeConfig(
   config: DingTalkConfig,
   log?: { warn?: (message: string, data?: unknown) => void },
@@ -154,7 +240,10 @@ function hasOwn(obj: unknown, key: string): boolean {
   return typeof obj === "object" && obj !== null && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-function resolveAgentIdentityEmoji(cfg: OpenClawConfig, agentId?: string | null): string | undefined {
+function resolveAgentIdentityEmoji(
+  cfg: OpenClawConfig,
+  agentId?: string | null,
+): string | undefined {
   const targetAgentId = String(agentId || "").trim();
   if (!targetAgentId) {
     return undefined;
@@ -233,7 +322,6 @@ export function stripTargetPrefix(target: string): { targetId: string; isExplici
 // ============ Onboarding Helper Functions ============
 
 const DEFAULT_ACCOUNT_ID = "default";
-
 
 /**
  * List all DingTalk account IDs from config
@@ -326,10 +414,7 @@ export function resolveDingTalkAccount(
 
   const accountConfig = dingtalk?.accounts?.[id];
   if (accountConfig) {
-    const merged = mergeAccountWithDefaults(
-      dingtalk as DingTalkConfig,
-      accountConfig,
-    );
+    const merged = mergeAccountWithDefaults(dingtalk as DingTalkConfig, accountConfig);
     const publicMerged = stripRemovedLegacyFields(merged);
     return {
       ...publicMerged,
