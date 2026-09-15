@@ -1,3 +1,4 @@
+import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const shared = vi.hoisted(() => ({
@@ -30,13 +31,16 @@ import {
 import {
   type DingTalkQuestionContext,
   withDingTalkQuestionContext,
+  withDingTalkQuestionToolRun,
+  getDingTalkQuestionToolContext,
+  resolveDingTalkQuestionToolContext,
 } from "../../src/card/ask-user-question-context";
 
 type AskUserTool = {
   execute: (toolCallId: string, params: unknown) => Promise<any>;
 };
 
-type AskUserToolFactory = (context: { sessionKey?: string }) => AskUserTool;
+type AskUserToolFactory = (context: OpenClawPluginToolContext) => AskUserTool;
 
 function questionContext(params: {
   conversationType: "1" | "2";
@@ -166,6 +170,176 @@ describe("Ask User session-bound tool context", () => {
       error: "dingtalk_ask_user_question can only be used in a DingTalk message context",
     });
     expect(shared.axiosPost).not.toHaveBeenCalled();
+  });
+
+  it("accepts the host's isolated DM policy key while preserving the main transcript route", async () => {
+    const context = questionContext({
+      conversationType: "1",
+      conversationId: "dm",
+      senderId: "original_id",
+      sessionKey: "agent:main:main",
+    });
+    context.data.senderStaffId = "staff_id";
+    const { factory } = registerToolFactory();
+    const tool = await withDingTalkQuestionContext(context, async () =>
+      factory({
+        sessionKey: "agent:main:dingtalk:main:direct:staff_id",
+        messageChannel: "dingtalk",
+        agentAccountId: "main",
+        requesterSenderId: "staff_id",
+      }),
+    );
+    await tool.execute("policy_alias", QUESTION_PARAMS);
+    expect(shared.axiosPost).toHaveBeenCalledTimes(1);
+    expect(shared.axiosPost.mock.calls[0]?.[1]).toMatchObject({
+      openSpaceId: "dtv1.card//IM_ROBOT.staff_id",
+    });
+    expect(context.resolvedRoute?.sessionKey).toBe("agent:main:main");
+  });
+
+  it.each([
+    { messageChannel: "telegram" },
+    { messageChannel: undefined },
+    { agentAccountId: "other" },
+    { agentAccountId: undefined },
+    { requesterSenderId: "other_user" },
+    { requesterSenderId: undefined },
+    { sessionKey: "agent:main:dingtalk:main:direct:other_user" },
+    { sessionKey: "agent:other:dingtalk:main:direct:direct_user" },
+  ])("rejects a policy alias with mismatched or missing trusted identity: %j", async (override) => {
+    const context = questionContext({
+      conversationType: "1",
+      conversationId: "dm",
+      senderId: "direct_user",
+      sessionKey: "agent:main:main",
+    });
+    const { factory } = registerToolFactory();
+    const tool = await withDingTalkQuestionContext(context, async () =>
+      factory({
+        sessionKey: "agent:main:dingtalk:main:direct:direct_user",
+        messageChannel: "dingtalk",
+        agentAccountId: "main",
+        requesterSenderId: "direct_user",
+        ...override,
+      }),
+    );
+    expect((await tool.execute("bad_alias", QUESTION_PARAMS)).details.status).toBe("failed");
+    expect(shared.axiosPost).not.toHaveBeenCalled();
+  });
+
+  it.each(["group", "named-session", "no-inbound"])(
+    "does not use a DM policy alias for %s",
+    async (kind) => {
+      const context = questionContext({
+        conversationType: kind === "group" ? "2" : "1",
+        conversationId: "conversation",
+        senderId: "direct_user",
+        sessionKey: kind === "named-session" ? "agent:main:custom" : "agent:main:main",
+      });
+      context.resolvedRoute!.mainSessionKey = "agent:main:main";
+      const { factory } = registerToolFactory();
+      const create = async () =>
+        factory({
+          sessionKey: "agent:main:dingtalk:main:direct:direct_user",
+          messageChannel: "dingtalk",
+          agentAccountId: "main",
+          requesterSenderId: "direct_user",
+        });
+      const tool =
+        kind === "no-inbound" ? await create() : await withDingTalkQuestionContext(context, create);
+      expect((await tool.execute("bad_scope", QUESTION_PARAMS)).details.status).toBe("failed");
+      expect(shared.axiosPost).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rebinds a cached tool to the active message and rejects it after dispatch", async () => {
+    const first = questionContext({
+      conversationType: "1",
+      conversationId: "dm",
+      senderId: "user",
+      sessionKey: "agent:main:main",
+    });
+    const second = {
+      ...first,
+      data: { ...first.data, msgId: "new-message" },
+      onQuestionCardSent: vi.fn(async () => true),
+    };
+    first.onQuestionCardSent = vi.fn(async () => true);
+    const trusted = {
+      sessionKey: "agent:main:dingtalk:main:direct:user",
+      messageChannel: "dingtalk",
+      agentAccountId: "main",
+      requesterSenderId: "user",
+    };
+    const { factory } = registerToolFactory();
+    const cached = await withDingTalkQuestionContext(first, () =>
+      withDingTalkQuestionToolRun(first, async () => factory(trusted)),
+    );
+    expect((await cached.execute("ended", QUESTION_PARAMS)).details.status).toBe("failed");
+    await withDingTalkQuestionContext(second, () =>
+      withDingTalkQuestionToolRun(second, async () => {
+        expect(resolveDingTalkQuestionToolContext(trusted, first)).toBe(second);
+        await cached.execute("next-message", QUESTION_PARAMS);
+      }),
+    );
+    expect(first.onQuestionCardSent).not.toHaveBeenCalled();
+    expect(second.onQuestionCardSent).toHaveBeenCalledOnce();
+    expect((await cached.execute("ended-again", QUESTION_PARAMS)).details.status).toBe("failed");
+    expect(shared.axiosPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rebind cached tools across senders or ambiguous concurrent turns", async () => {
+    const first = questionContext({
+      conversationType: "1",
+      conversationId: "dm",
+      senderId: "user",
+      sessionKey: "agent:main:main",
+    });
+    const trusted = {
+      sessionKey: "agent:main:dingtalk:main:direct:user",
+      messageChannel: "dingtalk",
+      agentAccountId: "main",
+      requesterSenderId: "user",
+    };
+    const captured = await withDingTalkQuestionToolRun(first, async () => first);
+    const other = { ...first, data: { ...first.data, senderId: "other" } };
+    await withDingTalkQuestionToolRun(other, async () => {
+      expect(resolveDingTalkQuestionToolContext(trusted, captured)).toBeUndefined();
+    });
+    const second = { ...first };
+    const third = { ...first };
+    await withDingTalkQuestionToolRun(second, () =>
+      withDingTalkQuestionToolRun(third, async () => {
+        expect(resolveDingTalkQuestionToolContext(trusted, captured)).toBeUndefined();
+        expect(resolveDingTalkQuestionToolContext(trusted, second)).toBe(second);
+      }),
+    );
+  });
+
+  it("binds a tool prepared outside inbound scope only to a matching active turn, with failure cleanup", async () => {
+    const context = questionContext({
+      conversationType: "1",
+      conversationId: "dm",
+      senderId: "user",
+      sessionKey: "agent:main:main",
+    });
+    const trusted = {
+      sessionKey: "agent:main:dingtalk:main:direct:user",
+      messageChannel: "dingtalk",
+      agentAccountId: "main",
+      requesterSenderId: "user",
+    };
+    expect(getDingTalkQuestionToolContext(trusted)).toBeUndefined();
+    await expect(
+      withDingTalkQuestionToolRun(context, async () => {
+        expect(resolveDingTalkQuestionToolContext(trusted, undefined)).toBe(context);
+        expect(
+          resolveDingTalkQuestionToolContext({ ...trusted, agentAccountId: "other" }, undefined),
+        ).toBeUndefined();
+        throw new Error("dispatch failure");
+      }),
+    ).rejects.toThrow("dispatch failure");
+    expect(resolveDingTalkQuestionToolContext(trusted, undefined)).toBeUndefined();
   });
 
   it("keeps concurrent runs isolated when they share the same session key", async () => {

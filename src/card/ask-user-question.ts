@@ -11,7 +11,8 @@ import {
   parseBooleanLike,
 } from "../shared/utils";
 import {
-  getDingTalkQuestionContext,
+  getDingTalkQuestionToolContext,
+  resolveDingTalkQuestionToolContext,
   type DingTalkQuestionContext,
 } from "./ask-user-question-context";
 import {
@@ -26,6 +27,13 @@ import {
   type AskUserStoreOptions,
   type AskUserTerminalReason,
 } from "./ask-user-question-store";
+import {
+  buildCollectionMessage,
+  parseQuestionTarget,
+  questionTargetSchema,
+  resolveQuestionRespondent,
+  type QuestionCollection,
+} from "./ask-user-question-target";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_ASK_USER_CARD_TEMPLATE } from "./card-template";
 
@@ -99,6 +107,8 @@ type PendingQuestion = DingTalkQuestionContext & {
   }>;
   submitted: boolean;
   ownerUserId?: string;
+  collection?: QuestionCollection;
+  expiresAt?: number;
   ttlTimer?: ReturnType<typeof setTimeout>;
 };
 
@@ -293,6 +303,7 @@ async function createAndDeliverQuestionCard(params: {
   templateId: string;
   outTrackId: string;
   cardData: Record<string, unknown>;
+  supportForward?: boolean;
   log?: Logger;
 }): Promise<void> {
   const token = await getAccessToken(params.config, params.log);
@@ -304,8 +315,8 @@ async function createAndDeliverQuestionCard(params: {
       cardParamMap: stringifyCardData(params.cardData),
     },
     callbackType: "STREAM",
-    imGroupOpenSpaceModel: { supportForward: true },
-    imRobotOpenSpaceModel: { supportForward: true },
+    imGroupOpenSpaceModel: { supportForward: params.supportForward ?? true },
+    imRobotOpenSpaceModel: { supportForward: params.supportForward ?? true },
     openSpaceId: isGroup
       ? `dtv1.card//IM_GROUP.${params.conversationId}`
       : `dtv1.card//IM_ROBOT.${params.conversationId}`,
@@ -428,6 +439,9 @@ function findHandledQuestionTombstone(
 }
 
 function supersedePendingQuestionsInScope(ctx: PendingQuestion): void {
+  if (ctx.collection) {
+    return;
+  }
   const scopeKey = readString(ctx.questionScopeKey);
   if (!scopeKey) {
     return;
@@ -441,7 +455,7 @@ function supersedePendingQuestionsInScope(ctx: PendingQuestion): void {
       continue;
     }
     const oldCtx = pendingQuestionsByTrackId.get(outTrackId);
-    if (!oldCtx || oldCtx.submitted) {
+    if (!oldCtx || oldCtx.submitted || oldCtx.collection) {
       continue;
     }
     oldCtx.submitted = true;
@@ -466,28 +480,33 @@ function storePendingQuestion(
   pendingQuestionsByTrackId.set(ctx.outTrackId, ctx);
   pendingQuestionsByQuestionId.set(ctx.questionId, ctx);
   addScopeIndex(ctx);
-  ctx.ttlTimer = setTimeout(() => {
-    if (!pendingQuestionsByTrackId.has(ctx.outTrackId) || ctx.submitted) {
-      return;
-    }
-    if (!claimPendingQuestionForDispatch(ctx)) {
-      return;
-    }
-    consumePendingQuestion(ctx);
-    addHandledQuestionTombstone(ctx, "expired");
-    void updateQuestionCardBestEffort(ctx, {
-      card_status: "expired",
-      question_desc: "问题已失效，请重新发起。",
-      form_btn_text: "已失效",
-    });
-    dispatchSyntheticAnswer({
-      ctx,
-      text: buildExpiredAnswerMessage(ctx),
-      suffix: "expired",
-      successReason: "expired",
-      log: ctx.log,
-    });
-  }, PENDING_QUESTION_TTL_MS);
+  ctx.ttlTimer = setTimeout(
+    () => {
+      if (!pendingQuestionsByTrackId.has(ctx.outTrackId) || ctx.submitted) {
+        return;
+      }
+      if (!claimPendingQuestionForDispatch(ctx, ctx.collection ? "live-timeout" : "answer")) {
+        return;
+      }
+      consumePendingQuestion(ctx);
+      addHandledQuestionTombstone(ctx, "expired");
+      void updateQuestionCardBestEffort(ctx, {
+        card_status: "expired",
+        question_desc: "问题已失效，请重新发起。",
+        form_btn_text: "已失效",
+      });
+      dispatchSyntheticAnswer({
+        ctx,
+        text: ctx.collection
+          ? buildCollectionMessage(ctx.collection, ctx.questionId, ctx.title, "expired")
+          : buildExpiredAnswerMessage(ctx),
+        suffix: "expired",
+        successReason: "expired",
+        log: ctx.log,
+      });
+    },
+    ctx.expiresAt ? Math.max(0, ctx.expiresAt - Date.now()) : PENDING_QUESTION_TTL_MS,
+  );
 }
 
 function consumePendingQuestion(ctx: PendingQuestion): void {
@@ -511,6 +530,20 @@ async function updateQuestionCardBestEffort(
   ctx: PendingQuestion,
   variables: Record<string, unknown>,
 ): Promise<void> {
+  if (ctx.collection) {
+    const update = async () => {
+      try {
+        await updateQuestionCard(ctx, variables);
+      } catch (err) {
+        ctx.log?.warn?.(
+          `[DingTalk][AskUser] Failed to update question card ${ctx.questionId}: ${String(err)}`,
+        );
+      }
+    };
+    ctx.collection.cardUpdate = (ctx.collection.cardUpdate ?? Promise.resolve()).then(update);
+    await ctx.collection.cardUpdate;
+    return;
+  }
   try {
     await updateQuestionCard(ctx, variables);
   } catch (err) {
@@ -828,12 +861,16 @@ async function injectAnswerSyntheticMessage(
     senderNick: ctx.data.senderNick,
     chatbotUserId: ctx.data.chatbotUserId,
     sessionWebhook: ctx.data.sessionWebhook,
+    sessionWebhookExpiredTime: ctx.data.sessionWebhookExpiredTime,
   };
   await handleDingTalkMessage({
     cfg: ctx.cfg,
     accountId: ctx.accountId,
     data: syntheticData,
     sessionWebhook: ctx.sessionWebhook,
+    ...(ctx.collection
+      ? { replySessionWebhookExpiresAt: ctx.data.sessionWebhookExpiredTime ?? 0 }
+      : {}),
     log: ctx.log,
     dingtalkConfig: ctx.dingtalkConfig,
     inboundOrigin: "ask-user",
@@ -842,14 +879,21 @@ async function injectAnswerSyntheticMessage(
   });
 }
 
-function claimPendingQuestionForDispatch(ctx: PendingQuestion): boolean {
+function claimPendingQuestionForDispatch(
+  ctx: PendingQuestion,
+  purpose: "answer" | "live-timeout" = "answer",
+): boolean {
   const storeOptions = getAskUserStoreOptions(ctx);
   if (storeOptions) {
     return Boolean(
-      claimAskUserQuestion(storeOptions, {
-        questionId: ctx.questionId,
-        outTrackId: ctx.outTrackId,
-      }),
+      claimAskUserQuestion(
+        storeOptions,
+        {
+          questionId: ctx.questionId,
+          outTrackId: ctx.outTrackId,
+        },
+        purpose,
+      ),
     );
   }
   if (ctx.submitted) {
@@ -882,6 +926,64 @@ function dispatchSyntheticAnswer(params: {
         `[DingTalk][AskUser] Failed to inject ${params.suffix} answer message: ${String(err)}`,
       );
     });
+}
+
+async function handleCollectionResponse(
+  ctx: PendingQuestion,
+  parsed: ParsedCardCallback,
+  clickerUserId: string,
+  isCancel: boolean,
+): Promise<void> {
+  const collection = ctx.collection!;
+  const respondent = resolveQuestionRespondent(collection, clickerUserId);
+  if (!respondent || collection.responses.has(respondent)) {
+    return;
+  }
+  const form = asRecord(parsed.params.form);
+  if (!isCancel && !form) {
+    return;
+  }
+  const answers: AnswerEntry[] = [];
+  if (!isCancel) {
+    for (const question of ctx.questions) {
+      const answer = formatAnswerText(question, readFormAnswer(form![question.fieldName]));
+      if (answer) {
+        answers.push({ question: question.title, answer });
+      }
+    }
+  }
+  // Record before the first await: simultaneous callbacks cannot replace an answer
+  // or complete the collection twice. A cancellation only settles this respondent.
+  collection.responses.set(respondent, {
+    status: isCancel ? "cancelled" : answers.length ? "submitted" : "empty",
+    answers,
+  });
+  if (collection.responses.size < collection.target.respondentUserIds.length) {
+    await updateQuestionCardBestEffort(ctx, {
+      // The built-in template renders this variable as the header status tag.
+      // Keep the original instructions intact for respondents still filling in.
+      form_btn_text: `${collection.responses.size}/${collection.target.respondentUserIds.length}`,
+    });
+    return;
+  }
+  if (!claimPendingQuestionForDispatch(ctx)) {
+    return;
+  }
+  consumePendingQuestion(ctx);
+  addHandledQuestionTombstone(ctx, "submitted");
+  // Never publish a respondent's answers into a shared group card.
+  await updateQuestionCardBestEffort(ctx, {
+    card_status: "submitted",
+    question_desc: `已收齐 ${collection.responses.size} 人的回应，结果返回发起会话。`,
+    form_btn_text: "已结束",
+  });
+  dispatchSyntheticAnswer({
+    ctx,
+    text: buildCollectionMessage(collection, ctx.questionId, ctx.title, "submitted"),
+    suffix: "submitted",
+    successReason: "submitted",
+    log: ctx.log,
+  });
 }
 
 export async function handleDingTalkAskUserCardCallback(params: {
@@ -947,7 +1049,15 @@ export async function handleDingTalkAskUserCardCallback(params: {
     return { handled: false };
   }
 
-  if (!isOwnerClick(ctx, params.clickerUserId)) {
+  // A pending card belongs to one bot account, even when another account sees its ID.
+  if (ctx.collection && ctx.accountId !== params.accountId) {
+    return { handled: true };
+  }
+  if (
+    ctx.collection
+      ? !resolveQuestionRespondent(ctx.collection, params.clickerUserId)
+      : !isOwnerClick(ctx, params.clickerUserId)
+  ) {
     params.log?.info?.(
       `[DingTalk][AskUser] rejected: clicker=${params.clickerUserId ?? "unknown"} owner=${resolvePendingQuestionOwner(ctx) ?? "unknown"} question=${ctx.questionId}`,
     );
@@ -967,6 +1077,14 @@ export async function handleDingTalkAskUserCardCallback(params: {
   }
 
   const isCancel = parseBooleanLike(parsed.params.user_cancel) === true;
+
+  if (ctx.collection) {
+    if (ctx.expiresAt && ctx.expiresAt <= Date.now()) {
+      return { handled: true };
+    }
+    await handleCollectionResponse(ctx, parsed, params.clickerUserId!, isCancel);
+    return { handled: true };
+  }
 
   if (isCancel) {
     if (!claimPendingQuestionForDispatch(ctx)) {
@@ -1060,8 +1178,35 @@ export async function handleDingTalkAskUserCardCallback(params: {
 const AskUserQuestionSchema = {
   type: "object",
   additionalProperties: false,
-  anyOf: [{ required: ["questions"] }, { required: ["fields"] }],
+  anyOf: [
+    {
+      properties: { action: { enum: ["create"] } },
+      oneOf: [{ required: ["questions"] }, { required: ["fields"] }],
+    },
+    { properties: { action: { const: "list" } }, required: ["action"] },
+    { properties: { action: { const: "cancel" } }, required: ["action", "questionId"] },
+  ],
+
   properties: {
+    action: {
+      type: "string",
+      enum: ["create", "list", "cancel"],
+      description:
+        "Default create. List your pending targeted collections or cancel one by questionId from its initiating conversation.",
+    },
+    questionId: {
+      type: "string",
+      minLength: 1,
+      description: "Required for cancel. Use an ID returned by create or list; never guess.",
+    },
+    timeoutMinutes: {
+      type: "integer",
+      minimum: 1,
+      maximum: 1440,
+      description:
+        "Targeted collections only: 1–1440 minutes, default 5. Ends early when all respondents reply. Restart terminates pending forms.",
+    },
+    target: questionTargetSchema,
     title: {
       type: "string",
       description: "Card title. Used with fields; omit to use the first field label.",
@@ -1137,7 +1282,11 @@ const AskUserQuestionSchema = {
         required: ["name", "label", "type"],
         properties: {
           name: { type: "string", description: "Unique form field key" },
-          label: { type: "string", description: "Field label shown to the user" },
+          label: {
+            type: "string",
+            description:
+              "Human-readable field label in the user's language, also used in result summaries. Prefer a meaningful label over an internal field name (for example, 测试代号 instead of code).",
+          },
           type: {
             type: "string",
             enum: [
@@ -1225,6 +1374,63 @@ export function clearPendingQuestionsForTest(): void {
   handledQuestionTombstonesByQuestionId.clear();
 }
 
+async function manageQuestionCollections(
+  context: DingTalkQuestionContext,
+  action: "list" | "cancel",
+  questionId: unknown,
+) {
+  const owner =
+    normalizeUserId(context.data.senderStaffId) ?? normalizeUserId(context.data.senderId);
+  const owned = (ctx: PendingQuestion) =>
+    Boolean(
+      ctx.collection &&
+      owner &&
+      ctx.ownerUserId === owner &&
+      ctx.accountId === context.accountId &&
+      ctx.data.conversationId === context.data.conversationId &&
+      ctx.resolvedRoute?.agentId === context.resolvedRoute?.agentId &&
+      !ctx.submitted &&
+      (!ctx.expiresAt || ctx.expiresAt > Date.now()),
+    );
+  if (action === "list") {
+    return jsonToolResult({
+      status: "ok",
+      collections: [...pendingQuestionsByQuestionId.values()].filter(owned).map((ctx) => ({
+        questionId: ctx.questionId,
+        title: ctx.title,
+        deadline: ctx.expiresAt ? new Date(ctx.expiresAt).toISOString() : undefined,
+        received: ctx.collection!.responses.size,
+        total: ctx.collection!.target.respondentUserIds.length,
+      })),
+    });
+  }
+  const ctx =
+    typeof questionId === "string" ? pendingQuestionsByQuestionId.get(questionId) : undefined;
+  if (!ctx || !owned(ctx) || !claimPendingQuestionForDispatch(ctx)) {
+    return jsonToolResult({
+      status: "failed",
+      error:
+        "No cancellable targeted collection owned by you in this conversation. Use action=list.",
+    });
+  }
+  consumePendingQuestion(ctx);
+  addHandledQuestionTombstone(ctx, "cancelled");
+  const storeOptions = getAskUserStoreOptions(ctx);
+  if (storeOptions) {
+    terminateAskUserQuestion(storeOptions, ctx.questionId, "cancelled");
+  }
+  await updateQuestionCardBestEffort(ctx, {
+    card_status: "cancelled",
+    question_desc: "发起人已取消本次收集。",
+    form_btn_text: "已取消",
+  });
+  return jsonToolResult({
+    status: "cancelled",
+    questionId: ctx.questionId,
+    result: buildCollectionMessage(ctx.collection!, ctx.questionId, ctx.title, "cancelled"),
+  });
+}
+
 export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): void {
   const registerTool = (
     api as OpenClawPluginApi & { registerTool?: OpenClawPluginApi["registerTool"] }
@@ -1237,12 +1443,14 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
     return;
   }
 
-  const createTool = (context: DingTalkQuestionContext | undefined) => ({
+  const createTool = (resolveContext: () => DingTalkQuestionContext | undefined) => ({
     name: TOOL_NAME,
     label: "Ask User Question",
     description:
       "Ask the user a blocking question or collect structured input via an interactive DingTalk form card when the current task cannot continue without the user's answer. " +
-      "Returns immediately after sending the card. " +
+      "Returns immediately after sending the card. Targeted collections survive ordinary chat and new forms, but NOT gateway restart. " +
+      "Use action=list to find your pending collections in this conversation; action=cancel with questionId stops one and returns partial results directly. " +
+      "To collect input from another person or named respondents in a group, use target with verified DingTalk IDs. " +
       "The user's answer will arrive as a new message in the conversation. " +
       "Do NOT poll or re-call this tool — just wait for the response message. " +
       "Use questions only for simple confirmation, single-select, multi-select, or simple free-text prompts. " +
@@ -1251,6 +1459,7 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       "Do not call this tool for normal explanations, why/how questions, capability introductions, or cases where you can answer directly.",
     parameters: AskUserQuestionSchema as any,
     async execute(_toolCallId: string, params: unknown) {
+      const context = resolveContext();
       if (!context) {
         return jsonToolResult({
           status: "failed",
@@ -1260,6 +1469,31 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       const templateId = DINGTALK_ASK_USER_CARD_TEMPLATE.templateId;
 
       const record = asRecord(params) ?? {};
+      const action = record.action ?? "create";
+      if (action === "list" || action === "cancel") {
+        return manageQuestionCollections(context, action, record.questionId);
+      }
+      if (action !== "create") {
+        return jsonToolResult({ status: "failed", error: "Unknown action" });
+      }
+      let target;
+      let timeoutMinutes = 5;
+      try {
+        target = parseQuestionTarget(record.target);
+        if (record.timeoutMinutes !== undefined) {
+          if (
+            !target ||
+            !Number.isInteger(record.timeoutMinutes) ||
+            Number(record.timeoutMinutes) < 1 ||
+            Number(record.timeoutMinutes) > 1440
+          ) {
+            throw new Error("timeoutMinutes requires target and must be an integer from 1 to 1440");
+          }
+          timeoutMinutes = Number(record.timeoutMinutes);
+        }
+      } catch (err) {
+        return jsonToolResult({ status: "failed", error: String(err) });
+      }
       const rawFields = Array.isArray(record.fields) ? (record.fields as FormField[]) : [];
       const rawQuestions = Array.isArray(record.questions)
         ? (record.questions as AskUserQuestion[])
@@ -1271,6 +1505,7 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
         });
       }
 
+      const expiresAt = target ? Date.now() + timeoutMinutes * 60_000 : undefined;
       const questionId = `q_${randomUUID()}`;
       const outTrackId = `ask_${randomUUID()}`;
       const { title, desc, fields, parsed } =
@@ -1284,7 +1519,9 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       const cardData = {
         question_id: questionId,
         question_title: title,
-        question_desc: desc,
+        question_desc: target
+          ? `${desc}\n由 ${context.data.senderNick || context.data.senderStaffId || context.data.senderId} 发起；仅指定填写人可提交。结果返回发起会话，${timeoutMinutes} 分钟后截止；收齐即结束，重启将终止收集。`
+          : desc,
         card_status: "pending",
         form_btn_text: "提交",
         selected_text: "",
@@ -1299,6 +1536,8 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
           questionScopeKey: context.questionScopeKey,
           outTrackId,
           title,
+          independent: Boolean(target),
+          expiresAt,
         });
       }
 
@@ -1306,10 +1545,12 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
         await createAndDeliverQuestionCard({
           config: context.dingtalkConfig,
           conversationId:
-            context.data.conversationType === "1"
+            target?.id ??
+            (context.data.conversationType === "1"
               ? context.data.senderStaffId || context.data.senderId || context.data.conversationId
-              : context.data.conversationId,
-          isDirect: context.data.conversationType === "1",
+              : context.data.conversationId),
+          isDirect: target ? target.type === "user" : context.data.conversationType === "1",
+          supportForward: target ? false : undefined,
           templateId,
           outTrackId,
           cardData,
@@ -1336,6 +1577,8 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
         title,
         questions: parsed,
         submitted: false,
+        collection: target ? { target, responses: new Map() } : undefined,
+        expiresAt,
       };
       storePendingQuestion(pendingQuestion, {
         supersedeExisting: !canPersistLifecycle,
@@ -1402,12 +1645,16 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       }
 
       context.log?.info?.(
-        `[DingTalk][AskUser] question card sent question=${questionId} outTrackId=${outTrackId}`,
+        `[DingTalk][AskUser] question card sent question=${questionId} outTrackId=${outTrackId}` +
+          (target
+            ? ` deadline=${expiresAt} sessionWebhookExpiresAt=${context.data.sessionWebhookExpiredTime ?? "unknown"}`
+            : ""),
       );
       return jsonToolResult({
         status: "pending",
         questionId,
         outTrackId,
+        ...(expiresAt ? { deadline: new Date(expiresAt).toISOString(), timeoutMinutes } : {}),
         message:
           "Question card sent to the user. Their answer will arrive as a follow-up message in this conversation.",
       });
@@ -1418,14 +1665,8 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
     (toolContext: OpenClawPluginToolContext) => {
       // Capture the inbound run's context while the factory is still inside its
       // AsyncLocalStorage scope; shared agent clients may execute the tool later.
-      const context = getDingTalkQuestionContext();
-      const runtimeSessionKey = toolContext.sessionKey?.trim();
-      const contextSessionKey = context?.resolvedRoute?.sessionKey.trim();
-      return createTool(
-        context && (!runtimeSessionKey || contextSessionKey === runtimeSessionKey)
-          ? context
-          : undefined,
-      );
+      const captured = getDingTalkQuestionToolContext(toolContext);
+      return createTool(() => resolveDingTalkQuestionToolContext(toolContext, captured));
     },
     { name: TOOL_NAME },
   );

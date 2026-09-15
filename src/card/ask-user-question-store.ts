@@ -26,6 +26,7 @@ export interface AskUserLifecycleRecord {
   questionScopeKey: string;
   outTrackId: string;
   title: string;
+  independent?: boolean;
   state: AskUserActiveState | "terminal";
   terminalReason?: AskUserTerminalReason;
   createdAt: number;
@@ -47,10 +48,12 @@ export interface AskUserStoreOptions {
 }
 
 export interface ReserveAskUserQuestionInput {
+  expiresAt?: number;
   questionId: string;
   questionScopeKey: string;
   outTrackId: string;
   title: string;
+  independent?: boolean;
 }
 
 export interface AskUserQuestionIdentifier {
@@ -164,10 +167,11 @@ export function reserveAskUserQuestion(
     questionScopeKey: input.questionScopeKey,
     outTrackId: input.outTrackId,
     title: input.title,
+    independent: input.independent,
     state: "reserved",
     createdAt: timestamp,
     updatedAt: timestamp,
-    expiresAt: timestamp + ACTIVE_TTL_MS,
+    expiresAt: input.expiresAt ?? timestamp + ACTIVE_TTL_MS,
   };
   state.records = state.records.filter(
     (item) => item.questionId !== input.questionId && item.outTrackId !== input.outTrackId,
@@ -191,6 +195,8 @@ export function activateAskUserQuestion(
   const superseded: AskUserLifecycleRecord[] = [];
   for (const candidate of state.records) {
     if (
+      !record.independent &&
+      !candidate.independent &&
       candidate !== record &&
       isAnswerableState(candidate.state) &&
       candidate.questionScopeKey === record.questionScopeKey
@@ -201,7 +207,9 @@ export function activateAskUserQuestion(
   }
   record.state = "pending";
   record.updatedAt = timestamp;
-  record.expiresAt = timestamp + ACTIVE_TTL_MS;
+  if (!record.independent) {
+    record.expiresAt = timestamp + ACTIVE_TTL_MS;
+  }
   persistState(options, state);
   return { record: { ...record }, superseded };
 }
@@ -209,14 +217,23 @@ export function activateAskUserQuestion(
 export function claimAskUserQuestion(
   options: AskUserStoreOptions,
   identifier: AskUserQuestionIdentifier,
+  purpose: "answer" | "live-timeout" = "answer",
 ): AskUserLifecycleRecord | undefined {
   const timestamp = now(options);
   const state = readCleanState(options);
   const record = findRecord(state, identifier);
-  if (!record || record.state !== "pending") {
+  // Lazy cleanup may expire the record just before its live timer dispatches
+  // the partial collection. Only that timer (with an unconsumed in-memory
+  // context) may claim an expired record; callbacks must never revive it.
+  const liveTimeout =
+    purpose === "live-timeout" &&
+    record?.state === "terminal" &&
+    record.terminalReason === "expired";
+  if (!record || (record.state !== "pending" && !liveTimeout)) {
     return undefined;
   }
   record.state = "dispatching";
+  delete record.terminalReason;
   record.updatedAt = timestamp;
   record.expiresAt = timestamp + ACTIVE_TTL_MS;
   persistState(options, state);
@@ -248,7 +265,11 @@ export function invalidateAskUserQuestionsInScope(
   const state = readCleanState(options);
   const invalidated: AskUserLifecycleRecord[] = [];
   for (const record of state.records) {
-    if (isAnswerableState(record.state) && record.questionScopeKey === questionScopeKey) {
+    if (
+      !record.independent &&
+      isAnswerableState(record.state) &&
+      record.questionScopeKey === questionScopeKey
+    ) {
       toTerminal(record, reason, timestamp);
       invalidated.push({ ...record });
     }

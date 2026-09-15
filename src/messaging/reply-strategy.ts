@@ -29,7 +29,13 @@ export function createReplyStrategy(
   },
 ): ReplyStrategy {
   if (params.useCardMode && params.card) {
-    return createCardReplyStrategy({ ...params, card: params.card });
+    return createCardReplyStrategy({
+      ...params,
+      card: params.card,
+      get sessionWebhook() {
+        return params.sessionWebhook;
+      },
+    });
   }
   return createMarkdownReplyStrategy(params);
 }

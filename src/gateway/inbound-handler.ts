@@ -12,6 +12,7 @@ import {
 import {
   getDingTalkQuestionContext,
   withDingTalkQuestionContext,
+  withDingTalkQuestionToolRun,
 } from "../card/ask-user-question-context";
 import { isCardRunStopRequested, registerCardRun, removeCardRun } from "../card/card-run-registry";
 import {
@@ -50,6 +51,7 @@ import {
   createReplyQuotedRef,
   resolveQuotedRecord,
 } from "../messaging/quoted-ref";
+import { resolveReplySessionWebhook } from "../messaging/reply-session-webhook";
 import { createReplyStrategy } from "../messaging/reply-strategy";
 import type { DeliverPayload, ReplyStrategy } from "../messaging/reply-strategy-types";
 import { sendBySession, sendMessage, sendProactiveMedia } from "../messaging/send-service";
@@ -614,7 +616,6 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     cfg,
     accountId,
     data,
-    sessionWebhook,
     log,
     dingtalkConfig,
     inboundOrigin = "stream",
@@ -622,6 +623,11 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     subAgentOptions,
     preDownloadedMedia,
   } = params;
+  const replySession = {
+    get sessionWebhook(): string {
+      return resolveReplySessionWebhook(params.sessionWebhook, params.replySessionWebhookExpiresAt);
+    },
+  };
   const rt = getDingTalkRuntime();
 
   // Save logger globally so shared services can log consistently without threading log everywhere.
@@ -682,7 +688,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     try {
       await sendBySession(
         dingtalkConfig,
-        sessionWebhook,
+        replySession.sessionWebhook,
         "⚠️ 主动推送可能失败\n\n检测到该用户最近一次主动发送调用返回了权限或目标不可达错误。当前会话回复仍可正常使用，但定时/主动发送可能失败。\n\n建议：\n1) 在钉钉开放平台确认应用已申请并获得主动发送相关权限\n2) 确认目标用户属于当前企业并在应用可见范围内\n3) 使用相同账号进行一次主动发送验证并检查错误码详情",
         { log },
       );
@@ -716,7 +722,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         try {
           await sendBySession(
             dingtalkConfig,
-            sessionWebhook,
+            replySession.sessionWebhook,
             `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
             { log },
           );
@@ -774,7 +780,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       );
 
       try {
-        await sendBySession(dingtalkConfig, sessionWebhook, denyMessage, {
+        await sendBySession(dingtalkConfig, replySession.sessionWebhook, denyMessage, {
           log,
           atUserId: senderId,
         });
@@ -895,7 +901,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         accountId,
         data,
         dingtalkConfig,
-        sessionWebhook,
+        sessionWebhook: replySession.sessionWebhook,
         extractedContent,
         sessionPeer,
         onRoutesResolved: (targets) =>
@@ -914,7 +920,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         isGroup,
         senderId,
         dingtalkConfig,
-        sessionWebhook,
+        sessionWebhook: replySession.sessionWebhook,
         log,
       });
     }
@@ -930,7 +936,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         accountId,
         data,
         dingtalkConfig,
-        sessionWebhook,
+        sessionWebhook: replySession.sessionWebhook,
         extractedContent,
         sessionPeer,
         onRoutesResolved: (targets) =>
@@ -1011,7 +1017,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     peerIdOverride,
     sessionPeer,
     sendReply: async (text: string) => {
-      await sendBySession(dingtalkConfig, sessionWebhook, text, { log });
+      await sendBySession(dingtalkConfig, replySession.sessionWebhook, text, { log });
     },
     clearSessionPeerOverride,
     setSessionPeerOverride,
@@ -1943,8 +1949,8 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
                 abortConfirmationText = payload.text;
               } else {
                 try {
-                  if (sessionWebhook) {
-                    await sendBySession(dingtalkConfig, sessionWebhook, payload.text, {
+                  if (replySession.sessionWebhook) {
+                    await sendBySession(dingtalkConfig, replySession.sessionWebhook, payload.text, {
                       log,
                       accountId,
                       storePath: accountStorePath,
@@ -2032,7 +2038,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
               }
               await deliverBtwReply({
                 config: dingtalkConfig,
-                sessionWebhook,
+                sessionWebhook: replySession.sessionWebhook,
                 conversationId: groupId,
                 to,
                 senderName: btwSenderName,
@@ -2218,9 +2224,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             mediaPath: actualMediaPath,
             asVoice: options?.audioAsVoice === true,
           });
-          if (sessionWebhook) {
+          if (replySession.sessionWebhook) {
             const sendResult = await sendMessage(dingtalkConfig, to, "", {
-              sessionWebhook,
+              sessionWebhook: replySession.sessionWebhook,
               mediaPath: actualMediaPath,
               mediaType: outMediaType,
               log,
@@ -2366,7 +2372,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         card: currentAICard,
         useCardMode: replyMode === "card",
         to,
-        sessionWebhook,
+        get sessionWebhook() {
+          return replySession.sessionWebhook;
+        },
         senderId,
         isDirect,
         accountId,
@@ -2443,10 +2451,13 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         });
 
       try {
-        const dispatchResult = await withReplySessionConflictRetry(runDispatch, {
-          log,
-          sessionKey: route.sessionKey,
-        });
+        const dispatchResult = await withReplySessionConflictRetry(
+          () => withDingTalkQuestionToolRun(questionContext, runDispatch),
+          {
+            log,
+            sessionKey: route.sessionKey,
+          },
+        );
 
         const bufferedFinal =
           dispatchResult && typeof dispatchResult === "object" && "queuedFinal" in dispatchResult
@@ -2538,8 +2549,8 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             }
           }
           try {
-            if (sessionWebhook) {
-              await sendBySession(dingtalkConfig, sessionWebhook, ackText, {
+            if (replySession.sessionWebhook) {
+              await sendBySession(dingtalkConfig, replySession.sessionWebhook, ackText, {
                 log,
                 accountId,
                 storePath: accountStorePath,

@@ -40,6 +40,13 @@ vi.mock("../../../src/platform/auth", () => ({
   getAccessToken: vi.fn().mockResolvedValue("token_abc"),
 }));
 
+// Queue integration tests must not call the real reaction API. Its retry
+// sleeps also deadlock the queue-expiry test while setTimeout is faked.
+vi.mock("../../../src/ack-reaction/ack-reaction-service", () => ({
+  attachNativeAckReaction: vi.fn(async () => false),
+  recallNativeAckReactionWithRetry: vi.fn(async () => false),
+}));
+
 vi.mock("../../../src/platform/runtime", () => ({
   getDingTalkRuntime: shared.getRuntimeMock,
 }));

@@ -379,6 +379,8 @@ export interface DingTalkInboundMessage {
   senderNick?: string;
   chatbotUserId: string;
   sessionWebhook: string;
+  /** Absolute Unix timestamp in milliseconds supplied by DingTalk. */
+  sessionWebhookExpiredTime?: number;
 }
 
 export type QuotedRefKey =
@@ -555,6 +557,8 @@ export interface HandleDingTalkMessageParams {
   accountId: string;
   data: DingTalkInboundMessage;
   sessionWebhook: string;
+  /** Targeted form continuation only: zero forces proactive reply when expiry is unknown. */
+  replySessionWebhookExpiresAt?: number;
   log?: Logger;
   dingtalkConfig: DingTalkConfig;
   /** Distinguishes real Stream messages from Ask User callback reinjection. */
