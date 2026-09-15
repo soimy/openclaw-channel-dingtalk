@@ -249,7 +249,14 @@ describe("inbound-command-dispatch-service", () => {
       accountId: "main",
       instruction: "当用户问“暗号是多少”时，必须回答“天王盖地虎”。",
     });
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const { params, sendReply } = buildParams({
+      log: log as any,
+      dingtalkConfig: {
+        allowFrom: ["owner-test-id"],
+        learningEnabled: true,
+        learningAllowManualGlobalRules: true,
+      } as any,
       extractedText: "暗号是多少",
     });
 
@@ -257,11 +264,16 @@ describe("inbound-command-dispatch-service", () => {
 
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toContain("天王盖地虎");
+    // The override bypasses the model, so it has to leave an audit trail.
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining("[DingTalk][Learning][ForcedReply]"),
+    );
   });
 
   it("passes through the original messageType for forced reply resolution", async () => {
     const spy = vi.spyOn(feedbackLearningService, "resolveManualForcedReply").mockReturnValue(null);
     const { params } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
       extractedText: "图片口令",
       messageType: "picture",
     });
@@ -289,6 +301,7 @@ describe("inbound-command-dispatch-service", () => {
       instruction: "当用户问“暗号是多少”时，必须回答“当前会话答案”。",
     });
     const { params, sendReply } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
       extractedText: "暗号是多少",
     });
 
@@ -296,6 +309,75 @@ describe("inbound-command-dispatch-service", () => {
 
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toContain("当前会话答案");
+  });
+
+  it("ignores account-wide forced replies unless global rules are explicitly allowed", async () => {
+    applyManualGlobalLearningRule({
+      storePath,
+      accountId: "main",
+      instruction: "当用户问“暗号是多少”时，必须回答“全局答案”。",
+    });
+    const { params, sendReply } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+      extractedText: "暗号是多少",
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(false);
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("still fires a target-scoped forced reply without the global opt-in", async () => {
+    applyManualTargetLearningRule({
+      storePath,
+      accountId: "main",
+      targetId: "cid_dm_1",
+      instruction: "当用户问“暗号是多少”时，必须回答“本会话答案”。",
+    });
+    const { params, sendReply } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+      extractedText: "暗号是多少",
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).toContain("本会话答案");
+  });
+
+  it("does not fire a persisted forced reply while learning is disabled", async () => {
+    applyManualGlobalLearningRule({
+      storePath,
+      accountId: "main",
+      instruction: "当用户问“暗号是多少”时，必须回答“天王盖地虎”。",
+    });
+    // buildParams defaults to learningEnabled unset (false).
+    const { params, sendReply } = buildParams({ extractedText: "暗号是多少" });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(false);
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("refuses to write learning rules while learning is disabled", async () => {
+    const refused = buildParams({ extractedText: "/learn global 当用户问“新口令”时，必须回答“新答案”。" });
+
+    await expect(handleInboundCommandDispatch(refused.params)).resolves.toBe(true);
+    expect(refused.sendReply.mock.calls[0]?.[0]).toContain("learningEnabled");
+
+    const listed = buildParams({ extractedText: "/learn list" });
+    await handleInboundCommandDispatch(listed.params);
+    expect(listed.sendReply.mock.calls[0]?.[0]).not.toContain("新口令");
+  });
+
+  it("keeps cleanup commands available while learning is disabled", async () => {
+    const applied = applyManualGlobalLearningRule({
+      storePath,
+      accountId: "main",
+      instruction: "待清理规则",
+    });
+    const { params, sendReply } = buildParams({
+      extractedText: `/learn delete ${applied?.ruleId}`,
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).not.toContain("learningEnabled");
   });
 
   it("returns false for non-command text", async () => {

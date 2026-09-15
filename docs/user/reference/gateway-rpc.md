@@ -30,8 +30,8 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
     "dingtalk": {
       "gatewayCapabilities": {
         "tools": {
-          "docs": true,           // 关闭后 dingtalk.docs.* 与 dingtalk-connector.docs.* 全部拒绝
-          "proactiveSend": true   // 关闭后 dingtalk-connector.sendToUser/sendToGroup/send 全部拒绝
+          "docs": true,           // 默认 false；开启后 dingtalk.docs.* 与 dingtalk-connector.docs.* 可用
+          "proactiveSend": true   // 默认 false；开启后 dingtalk-connector.sendToUser/sendToGroup/send 可用
         },
         "docs": {
           "allowedSpaceIds": ["spaceA"] // 配置后 docs RPC 只接受这些 spaceId（至少一项）；未配置不限制
@@ -47,7 +47,8 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
 
 行为说明：
 
-- 所有开关默认开启，向后兼容；显式关闭后对应 RPC 返回 `error`，并在日志中打出 `[DingTalk][GatewayRPC][Denied]` 前缀。
+> **升级注意（破坏性变更）**：`gatewayCapabilities.tools.docs` 与 `tools.proactiveSend` 的默认值由 `true` 改为 `false`。此前依赖默认开启即可调用 docs / 主动发送 RPC 的部署，升级后需要显式把对应开关设为 `true`（并按需配置 `allowedSpaceIds` / `allowedTargets`）。`dingtalk-connector.status` 与 `dingtalk-connector.probe` 不受影响。
+- **所有开关默认关闭**：未显式配置 `tools.docs` / `tools.proactiveSend` 时，对应 RPC 返回结构化 `error`（提示需要开启的配置键），并在日志中打出 `[DingTalk][GatewayRPC][Denied]` 前缀。
 - `dingtalk.docs.*` 与 `dingtalk-connector.docs.*` 共享同一组 handler，能力开关对两个命名空间同时生效。
 - `allowedTargets` 中的每一项必须是 `user:<id>` 或 `group:<conversationId>`；`allowedSpaceIds` / `allowedTargets` 一旦配置就至少需要一项，空数组会被配置校验直接拒绝，避免"限制被静默取消"。
 - 白名单是 fail-closed 的：运行时若收到"已配置但为空"的白名单（例如绕过了配置校验），会按"全部拒绝"处理。

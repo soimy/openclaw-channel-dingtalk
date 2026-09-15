@@ -163,7 +163,15 @@ describe("runtime + peer registry + index plugin", () => {
       registerChannel,
       registerGatewayMethod,
       on: vi.fn(),
-      config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
+      config: {
+        channels: {
+          dingtalk: {
+            clientId: "id",
+            clientSecret: "sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
+          },
+        },
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     } as any);
 
@@ -232,7 +240,15 @@ describe("runtime + peer registry + index plugin", () => {
       registerChannel: vi.fn(),
       registerGatewayMethod,
       on: vi.fn(),
-      config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
+      config: {
+        channels: {
+          dingtalk: {
+            clientId: "id",
+            clientSecret: "sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
+          },
+        },
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     } as any);
 
@@ -249,7 +265,15 @@ describe("runtime + peer registry + index plugin", () => {
       registerChannel: vi.fn(),
       registerGatewayMethod,
       on: vi.fn(),
-      config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
+      config: {
+        channels: {
+          dingtalk: {
+            clientId: "id",
+            clientSecret: "sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
+          },
+        },
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     } as any);
 
@@ -293,7 +317,15 @@ describe("runtime + peer registry + index plugin", () => {
       registerChannel: vi.fn(),
       registerGatewayMethod,
       on: vi.fn(),
-      config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
+      config: {
+        channels: {
+          dingtalk: {
+            clientId: "id",
+            clientSecret: "sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
+          },
+        },
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     } as any);
 
@@ -356,6 +388,7 @@ describe("runtime + peer registry + index plugin", () => {
           dingtalk: {
             clientId: "default-id",
             clientSecret: "default-sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
             accounts: {
               team: { clientId: "team-id", clientSecret: "team-sec", name: "Team" },
             },
@@ -464,7 +497,15 @@ describe("runtime + peer registry + index plugin", () => {
       registerChannel: vi.fn(),
       registerGatewayMethod,
       on: vi.fn(),
-      config: { channels: { dingtalk: { clientId: "id", clientSecret: "sec" } } },
+      config: {
+        channels: {
+          dingtalk: {
+            clientId: "id",
+            clientSecret: "sec",
+            gatewayCapabilities: { tools: { docs: true, proactiveSend: true } },
+          },
+        },
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     } as any);
 

@@ -2,6 +2,45 @@
 
 本页说明私聊、群聊和远程媒体下载相关的主要安全控制点。
 
+## 默认能力面速查表
+
+下表是插件的**默认暴露面**。标为"开启"的项依赖宿主 Gateway 信任模型，插件层不做二次调用方身份认证；标为"关闭"的项需要在配置中显式开启才会生效。
+
+| 配置项 | 默认值 | 风险面 | 启用 / 收窄方式 |
+| --- | --- | --- | --- |
+| `gatewayCapabilities.tools.docs` | 关闭 | 开启后文档 RPC 可读写钉钉文档空间 | 需要时设 `true`，并配置 `gatewayCapabilities.docs.allowedSpaceIds` |
+| `gatewayCapabilities.tools.proactiveSend` | 关闭 | 开启后主动发送 RPC 可向任意 `user:*` / `group:*` 发消息 | 需要时设 `true`，并配置 `gatewayCapabilities.send.allowedTargets` |
+| `dmPolicy` | `open` | 任意用户可私聊机器人 | 改 `pairing` / `allowlist` |
+| `groupPolicy` | `open` | 任意群可 @机器人 | 改 `allowlist`，或用 `groups` 按群收窄 |
+| `learningEnabled` | 关闭 | 学习内容持久化并注入后续 prompt；owner 写入的规则还能**强制精确回复（绕过模型）**。关闭时上述行为全部停止（含已存规则） | 保持关闭，或仅在受控会话中开启 |
+| `learningAutoApply` | 关闭 | 自动把生成内容写入 note / 全局 rule | 保持关闭 |
+| `learningRuleTtlMs` | 30 天 | 规则超过该窗口后既不再注入 prompt，也不再命中触发语 | 保持默认或调小；`0` 表示永不过期（不建议） |
+| `learningAllowManualGlobalRules` | 关闭 | 允许 owner 写入的 account 级规则注入 prompt 并强制精确回复（绕过模型） | 保持关闭；改用会话级 `/learn here`、`/learn target` |
+| `mediaUrlAllowlist` | 未配置 | 远程媒体下载范围（默认已拒绝内网与本地地址） | 需要时才显式配置 |
+
+插件的 manifest（`openclaw.plugin.json`）为上述字段声明了 `default`，因此即使不阅读源码，也能从元数据读出默认状态。
+
+> **升级注意（破坏性变更）**：`gatewayCapabilities.tools.docs` / `tools.proactiveSend` 的默认值由 `true` 改为 `false`。升级后如需继续使用 docs 或主动发送 RPC，必须显式开启对应开关；`dingtalk-connector.status` 与 `probe` 不受影响。
+
+最小权限示例：
+
+```json5
+{
+  "channels": {
+    "dingtalk": {
+      "dmPolicy": "allowlist",
+      "groupPolicy": "allowlist",
+      "gatewayCapabilities": {
+        // 需要哪一项就开哪一项，并同时限定范围
+        "tools": { "docs": true, "proactiveSend": false },
+        "docs": { "allowedSpaceIds": ["<spaceId>"] },
+        "send": { "allowedTargets": ["user:<staffId>", "group:<conversationId>"] }
+      }
+    }
+  }
+}
+```
+
 ## 私聊策略 `dmPolicy`
 
 - `open`：任何人都可以私聊机器人

@@ -40,6 +40,9 @@ credentials.json
 # Local debug artifacts for feedback-learning tooling
 .local/
 
+# Local ClawHub audit evidence written by scripts/clawhub-audit-local.mjs
+.clawhub-audit/
+
 # Codex automation artifacts
 .codex-artifacts/
 

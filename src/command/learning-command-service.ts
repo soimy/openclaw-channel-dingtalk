@@ -207,6 +207,15 @@ export function formatOwnerOnlyDeniedReply(): string {
   return "这条学习/控制命令仅允许 owner 使用。先发送“我是谁”确认你的 senderId，再由宿主将该 senderId 加入 commands.ownerAllowFrom。";
 }
 
+export function formatLearningDisabledReply(): string {
+  return [
+    "反馈学习未启用（channels.dingtalk.learningEnabled 为 false），已拒绝写入或修改学习规则，也不会命中已存的规则。",
+    "",
+    "启用方式：在 channels.dingtalk 下设置 `learningEnabled: true` 后重新发送本命令。",
+    "未启用时仍可使用只读与清理命令：/learn list、/learn disable <ruleId>、/learn delete <ruleId>。",
+  ].join("\n");
+}
+
 export function formatLearnCommandHelp(): string {
   return [
     "可用的 owner 学习命令：",

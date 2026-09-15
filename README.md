@@ -31,6 +31,12 @@
 > [!IMPORTANT]
 > 根据钉钉开放平台公告《[关于限时开放钉钉PaaS资源不限量额度以助力企业AI智能体集成的公告](https://open.dingtalk.com/document/development/open-ai-paas-report)》（更新于 `2026-03-11`），OpenClaw 调用钉钉 `API/Webhook/Stream` 的免费“不限量”额度默认有效至 `2026-03-31`；如已通过官方申请通道获批，豁免权益最晚有效至 `2026-04-30`。部署前请前往“钉钉开发者后台 -> 资源管理”核对当前额度状态。
 
+## 默认能力面
+
+插件默认**不暴露**任何 host-callable 的 Gateway RPC：`gatewayCapabilities.tools.docs` 与 `gatewayCapabilities.tools.proactiveSend` 默认均为关闭，需要在配置里显式开启才会生效。私聊与群聊准入（`dmPolicy` / `groupPolicy`）默认仍是 `open`，生产部署前建议改为 `allowlist` 或 `pairing`。本地反馈学习回路默认关闭。
+
+完整的默认值矩阵、最小权限配置示例与各项边界说明见[安全策略](docs/user/reference/security-policies.md)。
+
 ## 文档入口
 
 - 线上文档站点：<https://dingtalk-channel.nanoo.app/>

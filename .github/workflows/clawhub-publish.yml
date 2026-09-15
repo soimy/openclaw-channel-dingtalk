@@ -4,9 +4,19 @@ on:
     workflow_dispatch:
         inputs:
             tag:
-                description: Existing git tag to publish, for example v3.5.0
-                required: true
+                description: Existing git tag to publish, for example v3.5.0. Leave empty for an audit-only run.
+                required: false
                 type: string
+            audit_only:
+                description: Run the beta security audit only; keep the audited version and skip publishing
+                required: false
+                default: false
+                type: boolean
+            allow_suspicious:
+                description: Let the audit gate pass when ClawScan reports suspicious
+                required: false
+                default: false
+                type: boolean
     push:
         tags:
             - "*"
@@ -19,17 +29,280 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
-    publish:
+    audit:
         runs-on: ubuntu-latest
-        timeout-minutes: 20
+        timeout-minutes: 50
         permissions:
             contents: read
+
+        # The release job publishes exactly the commit this job audited, so the
+        # gate result cannot be detached from the released tree by a moved tag.
+        outputs:
+            audited_commit: ${{ steps.release.outputs.audited_commit }}
 
         steps:
             - name: Checkout
               uses: actions/checkout@v4
               with:
                   ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+                  fetch-depth: 0
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install ClawHub CLI
+              run: npm install --global clawhub@0.23.3
+
+            - name: Build runtime package
+              run: pnpm run build
+
+            - name: Verify package runtime output
+              run: pnpm run pack:check
+
+            # Runs before any credential is loaded and uses the pinned CLI, so no
+            # mutable third-party reference executes next to the publish token.
+            - name: Offline plugin validation
+              run: |
+                  clawhub package validate . --out "$RUNNER_TEMP/plugin-inspector" --json
+
+            - name: Resolve audit versions
+              id: release
+              shell: bash
+              env:
+                  AUDIT_ONLY: ${{ inputs.audit_only == true }}
+                  TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+                  RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+              run: |
+                  set -euo pipefail
+                  PACKAGE_NAME="$(node -p "require('./package.json').name")"
+                  PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+                  AUDITED_COMMIT="$(git rev-parse HEAD)"
+
+                  if [[ "${AUDIT_ONLY}" == "true" ]]; then
+                    BASE_VERSION="${PACKAGE_VERSION}"
+                    SOURCE_REF="${RELEASE_VERSION}"
+                    echo "Manual audit mode: auditing ${PACKAGE_NAME}@${BASE_VERSION} from ${SOURCE_REF}"
+                  else
+                    TAG="${TARGET_TAG}"
+                    if [[ -z "${TAG}" ]]; then
+                      echo "::error::A tag is required for release publishes. Set the 'tag' input or push a tag."
+                      exit 1
+                    fi
+
+                    RAW_VERSION="${TAG#v}"
+                    if [[ "$RAW_VERSION" != "$PACKAGE_VERSION" ]]; then
+                      echo "Tag version and package version are not synchronized."
+                      echo "tag: ${TAG}"
+                      echo "expected package.json version: ${RAW_VERSION}"
+                      echo "actual package.json version: ${PACKAGE_VERSION}"
+                      exit 1
+                    fi
+
+                    BASE_VERSION="${PACKAGE_VERSION}"
+                    SOURCE_REF="${TAG}"
+                    echo "Version check passed: ${TAG} -> ${PACKAGE_VERSION}"
+                  fi
+
+                  BETA_VERSION="${BASE_VERSION}-beta.${{ github.run_number }}.${{ github.run_attempt }}"
+
+                  echo "audit_only=${AUDIT_ONLY}" >> "$GITHUB_OUTPUT"
+                  echo "audited_commit=${AUDITED_COMMIT}" >> "$GITHUB_OUTPUT"
+                  echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+                  echo "base_version=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
+                  echo "beta_version=${BETA_VERSION}" >> "$GITHUB_OUTPUT"
+                  echo "source_ref=${SOURCE_REF}" >> "$GITHUB_OUTPUT"
+                  echo "Audit build version: ${BETA_VERSION}"
+                  echo "Audited commit: ${AUDITED_COMMIT}"
+
+            - name: Verify audit version is unused
+              if: ${{ steps.release.outputs.beta_version != '' }}
+              env:
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+              run: |
+                  set -euo pipefail
+                  ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
+                  STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+                    "https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}")"
+                  if [[ "${STATUS}" != "404" ]]; then
+                    echo "::error::Audit version ${AUDIT_VERSION} already exists on ClawHub (HTTP ${STATUS}). Re-run the workflow to get a fresh run number."
+                    exit 1
+                  fi
+                  echo "Audit version ${AUDIT_VERSION} is unused (HTTP 404)."
+
+            - name: Authenticate ClawHub CLI
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "${CLAWHUB_TOKEN:-}" ]]; then
+                    echo "::error::CLAWHUB_TOKEN secret is required for the ClawHub beta audit."
+                    exit 1
+                  fi
+
+                  clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
+
+            - name: Stamp audit version
+              if: ${{ steps.release.outputs.beta_version != '' }}
+              env:
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+              run: |
+                  set -euo pipefail
+                  node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = process.env.AUDIT_VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
+                  echo "Stamped package.json version: $(node -p "require('./package.json').version") (runner-only, never committed)"
+
+            - name: Publish audit build and wait for ClawHub security checks
+              id: publish
+              if: ${{ steps.release.outputs.beta_version != '' }}
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+                  AUDIT_SOURCE_REF: ${{ steps.release.outputs.source_ref }}
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+              run: |
+                  set -euo pipefail
+                  SOURCE_COMMIT="$(git rev-parse HEAD)"
+
+                  clawhub package publish . \
+                    --tags audit \
+                    --wait \
+                    --wait-timeout 2400 \
+                    --source-repo "${GITHUB_REPOSITORY}" \
+                    --source-commit "${SOURCE_COMMIT}" \
+                    --source-ref "${AUDIT_SOURCE_REF}" \
+                    --source-path "." \
+                    --json | tee publish.json
+
+                  echo "ClawHub accepted ${AUDIT_PACKAGE}@${AUDIT_VERSION} and reported a terminal publication status."
+
+            - name: Fetch ClawHub security verdict
+              if: ${{ always() && steps.release.outputs.beta_version != '' }}
+              env:
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+              run: |
+                  set -euo pipefail
+                  ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
+                  STATUS="$(curl -sS -o verdict.json -w '%{http_code}' \
+                    "https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}/security")"
+                  echo "GET /security -> HTTP ${STATUS}"
+                  echo "SECURITY_STATUS=${STATUS}" >> "$GITHUB_ENV"
+
+            - name: Evaluate audit gate
+              if: ${{ always() && steps.release.outputs.beta_version != '' }}
+              env:
+                  PACKAGE_NAME: ${{ steps.release.outputs.package_name }}
+                  BETA_VERSION: ${{ steps.release.outputs.beta_version }}
+                  AUDIT_MODE: ${{ steps.release.outputs.audit_only == 'true' && 'manual' || 'release-gate' }}
+                  ALLOW_SUSPICIOUS: ${{ inputs.allow_suspicious == true && '1' || '0' }}
+              run: node scripts/clawhub-beta-gate.mjs verdict.json
+
+            # A tag push has no `allow_suspicious` input, so the release path stays
+            # strict by design. The override is only reachable through an explicit
+            # workflow_dispatch run, which records who released and why.
+            - name: Explain how to proceed when a tag release is blocked
+              if: ${{ failure() && github.event_name == 'push' }}
+              run: |
+                  echo "::error::The ClawHub audit blocked this tag release. Fix the finding, or re-run the release through an explicit, recorded override: gh workflow run clawhub-publish.yml -f tag=${GITHUB_REF_NAME} -f allow_suspicious=true"
+
+            - name: Download ClawHub audit report
+              if: ${{ always() && steps.release.outputs.beta_version != '' }}
+              continue-on-error: true
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+              run: |
+                  set -euo pipefail
+                  clawhub scan download "${AUDIT_PACKAGE}" \
+                    --version "${AUDIT_VERSION}" \
+                    --kind plugin \
+                    --output "${GITHUB_WORKSPACE}/scan-report.zip"
+
+            - name: Withdraw audit build
+              if: ${{ always() && steps.release.outputs.beta_version != '' && steps.release.outputs.audit_only != 'true' }}
+              continue-on-error: true
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "${AUDIT_VERSION}" ]]; then
+                    echo "No audit version to withdraw."
+                    exit 0
+                  fi
+
+                  clawhub package delete "${AUDIT_PACKAGE}" --version "${AUDIT_VERSION}" --yes --json
+                  echo "Withdrawn ${AUDIT_PACKAGE}@${AUDIT_VERSION}; the version number stays reserved and the artifact can be restored with 'clawhub package undelete'."
+
+            - name: Summarize audit outcome
+              if: ${{ always() }}
+              env:
+                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
+                  AUDIT_VERSION: ${{ steps.release.outputs.beta_version }}
+                  AUDIT_ONLY: ${{ steps.release.outputs.audit_only }}
+              run: |
+                  set -euo pipefail
+                  {
+                    echo "### ClawHub beta audit"
+                    echo ""
+                    echo "- package: \`${AUDIT_PACKAGE}@${AUDIT_VERSION}\`"
+                    echo "- mode: $([[ "${AUDIT_ONLY}" == "true" ]] && echo 'manual (audit version kept)' || echo 'release gate (audit version withdrawn)')"
+                    echo "- security endpoint: \`GET /api/v1/packages/.../versions/${AUDIT_VERSION}/security\` (HTTP ${SECURITY_STATUS:-n/a})"
+                    if [[ "${AUDIT_ONLY}" == "true" && -n "${AUDIT_VERSION}" ]]; then
+                      echo "- smoke test: \`openclaw plugins install clawhub:${AUDIT_PACKAGE}@audit\`"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload audit evidence
+              if: ${{ always() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: clawhub-audit-${{ steps.release.outputs.beta_version || github.run_number }}
+                  if-no-files-found: ignore
+                  retention-days: 30
+                  path: |
+                      verdict.json
+                      gate-result.json
+                      publish.json
+                      scan-report.zip
+
+    publish:
+        needs: audit
+        if: ${{ inputs.audit_only != true }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout the audited commit
+              uses: actions/checkout@v4
+              with:
+                  # Pinned to the SHA the audit job inspected: re-resolving the tag
+                  # here would let a tag moved after the audit publish unaudited code.
+                  ref: ${{ needs.audit.outputs.audited_commit }}
                   fetch-depth: 0
 
             - name: Setup pnpm
@@ -71,8 +344,33 @@ jobs:
                   echo "Version check passed: ${TAG} -> ${PACKAGE_VERSION} (ClawHub tag: ${CLAWHUB_TAG})"
                   echo "clawhub_tag=${CLAWHUB_TAG}" >> "$GITHUB_OUTPUT"
 
+            - name: Verify the release ref still points at the audited commit
+              shell: bash
+              env:
+                  AUDITED_COMMIT: ${{ needs.audit.outputs.audited_commit }}
+                  TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "${AUDITED_COMMIT}" ]]; then
+                    echo "::error::The audit job reported no audited commit; refusing to publish."
+                    exit 1
+                  fi
+
+                  # Re-read the tag from the remote rather than trusting the local
+                  # checkout, so a tag moved after the audit is detected here.
+                  git fetch --force origin "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}"
+                  TAG_COMMIT="$(git rev-parse "refs/tags/${TARGET_TAG}^{commit}")"
+
+                  if [[ "${TAG_COMMIT}" != "${AUDITED_COMMIT}" ]]; then
+                    echo "::error::Tag ${TARGET_TAG} moved after the audit (audited ${AUDITED_COMMIT}, tag now ${TAG_COMMIT}); re-run the audit before publishing."
+                    exit 1
+                  fi
+
+                  echo "Tag ${TARGET_TAG} still points at the audited commit ${AUDITED_COMMIT}."
+
             - name: Install ClawHub CLI
-              run: npm install --global clawhub@0.23.1
+              run: npm install --global clawhub@0.23.3
 
             - name: Authenticate ClawHub CLI
               env:
@@ -113,15 +411,15 @@ jobs:
                   CLAWHUB_TAGS: ${{ steps.release.outputs.clawhub_tag }}
                   SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
+                  AUDITED_COMMIT: ${{ needs.audit.outputs.audited_commit }}
               run: |
                   set -euo pipefail
-                  SOURCE_COMMIT="$(git rev-parse HEAD)"
 
                   clawhub package publish . \
                     --tags "${CLAWHUB_TAGS}" \
                     --source-repo "${GITHUB_REPOSITORY}" \
-                    --source-commit "${SOURCE_COMMIT}" \
+                    --source-commit "${AUDITED_COMMIT}" \
                     --source-ref "${SOURCE_REF}" \
                     --source-path "." \
                     --json
-                  echo "ClawHub accepted the release. Public catalog visibility follows asynchronous security review."
+                  echo "ClawHub accepted the release for ${AUDITED_COMMIT}, the commit the audit job inspected."

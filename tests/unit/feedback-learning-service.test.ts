@@ -4,9 +4,14 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
     analyzeImplicitNegativeFeedback,
+    applyManualGlobalLearningRule,
+    applyManualTargetLearningRule,
     buildLearningContextBlock,
+    isManualGlobalRuleAllowed,
     recordExplicitFeedbackLearning,
     recordOutboundReplyForLearning,
+    resolveLearningRuleTtlMs,
+    resolveManualForcedReply,
 } from "../../src/command/feedback-learning-service";
 import {
     listActiveSessionLearningNotes,
@@ -155,5 +160,186 @@ describe("feedback-learning-service", () => {
         expect(events[0]?.kind).toBe("implicit_negative");
         expect(reflections[0]?.category).toBe("quoted_context_missing");
         expect(notes[0]?.instruction).toContain("禁止根据上下文臆测引用内容");
+    });
+
+    describe("buildLearningContextBlock rule filtering", () => {
+        const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+        it("skips owner-written account-wide rules unless manual global rules are allowed", () => {
+            const storePath = createStorePath();
+            applyManualGlobalLearningRule({
+                storePath,
+                accountId: "main",
+                instruction: "全局规则：回答要带暗号。",
+            });
+            const params = {
+                enabled: true,
+                storePath,
+                accountId: "main",
+                targetId: "chat-a",
+                content: createContent({ text: "随便聊聊" }),
+            };
+
+            expect(buildLearningContextBlock(params)).not.toContain("回答要带暗号");
+
+            const allowed = buildLearningContextBlock({
+                ...params,
+                options: { allowManualGlobalRules: true, ruleTtlMs: TTL_MS },
+            });
+            expect(allowed).toContain("回答要带暗号");
+        });
+
+        it("still injects target-scoped rules without the global switch", () => {
+            const storePath = createStorePath();
+            applyManualTargetLearningRule({
+                storePath,
+                accountId: "main",
+                targetId: "chat-a",
+                instruction: "本会话规则：先确认再回答。",
+            });
+
+            const block = buildLearningContextBlock({
+                enabled: true,
+                storePath,
+                accountId: "main",
+                targetId: "chat-a",
+                content: createContent({ text: "随便聊聊" }),
+                options: { allowManualGlobalRules: false, ruleTtlMs: TTL_MS },
+            });
+            expect(block).toContain("本会话规则：先确认再回答");
+        });
+
+        it("stops injecting rules that are older than the TTL", () => {
+            const storePath = createStorePath();
+            applyManualTargetLearningRule({
+                storePath,
+                accountId: "main",
+                targetId: "chat-a",
+                instruction: "本会话规则：过期后不该出现。",
+            });
+            const base = {
+                enabled: true,
+                storePath,
+                accountId: "main",
+                targetId: "chat-a",
+                content: createContent({ text: "随便聊聊" }),
+                options: { allowManualGlobalRules: true, ruleTtlMs: TTL_MS },
+            };
+
+            expect(buildLearningContextBlock(base)).toContain("过期后不该出现");
+            expect(
+                buildLearningContextBlock({
+                    ...base,
+                    options: { ...base.options, now: Date.now() + 40 * 24 * 60 * 60 * 1000 },
+                }),
+            ).not.toContain("过期后不该出现");
+            expect(
+                buildLearningContextBlock({
+                    ...base,
+                    options: {
+                        allowManualGlobalRules: true,
+                        ruleTtlMs: 0,
+                        now: Date.now() + 400 * 24 * 60 * 60 * 1000,
+                    },
+                }),
+            ).toContain("过期后不该出现");
+        });
+    });
+
+    describe("resolveManualForcedReply", () => {
+        const trigger = "暗号是多少";
+        const content: MessageContent = { text: trigger, messageType: "text" };
+
+        it("returns the rule, scope and target so the override can be audited", () => {
+            const storePath = createStorePath();
+            applyManualTargetLearningRule({
+                storePath,
+                accountId: "main",
+                targetId: "cid_1",
+                instruction: "当用户问“暗号是多少”时，必须回答“本会话答案”。",
+            });
+
+            const match = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                targetId: "cid_1",
+                content,
+            });
+
+            expect(match).toMatchObject({ reply: "本会话答案", scope: "target", targetId: "cid_1" });
+            expect(match?.ruleId).toBeTruthy();
+        });
+
+        it("skips account-wide rules unless global rules are allowed", () => {
+            const storePath = createStorePath();
+            applyManualGlobalLearningRule({
+                storePath,
+                accountId: "main",
+                instruction: "当用户问“暗号是多少”时，必须回答“全局答案”。",
+            });
+
+            const gated = resolveManualForcedReply({ storePath, accountId: "main", content });
+            expect(gated).toBeNull();
+
+            const allowed = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                content,
+                options: { allowGlobalRules: true },
+            });
+            expect(allowed).toMatchObject({ reply: "全局答案", scope: "global" });
+        });
+
+        it("stops matching rules older than the configured TTL", () => {
+            const storePath = createStorePath();
+            applyManualGlobalLearningRule({
+                storePath,
+                accountId: "main",
+                instruction: "当用户问“暗号是多少”时，必须回答“全局答案”。",
+            });
+            const inFortyDays = Date.now() + 40 * 24 * 60 * 60 * 1000;
+
+            const expired = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                content,
+                now: inFortyDays,
+                options: { allowGlobalRules: true, ruleTtlMs: 30 * 24 * 60 * 60 * 1000 },
+            });
+            expect(expired).toBeNull();
+
+            const stillFresh = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                content,
+                now: Date.now() + 60 * 1000,
+                options: { allowGlobalRules: true, ruleTtlMs: 30 * 24 * 60 * 60 * 1000 },
+            });
+            expect(stillFresh).toMatchObject({ reply: "全局答案" });
+        });
+
+        it("keeps matching old rules when expiry is disabled", () => {
+            const storePath = createStorePath();
+            applyManualGlobalLearningRule({
+                storePath,
+                accountId: "main",
+                instruction: "当用户问“暗号是多少”时，必须回答“全局答案”。",
+            });
+
+            const match = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                content,
+                now: Date.now() + 400 * 24 * 60 * 60 * 1000,
+                options: { allowGlobalRules: true, ruleTtlMs: 0 },
+            });
+            expect(match).toMatchObject({ reply: "全局答案" });
+        });
+
+        it("defaults to a 30 day rule TTL and no global forced replies", () => {
+            expect(resolveLearningRuleTtlMs(undefined)).toBe(30 * 24 * 60 * 60 * 1000);
+            expect(isManualGlobalRuleAllowed(undefined)).toBe(false);
+            expect(isManualGlobalRuleAllowed({ learningAllowManualGlobalRules: true })).toBe(true);
+        });
     });
 });

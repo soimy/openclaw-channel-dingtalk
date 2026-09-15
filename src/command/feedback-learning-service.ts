@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_LEARNING_RULE_TTL_MS } from "../platform/config";
 import type { DingTalkConfig, MessageContent } from "../platform/types";
 import {
   appendFeedbackEvent,
@@ -369,16 +370,33 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
   }
 }
 
+/**
+ * Build the "high priority learning constraints" block injected into the prompt.
+ *
+ * Account-wide rules are filtered with the same rules as the forced-reply path:
+ * a disabled or expired rule is skipped, and owner-written account-wide rules
+ * additionally require `options.allowManualGlobalRules`. Session notes carry
+ * their own TTL through `listActiveSessionLearningNotes`.
+ */
 export function buildLearningContextBlock(params: {
   enabled: boolean;
   storePath?: string;
   accountId: string;
   targetId: string;
   content: MessageContent;
+  options?: {
+    allowManualGlobalRules?: boolean;
+    ruleTtlMs?: number;
+    now?: number;
+  };
 }): string {
   if (!params.enabled || !params.storePath) {
     return "";
   }
+  const now = params.options?.now ?? Date.now();
+  const ruleTtlMs = params.options?.ruleTtlMs ?? 0;
+  const allowManualGlobalRules = params.options?.allowManualGlobalRules === true;
+
   const notes = listActiveSessionLearningNotes({
     storePath: params.storePath,
     accountId: params.accountId,
@@ -388,14 +406,17 @@ export function buildLearningContextBlock(params: {
     storePath: params.storePath,
     accountId: params.accountId,
   })
-    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .filter((rule) => isRuleActive(rule, now, ruleTtlMs))
+    .filter((rule) => !rule.manual || allowManualGlobalRules)
+    .filter((rule) => ruleMatchesContent(rule, params.content))
     .slice(0, 3);
   const targetRules = listTargetRules({
     storePath: params.storePath,
     accountId: params.accountId,
     targetId: params.targetId,
   })
-    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .filter((rule) => isRuleActive(rule, now, ruleTtlMs))
+    .filter((rule) => ruleMatchesContent(rule, params.content))
     .slice(0, 3);
 
   const instructions = [
@@ -448,12 +469,58 @@ export function applyManualGlobalLearningRule(params: {
   return { ruleId };
 }
 
+/** A persisted manual rule that forces an exact reply, with the metadata needed to audit it. */
+export interface ManualForcedReplyMatch {
+  reply: string;
+  ruleId: string;
+  scope: "target" | "global";
+  targetId?: string;
+}
+
+/** Effective TTL for learned rules; `0` means the operator disabled expiry. */
+export function resolveLearningRuleTtlMs(config: DingTalkConfig | undefined): number {
+  return config?.learningRuleTtlMs ?? DEFAULT_LEARNING_RULE_TTL_MS;
+}
+
+/**
+ * Whether owner-written account-wide rules may affect every conversation, both as
+ * injected guidance and as an exact forced reply. Target-scoped rules are
+ * unaffected, and auto-learned account rules follow `learningAutoApply` instead.
+ */
+export function isManualGlobalRuleAllowed(config: DingTalkConfig | undefined): boolean {
+  return config?.learningAllowManualGlobalRules === true;
+}
+
+/**
+ * A rule still participates in learning only while it is enabled and inside the
+ * configured TTL window. Both the context-injection and forced-reply paths use
+ * this predicate so an expired rule cannot keep steering replies.
+ */
+function isRuleActive(rule: LearnedRuleRecord, now: number, ruleTtlMs: number): boolean {
+  if (!rule.enabled) {
+    return false;
+  }
+  return ruleTtlMs <= 0 || now - rule.updatedAt <= ruleTtlMs;
+}
+
+/**
+ * Resolve a persisted manual rule that forces an exact reply for this message.
+ *
+ * Rules stop matching once they are older than `options.ruleTtlMs`, and
+ * account-wide rules are skipped unless `options.allowGlobalRules` is set, so a
+ * single rule cannot silently steer every conversation in the account.
+ */
 export function resolveManualForcedReply(params: {
   storePath?: string;
   accountId: string;
   targetId?: string;
   content: MessageContent;
-}): string | null {
+  now?: number;
+  options?: {
+    allowGlobalRules?: boolean;
+    ruleTtlMs?: number;
+  };
+}): ManualForcedReplyMatch | null {
   if (!params.storePath) {
     return null;
   }
@@ -461,22 +528,46 @@ export function resolveManualForcedReply(params: {
   if (!text) {
     return null;
   }
+
+  const now = params.now ?? Date.now();
+  const ruleTtlMs = params.options?.ruleTtlMs ?? 0;
+  const matchesTrigger = (rule: LearnedRuleRecord): boolean => {
+    if (!rule.manual || !rule.triggerText || !rule.forcedReply) {
+      return false;
+    }
+    if (!isRuleActive(rule, now, ruleTtlMs)) {
+      return false;
+    }
+    return normalizeManualTriggerText(rule.triggerText) === text;
+  };
+
   const targetMatched = params.targetId
     ? listTargetRules({
         storePath: params.storePath,
         accountId: params.accountId,
         targetId: params.targetId,
-      })
-        .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-        .find((rule) => normalizeManualTriggerText(rule.triggerText) === text)
-    : null;
+      }).find(matchesTrigger)
+    : undefined;
   if (targetMatched?.forcedReply) {
-    return targetMatched.forcedReply;
+    return {
+      reply: targetMatched.forcedReply,
+      ruleId: targetMatched.ruleId,
+      scope: "target",
+      targetId: params.targetId,
+    };
   }
-  const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
-    .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => normalizeManualTriggerText(rule.triggerText) === text);
-  return matched?.forcedReply || null;
+
+  if (params.options?.allowGlobalRules !== true) {
+    return null;
+  }
+
+  const matched = listLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  }).find(matchesTrigger);
+  return matched?.forcedReply
+    ? { reply: matched.forcedReply, ruleId: matched.ruleId, scope: "global" }
+    : null;
 }
 
 export function applyManualSessionLearningNote(params: {

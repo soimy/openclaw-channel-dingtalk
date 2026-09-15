@@ -268,16 +268,30 @@
           },
           "learningEnabled": {
             "type": "boolean",
-            "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
+            "default": false,
+            "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; while disabled, rule writes are refused and persisted rules never fire. While enabled, learned notes and rules persist under the OpenClaw state directory and are injected into later prompts, and owner-entered rules can force an exact reply for a trigger phrase, which bypasses the model entirely."
           },
           "learningAutoApply": {
             "type": "boolean",
-            "description": "Automatically apply generated learning output into session notes or global rules when available."
+            "default": false,
+            "description": "Automatically apply generated learning output into session notes or global rules when available. Disabled by default and only effective while learningEnabled is enabled."
           },
           "learningNoteTtlMs": {
             "type": "integer",
             "minimum": 60000,
-            "description": "Retention window in milliseconds for temporary learning notes."
+            "default": 21600000,
+            "description": "Retention window in milliseconds for temporary learning notes. Defaults to 6 hours."
+          },
+          "learningRuleTtlMs": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 2592000000,
+            "description": "Learned rule TTL in milliseconds. Rules older than this stop being injected into prompts and stop matching triggers, so no rule can steer replies forever. Defaults to 30 days; set 0 to disable expiry."
+          },
+          "learningAllowManualGlobalRules": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow owner-written account-wide rules to influence every conversation, both as injected guidance and as an exact reply that bypasses the model. Disabled by default so one rule cannot silently steer every conversation; target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
           },
           "convertMarkdownTables": {
             "type": "boolean",
@@ -344,20 +358,22 @@
           "gatewayCapabilities": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Capability gates and allowlists for docs Gateway RPCs (dingtalk.docs.* / dingtalk-connector.docs.*) and proactive-send Gateway RPCs (dingtalk-connector.sendToUser/sendToGroup/send). All capabilities default to enabled; these RPCs rely on the host Gateway trust model and do not authenticate the caller.",
+            "description": "Capability gates and allowlists for docs Gateway RPCs (dingtalk.docs.* / dingtalk-connector.docs.*) and proactive-send Gateway RPCs (dingtalk-connector.sendToUser/sendToGroup/send). All capabilities default to disabled; these RPCs rely on the host Gateway trust model and do not authenticate the caller, so enabling them is an explicit opt-in.",
             "properties": {
               "tools": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Capability switches. Omitted switches default to enabled.",
+                "description": "Capability switches. Omitted switches default to disabled.",
                 "properties": {
                   "docs": {
                     "type": "boolean",
-                    "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Defaults to true when omitted."
+                    "default": false,
+                    "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds to bound the document spaces callers can reach."
                   },
                   "proactiveSend": {
                     "type": "boolean",
-                    "description": "Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs. Defaults to true when omitted."
+                    "default": false,
+                    "description": "Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.send.allowedTargets to bound the targets callers can message."
                   }
                 }
               },
@@ -638,16 +654,30 @@
                 },
                 "learningEnabled": {
                   "type": "boolean",
-                  "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning."
+                  "default": false,
+                  "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; while disabled, rule writes are refused and persisted rules never fire. While enabled, learned notes and rules persist under the OpenClaw state directory and are injected into later prompts, and owner-entered rules can force an exact reply for a trigger phrase, which bypasses the model entirely."
                 },
                 "learningAutoApply": {
                   "type": "boolean",
-                  "description": "Automatically apply generated learning output into session notes or global rules when available."
+                  "default": false,
+                  "description": "Automatically apply generated learning output into session notes or global rules when available. Disabled by default and only effective while learningEnabled is enabled."
                 },
                 "learningNoteTtlMs": {
                   "type": "integer",
                   "minimum": 60000,
-                  "description": "Retention window in milliseconds for temporary learning notes."
+                  "default": 21600000,
+                  "description": "Retention window in milliseconds for temporary learning notes. Defaults to 6 hours."
+                },
+                "learningRuleTtlMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 2592000000,
+                  "description": "Learned rule TTL in milliseconds. Rules older than this stop being injected into prompts and stop matching triggers, so no rule can steer replies forever. Defaults to 30 days; set 0 to disable expiry."
+                },
+                "learningAllowManualGlobalRules": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Allow owner-written account-wide rules to influence every conversation, both as injected guidance and as an exact reply that bypasses the model. Disabled by default so one rule cannot silently steer every conversation; target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
                 },
                 "convertMarkdownTables": {
                   "type": "boolean",
@@ -711,15 +741,17 @@
                     "tools": {
                       "type": "object",
                       "additionalProperties": false,
-                      "description": "Capability switches. Omitted switches default to enabled.",
+                      "description": "Capability switches. Omitted switches default to disabled.",
                       "properties": {
                         "docs": {
                           "type": "boolean",
-                          "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Defaults to true when omitted."
+                          "default": false,
+                          "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds to bound the document spaces callers can reach."
                         },
                         "proactiveSend": {
                           "type": "boolean",
-                          "description": "Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs. Defaults to true when omitted."
+                          "default": false,
+                          "description": "Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.send.allowedTargets to bound the targets callers can message."
                         }
                       }
                     },
@@ -920,15 +952,23 @@
         },
         "learningEnabled": {
           "label": "Learning Enabled",
-          "help": "Enable the local feedback-learning loop for notes, reflections, and learning commands."
+          "help": "Enable the local feedback-learning loop for notes, reflections, and learning commands. Disabled by default; owner-entered rules can force exact replies that bypass the model."
         },
         "learningAutoApply": {
           "label": "Learning Auto Apply",
-          "help": "Automatically apply generated learning output into session notes or global rules when available."
+          "help": "Automatically apply generated learning output into session notes or global rules when available. Disabled by default."
         },
         "learningNoteTtlMs": {
           "label": "Learning Note TTL (ms)",
-          "help": "Retention period for temporary learning notes."
+          "help": "Retention period for temporary learning notes. Defaults to 6 hours."
+        },
+        "learningRuleTtlMs": {
+          "label": "Learning Rule TTL (ms)",
+          "help": "Learned rules stop being injected and stop matching once they are older than this. Defaults to 30 days; set 0 to disable expiry."
+        },
+        "learningAllowManualGlobalRules": {
+          "label": "Allow Manual Global Rules",
+          "help": "Let owner-written account-wide rules be injected into every conversation and force exact replies. Off by default so one rule cannot steer every conversation."
         },
         "convertMarkdownTables": {
           "label": "Convert Markdown Tables",
@@ -980,11 +1020,11 @@
         },
         "gatewayCapabilities.tools.docs": {
           "label": "Docs RPC Enabled",
-          "help": "Allow dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Defaults to enabled."
+          "help": "Allow dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; enable it and restrict it to specific doc spaces."
         },
         "gatewayCapabilities.tools.proactiveSend": {
           "label": "Proactive Send RPC Enabled",
-          "help": "Allow dingtalk-connector.sendToUser/sendToGroup/send Gateway RPCs. Defaults to enabled."
+          "help": "Allow dingtalk-connector.sendToUser/sendToGroup/send Gateway RPCs. Disabled by default; enable it and restrict it to specific targets."
         },
         "gatewayCapabilities.docs.allowedSpaceIds": {
           "label": "Allowed Doc Space IDs",

@@ -15,7 +15,7 @@ const ContextVisibilitySchema = z.enum(["all", "allowlist", "allowlist_quote"]);
 /**
  * Gateway RPC capability gates (Issue #608, 问题 3).
  * Shape aligned with the official connector's `tools: { docs, media }` gate;
- * all capabilities default to enabled for backward compatibility.
+ * all capabilities default to disabled and must be opted into explicitly.
  * Allowlists must list at least one entry when present: an empty list would be
  * ambiguous, so it is rejected at config-validation time instead of silently
  * disabling the restriction.
@@ -29,9 +29,9 @@ const DingTalkGatewayCapabilitiesSchema = z
   .object({
     tools: z
       .object({
-        /** Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs (default: true) */
+        /** Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs (default: false) */
         docs: z.boolean().optional(),
-        /** Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs (default: true) */
+        /** Enable dingtalk-connector.sendToUser/sendToGroup/send proactive-send RPCs (default: false) */
         proactiveSend: z.boolean().optional(),
       })
       .strict()
@@ -216,6 +216,12 @@ const DingTalkAccountConfigShape = {
 
   /** Retention window in milliseconds for temporary learning notes. */
   learningNoteTtlMs: z.number().int().min(60_000).optional(),
+
+  /** Learned rule TTL in milliseconds; older rules stop being injected and stop matching (0 disables expiry). */
+  learningRuleTtlMs: z.number().int().min(0).optional(),
+
+  /** Allow owner-written account-wide rules to influence every conversation, as guidance and as an exact forced reply. */
+  learningAllowManualGlobalRules: z.boolean().optional(),
 
   /** Convert markdown tables to plain text before sending when you want more consistent DingTalk rendering. */
   convertMarkdownTables: z.boolean().optional().default(true),

@@ -429,7 +429,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open" } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_global_apply",
           msgtype: "text",
@@ -460,7 +460,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open" } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_global_disable",
           msgtype: "text",
@@ -488,7 +488,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open", groupPolicy: "open" } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", groupPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_targets_apply",
           msgtype: "text",
@@ -520,7 +520,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open" } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_targetset_create",
           msgtype: "text",
@@ -547,7 +547,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open" } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_targetset_apply",
           msgtype: "text",
