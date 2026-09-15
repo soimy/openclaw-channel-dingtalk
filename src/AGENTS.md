@@ -81,20 +81,20 @@ src/
 
 ## WHERE TO LOOK
 
-| Task                            | Location                             | Notes                                                                     |
-| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
-| Inbound processing main entry   | `gateway/inbound-handler.ts`         | `handleDingTalkMessage`                                                   |
-| Inbound media download          | `gateway/inbound-handler.ts`         | `downloadMedia`                                                           |
-| Session/proactive message send  | `messaging/send-service.ts`          | `sendBySession`, `sendProactive*`                                         |
-| Message mode auto-selection     | `messaging/send-service.ts`          | `sendMessage` card/markdown fallback                                      |
-| Reply strategy selection        | `messaging/reply-strategy.ts`        | `createReplyStrategy`                                                     |
-| AI Card create/stream/finalize  | `card/card-service.ts`               | card lifecycle + cache                                                    |
-| Unified message persistence     | `messaging/message-context-store.ts` | `upsert*`, `resolveByMsgId`, `resolveByAlias`, `resolveByCreatedAtWindow` |
-| Token cache                     | `platform/auth.ts`                   | `getAccessToken`                                                          |
-| Allowlist checks                | `platform/access-control.ts`         | normalized allowFrom matching                                             |
-| Inbound payload parsing         | `messaging/message-utils.ts`         | `extractMessageContent`                                                   |
-| Target/config/workspace helpers | `platform/config.ts`                 | `getConfig`, `resolveRelativePath`, `stripTargetPrefix`                   |
-| Plugin wiring                   | `channel.ts`                         | exports `dingtalkPlugin`                                                  |
+| Task | Location | Notes |
+| --- | --- | --- |
+| Inbound processing main entry | `gateway/inbound-handler.ts` | `handleDingTalkMessage` |
+| Inbound media download | `gateway/inbound-handler.ts` | `downloadMedia` |
+| Session/proactive message send | `messaging/send-service.ts` | `sendBySession`, `sendProactive*` |
+| Message mode auto-selection | `messaging/send-service.ts` | `sendMessage` card/markdown fallback |
+| Reply strategy selection | `messaging/reply-strategy.ts` | `createReplyStrategy` |
+| AI Card create/stream/finalize | `card/card-service.ts` | card lifecycle + cache |
+| Unified message persistence | `messaging/message-context-store.ts` | `upsert*`, `resolveByMsgId`, `resolveByAlias`, `resolveByCreatedAtWindow` |
+| Token cache | `platform/auth.ts` | `getAccessToken` |
+| Allowlist checks | `platform/access-control.ts` | normalized allowFrom matching |
+| Inbound payload parsing | `messaging/message-utils.ts` | `extractMessageContent` |
+| Target/config/workspace helpers | `platform/config.ts` | `getConfig`, `resolveRelativePath`, `stripTargetPrefix` |
+| Plugin wiring | `channel.ts` | exports `dingtalkPlugin` |
 
 ## CONVENTIONS
 
