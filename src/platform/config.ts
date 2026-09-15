@@ -33,9 +33,9 @@ function normalizeLearningConfig(
     learningRuleTtlMs: options.applyDefaults
       ? (config.learningRuleTtlMs ?? DEFAULT_LEARNING_RULE_TTL_MS)
       : config.learningRuleTtlMs,
-    learningAllowGlobalForcedReply: options.applyDefaults
-      ? (config.learningAllowGlobalForcedReply ?? false)
-      : config.learningAllowGlobalForcedReply,
+    learningAllowManualGlobalRules: options.applyDefaults
+      ? (config.learningAllowManualGlobalRules ?? false)
+      : config.learningAllowManualGlobalRules,
     cardStreamingMode: options.applyDefaults
       ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? "all" : "off"))
       : config.cardStreamingMode,

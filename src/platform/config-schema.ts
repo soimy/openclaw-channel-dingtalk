@@ -217,11 +217,11 @@ const DingTalkAccountConfigShape = {
   /** Retention window in milliseconds for temporary learning notes. */
   learningNoteTtlMs: z.number().int().min(60_000).optional(),
 
-  /** Manual learning rule TTL in milliseconds; older rules stop matching (0 disables expiry). */
+  /** Learned rule TTL in milliseconds; older rules stop being injected and stop matching (0 disables expiry). */
   learningRuleTtlMs: z.number().int().min(0).optional(),
 
-  /** Allow account-wide manual rules to force an exact reply, bypassing the model. */
-  learningAllowGlobalForcedReply: z.boolean().optional(),
+  /** Allow owner-written account-wide rules to influence every conversation, as guidance and as an exact forced reply. */
+  learningAllowManualGlobalRules: z.boolean().optional(),
 
   /** Convert markdown tables to plain text before sending when you want more consistent DingTalk rendering. */
   convertMarkdownTables: z.boolean().optional().default(true),

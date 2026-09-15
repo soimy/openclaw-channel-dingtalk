@@ -370,16 +370,33 @@ function ruleMatchesContent(rule: LearnedRuleRecord, content: MessageContent): b
   }
 }
 
+/**
+ * Build the "high priority learning constraints" block injected into the prompt.
+ *
+ * Account-wide rules are filtered with the same rules as the forced-reply path:
+ * a disabled or expired rule is skipped, and owner-written account-wide rules
+ * additionally require `options.allowManualGlobalRules`. Session notes carry
+ * their own TTL through `listActiveSessionLearningNotes`.
+ */
 export function buildLearningContextBlock(params: {
   enabled: boolean;
   storePath?: string;
   accountId: string;
   targetId: string;
   content: MessageContent;
+  options?: {
+    allowManualGlobalRules?: boolean;
+    ruleTtlMs?: number;
+    now?: number;
+  };
 }): string {
   if (!params.enabled || !params.storePath) {
     return "";
   }
+  const now = params.options?.now ?? Date.now();
+  const ruleTtlMs = params.options?.ruleTtlMs ?? 0;
+  const allowManualGlobalRules = params.options?.allowManualGlobalRules === true;
+
   const notes = listActiveSessionLearningNotes({
     storePath: params.storePath,
     accountId: params.accountId,
@@ -389,14 +406,17 @@ export function buildLearningContextBlock(params: {
     storePath: params.storePath,
     accountId: params.accountId,
   })
-    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .filter((rule) => isRuleActive(rule, now, ruleTtlMs))
+    .filter((rule) => !rule.manual || allowManualGlobalRules)
+    .filter((rule) => ruleMatchesContent(rule, params.content))
     .slice(0, 3);
   const targetRules = listTargetRules({
     storePath: params.storePath,
     accountId: params.accountId,
     targetId: params.targetId,
   })
-    .filter((rule) => rule.enabled && ruleMatchesContent(rule, params.content))
+    .filter((rule) => isRuleActive(rule, now, ruleTtlMs))
+    .filter((rule) => ruleMatchesContent(rule, params.content))
     .slice(0, 3);
 
   const instructions = [
@@ -457,14 +477,30 @@ export interface ManualForcedReplyMatch {
   targetId?: string;
 }
 
-/** Effective TTL for manual learning rules; `0` means the operator disabled expiry. */
+/** Effective TTL for learned rules; `0` means the operator disabled expiry. */
 export function resolveLearningRuleTtlMs(config: DingTalkConfig | undefined): number {
   return config?.learningRuleTtlMs ?? DEFAULT_LEARNING_RULE_TTL_MS;
 }
 
-/** Whether account-wide rules may force an exact reply (target-scoped rules are unaffected). */
-export function isGlobalForcedReplyAllowed(config: DingTalkConfig | undefined): boolean {
-  return config?.learningAllowGlobalForcedReply === true;
+/**
+ * Whether owner-written account-wide rules may affect every conversation, both as
+ * injected guidance and as an exact forced reply. Target-scoped rules are
+ * unaffected, and auto-learned account rules follow `learningAutoApply` instead.
+ */
+export function isManualGlobalRuleAllowed(config: DingTalkConfig | undefined): boolean {
+  return config?.learningAllowManualGlobalRules === true;
+}
+
+/**
+ * A rule still participates in learning only while it is enabled and inside the
+ * configured TTL window. Both the context-injection and forced-reply paths use
+ * this predicate so an expired rule cannot keep steering replies.
+ */
+function isRuleActive(rule: LearnedRuleRecord, now: number, ruleTtlMs: number): boolean {
+  if (!rule.enabled) {
+    return false;
+  }
+  return ruleTtlMs <= 0 || now - rule.updatedAt <= ruleTtlMs;
 }
 
 /**
@@ -496,10 +532,10 @@ export function resolveManualForcedReply(params: {
   const now = params.now ?? Date.now();
   const ruleTtlMs = params.options?.ruleTtlMs ?? 0;
   const matchesTrigger = (rule: LearnedRuleRecord): boolean => {
-    if (!rule.enabled || !rule.manual || !rule.triggerText || !rule.forcedReply) {
+    if (!rule.manual || !rule.triggerText || !rule.forcedReply) {
       return false;
     }
-    if (ruleTtlMs > 0 && now - rule.updatedAt > ruleTtlMs) {
+    if (!isRuleActive(rule, now, ruleTtlMs)) {
       return false;
     }
     return normalizeManualTriggerText(rule.triggerText) === text;

@@ -15,7 +15,7 @@ import {
   deleteManualRule,
   disableManualRule,
   listLearningTargetSets,
-  isGlobalForcedReplyAllowed,
+  isManualGlobalRuleAllowed,
   isLearningEnabled,
   listScopedLearningRules,
   resolveLearningRuleTtlMs,
@@ -490,7 +490,7 @@ export async function handleInboundCommandDispatch(
         targetId: params.data.conversationId,
         content: forcedContent,
         options: {
-          allowGlobalRules: isGlobalForcedReplyAllowed(params.dingtalkConfig),
+          allowGlobalRules: isManualGlobalRuleAllowed(params.dingtalkConfig),
           ruleTtlMs: resolveLearningRuleTtlMs(params.dingtalkConfig),
         },
       })

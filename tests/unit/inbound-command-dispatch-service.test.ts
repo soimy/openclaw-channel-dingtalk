@@ -255,7 +255,7 @@ describe("inbound-command-dispatch-service", () => {
       dingtalkConfig: {
         allowFrom: ["owner-test-id"],
         learningEnabled: true,
-        learningAllowGlobalForcedReply: true,
+        learningAllowManualGlobalRules: true,
       } as any,
       extractedText: "暗号是多少",
     });
