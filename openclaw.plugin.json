@@ -269,7 +269,7 @@
           "learningEnabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; learned notes and rules persist under the OpenClaw state directory and are injected into later prompts while enabled. Owner-entered rules can also force an exact reply for a trigger phrase, which bypasses the model entirely."
+            "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; while disabled, rule writes are refused and persisted rules never fire. While enabled, learned notes and rules persist under the OpenClaw state directory and are injected into later prompts, and owner-entered rules can force an exact reply for a trigger phrase, which bypasses the model entirely."
           },
           "learningAutoApply": {
             "type": "boolean",
@@ -644,7 +644,7 @@
                 "learningEnabled": {
                   "type": "boolean",
                   "default": false,
-                  "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; learned notes and rules persist under the OpenClaw state directory and are injected into later prompts while enabled. Owner-entered rules can also force an exact reply for a trigger phrase, which bypasses the model entirely."
+                  "description": "Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. Disabled by default; while disabled, rule writes are refused and persisted rules never fire. While enabled, learned notes and rules persist under the OpenClaw state directory and are injected into later prompts, and owner-entered rules can force an exact reply for a trigger phrase, which bypasses the model entirely."
                 },
                 "learningAutoApply": {
                   "type": "boolean",

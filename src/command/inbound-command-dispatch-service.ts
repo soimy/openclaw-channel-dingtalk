@@ -14,6 +14,7 @@ import {
   deleteManualRule,
   disableManualRule,
   listLearningTargetSets,
+  isLearningEnabled,
   listScopedLearningRules,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
@@ -23,6 +24,7 @@ import {
   formatLearnDeletedReply,
   formatLearnDisabledReply,
   formatLearnListReply,
+  formatLearningDisabledReply,
   formatOwnerOnlyDeniedReply,
   formatOwnerStatusReply,
   formatTargetSetSavedReply,
@@ -89,6 +91,10 @@ export async function handleInboundCommandDispatch(
     senderId: params.senderId,
     rawSenderId: params.data.senderId,
   });
+  // `learningEnabled` is the documented master switch for the whole learning
+  // loop, so it also gates rule writes and forced-reply execution below, not
+  // just prompt injection.
+  const learningEnabled = isLearningEnabled(params.dingtalkConfig);
 
   if (params.isDirect && parsedLearnCommand.scope === "whoami") {
     await params.sendReply(
@@ -148,6 +154,23 @@ export async function handleInboundCommandDispatch(
     !isOwner
   ) {
     await params.sendReply(formatOwnerOnlyDeniedReply());
+    return true;
+  }
+
+  // Writing or changing rules is refused while the master switch is off. Read-only
+  // and cleanup commands (list / disable / delete) stay available so an operator
+  // can still inspect and remove persisted rules without enabling the loop.
+  if (
+    !learningEnabled &&
+    (parsedLearnCommand.scope === "global" ||
+      parsedLearnCommand.scope === "session" ||
+      parsedLearnCommand.scope === "here" ||
+      parsedLearnCommand.scope === "target" ||
+      parsedLearnCommand.scope === "targets" ||
+      parsedLearnCommand.scope === "target-set-create" ||
+      parsedLearnCommand.scope === "target-set-apply")
+  ) {
+    await params.sendReply(formatLearningDisabledReply());
     return true;
   }
 
@@ -455,12 +478,14 @@ export async function handleInboundCommandDispatch(
     text: params.extractedText,
     messageType: params.messageType,
   };
-  const manualForcedReply = resolveManualForcedReply({
-    storePath: params.accountStorePath,
-    accountId: params.accountId,
-    targetId: params.data.conversationId,
-    content: forcedContent,
-  });
+  const manualForcedReply = learningEnabled
+    ? resolveManualForcedReply({
+        storePath: params.accountStorePath,
+        accountId: params.accountId,
+        targetId: params.data.conversationId,
+        content: forcedContent,
+      })
+    : null;
   if (manualForcedReply) {
     await params.sendReply(manualForcedReply);
     return true;

@@ -12,7 +12,7 @@
 | `gatewayCapabilities.tools.proactiveSend` | 关闭 | 开启后主动发送 RPC 可向任意 `user:*` / `group:*` 发消息 | 需要时设 `true`，并配置 `gatewayCapabilities.send.allowedTargets` |
 | `dmPolicy` | `open` | 任意用户可私聊机器人 | 改 `pairing` / `allowlist` |
 | `groupPolicy` | `open` | 任意群可 @机器人 | 改 `allowlist`，或用 `groups` 按群收窄 |
-| `learningEnabled` | 关闭 | 学习内容持久化并注入后续 prompt；owner 写入的规则还能**强制精确回复（绕过模型）** | 保持关闭，或仅在受控会话中开启 |
+| `learningEnabled` | 关闭 | 学习内容持久化并注入后续 prompt；owner 写入的规则还能**强制精确回复（绕过模型）**。关闭时上述行为全部停止（含已存规则） | 保持关闭，或仅在受控会话中开启 |
 | `learningAutoApply` | 关闭 | 自动把生成内容写入 note / 全局 rule | 保持关闭 |
 | `mediaUrlAllowlist` | 未配置 | 远程媒体下载范围（默认已拒绝内网与本地地址） | 需要时才显式配置 |
 

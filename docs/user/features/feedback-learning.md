@@ -49,10 +49,19 @@
 
 需要知道的边界：
 
-- 这类规则由 owner / 管理员通过命令写入，`learningEnabled` 关闭时整个学习回路（包括本规则）都不会生效
+- 这类规则**只能由 owner 写入**。"owner" 指在宿主配置 `commands.ownerAllowFrom` 中列出的 senderId；普通 `allowFrom` 管理员不在此列，发命令会被 owner-only 拒绝（先用 `/learn whoami` 查 senderId，再由宿主加入该列表）
+- `learningEnabled` 是学习回路的总开关：关闭时既不能写入/修改规则，已存的规则也不会命中（只读与清理命令仍可用，见下节）
 - 规则是持久化的，会一直影响后续回复，直到被删除或禁用
 - 固定回复是逐字返回的，因此不要把凭证、内部地址等内容写进规则
 - 作用域优先级与其它学习内容一致（target 规则优先于 account 级规则），见下方"作用域优先级"
+
+## 开关语义
+
+`learningEnabled` 是整个学习回路（含精确回复）的总开关：
+
+- 关闭时：规则写入/修改命令（`/learn global|session|here|target|targets|target-set ...`）会被拒绝并提示开启方式；**已存的规则也不会命中**，消息回落到正常的 agent 流程
+- 关闭时仍可用：`/learn whoami`、`/learn whereami`、`/learn owner status`、`/learn help`、`/learn list`，以及清理类命令 `/learn disable <ruleId>`、`/learn delete <ruleId>`（清理只会减少状态，不会增加暴露面）
+- 开启时：命令可写入规则，命中的精确回复会直接返回固定文本
 
 ## 常用命令
 
