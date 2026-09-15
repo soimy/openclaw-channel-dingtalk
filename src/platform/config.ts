@@ -11,6 +11,8 @@ import type {
 } from "./types";
 export { resolveRelativePath, resolveUserPath } from "../shared/path-utils";
 const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
+/** Manual learning rules expire after 30 days unless the operator raises or clears the window. */
+export const DEFAULT_LEARNING_RULE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export type RuntimeDingTalkConfig = Omit<DingTalkConfig, "clientSecret"> & { clientSecret: string };
 
 function normalizeLearningConfig(
@@ -28,6 +30,12 @@ function normalizeLearningConfig(
     learningNoteTtlMs: options.applyDefaults
       ? (config.learningNoteTtlMs ?? DEFAULT_LEARNING_NOTE_TTL_MS)
       : config.learningNoteTtlMs,
+    learningRuleTtlMs: options.applyDefaults
+      ? (config.learningRuleTtlMs ?? DEFAULT_LEARNING_RULE_TTL_MS)
+      : config.learningRuleTtlMs,
+    learningAllowGlobalForcedReply: options.applyDefaults
+      ? (config.learningAllowGlobalForcedReply ?? false)
+      : config.learningAllowGlobalForcedReply,
     cardStreamingMode: options.applyDefaults
       ? (config.cardStreamingMode ?? (config.cardRealTimeStream === true ? "all" : "off"))
       : config.cardStreamingMode,

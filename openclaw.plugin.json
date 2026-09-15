@@ -282,6 +282,17 @@
             "default": 21600000,
             "description": "Retention window in milliseconds for temporary learning notes. Defaults to 6 hours."
           },
+          "learningRuleTtlMs": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 2592000000,
+            "description": "Manual learning rule TTL in milliseconds. Rules older than this stop matching, so no rule can steer replies forever. Defaults to 30 days; set 0 to disable expiry."
+          },
+          "learningAllowGlobalForcedReply": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow account-wide manual rules to force an exact reply, which bypasses the model. Disabled by default so a single rule cannot silently steer every conversation; target-scoped rules are unaffected."
+          },
           "convertMarkdownTables": {
             "type": "boolean",
             "default": true,
@@ -657,6 +668,17 @@
                   "default": 21600000,
                   "description": "Retention window in milliseconds for temporary learning notes. Defaults to 6 hours."
                 },
+                "learningRuleTtlMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 2592000000,
+                  "description": "Manual learning rule TTL in milliseconds. Rules older than this stop matching, so no rule can steer replies forever. Defaults to 30 days; set 0 to disable expiry."
+                },
+                "learningAllowGlobalForcedReply": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Allow account-wide manual rules to force an exact reply, which bypasses the model. Disabled by default so a single rule cannot silently steer every conversation; target-scoped rules are unaffected."
+                },
                 "convertMarkdownTables": {
                   "type": "boolean",
                   "default": true,
@@ -939,6 +961,14 @@
         "learningNoteTtlMs": {
           "label": "Learning Note TTL (ms)",
           "help": "Retention period for temporary learning notes. Defaults to 6 hours."
+        },
+        "learningRuleTtlMs": {
+          "label": "Learning Rule TTL (ms)",
+          "help": "Manual learning rules stop matching once they are older than this. Defaults to 30 days; set 0 to disable expiry."
+        },
+        "learningAllowGlobalForcedReply": {
+          "label": "Allow Global Forced Replies",
+          "help": "Let account-wide manual rules force an exact reply that bypasses the model. Off by default so one rule cannot steer every conversation."
         },
         "convertMarkdownTables": {
           "label": "Convert Markdown Tables",

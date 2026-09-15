@@ -130,6 +130,10 @@ export interface DingTalkConfig extends OpenClawConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
+  /** Manual learning rule TTL in milliseconds; older rules stop matching (default 30d, 0 disables expiry) */
+  learningRuleTtlMs?: number;
+  /** Allow account-wide manual rules to force an exact reply (default false; target-scoped rules are unaffected) */
+  learningAllowGlobalForcedReply?: boolean;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */
@@ -225,6 +229,10 @@ export interface DingTalkChannelConfig {
   learningAutoApply?: boolean;
   /** Session learning note TTL in milliseconds (default 6h) */
   learningNoteTtlMs?: number;
+  /** Manual learning rule TTL in milliseconds; older rules stop matching (default 30d, 0 disables expiry) */
+  learningRuleTtlMs?: number;
+  /** Allow account-wide manual rules to force an exact reply (default false; target-scoped rules are unaffected) */
+  learningAllowGlobalForcedReply?: boolean;
   /** Whether to convert markdown tables to plain text for better rendering on some clients (default: true) */
   convertMarkdownTables?: boolean;
   /** @mention the sender after card finalization in group chats; value is the message text */

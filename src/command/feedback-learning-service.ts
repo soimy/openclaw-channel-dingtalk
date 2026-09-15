@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_LEARNING_RULE_TTL_MS } from "../platform/config";
 import type { DingTalkConfig, MessageContent } from "../platform/types";
 import {
   appendFeedbackEvent,
@@ -448,12 +449,42 @@ export function applyManualGlobalLearningRule(params: {
   return { ruleId };
 }
 
+/** A persisted manual rule that forces an exact reply, with the metadata needed to audit it. */
+export interface ManualForcedReplyMatch {
+  reply: string;
+  ruleId: string;
+  scope: "target" | "global";
+  targetId?: string;
+}
+
+/** Effective TTL for manual learning rules; `0` means the operator disabled expiry. */
+export function resolveLearningRuleTtlMs(config: DingTalkConfig | undefined): number {
+  return config?.learningRuleTtlMs ?? DEFAULT_LEARNING_RULE_TTL_MS;
+}
+
+/** Whether account-wide rules may force an exact reply (target-scoped rules are unaffected). */
+export function isGlobalForcedReplyAllowed(config: DingTalkConfig | undefined): boolean {
+  return config?.learningAllowGlobalForcedReply === true;
+}
+
+/**
+ * Resolve a persisted manual rule that forces an exact reply for this message.
+ *
+ * Rules stop matching once they are older than `options.ruleTtlMs`, and
+ * account-wide rules are skipped unless `options.allowGlobalRules` is set, so a
+ * single rule cannot silently steer every conversation in the account.
+ */
 export function resolveManualForcedReply(params: {
   storePath?: string;
   accountId: string;
   targetId?: string;
   content: MessageContent;
-}): string | null {
+  now?: number;
+  options?: {
+    allowGlobalRules?: boolean;
+    ruleTtlMs?: number;
+  };
+}): ManualForcedReplyMatch | null {
   if (!params.storePath) {
     return null;
   }
@@ -461,22 +492,46 @@ export function resolveManualForcedReply(params: {
   if (!text) {
     return null;
   }
+
+  const now = params.now ?? Date.now();
+  const ruleTtlMs = params.options?.ruleTtlMs ?? 0;
+  const matchesTrigger = (rule: LearnedRuleRecord): boolean => {
+    if (!rule.enabled || !rule.manual || !rule.triggerText || !rule.forcedReply) {
+      return false;
+    }
+    if (ruleTtlMs > 0 && now - rule.updatedAt > ruleTtlMs) {
+      return false;
+    }
+    return normalizeManualTriggerText(rule.triggerText) === text;
+  };
+
   const targetMatched = params.targetId
     ? listTargetRules({
         storePath: params.storePath,
         accountId: params.accountId,
         targetId: params.targetId,
-      })
-        .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-        .find((rule) => normalizeManualTriggerText(rule.triggerText) === text)
-    : null;
+      }).find(matchesTrigger)
+    : undefined;
   if (targetMatched?.forcedReply) {
-    return targetMatched.forcedReply;
+    return {
+      reply: targetMatched.forcedReply,
+      ruleId: targetMatched.ruleId,
+      scope: "target",
+      targetId: params.targetId,
+    };
   }
-  const matched = listLearnedRules({ storePath: params.storePath, accountId: params.accountId })
-    .filter((rule) => rule.enabled && rule.manual && rule.triggerText && rule.forcedReply)
-    .find((rule) => normalizeManualTriggerText(rule.triggerText) === text);
-  return matched?.forcedReply || null;
+
+  if (params.options?.allowGlobalRules !== true) {
+    return null;
+  }
+
+  const matched = listLearnedRules({
+    storePath: params.storePath,
+    accountId: params.accountId,
+  }).find(matchesTrigger);
+  return matched?.forcedReply
+    ? { reply: matched.forcedReply, ruleId: matched.ruleId, scope: "global" }
+    : null;
 }
 
 export function applyManualSessionLearningNote(params: {

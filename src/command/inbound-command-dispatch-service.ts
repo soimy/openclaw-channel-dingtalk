@@ -1,6 +1,7 @@
 import type {
   DingTalkConfig,
   HandleDingTalkMessageParams,
+  Logger,
   MessageContent,
 } from "../platform/types";
 import type { SessionPeerSourceKind } from "../targeting/session-peer-store";
@@ -14,8 +15,10 @@ import {
   deleteManualRule,
   disableManualRule,
   listLearningTargetSets,
+  isGlobalForcedReplyAllowed,
   isLearningEnabled,
   listScopedLearningRules,
+  resolveLearningRuleTtlMs,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
 import {
@@ -58,6 +61,8 @@ type InboundCommandDispatchParams = {
     senderStaffId?: string;
   };
   accountStorePath: string;
+  /** Channel log sink; used to make forced-reply overrides auditable. */
+  log?: Logger;
   currentSessionSourceKind: SessionPeerSourceKind;
   currentSessionSourceId: string;
   peerIdOverride?: string;
@@ -484,10 +489,19 @@ export async function handleInboundCommandDispatch(
         accountId: params.accountId,
         targetId: params.data.conversationId,
         content: forcedContent,
+        options: {
+          allowGlobalRules: isGlobalForcedReplyAllowed(params.dingtalkConfig),
+          ruleTtlMs: resolveLearningRuleTtlMs(params.dingtalkConfig),
+        },
       })
     : null;
   if (manualForcedReply) {
-    await params.sendReply(manualForcedReply);
+    // A forced reply bypasses the model entirely, so it is logged with the rule
+    // that produced it instead of being applied silently.
+    params.log?.info?.(
+      `[DingTalk][Learning][ForcedReply] ruleId=${manualForcedReply.ruleId} scope=${manualForcedReply.scope} target=${manualForcedReply.targetId ?? "-"}`,
+    );
+    await params.sendReply(manualForcedReply.reply);
     return true;
   }
 

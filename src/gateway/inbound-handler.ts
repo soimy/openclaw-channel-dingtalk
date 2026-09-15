@@ -1006,6 +1006,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       senderStaffId: data.senderStaffId,
     },
     accountStorePath,
+    log,
     currentSessionSourceKind,
     currentSessionSourceId,
     peerIdOverride,

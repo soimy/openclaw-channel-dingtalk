@@ -14,6 +14,8 @@
 | `groupPolicy` | `open` | 任意群可 @机器人 | 改 `allowlist`，或用 `groups` 按群收窄 |
 | `learningEnabled` | 关闭 | 学习内容持久化并注入后续 prompt；owner 写入的规则还能**强制精确回复（绕过模型）**。关闭时上述行为全部停止（含已存规则） | 保持关闭，或仅在受控会话中开启 |
 | `learningAutoApply` | 关闭 | 自动把生成内容写入 note / 全局 rule | 保持关闭 |
+| `learningRuleTtlMs` | 30 天 | 手动规则超过该窗口后不再命中 | 保持默认或调小；`0` 表示永不过期（不建议） |
+| `learningAllowGlobalForcedReply` | 关闭 | 允许 account 级规则强制精确回复（绕过模型） | 保持关闭，仅在确需全局固定回复时开启 |
 | `mediaUrlAllowlist` | 未配置 | 远程媒体下载范围（默认已拒绝内网与本地地址） | 需要时才显式配置 |
 
 插件的 manifest（`openclaw.plugin.json`）为上述字段声明了 `default`，因此即使不阅读源码，也能从元数据读出默认状态。

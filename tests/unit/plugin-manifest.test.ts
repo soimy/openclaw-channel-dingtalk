@@ -266,11 +266,17 @@ describe("plugin manifest declared defaults", () => {
         expect(resolved.learningEnabled).toBe(false);
         expect(resolved.learningAutoApply).toBe(false);
         expect(resolved.learningNoteTtlMs).toBe(6 * 60 * 60 * 1000);
+        expect(resolved.learningRuleTtlMs).toBe(30 * 24 * 60 * 60 * 1000);
+        expect(resolved.learningAllowGlobalForcedReply).toBe(false);
 
         for (const properties of [topLevel, accountLevel]) {
             expect(properties?.learningEnabled?.default).toBe(resolved.learningEnabled);
             expect(properties?.learningAutoApply?.default).toBe(resolved.learningAutoApply);
             expect(properties?.learningNoteTtlMs?.default).toBe(resolved.learningNoteTtlMs);
+            expect(properties?.learningRuleTtlMs?.default).toBe(resolved.learningRuleTtlMs);
+            expect(properties?.learningAllowGlobalForcedReply?.default).toBe(
+                resolved.learningAllowGlobalForcedReply,
+            );
         }
     });
 
