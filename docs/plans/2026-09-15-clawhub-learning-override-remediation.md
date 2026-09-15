@@ -49,7 +49,7 @@ ClawScan 说"advertised disabled learning setting"与实现不符。核对代码
 ### P0 — 让 `learningEnabled` 成为真正的总开关（✅ 已在 PR #617 实现）
 
 - **执行面**：在 `resolveManualForcedReply` 的调用点（`inbound-command-dispatch-service.ts` 调度函数内）加 `isLearningEnabled(dingtalkConfig)` 门槛；关闭时直接不命中，回落到正常 agent 流程。
-- **命令面**：对写类学习命令（`/learn global|session|here|target|targets|target-set *`、`disable`、`delete`）加同一门槛，关闭时回复明确指引（提示设置 `channels.dingtalk.learningEnabled = true`）；只读诊断命令（`whoami` / `whereami` / `help` / `owner-status`）保持可用。
+- **命令面**：对写入/修改类学习命令（`/learn global`、`session`、`here`、`target`、`targets`、`target-set-create`、`target-set-apply`）加同一门槛，关闭时回复明确指引（提示设置 `channels.dingtalk.learningEnabled = true`）。只读诊断（`whoami` / `whereami` / `help` / `owner-status` / `list`）与**清理类**命令（`disable` / `delete`）保持可用：清理只减少状态，若一并禁止，运维在开关关闭时反而无法移除历史规则。
 - **影响**：关闭状态下已存规则不再生效。这是**行为变更**，但与该字段已声明的语义一致，按 bug fix 处理；需要在 release notes 明确写出，并说明"此前关闭开关并不能阻止规则命中"。
 - **测试**：
   - 新增：`learningEnabled=false` 时 `/learn` 写命令被拒、已存规则不命中（防回归到当前行为）；
