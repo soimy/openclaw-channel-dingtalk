@@ -138,6 +138,9 @@ describe("feedback-learning-service", () => {
         expect(block).toContain("高优先级学习约束");
         expect(block).toContain("以这些规则为准");
         expect(block).toContain("禁止臆测内容");
+        // The block must not ask the model to conceal that rules exist.
+        expect(block).not.toContain("不要泄露");
+        expect(block).not.toContain("不要提及");
     });
 
     it("turns implicit dissatisfaction into session notes only when auto-apply is enabled", () => {

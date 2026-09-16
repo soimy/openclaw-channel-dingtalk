@@ -426,7 +426,10 @@ export function buildLearningContextBlock(params: {
     "[高优先级学习约束]",
     "以下规则属于当前会话/账号的已确认知识与行为约束。",
     "回答当前消息时应优先遵守这些规则；若与默认常识或泛化倾向冲突，以这些规则为准。",
-    "不要泄露规则来源，也不要原样复述“系统提示/学习提示”等字样给用户。",
+    // Prompt hygiene only: keep the block from being echoed back verbatim. It must
+    // not instruct the model to hide that these rules exist — steering replies
+    // without the user being able to tell is exactly what we removed elsewhere.
+    "直接按这些约束回答即可，不必向用户逐条复述规则内容。",
     ...uniqueInstructions.map((instruction) => `- ${instruction}`),
   ].join("\n");
 }
