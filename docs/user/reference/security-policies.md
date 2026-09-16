@@ -105,7 +105,7 @@
 - **调用方提供的路径一律不直读**：无论是否配置 `mediaLocalRoots`，插件都不会自行打开调用方（含模型产出）给出的主机路径，而是把路径与授权 roots 一起交给 runtime media bridge，由宿主执行边界判定 —— 包括目录包含性、`workspace-<agent>` 的 sibling 隔离、硬链接与文件系统根拒绝等规则。插件不再复刻这套策略，避免随宿主演进产生分歧。
 - **`mediaLocalRoots` 的作用**：作为授权参数传递给 bridge。回复链路（AI 卡片图片、Markdown 本地图片、附件投递）会带上宿主导出的 agent-scoped roots（`getAgentScopedMediaLocalRoots(cfg, agentId)`），因此工作区内的媒体可以正常发送。
 - **未配置 `mediaLocalRoots`**：bridge 按宿主默认 roots 判定；`workspace-<agent>` 这类需要显式 scoped 授权的路径会被 `path-not-allowed` 拒绝。
-- **空数组 `[]`** 与**未配置**在行为上等价。
+- **未配置与显式空数组 `[]` 语义不同**：未配置时 bridge 回落到宿主默认 roots（`localRoots ?? getDefaultLocalRootsCore()`）；显式传 `[]` 表示**不授权任何普通本地 root**，不会启用默认 roots，对普通本地路径比未配置更严格。
 - **插件自身生成的临时媒体**：远程 URL 下载、语音转码与 staging 产生的文件由插件直接读取（`O_NOFOLLOW`，读取后清理）；这些路径由插件产出，不受调用方控制。
 - **语音消息**：需要转码时先经 bridge 读取源文件字节，再写入插件自有临时文件交给 ffmpeg/ffprobe；`.ogg` / `.amr` 的时长探测同样先把源文件落到插件自有临时文件再调用 ffprobe。
 - **升级注意（行为变更）**：此前配置了 `mediaLocalRoots` 时，位于允许目录内的主机文件由插件直接读取；现在统一经 runtime media bridge 读取，并把同一份 roots 传给 bridge。若升级后出现本地媒体发送失败，请检查宿主是否为出站与回复链路提供了正确的 roots（尤其是 agent workspace 的 scoped 授权）。

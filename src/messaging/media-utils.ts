@@ -934,16 +934,12 @@ async function stageHostMediaForExternalTool(params: {
 }
 
 /**
- * Read a media file, resolving sandbox/container paths via the runtime bridge
- * when direct host filesystem access fails.
+ * Read a media file.
  *
  * Precedence:
- *   1. Direct host read (works for host-local paths inside the allowed roots)
- *   2. rt.media.loadWebMedia (resolves sandbox workspace paths via bridge)
- *
- * A direct host read is only allowed for plugin-owned temp files. Every
- * caller-supplied path is resolved through the runtime media bridge together with
- * the authorized `mediaLocalRoots`, so the host keeps owning the boundary.
+ *   1. Direct read, plugin-owned trusted temp media only (never a caller path)
+ *   2. rt.media.loadWebMedia for every caller-supplied path, with the authorized
+ *      `mediaLocalRoots` passed through so the host applies its own boundary
  */
 async function readMediaBuffer(
   mediaPath: string,
