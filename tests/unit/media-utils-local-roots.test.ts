@@ -225,7 +225,7 @@ describe('media-utils local roots', () => {
 
             expect(result?.mediaId).toBe('media_out_of_root');
             const logs = debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(logs.some((entry) => entry.includes('outside configured local roots'))).toBe(true);
+            expect(logs.some((entry) => entry.includes('outside the allowed local roots'))).toBe(true);
             expect(logs.some((entry) => entry.includes('File not found on host'))).toBe(false);
         } finally {
             fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
@@ -259,6 +259,90 @@ describe('media-utils local roots', () => {
             expect(mockLoadWebMedia).not.toHaveBeenCalled();
         } finally {
             await prepared.cleanup?.();
+        }
+    });
+
+    it('refuses a direct host read when the host configured no roots at all', async () => {
+        const mediaPath = createTempFile(Buffer.from('host-secret'));
+        const bridgeContent = Buffer.from('bridge-only');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: bridgeContent, fileName: 'media.bin' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_no_roots' } } as any);
+        const debug = vi.fn();
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                mediaPath,
+                'file',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug } as any,
+                // No mediaLocalRoots: the caller path has no boundary, so it must not
+                // be opened directly and the bridge decides instead.
+            );
+
+            expect(result?.mediaId).toBe('media_no_roots');
+            expect(result?.buffer.equals(bridgeContent)).toBe(true);
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(mediaPath, { localRoots: undefined });
+            const logs = debug.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(logs.some((entry) => entry.includes('no roots are configured'))).toBe(true);
+            expect(logs.some((entry) => entry.includes('File not found on host'))).toBe(false);
+        } finally {
+            fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+        }
+    });
+
+    it('still reads plugin-owned temp media directly when no roots are configured', async () => {
+        const remoteContent = Buffer.from('remote-image-data');
+        mockedAxiosGet.mockResolvedValueOnce({
+            data: remoteContent,
+            headers: { 'content-type': 'image/png' },
+            status: 200,
+        } as any);
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_trusted_no_roots' } } as any);
+
+        const prepared = await prepareMediaInput('https://example.com/path/photo.png', { debug: vi.fn() } as any);
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                prepared.path,
+                'image',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                // No roots, but this path was produced by the plugin's own download.
+            );
+
+            expect(result?.mediaId).toBe('media_trusted_no_roots');
+            expect(result?.buffer.equals(remoteContent)).toBe(true);
+            expect(mockLoadWebMedia).not.toHaveBeenCalled();
+        } finally {
+            await prepared.cleanup?.();
+        }
+    });
+
+    it('stages an out-of-root voice source before probing its duration', async () => {
+        const sourcePath = createTempFileWithExt(Buffer.from('OggS'), '.ogg');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('OggS bridge copy'), fileName: 'voice.ogg' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_ogg_staged' } } as any);
+        mockRunFfprobe.mockResolvedValueOnce('2.75\n');
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                sourcePath,
+                'voice',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: ['/allowed-root-sentinel'] },
+            );
+
+            expect(result?.mediaId).toBe('media_ogg_staged');
+            expect(result?.durationMs).toBe(2750);
+            // ffprobe must receive a staged copy, never the caller-supplied path.
+            const probedPath = mockRunFfprobe.mock.calls[0]?.[0]?.at(-1);
+            expect(probedPath).not.toBe(sourcePath);
+            expect(String(probedPath).startsWith(os.tmpdir())).toBe(true);
+        } finally {
+            fs.rmSync(path.dirname(sourcePath), { recursive: true, force: true });
         }
     });
 
