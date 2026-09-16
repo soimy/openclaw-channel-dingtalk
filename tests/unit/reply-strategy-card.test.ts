@@ -541,6 +541,30 @@ describe("reply-strategy-card", () => {
             );
         });
 
+        it("passes the host-authorized media roots through to the upload", async () => {
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(
+                buildCtx(card, { mediaLocalRoots: ["/state/workspace-main"] }),
+            );
+
+            await strategy.deliver({
+                kind: "final",
+                text: "说明如下\n\n![本地图](/state/workspace-main/artifacts/demo.png)",
+                mediaUrls: [],
+            } as any);
+            await strategy.finalize();
+
+            // Without the scoped roots the runtime bridge rejects `workspace-<agent>`
+            // paths, so the boundary has to reach uploadMedia.
+            expect(uploadMediaMock).toHaveBeenCalledWith(
+                expect.anything(),
+                "/state/workspace-main/artifacts/demo.png",
+                "image",
+                expect.anything(),
+                { mediaLocalRoots: ["/state/workspace-main"] },
+            );
+        });
+
         it("normalizes relative markdown image paths before upload", async () => {
             const card = makeCard();
             const strategy = createCardReplyStrategy(buildCtx(card));

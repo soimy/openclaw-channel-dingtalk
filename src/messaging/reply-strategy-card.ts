@@ -58,6 +58,14 @@ export function createCardReplyStrategy(
   ctx: ReplyStrategyContext & { card: AICardInstance; isStopRequested?: () => boolean },
 ): ReplyStrategy {
   const { card, config, log, isStopRequested } = ctx;
+  // Carry the host-authorized boundary into every media upload on this path. The
+  // no-roots call keeps its original shape so callers that never receive a
+  // boundary (e.g. unit tests, hosts without media policy) are unaffected.
+  const uploadCardImage = (mediaPath: string) =>
+    ctx.mediaLocalRoots
+      ? uploadMedia(config, mediaPath, "image", log, { mediaLocalRoots: ctx.mediaLocalRoots })
+      : uploadMedia(config, mediaPath, "image", log);
+  const cardMediaRootsOption = ctx.mediaLocalRoots ? { mediaLocalRoots: ctx.mediaLocalRoots } : {};
   const sessionTaskStateScope =
     card.accountId && card.conversationId && ctx.sessionAgentId
       ? {
@@ -392,7 +400,7 @@ export function createCardReplyStrategy(
           continue;
         }
 
-        const result = await uploadMedia(config, mediaPath, "image", log);
+        const result = await uploadCardImage(mediaPath);
         if (!result?.mediaId) {
           continue;
         }
@@ -558,7 +566,7 @@ export function createCardReplyStrategy(
                 await prepared.cleanup?.();
                 continue;
               }
-              const result = await uploadMedia(config, prepared.path, "image", log);
+              const result = await uploadCardImage(prepared.path);
               await prepared.cleanup?.();
               if (result?.mediaId) {
                 processedMediaUrls.add(normalizedUrl);
@@ -649,7 +657,7 @@ export function createCardReplyStrategy(
               await prepared.cleanup?.();
               continue;
             }
-            const result = await uploadMedia(config, prepared.path, "image", log);
+            const result = await uploadCardImage(prepared.path);
             await prepared.cleanup?.();
             if (result?.mediaId) {
               processedMediaUrls.add(normalizedUrl);
@@ -838,6 +846,7 @@ export function createCardReplyStrategy(
               } else {
                 // Fallback: proactive send when no reply session available
                 const result = await sendProactiveMedia(config, ctx.to, actualMediaPath, type, {
+                  ...cardMediaRootsOption,
                   log,
                   accountId: ctx.accountId,
                 });

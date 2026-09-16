@@ -95,6 +95,13 @@ export interface ReplyStrategyContext {
   log?: Logger;
   replyQuotedRef?: QuotedRef;
   /**
+   * Host-authorized local media roots for this agent/session. Reply media that
+   * resolves to a host path must carry these: the runtime media bridge rejects
+   * `workspace-<agentId>` paths unless the caller passes the scoped roots, and
+   * the plugin must never derive a boundary from a model-produced path.
+   */
+  mediaLocalRoots?: string[];
+  /**
    * Channel-level media delivery hook. The `audioAsVoice` option is the same
    * shared voice semantic carried on DeliverPayload, not a second independent
    * config knob.

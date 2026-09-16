@@ -263,6 +263,61 @@ describe('media-utils local roots', () => {
         }
     });
 
+    it('does not widen the boundary to a sibling agent workspace', async () => {
+        // The host scopes roots per agent; a file in `workspace-<other>` must not be
+        // read directly just because it sits next to the authorized workspace.
+        const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-state-'));
+        const agentWorkspace = path.join(stateDir, 'workspace-main');
+        const otherWorkspace = path.join(stateDir, 'workspace-other');
+        fs.mkdirSync(agentWorkspace, { recursive: true });
+        fs.mkdirSync(otherWorkspace, { recursive: true });
+        const otherFile = path.join(otherWorkspace, 'chart.png');
+        fs.writeFileSync(otherFile, Buffer.from('other-agent-secret'));
+        const bridgeContent = Buffer.from('bridge-copy');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: bridgeContent, fileName: 'chart.png' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_other_agent' } } as any);
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                otherFile,
+                'image',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: [agentWorkspace] },
+            );
+
+            expect(result?.mediaId).toBe('media_other_agent');
+            expect(result?.buffer.equals(bridgeContent)).toBe(true);
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(otherFile, { localRoots: [agentWorkspace] });
+        } finally {
+            fs.rmSync(stateDir, { recursive: true, force: true });
+        }
+    });
+
+    it('refuses host paths outside the agent-scoped roots', async () => {
+        const mediaPath = createTempFile(Buffer.from('host-secret'));
+        const bridgeContent = Buffer.from('bridge-copy');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: bridgeContent, fileName: 'secret.bin' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_scoped_out' } } as any);
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                mediaPath,
+                'file',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: ['/state/workspace-main'] },
+            );
+
+            expect(result?.mediaId).toBe('media_scoped_out');
+            expect(result?.buffer.equals(bridgeContent)).toBe(true);
+        } finally {
+            fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
+        }
+    });
+
     it('refuses a direct host read when the host configured no roots at all', async () => {
         const mediaPath = createTempFile(Buffer.from('host-secret'));
         const bridgeContent = Buffer.from('bridge-only');

@@ -24,6 +24,9 @@ vi.mock("../../src/platform/auth", () => ({
   getAccessToken: vi.fn().mockResolvedValue("token_abc"),
 }));
 
+vi.mock("openclaw/plugin-sdk/media-local-roots", () => ({
+  getAgentScopedMediaLocalRoots: () => ["/test/agent-workspace"],
+}));
 vi.mock("../../src/platform/runtime", () => ({
   getDingTalkRuntime: shared.getRuntimeMock,
 }));
@@ -992,6 +995,7 @@ describe("inbound-handler card lifecycle", () => {
       "./artifacts/demo.png",
       "image",
       undefined,
+      { mediaLocalRoots: ["/test/agent-workspace"] },
     );
     const commitPayload = shared.commitAICardBlocksMock.mock.calls[shared.commitAICardBlocksMock.mock.calls.length - 1]?.[1];
     expect(commitPayload?.blockListJson).toContain('"type":3');

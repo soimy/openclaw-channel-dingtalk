@@ -29,6 +29,9 @@ const shared = vi.hoisted(() => ({
   uploadMediaMock: vi.fn(),
 }));
 
+vi.mock("openclaw/plugin-sdk/media-local-roots", () => ({
+  getAgentScopedMediaLocalRoots: () => ["/test/agent-workspace"],
+}));
 vi.mock("../../src/platform/runtime", () => ({
   getDingTalkRuntime: shared.getRuntimeMock,
 }));
@@ -562,6 +565,7 @@ describe("inbound-handler media handling", () => {
       "/tmp/prepared/photo.png",
       "image",
       undefined,
+      { mediaLocalRoots: ["/test/agent-workspace"] },
     );
     expect(shared.commitAICardBlocksMock).toHaveBeenCalledWith(
       card,
@@ -617,6 +621,7 @@ describe("inbound-handler media handling", () => {
           key: "msgId",
           value: "m_media_proactive",
         },
+        mediaLocalRoots: ["/test/agent-workspace"],
       },
     );
   });

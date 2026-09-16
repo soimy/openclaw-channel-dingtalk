@@ -107,7 +107,7 @@
 - **未配置 `mediaLocalRoots`**：**不直接读取任何调用方提供的路径**。没有边界就无法区分「预期文件」与「任意主机路径」，因此一律交由 runtime media bridge 处理，由宿主自行执行边界。
 - **空数组 `[]`** 与**未配置**在行为上等价：都不允许直接主机读取。
 - **插件自身生成的临时媒体**：远程 URL 下载和语音转码产生在系统临时目录下的文件由插件直接读取（读取后清理），不受 `mediaLocalRoots` 限制；这些路径不是调用方提供的路径。
-- **回复链路的本地图片（AI 卡片）**：入站回复路径不携带宿主提供的 `mediaLocalRoots`（该字段只出现在宿主的出站发送与 action 上下文），因此卡片中引用的本机图片一律经 runtime media bridge 解析。bridge 无法解析时该图片保持原始 markdown，回复本身照常发出。
+- **回复链路的本地图片与附件**：入站回复路径通过宿主导出的 `getAgentScopedMediaLocalRoots(cfg, agentId)` 取回**该 agent 的 scoped roots**（宿主默认根 + `<stateDir>/workspace-<agentId>`），并贯穿卡片图片上传与附件投递。因此回复中引用工作区内的图片/文件可以正常发送；`workspace-<其他 agent>`、`/etc/passwd` 等越界路径不会被直读，交由 runtime media bridge 判定，被拒绝时卡片保留原始 markdown、回复照常发出。
 - **语音消息**：需要转码时先通过边界读取源文件字节，再写入插件自有临时文件交给 ffmpeg/ffprobe；`.ogg` / `.amr` 的时长探测同样先把源文件落到插件自有临时文件再调用 ffprobe。因此**越界或未配置边界的语音源不会被 ffmpeg/ffprobe 直接读取**；bridge 无法提供时该次发送直接失败。
 - **文件系统根 `/`**：作为允许根目录条目无效，会被忽略并回退到 runtime media bridge，避免授权整个主机文件系统。
 - **升级注意（行为变更）**：v3.7.1 之前，未配置 `mediaLocalRoots` 时会先尝试直接读取主机文件；现在一律交由 runtime media bridge。若升级后出现本地媒体发送失败，请检查宿主是否为出站媒体提供了 `mediaLocalRoots`，并在宿主侧补上允许目录。
