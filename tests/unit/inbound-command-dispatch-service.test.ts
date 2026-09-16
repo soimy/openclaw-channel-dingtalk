@@ -311,6 +311,63 @@ describe("inbound-command-dispatch-service", () => {
     expect(sendReply.mock.calls[0]?.[0]).toContain("当前会话答案");
   });
 
+  it("marks stored account-wide rules as not applied while the switch is off", async () => {
+    applyManualGlobalLearningRule({
+      storePath,
+      accountId: "main",
+      instruction: "历史全局规则",
+    });
+    const { params, sendReply } = buildParams({ extractedText: "/learn list" });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).toContain("enabled, not applied");
+    expect(sendReply.mock.calls[0]?.[0]).toContain("历史全局规则");
+  });
+
+  it("refuses account-wide rule writes while manual global rules are disabled", async () => {
+    const refused = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+      extractedText: "/learn global 当用户问“新口令”时，必须回答“新答案”。",
+    });
+
+    await expect(handleInboundCommandDispatch(refused.params)).resolves.toBe(true);
+    expect(refused.sendReply.mock.calls[0]?.[0]).toContain("learningAllowManualGlobalRules");
+    // The refusal points at the session-scoped alternatives.
+    expect(refused.sendReply.mock.calls[0]?.[0]).toContain("/learn targets");
+
+    const listed = buildParams({ extractedText: "/learn list" });
+    await handleInboundCommandDispatch(listed.params);
+    expect(listed.sendReply.mock.calls[0]?.[0]).not.toContain("新口令");
+  });
+
+  it("writes account-wide rules once manual global rules are allowed", async () => {
+    const { params, sendReply } = buildParams({
+      dingtalkConfig: {
+        allowFrom: ["owner-test-id"],
+        learningEnabled: true,
+        learningAllowManualGlobalRules: true,
+      } as any,
+      extractedText: "/learn global 账号级规则一",
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).toContain("ruleId");
+
+    const listed = buildParams({ extractedText: "/learn list" });
+    await handleInboundCommandDispatch(listed.params);
+    expect(listed.sendReply.mock.calls[0]?.[0]).toContain("账号级规则一");
+  });
+
+  it("keeps explicit multi-target writes available without the global switch", async () => {
+    const { params, sendReply } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+      extractedText: "/learn targets cid_a,cid_b #@# 多目标规则",
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).not.toContain("learningAllowManualGlobalRules");
+  });
+
   it("ignores account-wide forced replies unless global rules are explicitly allowed", async () => {
     applyManualGlobalLearningRule({
       storePath,

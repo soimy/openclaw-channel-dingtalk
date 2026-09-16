@@ -15,7 +15,7 @@
 | `learningEnabled` | 关闭 | 学习内容持久化并注入后续 prompt；owner 写入的规则还能**强制精确回复（绕过模型）**。关闭时上述行为全部停止（含已存规则） | 保持关闭，或仅在受控会话中开启 |
 | `learningAutoApply` | 关闭 | 自动把生成内容写入 note / 全局 rule | 保持关闭 |
 | `learningRuleTtlMs` | 30 天 | 规则超过该窗口后既不再注入 prompt，也不再命中触发语 | 保持默认或调小；`0` 表示永不过期（不建议） |
-| `learningAllowManualGlobalRules` | 关闭 | 允许 owner 写入的 account 级规则注入 prompt 并强制精确回复（绕过模型） | 保持关闭；改用会话级 `/learn here`、`/learn target` |
+| `learningAllowManualGlobalRules` | 关闭 | 允许写入 owner 的 account 级规则，并让其注入 prompt、强制精确回复（绕过模型）；关闭时 `/learn global` 直接被拒 | 保持关闭；改用显式作用域的 `/learn targets`、`/learn target-set apply` |
 | `mediaUrlAllowlist` | 未配置 | 远程媒体下载范围（默认已拒绝内网与本地地址） | 需要时才显式配置 |
 
 插件的 manifest（`openclaw.plugin.json`）为上述字段声明了 `default`，因此即使不阅读源码，也能从元数据读出默认状态。

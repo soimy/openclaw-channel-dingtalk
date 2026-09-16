@@ -65,7 +65,7 @@ ClawScan 说"advertised disabled learning setting"与实现不符。核对代码
 ### P2 — 收敛持久化与作用域（待决策）
 
 - **规则 TTL**：新增 `learningRuleTtlMs`（默认建议 30 天），到期规则不再命中，需要 owner 重新确认；把 "persistently" 从无限期变为有界。
-- **全局规则需二次显式开关**：新增 `learningAllowManualGlobalRules`（默认 `false`）。没有该开关时，owner 写入的 account 级规则既不会被注入 prompt，也不能强制精确回复，只允许会话级；避免单条规则静默影响所有会话。自动学习产生的 account 级规则不受该开关约束，由 `learningAutoApply` 控制。
+- **全局规则需二次显式开关**：新增 `learningAllowManualGlobalRules`（默认 `false`）。没有该开关时，`/learn global` 写入被直接拒绝（回复给出会话级替代命令），历史 account 级规则也既不注入也不能强制回复；避免单条规则静默影响所有会话。自动学习产生的 account 级规则不受该开关约束，由 `learningAutoApply` 控制。
 - 这两项都是行为变更 + 新配置项，建议在 P0 落地并观察一轮审计结果后再评估。
 
 ## 4. 明确不做的事

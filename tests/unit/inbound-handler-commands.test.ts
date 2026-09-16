@@ -429,7 +429,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true, learningAllowManualGlobalRules: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_global_apply",
           msgtype: "text",
@@ -460,7 +460,7 @@ describe("inbound-handler slash commands", () => {
         accountId: "main",
         sessionWebhook: "https://session.webhook",
         log: undefined,
-        dingtalkConfig: { dmPolicy: "open", learningEnabled: true } as unknown as DingTalkConfig,
+        dingtalkConfig: { dmPolicy: "open", learningEnabled: true, learningAllowManualGlobalRules: true } as unknown as DingTalkConfig,
         data: {
           msgId: "m_global_disable",
           msgtype: "text",

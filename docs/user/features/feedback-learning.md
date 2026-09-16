@@ -54,7 +54,7 @@
 - 这类规则**只能由 owner 写入**。"owner" 指在宿主配置 `commands.ownerAllowFrom` 中列出的 senderId；普通 `allowFrom` 管理员不在此列，发命令会被 owner-only 拒绝（先用 `/learn whoami` 查 senderId，再由宿主加入该列表）
 - `learningEnabled` 是学习回路的总开关：关闭时既不能写入/修改规则，已存的规则也不会命中（只读与清理命令仍可用，见下节）
 - 规则默认 **30 天后过期**（`learningRuleTtlMs`，设为 `0` 可关闭过期）：过期规则**既不会被注入 prompt，也不会命中触发语**，需要重新发布
-- **account 级（`/learn global`）规则默认完全不生效**：既不会作为「高优先级学习约束」注入 prompt，也不能强制精确回复；需要额外设置 `learningAllowManualGlobalRules: true` 才会生效。会话级（`/learn here`、`/learn target`）不受此限制；自动学习产生的 account 级规则由 `learningAutoApply` 控制，不受该开关影响
+- **account 级（`/learn global`）默认整条链路关闭**：写入命令会被拒绝并提示开启方式；即使历史数据里已有 account 级规则，也不会被注入 prompt、不能强制精确回复。设置 `learningAllowManualGlobalRules: true` 后才可写入并生效。会话级（`/learn here`、`/learn target`、`/learn targets`、`/learn target-set apply`）不受此限制；自动学习产生的 account 级规则由 `learningAutoApply` 控制，不受该开关影响
 - 每次命中都会打日志 `[DingTalk][Learning][ForcedReply] ruleId=… scope=… target=…`（不含回复正文），便于审计
 - 固定回复是逐字返回的，因此不要把凭证、内部地址等内容写进规则
 - 作用域优先级与其它学习内容一致（target 规则优先于 account 级规则），见下方"作用域优先级"
@@ -65,7 +65,8 @@
 
 - 关闭时：规则写入/修改命令（`/learn global|session|here|target|targets|target-set ...`）会被拒绝并提示开启方式；**已存的规则也不会命中**，消息回落到正常的 agent 流程
 - 关闭时仍可用：`/learn whoami`、`/learn whereami`、`/learn owner status`、`/learn help`、`/learn list`，以及清理类命令 `/learn disable <ruleId>`、`/learn delete <ruleId>`（清理只会减少状态，不会增加暴露面）
-- 开启时：命令可写入规则，命中的精确回复会直接返回固定文本；account 级（`/learn global`）规则还需 `learningAllowManualGlobalRules: true` 才会被注入或强制回复
+- 开启时：命令可写入规则，命中的精确回复会直接返回固定文本
+- **account 级（`/learn global`）另有一层开关** `learningAllowManualGlobalRules`（默认关闭）：关闭时写入被拒绝（回复会给出会话级替代命令），历史 account 级规则也被跳过；需要账号级规则时再显式开启
 
 ## 常用命令
 

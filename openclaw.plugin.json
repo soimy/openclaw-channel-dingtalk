@@ -291,7 +291,7 @@
           "learningAllowManualGlobalRules": {
             "type": "boolean",
             "default": false,
-            "description": "Allow owner-written account-wide rules to influence every conversation, both as injected guidance and as an exact reply that bypasses the model. Disabled by default so one rule cannot silently steer every conversation; target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
+            "description": "Allow owner-written account-wide rules. While off, `/learn global` writes are refused and existing account-wide rules are neither injected nor able to force a reply. When on, such rules influence every conversation as injected guidance and can force an exact reply that bypasses the model. Target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
           },
           "convertMarkdownTables": {
             "type": "boolean",
@@ -677,7 +677,7 @@
                 "learningAllowManualGlobalRules": {
                   "type": "boolean",
                   "default": false,
-                  "description": "Allow owner-written account-wide rules to influence every conversation, both as injected guidance and as an exact reply that bypasses the model. Disabled by default so one rule cannot silently steer every conversation; target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
+                  "description": "Allow owner-written account-wide rules. While off, `/learn global` writes are refused and existing account-wide rules are neither injected nor able to force a reply. When on, such rules influence every conversation as injected guidance and can force an exact reply that bypasses the model. Target-scoped rules and auto-learned rules are unaffected (auto-learned rules follow learningAutoApply)."
                 },
                 "convertMarkdownTables": {
                   "type": "boolean",
@@ -968,7 +968,7 @@
         },
         "learningAllowManualGlobalRules": {
           "label": "Allow Manual Global Rules",
-          "help": "Let owner-written account-wide rules be injected into every conversation and force exact replies. Off by default so one rule cannot steer every conversation."
+          "help": "Allow owner-written account-wide rules. Off by default: `/learn global` writes are refused and existing account-wide rules are ignored. Use /learn targets or target-set apply for explicit scopes."
         },
         "convertMarkdownTables": {
           "label": "Convert Markdown Tables",

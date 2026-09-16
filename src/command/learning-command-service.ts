@@ -216,6 +216,20 @@ export function formatLearningDisabledReply(): string {
   ].join("\n");
 }
 
+export function formatManualGlobalRuleDisabledReply(): string {
+  return [
+    "account 级学习规则当前未启用（channels.dingtalk.learningAllowManualGlobalRules 为 false），已拒绝写入。",
+    "",
+    "启用方式：在 channels.dingtalk 下设置 `learningAllowManualGlobalRules: true` 后重新发送本命令。",
+    "",
+    "如果只是想让多个会话生效，不必打开该开关：",
+    "- /learn here #@# <规则>：当前会话",
+    "- /learn target <conversationId> #@# <规则>：单个指定会话",
+    "- /learn targets <id1,id2> #@# <规则>：显式列出的多个会话",
+    "- /learn target-set apply <名称> #@# <规则>：已保存的目标组",
+  ].join("\n");
+}
+
 export function formatLearnCommandHelp(): string {
   return [
     "可用的 owner 学习命令：",

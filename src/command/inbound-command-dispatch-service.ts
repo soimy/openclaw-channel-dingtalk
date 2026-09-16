@@ -28,6 +28,7 @@ import {
   formatLearnDisabledReply,
   formatLearnListReply,
   formatLearningDisabledReply,
+  formatManualGlobalRuleDisabledReply,
   formatOwnerOnlyDeniedReply,
   formatOwnerStatusReply,
   formatTargetSetSavedReply,
@@ -176,6 +177,15 @@ export async function handleInboundCommandDispatch(
       parsedLearnCommand.scope === "target-set-apply")
   ) {
     await params.sendReply(formatLearningDisabledReply());
+    return true;
+  }
+
+  // Account-wide rules are an explicit opt-in: refusing the write keeps every
+  // accepted command effective, instead of storing a rule that would be ignored.
+  // Session-scoped forms (`here` / `target` / `targets` / `target-set`) stay
+  // available as the way to reach several conversations by default.
+  if (!isManualGlobalRuleAllowed(params.dingtalkConfig) && parsedLearnCommand.scope === "global") {
+    await params.sendReply(formatManualGlobalRuleDisabledReply());
     return true;
   }
 
@@ -422,6 +432,7 @@ export async function handleInboundCommandDispatch(
     }
 
     if (parsedLearnCommand.scope === "list") {
+      const allowManualGlobalRules = isManualGlobalRuleAllowed(params.dingtalkConfig);
       const rules = listScopedLearningRules({
         storePath: params.accountStorePath,
         accountId: params.accountId,
@@ -429,7 +440,15 @@ export async function handleInboundCommandDispatch(
         .slice(0, 20)
         .map((rule) => {
           const scope = rule.scope === "target" ? `target(${rule.targetId})` : "global";
-          const status = rule.enabled ? "enabled" : "disabled";
+          // Account-wide rules can be stored but skipped entirely; say so instead
+          // of reporting them as active.
+          const notApplied =
+            rule.scope === "global" && rule.manual === true && !allowManualGlobalRules;
+          const status = rule.enabled
+            ? notApplied
+              ? "enabled, not applied"
+              : "enabled"
+            : "disabled";
           return `- [${scope}] ${rule.ruleId} (${status}) => ${rule.instruction}`;
         });
       const targetSets = listLearningTargetSets({
