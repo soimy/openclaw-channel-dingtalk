@@ -261,6 +261,27 @@ describe("reply-strategy-markdown", () => {
         expect(strategy.getFinalText()).toBe("已收到PR558测试消息");
     });
 
+    it("forwards the scoped media roots so markdown local images keep their authorization", async () => {
+        const strategy = createMarkdownReplyStrategy(
+            buildCtx({ mediaLocalRoots: ["/state/workspace-main"] }),
+        );
+
+        await strategy.deliver({
+            text: "说明\n\n![图](/state/workspace-main/artifacts/chart.png)",
+            mediaUrls: ["/state/workspace-main/artifacts/chart.png"],
+            kind: "final",
+        });
+
+        // `replaceMarkdownLocalImages()` uploads through sendMessage options, so the
+        // scoped roots have to survive this hop.
+        expect(sendMessageMock).toHaveBeenCalledWith(
+            expect.anything(),
+            "user_1",
+            expect.stringContaining("/state/workspace-main/artifacts/chart.png"),
+            expect.objectContaining({ mediaLocalRoots: ["/state/workspace-main"] }),
+        );
+    });
+
     it("deliver(final) throws when sendMessage returns not ok", async () => {
         sendMessageMock.mockResolvedValueOnce({ ok: false, error: "send failed" });
         const strategy = createMarkdownReplyStrategy(buildCtx());

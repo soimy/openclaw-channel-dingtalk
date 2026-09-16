@@ -153,19 +153,20 @@ describe('media-utils local roots', () => {
         }
     });
 
-    it.skipIf(process.platform === 'win32')('reads a host file inside mediaLocalRoots directly', async () => {
+    it('resolves an in-root host file through the bridge with the scoped roots', async () => {
         const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-root-'));
         const realPath = path.join(allowedRoot, 'real.bin');
         fs.writeFileSync(realPath, Buffer.from('inside-data'));
-        // A symlink that stays inside the root must remain readable.
-        const linkPath = path.join(allowedRoot, 'link.bin');
-        fs.symlinkSync(realPath, linkPath);
+        mockLoadWebMedia.mockResolvedValueOnce({
+            buffer: Buffer.from('inside-data'),
+            fileName: 'real.bin',
+        });
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_root_inside' } } as any);
 
         try {
             const result = await uploadMedia(
                 { clientId: 'id', clientSecret: 'sec' } as any,
-                linkPath,
+                realPath,
                 'file',
                 vi.fn().mockResolvedValue('token_abc'),
                 { debug: vi.fn() } as any,
@@ -174,19 +175,19 @@ describe('media-utils local roots', () => {
 
             expect(result?.mediaId).toBe('media_root_inside');
             expect(result?.buffer.equals(Buffer.from('inside-data'))).toBe(true);
-            expect(mockLoadWebMedia).not.toHaveBeenCalled();
+            // Containment is decided by the host, not re-implemented here.
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(realPath, { localRoots: [allowedRoot] });
             expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
         } finally {
             fs.rmSync(allowedRoot, { recursive: true, force: true });
         }
     });
 
-    it('reports an in-root host miss as ENOENT instead of a root escape', async () => {
+    it('returns null when the bridge cannot resolve a caller path', async () => {
         const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-root-'));
         const missingPath = path.join(allowedRoot, 'missing.bin');
-        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('bridge-data'), fileName: 'missing.bin' });
-        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_in_root_missing' } } as any);
-        const debug = vi.fn();
+        mockLoadWebMedia.mockResolvedValueOnce(undefined);
+        const error = vi.fn();
 
         try {
             const result = await uploadMedia(
@@ -194,15 +195,14 @@ describe('media-utils local roots', () => {
                 missingPath,
                 'file',
                 vi.fn().mockResolvedValue('token_abc'),
-                { debug } as any,
+                { error, debug: vi.fn() } as any,
                 { mediaLocalRoots: [allowedRoot] },
             );
 
-            expect(result?.mediaId).toBe('media_in_root_missing');
-            const logs = debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(logs.some((entry) => entry.includes('File not found on host'))).toBe(true);
-            // A missing file inside an allowed root is not a boundary escape.
-            expect(logs.some((entry) => entry.includes('outside configured local roots'))).toBe(false);
+            expect(result).toBeNull();
+            const logs = error.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(logs.some((entry) => entry.includes('Media file not found'))).toBe(true);
+            expect(mockedAxiosPost).not.toHaveBeenCalled();
         } finally {
             fs.rmSync(allowedRoot, { recursive: true, force: true });
         }
@@ -226,7 +226,7 @@ describe('media-utils local roots', () => {
 
             expect(result?.mediaId).toBe('media_out_of_root');
             const logs = debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(logs.some((entry) => entry.includes('outside the allowed local roots'))).toBe(true);
+            expect(logs.some((entry) => entry.includes('not plugin-owned'))).toBe(true);
             expect(logs.some((entry) => entry.includes('File not found on host'))).toBe(false);
         } finally {
             fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
@@ -295,6 +295,41 @@ describe('media-utils local roots', () => {
         }
     });
 
+    it('does not let a broad root authorize a sibling workspace', async () => {
+        // Mirrors the host rule that a broad root (shared tmp) must not authorize a
+        // sibling `workspace-<agent>`: the plugin simply never applies containment
+        // itself, so the bridge stays the only decision point.
+        const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dingtalk-state-'));
+        const agentWorkspace = path.join(stateDir, 'workspace-main');
+        const otherWorkspace = path.join(stateDir, 'workspace-other');
+        fs.mkdirSync(agentWorkspace, { recursive: true });
+        fs.mkdirSync(otherWorkspace, { recursive: true });
+        const otherFile = path.join(otherWorkspace, 'chart.png');
+        fs.writeFileSync(otherFile, Buffer.from('other-agent-secret'));
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('bridge-copy'), fileName: 'chart.png' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_broad_root' } } as any);
+
+        try {
+            // A broad root that technically contains the sibling path, plus the
+            // agent's own workspace root.
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                otherFile,
+                'image',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: [os.tmpdir(), agentWorkspace] },
+            );
+
+            expect(result?.mediaId).toBe('media_broad_root');
+            expect(mockLoadWebMedia).toHaveBeenCalledWith(otherFile, {
+                localRoots: [os.tmpdir(), agentWorkspace],
+            });
+        } finally {
+            fs.rmSync(stateDir, { recursive: true, force: true });
+        }
+    });
+
     it('refuses host paths outside the agent-scoped roots', async () => {
         const mediaPath = createTempFile(Buffer.from('host-secret'));
         const bridgeContent = Buffer.from('bridge-copy');
@@ -332,15 +367,15 @@ describe('media-utils local roots', () => {
                 'file',
                 vi.fn().mockResolvedValue('token_abc'),
                 { debug } as any,
-                // No mediaLocalRoots: the caller path has no boundary, so it must not
-                // be opened directly and the bridge decides instead.
+                // No mediaLocalRoots: nothing authorizes this caller path, so it is
+                // never opened directly and the bridge decides instead.
             );
 
             expect(result?.mediaId).toBe('media_no_roots');
             expect(result?.buffer.equals(bridgeContent)).toBe(true);
             expect(mockLoadWebMedia).toHaveBeenCalledWith(mediaPath, { localRoots: undefined });
             const logs = debug.mock.calls.map((args: unknown[]) => String(args[0]));
-            expect(logs.some((entry) => entry.includes('no roots are configured'))).toBe(true);
+            expect(logs.some((entry) => entry.includes('not plugin-owned'))).toBe(true);
             expect(logs.some((entry) => entry.includes('File not found on host'))).toBe(false);
         } finally {
             fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });

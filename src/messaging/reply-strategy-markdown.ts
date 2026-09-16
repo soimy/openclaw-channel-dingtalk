@@ -76,6 +76,10 @@ export function createMarkdownReplyStrategy(ctx: ReplyStrategyContext): ReplyStr
       return;
     }
     const sendResult = await sendMessage(ctx.config, ctx.to, text, {
+      // Markdown mode inlines local images as `![](path)`, which the send path
+      // resolves through `replaceMarkdownLocalImages()` -> `uploadMedia()`. Without
+      // the scoped roots that upload loses the agent workspace authorization.
+      mediaLocalRoots: ctx.mediaLocalRoots,
       sessionWebhook: ctx.sessionWebhook,
       atUserId: !ctx.isDirect ? ctx.senderId : null,
       log: ctx.log,

@@ -155,7 +155,9 @@ describe('media-utils', () => {
     });
 
     it('returns actual duration for valid wav voice files', async () => {
-        const wavPath = createTempFileWithExt(createSilentWavBuffer(2500), '.wav');
+        const wavBuffer = createSilentWavBuffer(2500);
+        const wavPath = createTempFileWithExt(wavBuffer, '.wav');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: wavBuffer, fileName: 'voice.wav' });
 
         const durationMs = await getVoiceDurationMs(wavPath, 'voice', undefined, rootsFor(wavPath));
 
@@ -164,7 +166,9 @@ describe('media-utils', () => {
     });
 
     it('returns actual duration for ogg voice files via ffprobe', async () => {
-        const oggPath = createTempFileWithExt(Buffer.from('OggS'), '.ogg');
+        const oggBuffer = Buffer.from('OggS');
+        const oggPath = createTempFileWithExt(oggBuffer, '.ogg');
+        mockLoadWebMedia.mockResolvedValue({ buffer: oggBuffer, fileName: 'voice.ogg' });
         mockRunFfprobe.mockResolvedValueOnce('2.75\n');
 
         const durationMs = await getVoiceDurationMs(oggPath, 'voice', undefined, rootsFor(oggPath));
@@ -175,7 +179,9 @@ describe('media-utils', () => {
     });
 
     it('uploads media and returns media_id on success', async () => {
-        const mediaPath = createTempFile(Buffer.from('hello world'));
+        const mediaContent = Buffer.from('hello world');
+        const mediaPath = createTempFile(mediaContent);
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: mediaContent, fileName: 'media.bin' });
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_123' } } as any);
 
         const result = await uploadMedia(
@@ -196,7 +202,9 @@ describe('media-utils', () => {
     });
 
     it('transcodes wav voice uploads to ogg before posting to DingTalk', async () => {
-        const wavPath = createTempFileWithExt(createSilentWavBuffer(1800), '.wav');
+        const wavBuffer = createSilentWavBuffer(1800);
+        const wavPath = createTempFileWithExt(wavBuffer, '.wav');
+        mockLoadWebMedia.mockResolvedValue({ buffer: wavBuffer, fileName: 'voice.wav' });
         mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_voice_ogg' } } as any);
         mockRunFfprobe.mockResolvedValueOnce('1.8\n');
         mockRunFfmpeg.mockImplementationOnce(async (args: string[]) => {
@@ -402,7 +410,9 @@ describe('media-utils', () => {
     });
 
     it('returns null when axios upload throws', async () => {
-        const mediaPath = createTempFile(Buffer.from('hello'));
+        const mediaContent = Buffer.from('hello');
+        const mediaPath = createTempFile(mediaContent);
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: mediaContent, fileName: 'media.bin' });
         const log = { error: vi.fn(), debug: vi.fn() };
         mockedAxiosPost.mockRejectedValueOnce({
             isAxiosError: true,
