@@ -831,6 +831,7 @@ export function createCardReplyStrategy(
               // Prefer sessionWebhook for reply-session permission semantics
               if (ctx.sessionWebhook) {
                 const sendResult = await sendMessage(config, ctx.to, "", {
+                  ...cardMediaRootsOption,
                   sessionWebhook: ctx.sessionWebhook,
                   mediaPath: actualMediaPath,
                   mediaType: type,

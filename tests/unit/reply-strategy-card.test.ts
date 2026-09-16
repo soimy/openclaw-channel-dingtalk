@@ -496,6 +496,37 @@ describe("reply-strategy-card", () => {
             expect(commitPayload?.blockListJson).toContain('"text":"本地图"');
         });
 
+        it("passes the scoped media roots to deferred attachments sent via session webhook", async () => {
+            resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
+                if (mediaPath.endsWith(".png")) {
+                    return "image";
+                }
+                return "file";
+            });
+
+            const card = makeCard();
+            const strategy = createCardReplyStrategy(
+                buildCtx(card, { mediaLocalRoots: ["/state/workspace-main"] }),
+            );
+
+            await strategy.deliver({
+                kind: "final",
+                text: "回复内容",
+                mediaUrls: ["https://example.com/demo.pdf"],
+            } as any);
+            await strategy.finalize();
+
+            // The deferred attachment goes out through the session webhook, so that
+            // call needs the boundary too — otherwise `workspace-<agent>` media is
+            // rejected by the host bridge.
+            expect(sendMessageMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                "",
+                expect.objectContaining({ mediaLocalRoots: ["/state/workspace-main"] }),
+            );
+        });
+
         it("passes mediaUrlAllowlist when preparing payload mediaUrls and deferred attachments", async () => {
             resolveOutboundMediaTypeMock.mockImplementation(({ mediaPath }: { mediaPath: string }) => {
                 if (mediaPath.endsWith(".png")) {
