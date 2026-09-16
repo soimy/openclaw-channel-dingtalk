@@ -998,7 +998,17 @@ async function stageHostMediaForExternalTool(params: {
     os.tmpdir(),
     `dingtalk_media_stage_${randomUUID()}${path.extname(params.mediaPath).toLowerCase()}`,
   );
-  await fsPromises.writeFile(stagedPath, buffer);
+  try {
+    await fsPromises.writeFile(stagedPath, buffer);
+  } catch (err: unknown) {
+    // A staging failure must not fail the whole send: callers fall back to their
+    // own default instead (e.g. the default voice duration).
+    params.log?.debug?.(
+      `[DingTalk] Failed to stage media for external tool: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    await fsPromises.rm(stagedPath, { force: true }).catch(() => {});
+    return undefined;
+  }
   markTrustedHostMediaPath(stagedPath);
   return {
     path: stagedPath,

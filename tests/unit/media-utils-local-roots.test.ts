@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { promises as fsPromises } from 'node:fs';
 import * as dnsPromises from 'node:dns/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -316,6 +317,59 @@ describe('media-utils local roots', () => {
             expect(mockLoadWebMedia).not.toHaveBeenCalled();
         } finally {
             await prepared.cleanup?.();
+        }
+    });
+
+    it('falls back to the default duration when staging the voice source fails', async () => {
+        const sourcePath = createTempFileWithExt(Buffer.from('OggS'), '.ogg');
+        mockLoadWebMedia.mockResolvedValueOnce({ buffer: Buffer.from('OggS bridge copy'), fileName: 'voice.ogg' });
+        mockedAxiosPost.mockResolvedValueOnce({ data: { errcode: 0, media_id: 'media_ogg_unstaged' } } as any);
+        const writeSpy = vi.spyOn(fsPromises, 'writeFile').mockRejectedValueOnce(
+            Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }),
+        );
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                sourcePath,
+                'voice',
+                vi.fn().mockResolvedValue('token_abc'),
+                { debug: vi.fn() } as any,
+                { mediaLocalRoots: ['/allowed-root-sentinel'] },
+            );
+
+            // A failed staging step must not abort the send; the duration probe is
+            // skipped and the default is used instead.
+            expect(result?.mediaId).toBe('media_ogg_unstaged');
+            expect(result?.durationMs).toBe(1000);
+            expect(mockRunFfprobe).not.toHaveBeenCalled();
+        } finally {
+            writeSpy.mockRestore();
+            fs.rmSync(path.dirname(sourcePath), { recursive: true, force: true });
+        }
+    });
+
+    it('returns null instead of throwing when the boundary refuses and the bridge cannot help', async () => {
+        const mediaPath = createTempFile(Buffer.from('host-secret'));
+        // No roots and no bridge payload: the read must fail closed, not throw.
+        mockLoadWebMedia.mockResolvedValueOnce(undefined);
+        const error = vi.fn();
+
+        try {
+            const result = await uploadMedia(
+                { clientId: 'id', clientSecret: 'sec' } as any,
+                mediaPath,
+                'file',
+                vi.fn().mockResolvedValue('token_abc'),
+                { error, debug: vi.fn() } as any,
+            );
+
+            expect(result).toBeNull();
+            const logs = error.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(logs.some((entry) => entry.includes('Media file not found'))).toBe(true);
+            expect(mockedAxiosPost).not.toHaveBeenCalled();
+        } finally {
+            fs.rmSync(path.dirname(mediaPath), { recursive: true, force: true });
         }
     });
 
