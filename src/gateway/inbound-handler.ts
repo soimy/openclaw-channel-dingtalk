@@ -555,7 +555,11 @@ export async function downloadMedia(
       responseType: "arraybuffer",
       timeout: INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS,
     });
-    const contentType = mediaResponse.headers["content-type"] || "application/octet-stream";
+    // Axios types header values as string | number | true | string[] | AxiosHeaders,
+    // so narrow it to the string the media API expects.
+    const contentType =
+      normalizeAxiosHeaderValue(mediaResponse.headers["content-type"]) ??
+      "application/octet-stream";
     const buffer = Buffer.from(mediaResponse.data as ArrayBuffer);
 
     const maxBytes =
@@ -593,6 +597,17 @@ export async function downloadMedia(
     }
     return null;
   }
+}
+
+/** Axios header values are not always strings; keep only a usable string. */
+function normalizeAxiosHeaderValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0].trim() || undefined;
+  }
+  return undefined;
 }
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {

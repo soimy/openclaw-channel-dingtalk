@@ -61,9 +61,9 @@
     "type-check": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "axios": "1.13.6",
+    "axios": "^1.20.0",
     "dingtalk-stream": "^2.1.4",
-    "form-data": "^4.0.0",
+    "form-data": "^4.0.6",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
     "zod": "^4.4.3"
@@ -92,6 +92,12 @@
     "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
   "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "ws@^8.13.0": "^8.21.3",
+      "@xmldom/xmldom@^0.8.6": "^0.8.15"
+    }
+  },
   "openclaw": {
     "compat": {
       "pluginApi": ">=2026.8.1"
