@@ -1,5 +1,6 @@
 import { normalizeAllowFrom, isSenderOwner } from "../platform/access-control";
 import type { DingTalkConfig } from "../platform/types";
+import type { LearnedRuleEffectiveState } from "./feedback-learning-service";
 
 export interface ParsedLearnCommand {
   scope:
@@ -228,6 +229,28 @@ export function formatManualGlobalRuleDisabledReply(): string {
     "- /learn targets <id1,id2> #@# <规则>：显式列出的多个会话",
     "- /learn target-set apply <名称> #@# <规则>：已保存的目标组",
   ].join("\n");
+}
+
+/**
+ * Render a stored rule's effective state for `/learn list`. Kept next to the
+ * other reply formatters so the wording stays in one place.
+ */
+export function formatLearnedRuleStatus(state: LearnedRuleEffectiveState): string {
+  if (state.applied) {
+    return "enabled";
+  }
+  switch (state.reason) {
+    case "disabled":
+      return "disabled";
+    case "learning-disabled":
+      return "enabled, not applied (learning disabled)";
+    case "expired":
+      return "enabled, not applied (expired)";
+    case "global-rules-disabled":
+      return "enabled, not applied (global rules disabled)";
+    default:
+      return "enabled, not applied";
+  }
 }
 
 export function formatLearnCommandHelp(): string {

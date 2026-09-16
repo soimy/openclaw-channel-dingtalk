@@ -25,9 +25,7 @@ import { resolveConfiguredTaskModelMetadata } from "../card/task-model-metadata"
 import { dispatchDingTalkCardStopCommand } from "../command/card-stop-command";
 import {
   buildLearningContextBlock,
-  isLearningEnabled,
-  isManualGlobalRuleAllowed,
-  resolveLearningRuleTtlMs,
+  resolveLearnedRulePolicy,
 } from "../command/feedback-learning-service";
 import { handleInboundCommandDispatch } from "../command/inbound-command-dispatch-service";
 import { extractAttachmentText } from "../messaging/attachment-text-extractor";
@@ -1794,17 +1792,12 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     // text as CommandBody so the framework command layer recognizes it, while
     // RawBody keeps the user's original input for audit/quote display.
     const commandBody = subAgentOptions?.commandText ?? inboundText;
-    const learningEnabled = isLearningEnabled(dingtalkConfig);
     const learningContextBlock = buildLearningContextBlock({
-      enabled: learningEnabled,
+      policy: resolveLearnedRulePolicy(dingtalkConfig),
       storePath: accountStorePath,
       accountId,
       targetId: data.conversationId,
       content,
-      options: {
-        allowManualGlobalRules: isManualGlobalRuleAllowed(dingtalkConfig),
-        ruleTtlMs: resolveLearningRuleTtlMs(dingtalkConfig),
-      },
     });
     const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
     const previousTimestamp = rt.channel.session.readSessionUpdatedAt({

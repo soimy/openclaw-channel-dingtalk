@@ -317,11 +317,54 @@ describe("inbound-command-dispatch-service", () => {
       accountId: "main",
       instruction: "历史全局规则",
     });
+    // Learning itself is on; only the account-wide opt-in is missing, so the rule
+    // must report that specific reason rather than the master-switch one.
+    const { params, sendReply } = buildParams({
+      dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+      extractedText: "/learn list",
+    });
+
+    await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+    expect(sendReply.mock.calls[0]?.[0]).toContain("enabled, not applied (global rules disabled)");
+    expect(sendReply.mock.calls[0]?.[0]).toContain("历史全局规则");
+  });
+
+  it("marks every rule as not applied while the learning master switch is off", async () => {
+    applyManualTargetLearningRule({
+        storePath,
+        accountId: "main",
+        targetId: "cid_dm_1",
+        instruction: "会话级规则",
+    });
+    // buildParams leaves learningEnabled unset (false).
     const { params, sendReply } = buildParams({ extractedText: "/learn list" });
 
     await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
-    expect(sendReply.mock.calls[0]?.[0]).toContain("enabled, not applied");
-    expect(sendReply.mock.calls[0]?.[0]).toContain("历史全局规则");
+    expect(sendReply.mock.calls[0]?.[0]).toContain("enabled, not applied (learning disabled)");
+  });
+
+  it("marks a rule as not applied once it is past the TTL", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      applyManualTargetLearningRule({
+        storePath,
+        accountId: "main",
+        targetId: "cid_dm_1",
+        instruction: "会过期的会话级规则",
+      });
+
+      vi.setSystemTime(new Date("2026-03-01T00:00:00Z"));
+      const { params, sendReply } = buildParams({
+        dingtalkConfig: { allowFrom: ["owner-test-id"], learningEnabled: true } as any,
+        extractedText: "/learn list",
+      });
+
+      await expect(handleInboundCommandDispatch(params)).resolves.toBe(true);
+      expect(sendReply.mock.calls[0]?.[0]).toContain("enabled, not applied (expired)");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses account-wide rule writes while manual global rules are disabled", async () => {

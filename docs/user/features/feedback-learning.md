@@ -65,6 +65,7 @@
 
 - 关闭时：规则写入/修改命令（`/learn global|session|here|target|targets|target-set ...`）会被拒绝并提示开启方式；**已存的规则也不会命中**，消息回落到正常的 agent 流程
 - 关闭时仍可用：`/learn whoami`、`/learn whereami`、`/learn owner status`、`/learn help`、`/learn list`，以及清理类命令 `/learn disable <ruleId>`、`/learn delete <ruleId>`（清理只会减少状态，不会增加暴露面）
+- `/learn list` 显示的是**实际生效状态**，而不只是存储开关：`enabled`、`enabled, not applied (learning disabled)`、`enabled, not applied (expired)`、`enabled, not applied (global rules disabled)`、`disabled`
 - 开启时：命令可写入规则，命中的精确回复会直接返回固定文本
 - **account 级（`/learn global`）另有一层开关** `learningAllowManualGlobalRules`（默认关闭）：关闭时写入被拒绝（回复会给出会话级替代命令），历史 account 级规则也被跳过；需要账号级规则时再显式开启
 

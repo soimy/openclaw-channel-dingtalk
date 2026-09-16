@@ -13,6 +13,7 @@ import {
     resolveLearningRuleTtlMs,
     resolveManualForcedReply,
 } from "../../src/command/feedback-learning-service";
+import type { LearnedRulePolicy } from "../../src/command/feedback-learning-service";
 import {
     listActiveSessionLearningNotes,
     listFeedbackEvents,
@@ -21,6 +22,16 @@ import {
     listReflectionRecords,
 } from "../../src/command/feedback-learning-store";
 import type { MessageContent } from "../../src/platform/types";
+
+/** Learning switches as the three rule-consuming paths receive them. */
+function testPolicy(overrides: Partial<LearnedRulePolicy> = {}): LearnedRulePolicy {
+    return {
+        learningEnabled: true,
+        allowManualGlobalRules: false,
+        ruleTtlMs: 0,
+        ...overrides,
+    };
+}
 
 describe("feedback-learning-service", () => {
     const tempDirs: string[] = [];
@@ -118,7 +129,7 @@ describe("feedback-learning-service", () => {
         });
 
         const block = buildLearningContextBlock({
-            enabled: true,
+            policy: testPolicy(),
             storePath,
             accountId: "main",
             targetId: "chat-c",
@@ -173,18 +184,19 @@ describe("feedback-learning-service", () => {
                 instruction: "全局规则：回答要带暗号。",
             });
             const params = {
-                enabled: true,
                 storePath,
                 accountId: "main",
                 targetId: "chat-a",
                 content: createContent({ text: "随便聊聊" }),
             };
 
-            expect(buildLearningContextBlock(params)).not.toContain("回答要带暗号");
+            expect(
+                buildLearningContextBlock({ ...params, policy: testPolicy({ ruleTtlMs: TTL_MS }) }),
+            ).not.toContain("回答要带暗号");
 
             const allowed = buildLearningContextBlock({
                 ...params,
-                options: { allowManualGlobalRules: true, ruleTtlMs: TTL_MS },
+                policy: testPolicy({ allowManualGlobalRules: true, ruleTtlMs: TTL_MS }),
             });
             expect(allowed).toContain("回答要带暗号");
         });
@@ -199,12 +211,11 @@ describe("feedback-learning-service", () => {
             });
 
             const block = buildLearningContextBlock({
-                enabled: true,
+                policy: testPolicy({ ruleTtlMs: TTL_MS }),
                 storePath,
                 accountId: "main",
                 targetId: "chat-a",
                 content: createContent({ text: "随便聊聊" }),
-                options: { allowManualGlobalRules: false, ruleTtlMs: TTL_MS },
             });
             expect(block).toContain("本会话规则：先确认再回答");
         });
@@ -218,27 +229,27 @@ describe("feedback-learning-service", () => {
                 instruction: "本会话规则：过期后不该出现。",
             });
             const base = {
-                enabled: true,
                 storePath,
                 accountId: "main",
                 targetId: "chat-a",
                 content: createContent({ text: "随便聊聊" }),
-                options: { allowManualGlobalRules: true, ruleTtlMs: TTL_MS },
             };
+            const fresh = testPolicy({ allowManualGlobalRules: true, ruleTtlMs: TTL_MS });
 
-            expect(buildLearningContextBlock(base)).toContain("过期后不该出现");
+            expect(buildLearningContextBlock({ ...base, policy: fresh })).toContain("过期后不该出现");
             expect(
                 buildLearningContextBlock({
                     ...base,
-                    options: { ...base.options, now: Date.now() + 40 * 24 * 60 * 60 * 1000 },
+                    policy: { ...fresh, now: Date.now() + 40 * 24 * 60 * 60 * 1000 },
                 }),
             ).not.toContain("过期后不该出现");
             expect(
                 buildLearningContextBlock({
                     ...base,
-                    options: {
+                    policy: {
                         allowManualGlobalRules: true,
                         ruleTtlMs: 0,
+                        learningEnabled: true,
                         now: Date.now() + 400 * 24 * 60 * 60 * 1000,
                     },
                 }),
@@ -264,6 +275,7 @@ describe("feedback-learning-service", () => {
                 accountId: "main",
                 targetId: "cid_1",
                 content,
+                policy: testPolicy(),
             });
 
             expect(match).toMatchObject({ reply: "本会话答案", scope: "target", targetId: "cid_1" });
@@ -278,14 +290,19 @@ describe("feedback-learning-service", () => {
                 instruction: "当用户问“暗号是多少”时，必须回答“全局答案”。",
             });
 
-            const gated = resolveManualForcedReply({ storePath, accountId: "main", content });
+            const gated = resolveManualForcedReply({
+                storePath,
+                accountId: "main",
+                content,
+                policy: testPolicy(),
+            });
             expect(gated).toBeNull();
 
             const allowed = resolveManualForcedReply({
                 storePath,
                 accountId: "main",
                 content,
-                options: { allowGlobalRules: true },
+                policy: testPolicy({ allowManualGlobalRules: true }),
             });
             expect(allowed).toMatchObject({ reply: "全局答案", scope: "global" });
         });
@@ -303,8 +320,11 @@ describe("feedback-learning-service", () => {
                 storePath,
                 accountId: "main",
                 content,
-                now: inFortyDays,
-                options: { allowGlobalRules: true, ruleTtlMs: 30 * 24 * 60 * 60 * 1000 },
+                policy: testPolicy({
+                    allowManualGlobalRules: true,
+                    ruleTtlMs: 30 * 24 * 60 * 60 * 1000,
+                    now: inFortyDays,
+                }),
             });
             expect(expired).toBeNull();
 
@@ -312,8 +332,11 @@ describe("feedback-learning-service", () => {
                 storePath,
                 accountId: "main",
                 content,
-                now: Date.now() + 60 * 1000,
-                options: { allowGlobalRules: true, ruleTtlMs: 30 * 24 * 60 * 60 * 1000 },
+                policy: testPolicy({
+                    allowManualGlobalRules: true,
+                    ruleTtlMs: 30 * 24 * 60 * 60 * 1000,
+                    now: Date.now() + 60 * 1000,
+                }),
             });
             expect(stillFresh).toMatchObject({ reply: "全局答案" });
         });
@@ -330,8 +353,11 @@ describe("feedback-learning-service", () => {
                 storePath,
                 accountId: "main",
                 content,
-                now: Date.now() + 400 * 24 * 60 * 60 * 1000,
-                options: { allowGlobalRules: true, ruleTtlMs: 0 },
+                policy: testPolicy({
+                    allowManualGlobalRules: true,
+                    ruleTtlMs: 0,
+                    now: Date.now() + 400 * 24 * 60 * 60 * 1000,
+                }),
             });
             expect(match).toMatchObject({ reply: "全局答案" });
         });

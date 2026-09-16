@@ -15,10 +15,11 @@ import {
   deleteManualRule,
   disableManualRule,
   listLearningTargetSets,
-  isManualGlobalRuleAllowed,
   isLearningEnabled,
+  isManualGlobalRuleAllowed,
   listScopedLearningRules,
-  resolveLearningRuleTtlMs,
+  resolveLearnedRulePolicy,
+  resolveLearnedRuleState,
   resolveManualForcedReply,
 } from "./feedback-learning-service";
 import {
@@ -27,6 +28,7 @@ import {
   formatLearnDeletedReply,
   formatLearnDisabledReply,
   formatLearnListReply,
+  formatLearnedRuleStatus,
   formatLearningDisabledReply,
   formatManualGlobalRuleDisabledReply,
   formatOwnerOnlyDeniedReply,
@@ -432,7 +434,7 @@ export async function handleInboundCommandDispatch(
     }
 
     if (parsedLearnCommand.scope === "list") {
-      const allowManualGlobalRules = isManualGlobalRuleAllowed(params.dingtalkConfig);
+      const listPolicy = resolveLearnedRulePolicy(params.dingtalkConfig);
       const rules = listScopedLearningRules({
         storePath: params.accountStorePath,
         accountId: params.accountId,
@@ -440,15 +442,12 @@ export async function handleInboundCommandDispatch(
         .slice(0, 20)
         .map((rule) => {
           const scope = rule.scope === "target" ? `target(${rule.targetId})` : "global";
-          // Account-wide rules can be stored but skipped entirely; say so instead
-          // of reporting them as active.
-          const notApplied =
-            rule.scope === "global" && rule.manual === true && !allowManualGlobalRules;
-          const status = rule.enabled
-            ? notApplied
-              ? "enabled, not applied"
-              : "enabled"
-            : "disabled";
+          // Report the effective state rather than the stored switch: a rule can be
+          // enabled yet skipped by the master switch, the TTL window or the
+          // account-wide opt-in.
+          const status = formatLearnedRuleStatus(
+            resolveLearnedRuleState(rule, rule.scope, listPolicy),
+          );
           return `- [${scope}] ${rule.ruleId} (${status}) => ${rule.instruction}`;
         });
       const targetSets = listLearningTargetSets({
@@ -502,18 +501,14 @@ export async function handleInboundCommandDispatch(
     text: params.extractedText,
     messageType: params.messageType,
   };
-  const manualForcedReply = learningEnabled
-    ? resolveManualForcedReply({
-        storePath: params.accountStorePath,
-        accountId: params.accountId,
-        targetId: params.data.conversationId,
-        content: forcedContent,
-        options: {
-          allowGlobalRules: isManualGlobalRuleAllowed(params.dingtalkConfig),
-          ruleTtlMs: resolveLearningRuleTtlMs(params.dingtalkConfig),
-        },
-      })
-    : null;
+  const learningPolicy = resolveLearnedRulePolicy(params.dingtalkConfig);
+  const manualForcedReply = resolveManualForcedReply({
+    storePath: params.accountStorePath,
+    accountId: params.accountId,
+    targetId: params.data.conversationId,
+    content: forcedContent,
+    policy: learningPolicy,
+  });
   if (manualForcedReply) {
     // A forced reply bypasses the model entirely, so it is logged with the rule
     // that produced it instead of being applied silently.
