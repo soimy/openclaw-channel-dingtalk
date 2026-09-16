@@ -4,14 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  ws@^8.13.0: ^8.21.3
-  '@xmldom/xmldom@^0.8.6': ^0.8.15
-
 importers:
 
   .:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: ^0.8.15
+        version: 0.8.15
       axios:
         specifier: ^1.20.0
         version: 1.20.0(debug@4.4.3)
@@ -27,6 +26,9 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -2883,7 +2885,7 @@ packages:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
       '@smithy/hash-node': '>=4.3.0 <5'
       '@smithy/signature-v4': '>=5.4.0 <6'
-      ws: ^8.21.3
+      ws: ^8.18.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
       '@aws-sdk/credential-provider-node':
