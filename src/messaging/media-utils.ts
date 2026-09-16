@@ -935,6 +935,12 @@ async function resolveAllowedHostReadPath(
     return { path: path.resolve(mediaPath) };
   }
   if (!mediaLocalRoots) {
+    // The bridge is not a "no boundary" fallback: the host resolves an absent
+    // `localRoots` to its own default media roots (tmp, config/media, state/media,
+    // canvas, workspace, sandboxes) and rejects anything outside them. So
+    // legitimate local media (including agent workspace files used by card
+    // replies, which never receive `mediaLocalRoots` from the host) still loads,
+    // while arbitrary host paths are refused with `path-not-allowed`.
     return undefined;
   }
   // Compare canonical paths so a symlink inside an allowed root cannot redirect
