@@ -11,6 +11,7 @@ import {
   resolveByCreatedAtWindow,
   upsertOutboundMessageContext,
 } from "../messaging/message-context-store";
+import { splitCardBlocks } from "../messaging/message-chunker";
 import { getAccessToken } from "../platform/auth";
 import { resolveRobotCode, stripTargetPrefix } from "../platform/config";
 import type {
@@ -703,7 +704,9 @@ export async function sendProactiveCardText(
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
-    const blockListJson = JSON.stringify([{ type: 0, markdown: content } satisfies CardBlock]);
+    // Split oversized answers into multiple blocks to avoid the DingTalk
+    // blank-card limit on a single markdown block (issue #615).
+    const blockListJson = JSON.stringify(splitCardBlocks([{ type: 0, markdown: content } satisfies CardBlock]));
     await commitAICardBlocks(
       card,
       {

@@ -81,6 +81,23 @@ describe("card-draft-controller", () => {
         expect(getBlockText(blocks, 0)).toBe("Hello world");
     });
 
+    it("splits an oversized answer into multiple blocks (issue #615)", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        const longAnswer = "中".repeat(2501);
+        ctrl.updateAnswer(longAnswer, { stream: false, renderBlocks: true });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const blocks = parseBlocks(ctrl.getRenderedBlocks());
+        expect(blocks.length).toBeGreaterThan(1);
+        for (const block of blocks) {
+            expect(Array.from("markdown" in block ? block.markdown : "").length).toBeLessThanOrEqual(2500);
+        }
+        // Content is preserved in order (join drops inserted chunk newlines).
+        expect(blocks.map((b) => ("markdown" in b ? b.markdown : "")).join("").replace(/\n/g, "")).toBe(longAnswer);
+    });
+
     it("passes getStatusLine result to updateAICardBlockList", async () => {
         const card = makeCard();
         const getStatusLine = vi.fn().mockReturnValue("claude-sonnet | high");

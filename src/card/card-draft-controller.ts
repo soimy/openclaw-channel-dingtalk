@@ -17,7 +17,7 @@ import {
   updateAICardBlockList,
 } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
-
+import { splitCardBlocks } from "../messaging/message-chunker";
 type TimelineEntryKind = "progress" | "thinking" | "tool" | "answer" | "image";
 
 type TimelineEntry = {
@@ -386,7 +386,9 @@ export function createCardDraftController(params: {
           break;
       }
     }
-    return blocks;
+    // Guard against blank-render on oversized markdown blocks (issue #615):
+    // split any block past the safe limit into multiple blocks.
+    return splitCardBlocks(blocks);
   };
 
   const sealLiveThinking = () => {

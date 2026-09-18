@@ -110,3 +110,23 @@ export function splitMessageChunks(text: string, limit = MESSAGE_CHUNK_LIMIT): s
   }
   return chunks;
 }
+
+/**
+ * Split oversized markdown blocks of a card blockList into multiple blocks
+ * (issue #615: a single markdown block past ~3000 CJK chars renders as a
+ * blank card). Non-markdown fields are preserved per split piece.
+ */
+export function splitCardBlocks<T extends { type: number; markdown?: string }>(
+  blocks: T[],
+  limit = CARD_BLOCK_CHUNK_LIMIT,
+): T[] {
+  return blocks.flatMap((block) => {
+    if (typeof block.markdown !== "string" || Array.from(block.markdown).length <= limit) {
+      return [block];
+    }
+    return splitMessageChunks(block.markdown, limit).map((chunk) => ({
+      ...block,
+      markdown: chunk,
+    }));
+  });
+}
