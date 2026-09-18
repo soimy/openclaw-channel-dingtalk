@@ -793,7 +793,7 @@ export function createCardReplyStrategy(
               // would inject characters that never existed in the original text
               // (e.g. newline-free long URLs). Each chunk is <= 2488 code points,
               // under the markdown limit, so no further splitting occurs.
-              const unsentChunks = (splitResult.unsentChunks ?? []).filter((c) => c.trim());
+              const unsentChunks = (splitResult.unsentChunks ?? []).filter((c) => c.length > 0);
               for (const chunk of unsentChunks) {
                 await markdownFallback(chunk);
               }
@@ -961,7 +961,7 @@ export function createCardReplyStrategy(
           // separately so no separator is injected into newline-free content.
           const rescueUnsentChunks = splitResult.ok
             ? []
-            : (splitResult.unsentChunks ?? [rescueText]).filter((c) => c.trim());
+            : (splitResult.unsentChunks ?? [rescueText]).filter((c) => c.length > 0);
           for (const chunk of rescueUnsentChunks) {
             log?.warn?.(
               `[DingTalk][Finalize] Split-card rescue incomplete (${splitResult.sent}/${splitResult.total} sent): ${splitResult.error}; sending markdown for undelivered text`,
