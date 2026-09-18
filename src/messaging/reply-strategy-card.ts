@@ -789,9 +789,15 @@ export function createCardReplyStrategy(
               log?.warn?.(
                 `[DingTalk] Split multi-card fallback partially sent (${splitResult.sent}/${splitResult.total}): ${splitResult.error}`,
               );
-              const unsentText = (splitResult.unsentChunks ?? []).join("\n");
-              if (unsentText.trim()) {
-                await markdownFallback(unsentText);
+              // Send each chunk separately: rejoining chunks with any separator
+              // would inject characters that never existed in the original text
+              // (e.g. newline-free long URLs). Each chunk is <= 2488 code points,
+              // under the markdown limit, so no further splitting occurs.
+              const unsentChunks = (splitResult.unsentChunks ?? []).filter((c) => c.trim());
+              for (const chunk of unsentChunks) {
+                await markdownFallback(chunk);
+              }
+              if (unsentChunks.length > 0) {
                 delivered = true;
               }
             }
@@ -950,16 +956,17 @@ export function createCardReplyStrategy(
             log,
           );
           // Undelivered text must still reach the user: redeliver only the
-          // missing suffix after a partial rescue, or the full text when no
-          // rescue card went out (issue #615 review).
-          const rescueUnsentText = splitResult.ok
-            ? ""
-            : (splitResult.unsentChunks ?? [rescueText]).join("\n");
-          if (rescueUnsentText.trim()) {
+          // missing chunks after a partial rescue, or the full text when no
+          // rescue card went out (issue #615 review). Chunks are sent
+          // separately so no separator is injected into newline-free content.
+          const rescueUnsentChunks = splitResult.ok
+            ? []
+            : (splitResult.unsentChunks ?? [rescueText]).filter((c) => c.trim());
+          for (const chunk of rescueUnsentChunks) {
             log?.warn?.(
               `[DingTalk][Finalize] Split-card rescue incomplete (${splitResult.sent}/${splitResult.total} sent): ${splitResult.error}; sending markdown for undelivered text`,
             );
-            const sendResult = await sendMessage(ctx.config, ctx.to, rescueUnsentText, {
+            const sendResult = await sendMessage(ctx.config, ctx.to, chunk, {
               sessionWebhook: ctx.sessionWebhook,
               atUserId: !ctx.isDirect ? ctx.senderId : null,
               log,
@@ -977,7 +984,8 @@ export function createCardReplyStrategy(
                 },
               );
             }
-          } else if (splitResult.ok) {
+          }
+          if (splitResult.ok) {
             log?.info?.(
               `[DingTalk][Finalize] Rescued failed card commit via ${splitResult.total} split card(s)`,
             );

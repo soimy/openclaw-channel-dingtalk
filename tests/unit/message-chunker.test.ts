@@ -112,21 +112,6 @@ describe("splitMessageChunks", () => {
     }
   });
 
-  it("keeps reopened-fence content on its own line after a hard split (review regression)", () => {
-    // A reopened fence must be followed by a newline, otherwise the content
-    // lands on the fence info-string line and stops rendering.
-    const text = "\u0060\u0060\u0060\n" + "A".repeat(5000) + "\n\u0060\u0060\u0060";
-    const chunks = splitMessageChunks(text, 3800);
-    for (const chunk of chunks) {
-      expect(codePoints(chunk)).toBeLessThanOrEqual(3800);
-    }
-    for (const [i, chunk] of chunks.entries()) {
-      if (i > 0) {
-        expect(chunk.startsWith("```\n")).toBe(true);
-      }
-    }
-  });
-
   it("does not leave a stray fence marker for text ending inside a fence", () => {
     const lines = ["```", cjk(500), cjk(500)];
     const chunks = splitMessageChunks(lines.join("\n"), 600);

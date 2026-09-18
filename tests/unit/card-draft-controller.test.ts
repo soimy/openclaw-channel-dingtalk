@@ -98,6 +98,36 @@ describe("card-draft-controller", () => {
         expect(blocks.map((b) => ("markdown" in b ? b.markdown : "")).join("").replace(/\n/g, "")).toBe(longAnswer);
     });
 
+    it("getRenderedContent returns the raw oversized answer without fabricated separators (issue #615 review)", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        const longAnswer = "A".repeat(5000);
+        ctrl.updateAnswer(longAnswer, { stream: false, renderBlocks: true });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Display-layer split affects blockList only; content extraction must
+        // reproduce the original text losslessly (no injected "\n\n").
+        expect(ctrl.getRenderedContent()).toBe(longAnswer);
+        const blocks = parseBlocks(ctrl.getRenderedBlocks());
+        expect(blocks.length).toBeGreaterThan(1);
+    });
+
+    it("getRenderedContent returns the raw oversized answer without fabricated separators (issue #615 review)", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        const longAnswer = "A".repeat(5000);
+        ctrl.updateAnswer(longAnswer, { stream: false, renderBlocks: true });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Display-layer split affects blockList only; content extraction must
+        // reproduce the original text losslessly (no injected "\n\n").
+        expect(ctrl.getRenderedContent()).toBe(longAnswer);
+        const blocks = parseBlocks(ctrl.getRenderedBlocks());
+        expect(blocks.length).toBeGreaterThan(1);
+    });
+
     it("passes getStatusLine result to updateAICardBlockList", async () => {
         const card = makeCard();
         const getStatusLine = vi.fn().mockReturnValue("claude-sonnet | high");

@@ -1555,12 +1555,12 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(sendSplitProactiveCardsMock).toHaveBeenCalled();
-            expect(sendMessageMock).toHaveBeenCalledTimes(1);
-            const options = sendMessageMock.mock.calls[0]?.[3];
-            expect(options?.forceMarkdown).toBe(true);
-            const sentText = sendMessageMock.mock.calls[0]?.[2];
-            expect(sentText).toContain("最终答案内容第一段");
-            expect(sentText).toContain("最终答案内容第二段");
+            // Chunks are redelivered one message per chunk, no rejoined text.
+            expect(sendMessageMock).toHaveBeenCalledTimes(2);
+            expect(sendMessageMock.mock.calls[0]?.[2]).toBe("最终答案内容第一段");
+            expect(sendMessageMock.mock.calls[1]?.[2]).toBe("最终答案内容第二段");
+            expect(sendMessageMock.mock.calls[0]?.[3]?.forceMarkdown).toBe(true);
+            expect(sendMessageMock.mock.calls[1]?.[3]?.forceMarkdown).toBe(true);
         });
 
         it("resends only the unsent suffix after a partial split send (review P1)", async () => {
@@ -1584,6 +1584,29 @@ describe("reply-strategy-card", () => {
             expect(sentText).toBe("未发送的后缀");
             const options = sendMessageMock.mock.calls[0]?.[3];
             expect(options?.forceMarkdown).toBe(true);
+        });
+
+        it("redelivers newline-free unsent chunks without injecting separators (review P2)", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            // Newline-free long content split into two chunks: redelivery must
+            // not fabricate any separator between them.
+            sendSplitProactiveCardsMock.mockResolvedValue({
+                ok: false,
+                error: "second card failed",
+                sent: 1,
+                total: 2,
+                unsentChunks: ["x".repeat(2400), "y".repeat(2400)],
+            });
+
+            await strategy.deliver({ kind: "final", text: "x".repeat(2400) + "y".repeat(2400), mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(2);
+            expect(sendMessageMock.mock.calls[0]?.[2]).toBe("x".repeat(2400));
+            expect(sendMessageMock.mock.calls[1]?.[2]).toBe("y".repeat(2400));
         });
 
         it("resends only the unsent suffix when commit rescue partially fails (review P1)", async () => {

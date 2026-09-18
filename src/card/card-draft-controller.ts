@@ -386,9 +386,11 @@ export function createCardDraftController(params: {
           break;
       }
     }
-    // Guard against blank-render on oversized markdown blocks (issue #615):
-    // split any block past the safe limit into multiple blocks.
-    return splitCardBlocks(blocks);
+    // NOTE: raw (unsplit) blocks are returned here on purpose. Display-layer
+    // chunking (splitCardBlocks) is applied only where a blockList is produced
+    // (getRenderedBlocks / queueRender), so getRenderedContent can reconstruct
+    // the answer text losslessly instead of reading fabricated split pieces.
+    return blocks;
   };
 
   const sealLiveThinking = () => {
@@ -413,7 +415,7 @@ export function createCardDraftController(params: {
   };
 
   const queueRender = () => {
-    const blocks = renderTimelineAsBlocks();
+    const blocks = splitCardBlocks(renderTimelineAsBlocks());
     const rendered = JSON.stringify(blocks);
 
     // Always update blockList via instances API (throttled)
@@ -746,7 +748,9 @@ export function createCardDraftController(params: {
     getLastAnswerContent: () => lastAnswerContent,
     getFinalAnswerContent,
     getRenderedBlocks: (options?: { fallbackAnswer?: string; overrideAnswer?: string }) => {
-      const blocks = renderTimelineAsBlocks(options);
+      // Display-layer chunking only here — content extraction below reads the
+      // raw timeline so copy/recovery text stays lossless (issue #615 review).
+      const blocks = splitCardBlocks(renderTimelineAsBlocks(options));
       if (blocks.length === 0) {
         return "";
       }
