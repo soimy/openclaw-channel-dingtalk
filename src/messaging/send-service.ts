@@ -191,7 +191,7 @@ function shouldRouteSessionMediaViaProactive(
   return mediaType === "voice" || mediaType === "video" || mediaType === "file";
 }
 
-const DINGTALK_TEXT_CHUNK_LIMIT = 3800;
+import { MESSAGE_CHUNK_LIMIT, splitMessageChunks } from "./message-chunker";
 const CARD_MEDIA_CONTROLLER_ATTACH_WAIT_MS = 150;
 const CARD_MEDIA_CONTROLLER_ATTACH_POLL_MS = 25;
 
@@ -214,35 +214,6 @@ async function waitForCardControllerAttachment(
   }
 
   return activeRun.controller?.appendImageBlock ? activeRun.controller : null;
-}
-
-function splitMarkdownChunks(text: string, limit = DINGTALK_TEXT_CHUNK_LIMIT): string[] {
-  if (!text || text.length <= limit) {
-    return [text];
-  }
-  const chunks: string[] = [];
-  let buf = "";
-  const lines = text.split("\n");
-  let inCode = false;
-
-  for (const line of lines) {
-    const fenceCount = (line.match(/```/g) || []).length;
-    if (buf.length + line.length + 1 > limit && buf.length > 0) {
-      if (inCode) {
-        buf += "\n```";
-      }
-      chunks.push(buf);
-      buf = inCode ? "```\n" : "";
-    }
-    buf += (buf ? "\n" : "") + line;
-    if (fenceCount % 2 === 1) {
-      inCode = !inCode;
-    }
-  }
-  if (buf) {
-    chunks.push(buf);
-  }
-  return chunks;
 }
 
 function extractErrorCodeFromResponseData(data: unknown): string | null {
@@ -416,71 +387,83 @@ export async function sendProactiveTextOrMarkdown(
   );
 
   // DingTalk proactive API uses message templates (sampleMarkdown / sampleText).
+  // Long content must be split (same limit as session webhook) or the API
+  // truncates/loses the tail.
+  const chunks = splitMessageChunks(normalizedText, MESSAGE_CHUNK_LIMIT);
   const msgKey = useMarkdown ? "sampleMarkdown" : "sampleText";
-  const msgParam = useMarkdown
-    ? JSON.stringify({ title, text: normalizedText })
-    : JSON.stringify({ content: normalizedText });
-
-  const payload: ProactiveMessagePayload = {
-    robotCode: resolveRobotCode(config),
-    msgKey,
-    msgParam,
+  const buildPayload = (chunkText: string, idx: number): ProactiveMessagePayload => {
+    const msgParam = useMarkdown
+      ? JSON.stringify({
+          title: chunks.length > 1 ? `${title} (${idx + 1}/${chunks.length})` : title,
+          text: chunkText,
+        })
+      : JSON.stringify({ content: chunkText });
+    const payload: ProactiveMessagePayload = {
+      robotCode: resolveRobotCode(config),
+      msgKey,
+      msgParam,
+    };
+    if (isGroup) {
+      payload.openConversationId = resolvedTarget;
+    } else {
+      payload.userIds = [resolvedTarget];
+    }
+    return payload;
   };
 
-  if (isGroup) {
-    payload.openConversationId = resolvedTarget;
-  } else {
-    payload.userIds = [resolvedTarget];
-  }
-
-  try {
-    const result = await axios({
-      url,
-      method: "POST",
-      data: payload,
-      headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-      ...getProxyBypassOption(config),
-    });
-    if (options.accountId) {
-      deleteProactiveRiskObservation(options.accountId, resolvedTarget);
-    }
-    return result.data;
-  } catch (err: unknown) {
-    const maybeAxiosError = err as {
-      response?: { status?: number; statusText?: string; data?: unknown };
-      message?: string;
-    };
-    if (maybeAxiosError?.response) {
-      const errCode = extractErrorCodeFromResponseData(maybeAxiosError.response.data);
-      if (options.accountId && isProactivePermissionOrScopeError(errCode)) {
-        recordProactiveRiskObservation({
-          accountId: options.accountId,
-          targetId: resolvedTarget,
-          level: "high",
-          reason: errCode || "proactive-permission-error",
-          source: "proactive-api",
-        });
+  let lastData: unknown;
+  for (const [idx, chunkText] of chunks.entries()) {
+    const payload = buildPayload(chunkText, idx);
+    try {
+      const result = await axios({
+        url,
+        method: "POST",
+        data: payload,
+        headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+        ...getProxyBypassOption(config),
+      });
+      lastData = result.data;
+      if (options.accountId) {
+        deleteProactiveRiskObservation(options.accountId, resolvedTarget);
       }
-      const status = maybeAxiosError.response.status;
-      const statusText = maybeAxiosError.response.statusText;
-      const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ""}` : "";
-      log?.error?.(
-        `[DingTalk] Failed to send proactive message:${statusLabel} message=${
-          maybeAxiosError.message || String(err)
-        }${proactiveRiskTag}`,
-      );
-      if (maybeAxiosError.response.data !== undefined) {
+    } catch (err: unknown) {
+      const maybeAxiosError = err as {
+        response?: { status?: number; statusText?: string; data?: unknown };
+        message?: string;
+      };
+      if (maybeAxiosError?.response) {
+        const errCode = extractErrorCodeFromResponseData(maybeAxiosError.response.data);
+        if (options.accountId && isProactivePermissionOrScopeError(errCode)) {
+          recordProactiveRiskObservation({
+            accountId: options.accountId,
+            targetId: resolvedTarget,
+            level: "high",
+            reason: errCode || "proactive-permission-error",
+            source: "proactive-api",
+          });
+        }
+        const status = maybeAxiosError.response.status;
+        const statusText = maybeAxiosError.response.statusText;
+        const statusLabel = status ? ` status=${status}${statusText ? ` ${statusText}` : ""}` : "";
         log?.error?.(
-          formatDingTalkErrorPayloadLog("send.proactiveMessage", maybeAxiosError.response.data),
+          `[DingTalk] Failed to send proactive message:${statusLabel} message=${
+            maybeAxiosError.message || String(err)
+          }${proactiveRiskTag}`,
         );
+        if (maybeAxiosError.response.data !== undefined) {
+          log?.error?.(
+            formatDingTalkErrorPayloadLog("send.proactiveMessage", maybeAxiosError.response.data),
+          );
+        }
+      } else if (err instanceof Error) {
+        log?.error?.(`[DingTalk] Failed to send proactive message: ${err.message}`);
+      } else {
+        log?.error?.(`[DingTalk] Failed to send proactive message: ${String(err)}`);
       }
-    } else if (err instanceof Error) {
-      log?.error?.(`[DingTalk] Failed to send proactive message: ${err.message}`);
-    } else {
-      log?.error?.(`[DingTalk] Failed to send proactive message: ${String(err)}`);
+      throw err;
     }
-    throw err;
   }
+  return lastData as ProactiveTextSendResult;
 }
 
 export async function sendProactiveMedia(
@@ -784,7 +767,7 @@ export async function sendBySession(
     options,
     "Clawdbot 消息",
   );
-  const chunks = splitMarkdownChunks(normalizedText, DINGTALK_TEXT_CHUNK_LIMIT);
+  const chunks = splitMessageChunks(normalizedText, MESSAGE_CHUNK_LIMIT);
 
   let lastResult: any = null;
   for (const [idx, chunk] of chunks.entries()) {
