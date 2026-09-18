@@ -59,6 +59,7 @@ vi.mock("../../src/card/card-service", () => ({
   updateAICardBlockList: shared.updateAICardBlockListMock,
   streamAICardContent: shared.streamAICardContentMock,
   clearAICardStreamingContent: shared.clearAICardStreamingContentMock,
+  sendSplitProactiveCards: vi.fn().mockResolvedValue({ ok: true, sent: 1, total: 1 }),
 }));
 
 vi.mock("../../src/gateway/session-lock", () => ({
@@ -1170,7 +1171,7 @@ describe("inbound-handler card streaming", () => {
       const debugLogs = log.debug.mock.calls.map((args: unknown[]) => String(args[0]));
       expect(
         debugLogs.some((msg) =>
-          msg.includes("Card failed during streaming, sending markdown fallback"),
+          msg.includes("Card failed, sending markdown fallback"),
         ),
       ).toBe(true);
 

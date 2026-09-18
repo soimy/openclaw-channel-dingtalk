@@ -15,6 +15,7 @@ const shared = vi.hoisted(() => ({
   isCardInTerminalStateMock: vi.fn(),
   updateAICardBlockListMock: vi.fn(),
   streamAICardMock: vi.fn(),
+  sendSplitProactiveCardsMock: vi.fn(),
   formatContentForCardMock: vi.fn((s: string) => s),
   invalidateAskUserQuestionsForScopeMock: vi.fn().mockResolvedValue([]),
   syncInvalidatedAskUserQuestionCardsMock: vi.fn().mockResolvedValue(undefined),
@@ -53,6 +54,7 @@ vi.mock("../../src/card/card-service", () => ({
   updateAICardBlockList: shared.updateAICardBlockListMock,
   streamAICardContent: vi.fn(),
   clearAICardStreamingContent: vi.fn(),
+  sendSplitProactiveCards: shared.sendSplitProactiveCardsMock,
 }));
 
 vi.mock("../../src/command/card-stop-command", () => ({
@@ -374,7 +376,14 @@ describe("inbound-handler card lifecycle", () => {
     );
     shared.updateAICardBlockListMock.mockReset();
     shared.isCardInTerminalStateMock.mockReset();
-    const cardMidFail = { cardInstanceId: "card_mid_fail", state: "1", lastUpdated: Date.now() } as unknown as { cardInstanceId: string; state: string; lastUpdated: number };
+    shared.sendSplitProactiveCardsMock.mockReset();
+    shared.sendSplitProactiveCardsMock.mockResolvedValue({ ok: true, sent: 1, total: 1 });
+    const cardMidFail = {
+      cardInstanceId: "card_mid_fail",
+      conversationId: "cid_ok",
+      state: "1",
+      lastUpdated: Date.now(),
+    } as unknown as { cardInstanceId: string; conversationId: string; state: string; lastUpdated: number };
     shared.createAICardMock.mockResolvedValueOnce(cardMidFail);
     shared.isCardInTerminalStateMock.mockImplementation(
       (state: string) => state === "3" || state === "5",
@@ -419,16 +428,16 @@ describe("inbound-handler card lifecycle", () => {
     const debugLogsMidFail = logMidFail.debug.mock.calls.map((args: unknown[]) => String(args[0]));
     expect(
       debugLogsMidFail.some((msg) =>
-        msg.includes("Card failed during streaming, sending markdown fallback"),
+        msg.includes("Card failed, falling back to split multi-card delivery"),
       ),
     ).toBe(true);
 
-    // Fallback uses sendMessage with forceMarkdown to skip card creation
+    // Issue #615: card has conversationId, so the split multi-card fallback
+    // is used instead of markdown.
     const fallbackCalls = shared.sendMessageMock.mock.calls.filter(
       (call: unknown[]) => (call as unknown[])?.[3]?.forceMarkdown === true,
     );
-    expect(fallbackCalls.length).toBeGreaterThanOrEqual(1);
-    expect(fallbackCalls[0][2]).toContain("complete final answer");
+    expect(fallbackCalls).toHaveLength(0);
   });
 
   it("handleDingTalkMessage skips finishAICard when current card is already terminal", async () => {

@@ -10,6 +10,7 @@
  * {@link createDraftStreamLoop}.
  */
 
+import { splitCardBlocks } from "../messaging/message-chunker";
 import type { AICardInstance, CardBlock, Logger } from "../platform/types";
 import {
   clearAICardStreamingContent,
@@ -17,7 +18,6 @@ import {
   updateAICardBlockList,
 } from "./card-service";
 import { createDraftStreamLoop } from "./draft-stream-loop";
-import { splitCardBlocks } from "../messaging/message-chunker";
 type TimelineEntryKind = "progress" | "thinking" | "tool" | "answer" | "image";
 
 type TimelineEntry = {

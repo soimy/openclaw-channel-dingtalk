@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  splitCardBlocks,
+  splitMessageChunks,
+  CARD_BLOCK_CHUNK_LIMIT,
+} from "../messaging/message-chunker";
+import {
   createSyntheticOutboundMsgId,
   clearMessageContextCacheForTest,
   DEFAULT_CARD_CONTENT_TTL_MS,
@@ -11,7 +16,6 @@ import {
   resolveByCreatedAtWindow,
   upsertOutboundMessageContext,
 } from "../messaging/message-context-store";
-import { splitCardBlocks } from "../messaging/message-chunker";
 import { getAccessToken } from "../platform/auth";
 import { resolveRobotCode, stripTargetPrefix } from "../platform/config";
 import type {
@@ -706,7 +710,9 @@ export async function sendProactiveCardText(
     }
     // Split oversized answers into multiple blocks to avoid the DingTalk
     // blank-card limit on a single markdown block (issue #615).
-    const blockListJson = JSON.stringify(splitCardBlocks([{ type: 0, markdown: content } satisfies CardBlock]));
+    const blockListJson = JSON.stringify(
+      splitCardBlocks([{ type: 0, markdown: content } satisfies CardBlock]),
+    );
     await commitAICardBlocks(
       card,
       {
@@ -725,6 +731,32 @@ export async function sendProactiveCardText(
     log?.error?.(`[DingTalk][AICard] Proactive card send failed: ${err.message}`);
     return { ok: false, error: err.message };
   }
+}
+
+/**
+ * Fallback delivery that splits long text across multiple AI Cards, one card
+ * per chunk (issue #615). Used when a card's blockList commit fails or the
+ * card itself has failed — delivery keeps the card surface instead of
+ * degrading to plain markdown. Chunks are sent sequentially to preserve order.
+ */
+export async function sendSplitProactiveCards(
+  config: DingTalkConfig,
+  conversationId: string,
+  text: string,
+  log?: Logger,
+): Promise<{ ok: boolean; error?: string; sent: number; total: number }> {
+  // Reserve 12 code points for the "(n/m)" suffix so a max-size chunk plus
+  // suffix stays within CARD_BLOCK_CHUNK_LIMIT and sendProactiveCardText's
+  // internal splitCardBlocks never re-splits it.
+  const chunks = splitMessageChunks(text, CARD_BLOCK_CHUNK_LIMIT - 12);
+  for (const [idx, chunk] of chunks.entries()) {
+    const content = chunks.length > 1 ? `${chunk}\n\n(${idx + 1}/${chunks.length})` : chunk;
+    const result = await sendProactiveCardText(config, conversationId, content, log);
+    if (!result.ok) {
+      return { ok: false, error: result.error, sent: idx, total: chunks.length };
+    }
+  }
+  return { ok: true, sent: chunks.length, total: chunks.length };
 }
 
 export async function recoverPendingCardsForAccount(

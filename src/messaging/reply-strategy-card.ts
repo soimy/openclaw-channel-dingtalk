@@ -15,6 +15,7 @@ import { attachCardRunController } from "../card/card-run-registry";
 import {
   commitAICardBlocks,
   isCardInTerminalState,
+  sendSplitProactiveCards,
   updateAICardStatusLine,
 } from "../card/card-service";
 import {
@@ -741,26 +742,56 @@ export function createCardReplyStrategy(
         return;
       }
 
-      // Card failed -> markdown fallback (bypass sendMessage to avoid duplicate card).
+      // Card failed -> split-card fallback (issue #615): deliver the content
+      // as multiple fresh AI Cards so it stays on the card surface; degrade to
+      // markdown only when even new cards cannot be created.
       if (card.state === AICardStatus.FAILED || controller.isFailed()) {
         const fallbackText =
           getRenderedTimeline({ preferFinalAnswer: true }) ||
           controller.getLastAnswerContent() ||
           DEFAULT_CARD_FAILED_MESSAGE;
         if (fallbackText) {
-          log?.debug?.("[DingTalk] Card failed during streaming, sending markdown fallback");
-          const sendResult = await sendMessage(ctx.config, ctx.to, fallbackText, {
-            sessionWebhook: ctx.sessionWebhook,
-            atUserId: !ctx.isDirect ? ctx.senderId : null,
-            log,
-            accountId: ctx.accountId,
-            storePath: ctx.storePath,
-            conversationId: ctx.groupId,
-            quotedRef: ctx.replyQuotedRef,
-            forceMarkdown: true,
-          });
-          if (!sendResult.ok) {
-            throw new Error(sendResult.error || "Markdown fallback send failed after card failure");
+          let splitCardsOk = false;
+          if (card.conversationId) {
+            log?.debug?.("[DingTalk] Card failed, falling back to split multi-card delivery");
+            const splitResult = await sendSplitProactiveCards(
+              ctx.config,
+              card.conversationId,
+              fallbackText,
+              log,
+            );
+            if (splitResult.ok) {
+              splitCardsOk = true;
+            } else if (splitResult.sent > 0) {
+              // Some chunks already went out as cards — resending the full
+              // text via markdown would duplicate the delivered prefix.
+              log?.warn?.(
+                `[DingTalk] Split multi-card fallback partially sent (${splitResult.sent}/${splitResult.total}): ${splitResult.error}; skipping markdown resend`,
+              );
+              splitCardsOk = true;
+            } else {
+              log?.warn?.(
+                `[DingTalk] Split multi-card fallback failed (${splitResult.sent}/${splitResult.total} sent): ${splitResult.error}`,
+              );
+            }
+          }
+          if (!splitCardsOk) {
+            log?.debug?.("[DingTalk] Card failed, sending markdown fallback");
+            const sendResult = await sendMessage(ctx.config, ctx.to, fallbackText, {
+              sessionWebhook: ctx.sessionWebhook,
+              atUserId: !ctx.isDirect ? ctx.senderId : null,
+              log,
+              accountId: ctx.accountId,
+              storePath: ctx.storePath,
+              conversationId: ctx.groupId,
+              quotedRef: ctx.replyQuotedRef,
+              forceMarkdown: true,
+            });
+            if (!sendResult.ok) {
+              throw new Error(
+                sendResult.error || "Markdown fallback send failed after card failure",
+              );
+            }
           }
         } else {
           log?.debug?.("[DingTalk] Card failed but no content to fallback with");
@@ -892,6 +923,35 @@ export function createCardReplyStrategy(
         if ((card.state as string) !== AICardStatus.FINISHED) {
           card.state = AICardStatus.FAILED;
           card.lastUpdated = Date.now();
+        }
+        // Issue #615 fallback: the original card could not be committed, so
+        // deliver the answer as split multi-cards before giving up. Never
+        // rescue a card that actually committed (FINISHED) — content is live.
+        const rescueText =
+          finalTextForFallback ||
+          controller.getFinalAnswerContent() ||
+          controller.getLastAnswerContent() ||
+          controller.getLastContent();
+        if (
+          rescueText?.trim() &&
+          card.conversationId &&
+          (card.state as string) !== AICardStatus.FINISHED
+        ) {
+          const splitResult = await sendSplitProactiveCards(
+            ctx.config,
+            card.conversationId,
+            rescueText,
+            log,
+          );
+          if (splitResult.ok) {
+            log?.info?.(
+              `[DingTalk][Finalize] Rescued failed card commit via ${splitResult.total} split card(s)`,
+            );
+          } else {
+            log?.warn?.(
+              `[DingTalk][Finalize] Split-card rescue failed (${splitResult.sent}/${splitResult.total} sent): ${splitResult.error}`,
+            );
+          }
         }
       } finally {
         lifecycleState = "sealed";
