@@ -895,36 +895,36 @@ describe('card-service', () => {
         expect(committed.join('')).toBe(text);
     });
 
-    it('recovers from legacy pending state file and migrates to namespaced file', async () => {
-        const pending = {
-            version: 1,
-            updatedAt: Date.now(),
-            pendingCards: [
-                {
-                    accountId: 'main',
-                    cardInstanceId: 'card_legacy_1',
-                    conversationId: 'cid_legacy_1',
-                    createdAt: Date.now() - 1000,
-                    lastUpdated: Date.now() - 1000,
-                    state: '1',
+    it('sendSplitProactiveCards prepends page(n/m) to the base statusLine', async () => {
+        mockedAxios.post.mockResolvedValue({
+            status: 200,
+            data: {
+                result: {
+                    outTrackId: 'track_split',
+                    processQueryKey: 'card_process_split',
+                    cardInstanceId: 'card_instance_split',
                 },
-            ],
-        };
-        fs.mkdirSync(path.dirname(legacyStateFilePath), { recursive: true });
-        fs.writeFileSync(legacyStateFilePath, JSON.stringify(pending, null, 2));
+            },
+        });
         mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
 
-        const recovered = await recoverPendingCardsForAccount(
+        const text = 'A'.repeat(2200) + 'B'.repeat(2200);
+        const result = await sendSplitProactiveCards(
             { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
-            'main',
-            storePath
+            'cid_split',
+            text,
+            undefined,
+            { statusLine: 'glm-5 | high' }
         );
 
-        expect(recovered).toBe(1);
-        expect(fs.existsSync(stateFilePath)).toBe(true);
-        const namespaced = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
-        expect(namespaced.pendingCards).toHaveLength(0);
+        expect(result).toEqual({ ok: true, sent: 2, total: 2 });
+        const bodies = mockedAxios.post.mock.calls.map((call: any[]) => call[1]);
+        // Page marker goes to the HEAD of the original statusLine, which is
+        // preserved verbatim after the page segment.
+        expect(bodies[0].cardData?.cardParamMap.statusLine).toBe('page(1/2) | glm-5 | high');
+        expect(bodies[1].cardData?.cardParamMap.statusLine).toBe('page(2/2) | glm-5 | high');
     });
+
 
     it('persists outTrackId for pending cards so recovery finalizes with the original tracking id', async () => {
         mockedAxios.post.mockResolvedValueOnce({

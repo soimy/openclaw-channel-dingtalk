@@ -750,6 +750,7 @@ export async function sendSplitProactiveCards(
   conversationId: string,
   text: string,
   log?: Logger,
+  options: { statusLine?: string } = {},
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -759,10 +760,14 @@ export async function sendSplitProactiveCards(
 }> {
   const chunks = splitMessageChunks(text, CARD_BLOCK_CHUNK_LIMIT);
   for (const [idx, chunk] of chunks.entries()) {
-    // Page indicator goes to the card template's statusLine header, not the
-    // markdown content tail — "(n/m)" is the plain-markdown message format
-    // and would pollute the card body (issue #615 review round 4).
-    const statusLine = chunks.length > 1 ? `page(${idx + 1}/${chunks.length})` : undefined;
+    // Page indicator is prepended to the original statusLine header (not a
+    // replacement) so rescue cards keep model/agent metadata; without a base
+    // statusLine the page marker stands alone (issue #615 review round 4).
+    const pagePrefix = chunks.length > 1 ? `page(${idx + 1}/${chunks.length})` : undefined;
+    const statusLine =
+      pagePrefix && options.statusLine?.trim()
+        ? `${pagePrefix} | ${options.statusLine.trim()}`
+        : (pagePrefix ?? options.statusLine?.trim());
     const result = await sendProactiveCardText(config, conversationId, chunk, log, { statusLine });
     if (!result.ok) {
       return {
