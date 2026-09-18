@@ -702,9 +702,13 @@ export async function sendProactiveCardText(
   conversationId: string,
   content: string,
   log?: Logger,
+  options: { statusLine?: string } = {},
 ): Promise<{ ok: boolean; error?: string } & DingTalkTrackingMetadata> {
   try {
-    const card = await createAICard(config, conversationId, log, { persistPending: false });
+    const card = await createAICard(config, conversationId, log, {
+      persistPending: false,
+      statusLine: options.statusLine,
+    });
     if (!card) {
       return { ok: false, error: "Failed to create AI card" };
     }
@@ -753,13 +757,13 @@ export async function sendSplitProactiveCards(
   total: number;
   unsentChunks?: string[];
 }> {
-  // Reserve 12 code points for the "(n/m)" suffix so a max-size chunk plus
-  // suffix stays within CARD_BLOCK_CHUNK_LIMIT and sendProactiveCardText's
-  // internal splitCardBlocks never re-splits it.
-  const chunks = splitMessageChunks(text, CARD_BLOCK_CHUNK_LIMIT - 12);
+  const chunks = splitMessageChunks(text, CARD_BLOCK_CHUNK_LIMIT);
   for (const [idx, chunk] of chunks.entries()) {
-    const content = chunks.length > 1 ? `${chunk}\n\n(${idx + 1}/${chunks.length})` : chunk;
-    const result = await sendProactiveCardText(config, conversationId, content, log);
+    // Page indicator goes to the card template's statusLine header, not the
+    // markdown content tail — "(n/m)" is the plain-markdown message format
+    // and would pollute the card body (issue #615 review round 4).
+    const statusLine = chunks.length > 1 ? `page(${idx + 1}/${chunks.length})` : undefined;
+    const result = await sendProactiveCardText(config, conversationId, chunk, log, { statusLine });
     if (!result.ok) {
       return {
         ok: false,

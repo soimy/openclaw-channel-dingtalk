@@ -31,6 +31,7 @@ import {
     recallAICardMessage,
     recoverPendingCardsForAccount,
     sendProactiveCardText,
+    sendSplitProactiveCards,
     streamAICard,
     updateAICardBlockList,
 } from '../../src/card/card-service';
@@ -856,6 +857,42 @@ describe('card-service', () => {
         ]);
         expect(fs.existsSync(stateFilePath)).toBe(false);
         expect(fs.existsSync(legacyStateFilePath)).toBe(false);
+    });
+
+    it('sendSplitProactiveCards puts page(n/m) in statusLine, not in card content', async () => {
+        mockedAxios.post.mockResolvedValue({
+            status: 200,
+            data: {
+                result: {
+                    outTrackId: 'track_split',
+                    processQueryKey: 'card_process_split',
+                    cardInstanceId: 'card_instance_split',
+                },
+            },
+        });
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        // Two chunks: content longer than CARD_BLOCK_CHUNK_LIMIT (2500).
+        const text = 'A'.repeat(2200) + 'B'.repeat(2200);
+        const result = await sendSplitProactiveCards(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'cid_split',
+            text
+        );
+
+        expect(result).toEqual({ ok: true, sent: 2, total: 2 });
+        expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+        const bodies = mockedAxios.post.mock.calls.map((call: any[]) => call[1]);
+        expect(bodies[0].cardData?.cardParamMap.statusLine).toBe('page(1/2)');
+        expect(bodies[1].cardData?.cardParamMap.statusLine).toBe('page(2/2)');
+        // Page marker must not be appended to the card markdown content.
+        for (const body of bodies) {
+            expect(body.cardData?.cardParamMap.content).not.toMatch(/\(\d+\/\d+\)\s*$/);
+        }
+        const committed = mockedAxios.put.mock.calls
+            .filter((call: any[]) => String(call[0]).endsWith('/v1.0/card/instances'))
+            .map((call: any[]) => call[1].cardData?.cardParamMap.content as string);
+        expect(committed.join('')).toBe(text);
     });
 
     it('recovers from legacy pending state file and migrates to namespaced file', async () => {
