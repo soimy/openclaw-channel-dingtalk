@@ -20,6 +20,7 @@ vi.mock("../../src/card/card-service", async (importOriginal) => {
         updateAICardBlockList: vi.fn(),
         streamAICardContent: vi.fn(),
         clearAICardStreamingContent: vi.fn(),
+        sendSplitProactiveCards: vi.fn(),
     };
 });
 
@@ -55,6 +56,7 @@ const updateAICardBlockListMock = vi.mocked(cardService.updateAICardBlockList);
 const updateAICardStatusLineMock = vi.mocked(cardService.updateAICardStatusLine);
 const streamAICardContentMock = vi.mocked(cardService.streamAICardContent);
 const clearAICardStreamingContentMock = vi.mocked(cardService.clearAICardStreamingContent);
+const sendSplitProactiveCardsMock = vi.mocked(cardService.sendSplitProactiveCards);
 const sendMessageMock = vi.mocked(sendService.sendMessage);
 const sendProactiveMediaMock = vi.mocked(sendService.sendProactiveMedia);
 const uploadMediaMock = vi.mocked(sendService.uploadMedia);
@@ -103,6 +105,12 @@ describe("reply-strategy-card", () => {
         updateAICardStatusLineMock.mockClear().mockResolvedValue(undefined);
         streamAICardContentMock.mockClear().mockResolvedValue(undefined);
         clearAICardStreamingContentMock.mockClear().mockResolvedValue(undefined);
+        sendSplitProactiveCardsMock.mockReset().mockResolvedValue({
+            ok: false,
+            error: "no-cards",
+            sent: 0,
+            total: 0,
+        });
         sendMessageMock.mockClear().mockResolvedValue({ ok: true });
         sendProactiveMediaMock.mockClear().mockResolvedValue({ ok: true, mediaId: "test-media-id" });
         uploadMediaMock.mockClear().mockResolvedValue({ mediaId: "test-media-id", buffer: Buffer.from("") });
@@ -1525,6 +1533,79 @@ describe("reply-strategy-card", () => {
             await strategy.finalize();
 
             expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const options = sendMessageMock.mock.calls[0]?.[3];
+            expect(options?.forceMarkdown).toBe(true);
+        });
+
+        it("falls back to markdown with full text when rescue sends zero cards (review P1)", async () => {
+            const card = makeCard({ state: AICardStatus.PROCESSING });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("commit failed"));
+            sendSplitProactiveCardsMock.mockResolvedValue({
+                ok: false,
+                error: "first card failed",
+                sent: 0,
+                total: 2,
+                unsentChunks: ["最终答案内容第一段", "最终答案内容第二段"],
+            });
+
+            await strategy.deliver({ kind: "final", text: "最终答案内容第一段最终答案内容第二段", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendSplitProactiveCardsMock).toHaveBeenCalled();
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const options = sendMessageMock.mock.calls[0]?.[3];
+            expect(options?.forceMarkdown).toBe(true);
+            const sentText = sendMessageMock.mock.calls[0]?.[2];
+            expect(sentText).toContain("最终答案内容第一段");
+            expect(sentText).toContain("最终答案内容第二段");
+        });
+
+        it("resends only the unsent suffix after a partial split send (review P1)", async () => {
+            const card = makeCard({ state: AICardStatus.FAILED });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            sendSplitProactiveCardsMock.mockResolvedValue({
+                ok: false,
+                error: "second card failed",
+                sent: 1,
+                total: 2,
+                unsentChunks: ["未发送的后缀"],
+            });
+
+            await strategy.deliver({ kind: "final", text: "已发送的前缀未发送的后缀", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0]?.[2];
+            expect(sentText).toBe("未发送的后缀");
+            const options = sendMessageMock.mock.calls[0]?.[3];
+            expect(options?.forceMarkdown).toBe(true);
+        });
+
+        it("resends only the unsent suffix when commit rescue partially fails (review P1)", async () => {
+            const card = makeCard({ state: AICardStatus.PROCESSING });
+            const ctx = buildCtx(card);
+            const strategy = createCardReplyStrategy(ctx);
+
+            commitAICardBlocksMock.mockRejectedValueOnce(new Error("commit failed"));
+            sendSplitProactiveCardsMock.mockResolvedValue({
+                ok: false,
+                error: "second card failed",
+                sent: 1,
+                total: 2,
+                unsentChunks: ["救援后缀"],
+            });
+
+            await strategy.deliver({ kind: "final", text: "救援前缀救援后缀", mediaUrls: [] });
+            await strategy.finalize();
+
+            expect(sendMessageMock).toHaveBeenCalledTimes(1);
+            const sentText = sendMessageMock.mock.calls[0]?.[2];
+            expect(sentText).toBe("救援后缀");
             const options = sendMessageMock.mock.calls[0]?.[3];
             expect(options?.forceMarkdown).toBe(true);
         });

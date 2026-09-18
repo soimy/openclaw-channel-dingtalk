@@ -41,6 +41,17 @@ describe("splitMessageChunks", () => {
     expect(chunks.join("")).toBe(text);
   });
 
+  it("never inserts newlines into newline-free content (review regression)", () => {
+    // Hard-split pieces of one long line must rejoin with NO added separators.
+    const text = "x".repeat(7580);
+    const chunks = splitMessageChunks(text, 3800);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe(text);
+    for (const chunk of chunks) {
+      expect(chunk).not.toContain("\n");
+    }
+  });
+
   it("never splits surrogate pairs (emoji stay intact)", () => {
     const text = "😀".repeat(3000);
     const chunks = splitMessageChunks(text, 1000);
@@ -84,6 +95,36 @@ describe("splitMessageChunks", () => {
     // Content is preserved in order; hard-split pieces rejoin with newlines.
     const rejoined = chunks.join("").replace(/```/g, "");
     expect(rejoined.replace(/\n/g, "")).toBe(`${"x".repeat(600)}b`);
+  });
+
+  it("keeps reopened-fence content on its own line after a hard split (review regression)", () => {
+    // A reopened fence must be followed by a newline, otherwise the content
+    // lands on the fence info-string line and stops rendering.
+    const text = "\u0060\u0060\u0060\n" + "A".repeat(5000) + "\n\u0060\u0060\u0060";
+    const chunks = splitMessageChunks(text, 3800);
+    for (const chunk of chunks) {
+      expect(codePoints(chunk)).toBeLessThanOrEqual(3800);
+    }
+    for (const [i, chunk] of chunks.entries()) {
+      if (i > 0) {
+        expect(chunk.startsWith("```\n")).toBe(true);
+      }
+    }
+  });
+
+  it("keeps reopened-fence content on its own line after a hard split (review regression)", () => {
+    // A reopened fence must be followed by a newline, otherwise the content
+    // lands on the fence info-string line and stops rendering.
+    const text = "\u0060\u0060\u0060\n" + "A".repeat(5000) + "\n\u0060\u0060\u0060";
+    const chunks = splitMessageChunks(text, 3800);
+    for (const chunk of chunks) {
+      expect(codePoints(chunk)).toBeLessThanOrEqual(3800);
+    }
+    for (const [i, chunk] of chunks.entries()) {
+      if (i > 0) {
+        expect(chunk.startsWith("```\n")).toBe(true);
+      }
+    }
   });
 
   it("does not leave a stray fence marker for text ending inside a fence", () => {

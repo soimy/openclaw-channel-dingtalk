@@ -71,22 +71,33 @@ export function splitMessageChunks(text: string, limit = MESSAGE_CHUNK_LIMIT): s
   }
   const budget = limit - 12;
 
-  // Pre-split oversized single lines so the line loop below always makes
-  // progress. Fence bookkeeping is unaffected: pieces inside a fence carry
-  // no ``` markers, so `inCode` stays true across them.
-  const lines = text.split("\n").flatMap((line) => splitByCodePoints(line, budget));
+  // Pre-split oversized single lines so the loop below always makes progress.
+  // Pieces remember whether they start at an original newline (`startsLine`)
+  // or are continuation fragments of a hard-split line — continuation pieces
+  // must be joined back WITHOUT an inserted "\n" to preserve content fidelity
+  // (e.g. a 7580-char URL must split with no newlines added).
+  // Fence bookkeeping is unaffected: pieces inside a fence carry no ```
+  // markers, so `inCode` stays true across them.
+  const lines: Array<{ text: string; startsLine: boolean }> = [];
+  for (const line of text.split("\n")) {
+    const pieces = splitByCodePoints(line, budget);
+    for (const [i, piece] of pieces.entries()) {
+      lines.push({ text: piece, startsLine: i === 0 });
+    }
+  }
 
   const chunks: string[] = [];
   let buf = "";
   let bufLen = 0;
   let inCode = false;
 
-  for (const line of lines) {
+  for (const { text: line, startsLine } of lines) {
     const lineLen = Array.from(line).length;
+    const sepLen = startsLine && bufLen > 0 ? 1 : 0;
     // Unconditionally reserve 4 code points so a closing fence added at any
     // later point (a line just added may itself open a fence) stays in budget.
     const cap = limit - 4;
-    if (bufLen + lineLen + (bufLen > 0 ? 1 : 0) > cap && bufLen > 0) {
+    if (bufLen + lineLen + sepLen > cap && bufLen > 0) {
       if (inCode) {
         buf += "\n```";
         chunks.push(buf);
@@ -98,8 +109,11 @@ export function splitMessageChunks(text: string, limit = MESSAGE_CHUNK_LIMIT): s
         bufLen = 0;
       }
     }
-    buf += (buf ? "\n" : "") + line;
-    bufLen += lineLen + (buf === line ? 0 : 1);
+    // A reopened fence ("```") must be followed by a newline or the content
+    // lands on the fence info-string line and stops rendering.
+    const joiner = bufLen > 0 && (startsLine || buf === "```") ? "\n" : "";
+    buf += joiner + line;
+    bufLen += lineLen + (joiner ? 1 : 0);
     const fenceCount = (line.match(/```/g) || []).length;
     if (fenceCount % 2 === 1) {
       inCode = !inCode;

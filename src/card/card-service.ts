@@ -738,13 +738,21 @@ export async function sendProactiveCardText(
  * per chunk (issue #615). Used when a card's blockList commit fails or the
  * card itself has failed — delivery keeps the card surface instead of
  * degrading to plain markdown. Chunks are sent sequentially to preserve order.
+ * On partial failure, `unsentChunks` carries the chunks that never went out
+ * so callers can redeliver exactly the missing suffix.
  */
 export async function sendSplitProactiveCards(
   config: DingTalkConfig,
   conversationId: string,
   text: string,
   log?: Logger,
-): Promise<{ ok: boolean; error?: string; sent: number; total: number }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  sent: number;
+  total: number;
+  unsentChunks?: string[];
+}> {
   // Reserve 12 code points for the "(n/m)" suffix so a max-size chunk plus
   // suffix stays within CARD_BLOCK_CHUNK_LIMIT and sendProactiveCardText's
   // internal splitCardBlocks never re-splits it.
@@ -753,7 +761,13 @@ export async function sendSplitProactiveCards(
     const content = chunks.length > 1 ? `${chunk}\n\n(${idx + 1}/${chunks.length})` : chunk;
     const result = await sendProactiveCardText(config, conversationId, content, log);
     if (!result.ok) {
-      return { ok: false, error: result.error, sent: idx, total: chunks.length };
+      return {
+        ok: false,
+        error: result.error,
+        sent: idx,
+        total: chunks.length,
+        unsentChunks: chunks.slice(idx),
+      };
     }
   }
   return { ok: true, sent: chunks.length, total: chunks.length };

@@ -26,10 +26,6 @@ export function createInboundHandlerMocks() {
     isCardInTerminalStateMock: vi.fn(),
     sendSplitProactiveCardsMock: vi.fn(),
     formatContentForCardMock: vi.fn((s: string) => s),
-    formatContentForCardMock: vi.fn((s: string) => s),
-
-    // Message handling mocks
-    extractMessageContentMock: vi.fn(),
     downloadGroupFileMock: vi.fn(),
     getUnionIdByStaffIdMock: vi.fn(),
     resolveQuotedFileMock: vi.fn(),
@@ -239,14 +235,9 @@ export function resetInboundHandlerMocks(mocks: ReturnType<typeof createInboundH
   mocks.streamAICardContentMock.mockReset().mockResolvedValue(undefined);
   mocks.clearAICardStreamingContentMock.mockReset().mockResolvedValue(undefined);
   mocks.sendSplitProactiveCardsMock.mockReset();
-  mocks.sendSplitProactiveCardsMock.mockReset();
 
   mocks.acquireSessionLockMock.mockReset();
   mocks.acquireSessionLockMock.mockResolvedValue(vi.fn());
-  mocks.extractAttachmentTextMock.mockReset();
-  mocks.extractAttachmentTextMock.mockResolvedValue(null);
-  mocks.isAbortRequestTextMock.mockReset();
-  mocks.isAbortRequestTextMock.mockReturnValue(false);
 
   mocks.getRuntimeMock.mockReturnValue(buildRuntime());
   mocks.extractMessageContentMock.mockReturnValue({ text: "hello", messageType: "text" });
