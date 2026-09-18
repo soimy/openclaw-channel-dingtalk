@@ -925,6 +925,36 @@ describe('card-service', () => {
         expect(bodies[1].cardData?.cardParamMap.statusLine).toBe('page(2/2) | glm-5 | high');
     });
 
+    it('recovers from legacy pending state file and migrates to namespaced file', async () => {
+        const pending = {
+            version: 1,
+            updatedAt: Date.now(),
+            pendingCards: [
+                {
+                    accountId: 'main',
+                    cardInstanceId: 'card_legacy_1',
+                    conversationId: 'cid_legacy_1',
+                    createdAt: Date.now() - 1000,
+                    lastUpdated: Date.now() - 1000,
+                    state: '1',
+                },
+            ],
+        };
+        fs.mkdirSync(path.dirname(legacyStateFilePath), { recursive: true });
+        fs.writeFileSync(legacyStateFilePath, JSON.stringify(pending, null, 2));
+        mockedAxios.put.mockResolvedValue({ status: 200, data: { ok: true } });
+
+        const recovered = await recoverPendingCardsForAccount(
+            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            'main',
+            storePath
+        );
+
+        expect(recovered).toBe(1);
+        expect(fs.existsSync(stateFilePath)).toBe(true);
+        const namespaced = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
+        expect(namespaced.pendingCards).toHaveLength(0);
+    });
 
     it('persists outTrackId for pending cards so recovery finalizes with the original tracking id', async () => {
         mockedAxios.post.mockResolvedValueOnce({

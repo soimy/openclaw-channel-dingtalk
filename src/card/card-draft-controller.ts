@@ -10,8 +10,8 @@
  * {@link createDraftStreamLoop}.
  */
 
-import { splitCardBlocks } from "../messaging/message-chunker";
 import type { AICardInstance, CardBlock, Logger } from "../platform/types";
+import { splitCardBlocks } from "../shared/message-chunker";
 import {
   clearAICardStreamingContent,
   streamAICardContent,

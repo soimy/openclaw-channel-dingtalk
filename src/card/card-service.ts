@@ -2,11 +2,6 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  splitCardBlocks,
-  splitMessageChunks,
-  CARD_BLOCK_CHUNK_LIMIT,
-} from "../messaging/message-chunker";
-import {
   createSyntheticOutboundMsgId,
   clearMessageContextCacheForTest,
   DEFAULT_CARD_CONTENT_TTL_MS,
@@ -29,6 +24,11 @@ import type {
 } from "../platform/types";
 import { AICardStatus } from "../platform/types";
 import axios from "../shared/http-client";
+import {
+  splitCardBlocks,
+  splitMessageChunks,
+  CARD_BLOCK_CHUNK_LIMIT,
+} from "../shared/message-chunker";
 import {
   readNamespaceJson,
   resolveNamespacePath,

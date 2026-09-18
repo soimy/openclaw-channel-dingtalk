@@ -16,6 +16,7 @@ import type {
   SessionWebhookResponse,
 } from "../platform/types";
 import axios from "../shared/http-client";
+import { MESSAGE_CHUNK_LIMIT, splitMessageChunks } from "../shared/message-chunker";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "../shared/utils";
 import { resolveOriginalPeerId } from "../targeting/peer-id-registry";
 import {
@@ -191,7 +192,6 @@ function shouldRouteSessionMediaViaProactive(
   return mediaType === "voice" || mediaType === "video" || mediaType === "file";
 }
 
-import { MESSAGE_CHUNK_LIMIT, splitMessageChunks } from "./message-chunker";
 const CARD_MEDIA_CONTROLLER_ATTACH_WAIT_MS = 150;
 const CARD_MEDIA_CONTROLLER_ATTACH_POLL_MS = 25;
 

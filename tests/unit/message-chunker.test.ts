@@ -4,7 +4,7 @@ import {
   MESSAGE_CHUNK_LIMIT,
   splitByCodePoints,
   splitMessageChunks,
-} from "../../src/messaging/message-chunker";
+} from "../../src/shared/message-chunker";
 
 const codePoints = (s: string) => Array.from(s).length;
 
