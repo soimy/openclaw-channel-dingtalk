@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { describe, expect, it } from "vitest";
 
 import { getConfig, resolveGatewayCapabilityConfig } from "../../src/platform/config";
+import { DEFAULT_OUTBOUND_SEND_INTERVAL_MS } from "../../src/shared/outbound-throttle";
 
 const repoRoot = resolve(__dirname, "../..");
 
@@ -292,6 +293,31 @@ describe("plugin manifest declared defaults", () => {
             expect(tools?.docs?.default).toBe(caps.docsEnabled);
             expect(tools?.proactiveSend?.default).toBe(caps.proactiveSendEnabled);
         }
+    });
+
+    it("declares the outbound send interval default that the throttle applies", () => {
+        const { manifest, topLevel, accountLevel } = readSchemaProperties();
+
+        // Issue #626: messages landing in the same second are displayed out of
+        // order, so consecutive sends to one conversation are spaced by default.
+        // `getConfig()` passes the key through like `cardStreamInterval`, and the
+        // send paths apply DEFAULT_OUTBOUND_SEND_INTERVAL_MS when it is unset, so
+        // this test binds the manifest declaration to that single constant.
+        expect(DEFAULT_OUTBOUND_SEND_INTERVAL_MS).toBe(1000);
+
+        for (const properties of [topLevel, accountLevel]) {
+            expect(properties?.outboundSendIntervalMs).toEqual(
+                expect.objectContaining({
+                    type: "integer",
+                    minimum: 0,
+                    maximum: 10000,
+                    default: DEFAULT_OUTBOUND_SEND_INTERVAL_MS,
+                }),
+            );
+        }
+
+        const help = manifest.channelConfigs?.dingtalk?.uiHints?.outboundSendIntervalMs?.help;
+        expect(help).toMatch(/default 1000/i);
     });
 
     it("spells out the risky defaults in descriptions and WebUI hints", () => {

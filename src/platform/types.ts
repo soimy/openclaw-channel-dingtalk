@@ -113,6 +113,10 @@ export interface DingTalkConfig extends OpenClawConfig {
   cardRealTimeStream?: boolean;
   /** Throttle interval in ms for card stream updates (default 1000) */
   cardStreamInterval?: number;
+  /** Minimum interval in ms between consecutive outbound messages to the same
+   *  conversation (default 1000). Spacing them keeps the DingTalk client from
+   *  displaying streamed/split replies out of order; `0` sends back-to-back. */
+  outboundSendIntervalMs?: number;
   /** Live "task in progress" block on AI cards for long-running tasks.
    *  `true` forces it on, `false` forces it off; when unset it is on unless
    *  `cardStreamingMode` is explicitly `"off"`. */
@@ -212,6 +216,10 @@ export interface DingTalkChannelConfig {
   cardRealTimeStream?: boolean;
   /** Throttle interval in ms for card stream updates (default 1000) */
   cardStreamInterval?: number;
+  /** Minimum interval in ms between consecutive outbound messages to the same
+   *  conversation (default 1000). Spacing them keeps the DingTalk client from
+   *  displaying streamed/split replies out of order; `0` sends back-to-back. */
+  outboundSendIntervalMs?: number;
   /** Live "task in progress" block on AI cards for long-running tasks.
    *  `true` forces it on, `false` forces it off; when unset it is on unless
    *  `cardStreamingMode` is explicitly `"off"`. */

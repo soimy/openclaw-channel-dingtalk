@@ -116,6 +116,9 @@ describe('sendMessage card mode', () => {
             'cidA1B2C3',
             'new terminal content',
             undefined,
+            // The account is forwarded so the send throttle scopes per account
+            // instead of falling back to a shared `default` scope (PR #627).
+            { accountId: undefined },
         );
         expect(result).toEqual({
             ok: true,

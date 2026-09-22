@@ -251,6 +251,13 @@
             "default": 1000,
             "description": "Throttle interval in milliseconds between AI card streaming updates."
           },
+          "outboundSendIntervalMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "default": 1000,
+            "description": "Minimum interval in milliseconds between consecutive outbound messages to the same conversation. DingTalk cannot edit sent messages, so streamed replies arrive as several messages that the client can display out of order when they land in the same second (issue #626); consecutive sends are therefore spaced by default. Set to 0 to send back-to-back."
+          },
           "cardTaskProgress": {
             "type": "boolean",
             "description": "Live task-progress block on AI cards for long-running tasks. true forces it on, false forces it off; when unset it is on unless cardStreamingMode is explicitly set to off."
@@ -637,6 +644,13 @@
                   "default": 1000,
                   "description": "Throttle interval in milliseconds between AI card streaming updates."
                 },
+                "outboundSendIntervalMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000,
+                  "default": 1000,
+                  "description": "Minimum interval in milliseconds between consecutive outbound messages to the same conversation. DingTalk cannot edit sent messages, so streamed replies arrive as several messages that the client can display out of order when they land in the same second (issue #626); consecutive sends are therefore spaced by default. Set to 0 to send back-to-back."
+                },
                 "cardTaskProgress": {
                   "type": "boolean",
                   "description": "Live task-progress block on AI cards for long-running tasks. true forces it on, false forces it off; when unset it is on unless cardStreamingMode is explicitly set to off."
@@ -937,6 +951,10 @@
         "cardStreamInterval": {
           "label": "Card Stream Interval (ms)",
           "help": "Throttle interval in milliseconds between AI card incremental updates."
+        },
+        "outboundSendIntervalMs": {
+          "label": "Outbound Send Interval (ms)",
+          "help": "Minimum interval in milliseconds between consecutive outbound messages to the same conversation (default 1000). Long replies that arrive as several messages would otherwise be displayed out of order in the DingTalk client. Set to 0 to send back-to-back."
         },
         "cardTaskProgress": {
           "label": "Card Task Progress",

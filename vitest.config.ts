@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    setupFiles: ["tests/setup/reset-inbound-queue.ts"],
+    setupFiles: ["tests/setup/reset-inbound-queue.ts", "tests/setup/reset-outbound-throttle.ts"],
     clearMocks: true,
     restoreMocks: true,
     mockReset: true,

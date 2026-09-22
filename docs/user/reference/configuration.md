@@ -28,6 +28,7 @@
 | `cardTemplateKey` | string | `content` | 卡片内容字段名 |
 | `cardStreamingMode` | string | `off`（生效值） | 卡片流式模式：`off` / `answer` / `all` |
 | `cardStreamInterval` | number | `1000` | 卡片实时更新节奏（毫秒，最小 `200`） |
+| `outboundSendIntervalMs` | number | `1000` | 同一会话内两次出站消息之间的最小间隔（毫秒，`0`–`10000`）；`0` 关闭节流 |
 | `cardTaskProgress` | boolean | 未设置时开启 | 长任务进度块；`false` 关闭，`true` 强制开启（含显式 `cardStreamingMode: "off"`） |
 | `cardTaskProgressRefresh` | string | `heartbeat` | 进度块刷新节奏：`heartbeat`（每 30 秒，调用量固定）/ `interval`（每次工具事件，受 `cardStreamInterval` 节流） |
 | `cardAtSender` | string | - | 群聊中卡片完成后追加 @发送者 的消息文本；非空时生效 |

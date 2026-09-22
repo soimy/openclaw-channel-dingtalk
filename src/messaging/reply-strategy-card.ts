@@ -782,7 +782,7 @@ export function createCardReplyStrategy(
               card.conversationId,
               fallbackText,
               log,
-              { statusLine: buildStatusLine() },
+              { statusLine: buildStatusLine(), accountId: ctx.accountId },
             );
             if (splitResult.ok) {
               delivered = true;
@@ -955,7 +955,7 @@ export function createCardReplyStrategy(
             card.conversationId,
             rescueText,
             log,
-            { statusLine: buildStatusLine() },
+            { statusLine: buildStatusLine(), accountId: ctx.accountId },
           );
           // Undelivered text must still reach the user: redeliver only the
           // missing chunks after a partial rescue, or the full text when no

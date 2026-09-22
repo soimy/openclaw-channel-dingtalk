@@ -875,7 +875,15 @@ describe('card-service', () => {
         // Two chunks: content longer than CARD_BLOCK_CHUNK_LIMIT (2500).
         const text = 'A'.repeat(2200) + 'B'.repeat(2200);
         const result = await sendSplitProactiveCards(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            {
+                clientId: 'id',
+                clientSecret: 'sec',
+                cardTemplateId: 'tmpl.schema',
+                // This test covers card chunking, not send spacing. The throttle
+                // has its own tests, and its default would add a real second
+                // between the two cards.
+                outboundSendIntervalMs: 0,
+            } as any,
             'cid_split',
             text
         );
@@ -910,7 +918,14 @@ describe('card-service', () => {
 
         const text = 'A'.repeat(2200) + 'B'.repeat(2200);
         const result = await sendSplitProactiveCards(
-            { clientId: 'id', clientSecret: 'sec', cardTemplateId: 'tmpl.schema' } as any,
+            {
+                clientId: 'id',
+                clientSecret: 'sec',
+                cardTemplateId: 'tmpl.schema',
+                // See the statusLine test above: keep card chunking assertions
+                // independent of the send throttle's wall-clock default.
+                outboundSendIntervalMs: 0,
+            } as any,
             'cid_split',
             text,
             undefined,

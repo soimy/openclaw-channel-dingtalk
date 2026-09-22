@@ -17,6 +17,11 @@ import type {
 } from "../platform/types";
 import axios from "../shared/http-client";
 import { MESSAGE_CHUNK_LIMIT, splitMessageChunks } from "../shared/message-chunker";
+import {
+  DEFAULT_OUTBOUND_SEND_INTERVAL_MS,
+  resolveOutboundThrottleScope,
+  runThrottledOutboundSend,
+} from "../shared/outbound-throttle";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "../shared/utils";
 import { resolveOriginalPeerId } from "../targeting/peer-id-registry";
 import {
@@ -343,7 +348,9 @@ export async function sendProactiveTextOrMarkdown(
     log?.debug?.(
       `[DingTalk] Using card API for proactive message to user ${resolvedTarget}${proactiveRiskTag}`,
     );
-    const result = await sendProactiveCardText(config, resolvedTarget, text, log);
+    const result = await sendProactiveCardText(config, resolvedTarget, text, log, {
+      accountId: options.accountId,
+    });
     if (result.ok) {
       if (options.accountId) {
         deleteProactiveRiskObservation(options.accountId, resolvedTarget);
@@ -411,21 +418,35 @@ export async function sendProactiveTextOrMarkdown(
     return payload;
   };
 
+  // Serialize and space the split sends of one proactive reply (issue #626).
+  const throttleScope = resolveOutboundThrottleScope({
+    accountId: options.accountId,
+    conversationId: resolvedTarget,
+  });
+  const throttleIntervalMs = config.outboundSendIntervalMs ?? DEFAULT_OUTBOUND_SEND_INTERVAL_MS;
+
   let lastData: unknown;
   for (const [idx, chunkText] of chunks.entries()) {
     const payload = buildPayload(chunkText, idx);
     try {
-      const result = await axios({
-        url,
-        method: "POST",
-        data: payload,
-        headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-        ...getProxyBypassOption(config),
-      });
-      lastData = result.data;
-      if (options.accountId) {
-        deleteProactiveRiskObservation(options.accountId, resolvedTarget);
-      }
+      lastData = await runThrottledOutboundSend(
+        throttleScope,
+        throttleIntervalMs,
+        async () => {
+          const result = await axios({
+            url,
+            method: "POST",
+            data: payload,
+            headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+            ...getProxyBypassOption(config),
+          });
+          if (options.accountId) {
+            deleteProactiveRiskObservation(options.accountId, resolvedTarget);
+          }
+          return result.data;
+        },
+        log,
+      );
     } catch (err: unknown) {
       const maybeAxiosError = err as {
         response?: { status?: number; statusText?: string; data?: unknown };
@@ -768,6 +789,14 @@ export async function sendBySession(
     "Clawdbot 消息",
   );
   const chunks = splitMessageChunks(normalizedText, MESSAGE_CHUNK_LIMIT);
+  // One send per HTTP message: streamed markdown replies call this once per
+  // incremental tail, and oversized replies split into several chunks here, so
+  // both are serialized and spaced by `outboundSendIntervalMs` (issue #626).
+  const throttleScope = resolveOutboundThrottleScope({
+    accountId: options.accountId,
+    conversationId: options.conversationId,
+  });
+  const throttleIntervalMs = config.outboundSendIntervalMs ?? DEFAULT_OUTBOUND_SEND_INTERVAL_MS;
 
   let lastResult: any = null;
   for (const [idx, chunk] of chunks.entries()) {
@@ -792,18 +821,25 @@ export async function sendBySession(
       body.at = { atUserIds: [options.atUserId], isAtAll: false };
     }
 
-    const result = await axios({
-      url: sessionWebhook,
-      method: "POST",
-      data: body,
-      headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
-      ...getProxyBypassOption(config),
-    });
-    log?.debug?.(
-      `[DingTalk] Session webhook response msgtype=${body.msgtype} ${summarizeSessionWebhookResponse(result.data)}`,
+    await runThrottledOutboundSend(
+      throttleScope,
+      throttleIntervalMs,
+      async () => {
+        const result = await axios({
+          url: sessionWebhook,
+          method: "POST",
+          data: body,
+          headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" },
+          ...getProxyBypassOption(config),
+        });
+        log?.debug?.(
+          `[DingTalk] Session webhook response msgtype=${body.msgtype} ${summarizeSessionWebhookResponse(result.data)}`,
+        );
+        ensureSessionWebhookBusinessSuccess(result.data, { msgtype: body.msgtype });
+        lastResult = result.data;
+      },
+      log,
     );
-    ensureSessionWebhookBusinessSuccess(result.data, { msgtype: body.msgtype });
-    lastResult = result.data;
   }
   return lastResult;
 }
@@ -885,7 +921,9 @@ export async function sendMessage(
           return { ok: true };
         }
 
-        const proactiveResult = await sendProactiveCardText(config, conversationId, text, log);
+        const proactiveResult = await sendProactiveCardText(config, conversationId, text, log, {
+          accountId: options.accountId,
+        });
         if (!proactiveResult.ok) {
           return { ok: false, error: proactiveResult.error || "Card send failed" };
         }

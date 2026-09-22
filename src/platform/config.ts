@@ -470,6 +470,7 @@ export function resolveDingTalkAccount(
       cardStreamingMode: dingtalk?.cardStreamingMode,
       cardRealTimeStream: dingtalk?.cardRealTimeStream,
       cardStreamInterval: dingtalk?.cardStreamInterval,
+      outboundSendIntervalMs: dingtalk?.outboundSendIntervalMs,
       aicardDegradeMs: dingtalk?.aicardDegradeMs,
       learningEnabled: dingtalk?.learningEnabled,
       learningAutoApply: dingtalk?.learningAutoApply,

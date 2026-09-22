@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "../messaging/message-context-store";
+import { DEFAULT_OUTBOUND_SEND_INTERVAL_MS } from "../shared/outbound-throttle";
 import { buildSecretInputSchema } from "./secret-input";
 
 const AckReactionSchema = z.union([
@@ -186,6 +187,20 @@ const DingTalkAccountConfigShape = {
 
   /** Throttle interval in milliseconds between AI card streaming updates. */
   cardStreamInterval: z.number().int().min(200).optional().default(1000),
+
+  /** Minimum interval in milliseconds between consecutive outbound messages to
+   *  the same conversation. DingTalk cannot edit sent messages, so streamed
+   *  replies arrive as several messages; the client can display messages that
+   *  land in the same second out of order (issue #626), so consecutive sends are
+   *  spaced by default. Set to `0` to send back-to-back at the cost of possible
+   *  out-of-order display. */
+  outboundSendIntervalMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(10000)
+    .optional()
+    .default(DEFAULT_OUTBOUND_SEND_INTERVAL_MS),
 
   /** Live "task in progress" block on AI cards for long-running tasks.
    *  - true: always enabled

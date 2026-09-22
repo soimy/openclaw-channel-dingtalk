@@ -30,6 +30,11 @@ import {
   CARD_BLOCK_CHUNK_LIMIT,
 } from "../shared/message-chunker";
 import {
+  DEFAULT_OUTBOUND_SEND_INTERVAL_MS,
+  resolveOutboundThrottleScope,
+  runThrottledOutboundSend,
+} from "../shared/outbound-throttle";
+import {
   readNamespaceJson,
   resolveNamespacePath,
   writeNamespaceJsonAtomic,
@@ -702,35 +707,50 @@ export async function sendProactiveCardText(
   conversationId: string,
   content: string,
   log?: Logger,
-  options: { statusLine?: string } = {},
+  options: { statusLine?: string; accountId?: string } = {},
 ): Promise<{ ok: boolean; error?: string } & DingTalkTrackingMetadata> {
   try {
-    const card = await createAICard(config, conversationId, log, {
-      persistPending: false,
-      statusLine: options.statusLine,
-    });
-    if (!card) {
-      return { ok: false, error: "Failed to create AI card" };
-    }
-    // Split oversized answers into multiple blocks to avoid the DingTalk
-    // blank-card limit on a single markdown block (issue #615).
-    const blockListJson = JSON.stringify(
-      splitCardBlocks([{ type: 0, markdown: content } satisfies CardBlock]),
-    );
-    await commitAICardBlocks(
-      card,
-      {
-        blockListJson,
-        content,
+    // One throttled send per card, covering the whole create+commit cycle so a
+    // slow card cannot overlap the next one. `sendSplitProactiveCards` calls
+    // this in a loop, so fallback cards stay ordered (issue #626). The account is
+    // part of the scope: distinct accounts may reuse a conversation id, and
+    // callers that know theirs forward it (`DingTalkConfig` has no accountId).
+    return await runThrottledOutboundSend(
+      resolveOutboundThrottleScope({
+        accountId: options.accountId,
+        conversationId,
+      }),
+      config.outboundSendIntervalMs ?? DEFAULT_OUTBOUND_SEND_INTERVAL_MS,
+      async () => {
+        const card = await createAICard(config, conversationId, log, {
+          persistPending: false,
+          statusLine: options.statusLine,
+        });
+        if (!card) {
+          return { ok: false, error: "Failed to create AI card" };
+        }
+        // Split oversized answers into multiple blocks to avoid the DingTalk
+        // blank-card limit on a single markdown block (issue #615).
+        const blockListJson = JSON.stringify(
+          splitCardBlocks([{ type: 0, markdown: content } satisfies CardBlock]),
+        );
+        await commitAICardBlocks(
+          card,
+          {
+            blockListJson,
+            content,
+          },
+          log,
+        );
+        return {
+          ok: true,
+          processQueryKey: card.processQueryKey,
+          outTrackId: card.outTrackId,
+          cardInstanceId: card.cardInstanceId,
+        };
       },
       log,
     );
-    return {
-      ok: true,
-      processQueryKey: card.processQueryKey,
-      outTrackId: card.outTrackId,
-      cardInstanceId: card.cardInstanceId,
-    };
   } catch (err: any) {
     log?.error?.(`[DingTalk][AICard] Proactive card send failed: ${err.message}`);
     return { ok: false, error: err.message };
@@ -741,7 +761,9 @@ export async function sendProactiveCardText(
  * Fallback delivery that splits long text across multiple AI Cards, one card
  * per chunk (issue #615). Used when a card's blockList commit fails or the
  * card itself has failed — delivery keeps the card surface instead of
- * degrading to plain markdown. Chunks are sent sequentially to preserve order.
+ * degrading to plain markdown. Chunks are sent sequentially to preserve order,
+ * and `outboundSendIntervalMs` spaces them so the client cannot reorder cards
+ * that would otherwise land in the same second (issue #626).
  * On partial failure, `unsentChunks` carries the chunks that never went out
  * so callers can redeliver exactly the missing suffix.
  */
@@ -750,7 +772,7 @@ export async function sendSplitProactiveCards(
   conversationId: string,
   text: string,
   log?: Logger,
-  options: { statusLine?: string } = {},
+  options: { statusLine?: string; accountId?: string } = {},
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -768,7 +790,10 @@ export async function sendSplitProactiveCards(
       pagePrefix && options.statusLine?.trim()
         ? `${pagePrefix} | ${options.statusLine.trim()}`
         : (pagePrefix ?? options.statusLine?.trim());
-    const result = await sendProactiveCardText(config, conversationId, chunk, log, { statusLine });
+    const result = await sendProactiveCardText(config, conversationId, chunk, log, {
+      statusLine,
+      accountId: options.accountId,
+    });
     if (!result.ok) {
       return {
         ok: false,
