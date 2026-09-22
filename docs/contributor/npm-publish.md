@@ -130,6 +130,18 @@ gh run view <run-id>
 git push origin v3.8.0
 ```
 
+> [!IMPORTANT]
+> **`ref` 不接受短 SHA。** `actions/checkout` 会先试 `git branch --list --remote origin/<ref>` 与
+> `git tag --list <ref>`，两者都失败就报
+> `A branch or tag with the name '<short-sha>' could not be found` 并终止 run（该次 run 不会消耗审计版本号）。
+> 要审计某个提交，请传**完整 40 位 SHA**：
+>
+> ```bash
+> gh workflow run clawhub-audit.yml --ref main -f ref="$(git rev-parse HEAD)"
+> ```
+>
+> 也可以传 tag 或分支名；tag 尚未创建时用分支名或完整 SHA。
+
 ### 判定策略（P2）
 
 判定输入是公开、免鉴权、版本精确的安装信任接口：
@@ -212,10 +224,21 @@ ALLOW_SUSPICIOUS=1 node scripts/clawhub-beta-gate.mjs verdict.json
    - 需要有 npm 账号（https://www.npmjs.com/）
    - 需要有 `@soimy` scope 的发布权限（或你本人的账号可发布该 scope）
 
-2. **认证登录**
-   ```bash
-   npm login
-   ```
+2. **认证：走 npm Trusted Publisher（OIDC），不需要本地登录**
+
+   发布由 `.github/workflows/npm-publish.yml` 在 tag push 时执行，通过 **Trusted Publisher + OIDC** 向 npm 认证：
+
+   - 工作流已配置 `id-token: write`，发布时用 OIDC 换取短期凭证
+   - **不需要 `NPM_TOKEN` Secret**，**也不需要在本机 `npm login`**
+   - 因此本机 `npm whoami` 返回 401 是**正常现象**，不代表没有发布能力
+   - 前提是在 npm 包设置里已完成 GitHub Actions Trusted publisher 绑定（见上方「GitHub CI 自动发布」）
+
+   > [!WARNING]
+   > 不要在仓库或组织变量里注入 `NODE_AUTH_TOKEN` / `NPM_TOKEN`：npm 会优先尝试 token 认证，
+   > 反而可能让 OIDC 不生效。
+
+   只有需要**手动**执行 `npm publish`（绕过 CI 的应急路径）时，才需要 `npm login`；
+   此时请确认登录的是有 `@soimy` scope 权限的账号。
 
 3. **代码质量检查**
    - 确保所有代码已通过类型检查和 lint 验证
@@ -257,13 +280,27 @@ npm pack --dry-run
 
 ### 3. 执行发布前检查
 
-发布前会自动运行类型检查和 lint：
+**先说明本仓库实际存在的钩子，避免照着不存在的脚本敲命令：**
+
+| 命令 / 钩子 | 是否存在 | 实际行为 |
+| --- | --- | --- |
+| `npm run prepublishOnly` | ❌ **不存在** | 仓库没有定义该脚本 |
+| `prepack`（`npm pack` / `npm publish` 前自动触发） | ✅ 存在 | `pnpm run build`（= `build:runtime` + `build:types`），**不做**类型检查与 lint |
+| `pnpm run pack:check` | ✅ 存在 | 校验发布产物（`dist/index.js`、`dist/index.d.ts`、`openclaw.plugin.json`） |
+
+所以类型检查、lint、测试需要**显式执行**：
 
 ```bash
-npm run prepublishOnly
+pnpm run format:check
+pnpm run type-check
+pnpm run lint
+pnpm test
+pnpm run build
+pnpm run pack:check
 ```
 
-如果检查失败，修复所有问题后重试。
+在 CI 路径下这一整套由 `.github/workflows/npm-publish.yml` 与 `ci-tests.yml` 在发布前跑完，
+不需要本地重复；上面这组命令用于**手动发布**或本地预检。如有检查失败，修复后重试。
 
 ### 4. 发布到 npm
 
@@ -311,13 +348,13 @@ openclaw plugins install -l .
 - [ ] 所有测试通过
 - [ ] `pnpm run type-check` 无错误
 - [ ] `pnpm run lint` 无错误
-- [ ] 已手动跑过一次 ClawHub 安全审计（`gh workflow run clawhub-audit.yml`），结论为 `clean`，或 `suspicious` 已显式 `allow_suspicious=true` 放行并有复核结论（审计不阻断发布，但这是流程约定）
-- [ ] README.md 文档已更新
+- [ ] 已手动跑过一次 ClawHub 安全审计（`gh workflow run clawhub-audit.yml -f ref="$(git rev-parse HEAD)"`），结论为 `clean`，或 `suspicious` 已显式 `allow_suspicious=true` 放行并有复核结论（审计不阻断发布，但这是流程约定）
+- [ ] README.md 文档已更新（若本次新增了配置项或用户可见行为，确认 `docs/user/` 已覆盖；README 只保留入口级内容）
 - [ ] `docs/releases/` 已记录新版本变更
 - [ ] 版本号已更新（`npm version`）
-- [ ] `.npmignore` 配置正确
-- [ ] 已登录 npm (`npm whoami`)
-- [ ] 有 `@soimy` scope 发布权限
+- [ ] `.npmignore` / `package.json#files` 打包范围正确（`pnpm run pack:check` 通过）
+- [ ] 已在 npm 包设置中完成 GitHub Actions Trusted publisher 绑定（**无需**本地 `npm login`；本机 `npm whoami` 返回 401 属正常）
+- [ ] 确认仓库/组织未注入 `NODE_AUTH_TOKEN` / `NPM_TOKEN`（否则会覆盖 OIDC）
 
 ## 文件包含规则
 
@@ -348,7 +385,15 @@ ClawHub 发布范围由 `.clawhubignore` 控制，目标是尽量与 npm 包保�
 
 ### Q: 发布失败，提示权限错误
 
-**A:** 确保：
+**A:** 分两种情况：
+
+**CI 自动发布（推荐路径）失败时**，问题几乎总在 Trusted Publisher 绑定上：
+1. 确认 npm 包设置中已完成 GitHub Actions Trusted publisher 绑定（仓库、workflow 文件名都要对上）
+2. 确认 workflow 具备 `id-token: write` 权限
+3. 确认仓库/组织**没有**注入 `NODE_AUTH_TOKEN` / `NPM_TOKEN`——npm 会优先尝试 token 认证，可能让 OIDC 失效
+4. 注意本机 `npm whoami` 返回 401 是正常的，与 CI 能否发布无关
+
+**手动 `npm publish`（应急路径）失败时**，才检查本地登录态：
 1. 已登录正确的 npm 账号：`npm whoami`
 2. 该账号有 `@soimy` scope 的发布权限
 3. 使用了 `--access public` 标志
