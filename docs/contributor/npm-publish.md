@@ -340,6 +340,34 @@ pnpm install
 openclaw plugins install -l .
 ```
 
+### 7. 建立 GitHub Release 页面
+
+> [!IMPORTANT]
+> **推 tag 不会自动建立 Release 页面。** tag push 只触发 `.github/workflows/npm-publish.yml` 与
+> `clawhub-publish.yml`；仓库里**没有**创建 GitHub Release 的 workflow。这一步必须手动做，
+> 漏掉的表现是：包已经发布、tag 已存在，但 `https://github.com/<owner>/<repo>/releases` 上找不到该版本。
+
+约定：**Release 正文就是 `docs/releases/<tag>.md` 的逐字内容**，标题与 tag 同名。
+
+```bash
+gh release create vX.Y.Z \
+  --title "vX.Y.Z" \
+  --notes-file docs/releases/vX.Y.Z.md \
+  --verify-tag
+```
+
+- `--verify-tag`：tag 不存在时直接失败，避免建出指向不存在 tag 的 Release
+- 不要加 `--draft` / `--prerelease`（除非确实要发预发布）；最新的正式版本会被 GitHub 自动标记为 `Latest`
+- 发布后用 `gh release view vX.Y.Z --json body -q .body | diff - docs/releases/vX.Y.Z.md` 核对正文一致
+
+> [!WARNING]
+> **发布说明里的链接必须是绝对链接。** 同一个文件会在两个渲染器下出现：VitePress 文档站
+> （相对链接有效）与 GitHub Release 页面（相对链接无效）。
+> 例如 `[latest.md](./latest.md)` 在 Release 页面上会被 GitHub 解析成
+> `/releases/latest.md` 并 302 回当前 Release 页面本身——不报错，但等于一个点不动的自我链接。
+> 写文档站链接时用正式域名 `https://dingtalk-channel.nanoo.app/...`，
+> 写仓库文件时用 `https://github.com/soimy/openclaw-channel-dingtalk/blob/main/...`。
+
 ## 发布检查清单
 
 在执行发布前，确认以下事项：
@@ -351,10 +379,12 @@ openclaw plugins install -l .
 - [ ] 已手动跑过一次 ClawHub 安全审计（`gh workflow run clawhub-audit.yml -f ref="$(git rev-parse HEAD)"`），结论为 `clean`，或 `suspicious` 已显式 `allow_suspicious=true` 放行并有复核结论（审计不阻断发布，但这是流程约定）
 - [ ] README.md 文档已更新（若本次新增了配置项或用户可见行为，确认 `docs/user/` 已覆盖；README 只保留入口级内容）
 - [ ] `docs/releases/` 已记录新版本变更
+- [ ] 发布说明中的链接均为**绝对链接**（该文件会逐字成为 GitHub Release 正文，相对链接在那里无效）
 - [ ] 版本号已更新（`npm version`）
 - [ ] `.npmignore` / `package.json#files` 打包范围正确（`pnpm run pack:check` 通过）
 - [ ] 已在 npm 包设置中完成 GitHub Actions Trusted publisher 绑定（**无需**本地 `npm login`；本机 `npm whoami` 返回 401 属正常）
 - [ ] 确认仓库/组织未注入 `NODE_AUTH_TOKEN` / `NPM_TOKEN`（否则会覆盖 OIDC）
+- [ ] **已建立 GitHub Release 页面**（`gh release create vX.Y.Z --title vX.Y.Z --notes-file docs/releases/vX.Y.Z.md --verify-tag`；推 tag 不会自动建，见「发布步骤 7」）
 
 ## 文件包含规则
 
