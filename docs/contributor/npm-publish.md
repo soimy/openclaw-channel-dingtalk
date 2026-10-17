@@ -124,9 +124,19 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
 
 1. `prepare`：checkout 被审计的 ref → 构建与 `pack:check` → 离线校验（`clawhub package validate`）→ 解析审计版本号 → 确认该版本未被占用 → 打上审计版本并 `npm pack`
 2. `publish`：调用 `openclaw/clawhub/.github/workflows/package-publish.yml`，以 `tags: audit` 发布上一步的 tarball
-3. `verdict`：**只要 `prepare` 或 `publish` 任一失败也会运行**——取安全判定 → 跑 `scripts/clawhub-beta-gate.mjs` → 下载扫描报告 → 撤回审计版本 → 汇总并上传证据
+3. `verdict`：**只要 `prepare` 或 `publish` 任一失败也会运行**——取安全判定 → 跑 `scripts/clawhub-beta-gate.mjs` → 下载扫描报告 → 等发布状态落定 → 撤回审计版本 → 汇总并上传证据
+   - 判定脚本按 `prepare` 记录的 `audited_commit` 检出，而不是按输入 ref 重新检出：分支在发布等待期间前进时，判定代码不能跑到被审计提交前面去
+   - "等发布状态落定"由 `scripts/clawhub-publication-state.mjs` 完成，见下方说明
 
 这样做的原因是：审计失败的根因和正式发布是同一个（旧 CLI 不读 `Retry-After`），把发布统一到官方可复用工作流后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口，不依赖上游工作流的内部实现。
+
+> [!IMPORTANT]
+> **"版本 404"不能证明"没发布过"。** `wait_for_publication` 超时只让 workflow 失败，
+> **不会取消服务端的 publication attempt**：此时 `GET /versions/{version}` 仍可能 404，
+> 而版本会在 run 结束之后才真正发布，一次性审计版本就逃逸了自动撤回。
+> 因此撤回前必须先用 `GET /versions/{version}/publication` 判定状态
+> （`absent` / `pending` / `published` / `failed`）：`absent` 才允许无操作结束，`published` 立即撤回，
+> `pending` 继续等到终态，超时则**明确失败**并留下 attempt 供人工清理。
 
 > [!IMPORTANT]
 > **审计不再阻断发布。** `.github/workflows/clawhub-publish.yml` 没有 `needs: audit`，也不读取任何审计状态，
@@ -196,8 +206,10 @@ curl -sS "https://clawhub.ai/api/v1/packages/%40soimy%2Fdingtalk/versions/<versi
   - **不使用 `latest`**：审计包绝不能成为用户的安装目标；而且 `clawhub package delete --version` 只能撤回**非 latest** 版本，一旦打成 `latest` 就再也撤不掉
   - **不使用 `beta`**：避免审计包抢占或清空正式的 beta 通道
   - 撤回只影响 `audit` tag，`latest` / `beta` 不受影响
-- **默认自动撤回**：审计结束（无论结论好坏）都会执行 `clawhub package delete <name> --version <v> --yes`，
-  并复查 `GET /versions/{v}` 返回 404 作为后置条件；撤回失败或复核不通过会让该次 run 失败
+- **默认自动撤回**：先等发布状态落定（`/publication` 为 `published`），再执行
+  `clawhub package delete <name> --version <v> --yes`，并复查 `GET /versions/{v}` 返回 404 作为后置条件；
+  撤回失败或复核不通过会让该次 run 失败。状态为 `absent` / `failed` 时本来就没有可安装产物，不执行撤回；
+  一直 `pending` 则让 run 失败并打印手动清理命令
 - 撤回语义：这是 withdraw 而不是删除——版本号**永久保留**且不能用不同内容重发，但可用 `clawhub package undelete` 恢复
 - **`audit` dist-tag 本身删不掉**：`clawhub` CLI 没有 dist-tag 管理命令，撤回后该 tag 只会变成指向已撤回版本的悬空指针，不会留下任何可安装产物
 
@@ -206,7 +218,7 @@ curl -sS "https://clawhub.ai/api/v1/packages/%40soimy%2Fdingtalk/versions/<versi
 一次运行会产出：
 
 - job summary：判定档位、`scanStatus`、`moderationState`、`reasons`、`securityAuditUrl`、ClawScan 结论原文，以及审计版本是保留还是已撤回
-- artifact `clawhub-audit-<version>`：`verdict.json`、`gate-result.json`、上游发布的 `clawhub-package-publish-json` 结果、`scan-report.zip`（保留 30 天）
+- artifact `clawhub-audit-<version>`：`verdict.json`、`gate-result.json`、`publication-state.json`（发布状态的采样记录）、上游发布的 `clawhub-package-publish-json` 结果、`scan-report.zip`（保留 30 天）
 - ClawHub 审计页：`https://clawhub.ai/soimy/plugins/dingtalk/security-audit?version=<version>`
 
 > 审计版本默认会被撤回，撤回后 `GET /versions/{version}` 返回 404。**长期留痕请以 artifact 里的

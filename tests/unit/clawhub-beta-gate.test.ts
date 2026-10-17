@@ -360,17 +360,46 @@ describe("clawhub audit workflow wiring", () => {
         expect(workflow).toContain("clawhub package delete");
     });
 
-    it("withdraws the audit version by default and verifies it is gone", () => {
-        expect(workflow).toContain("Withdraw the audit build");
+    it("settles the publication state before deciding whether to withdraw", () => {
+        // A `wait_for_publication` timeout leaves the server-side attempt running:
+        // the version endpoint can still answer 404 while the release goes public
+        // later, so the decision has to come from the publication endpoint.
+        expect(workflow).toContain("node scripts/clawhub-publication-state.mjs");
         // The version comes from another job now, so the guard reads `needs`
-        // instead of `steps`: a failed `prepare` must skip the withdrawal rather
-        // than curl an empty version and call the 404 "nothing to withdraw".
+        // instead of `steps`: a failed `prepare` must not wait on an empty version.
+        // `always()` is what makes the settle step run after a failed verdict:
+        // a bare `if:` implies `success()`, which is the case that must not skip.
         expect(workflow).toContain(
             "if: ${{ always() && needs.prepare.outputs.audit_version != '' && !inputs.keep_audit_version }}",
         );
-        // The post-condition is asserted, not assumed: a withdrawal that left the
-        // version resolvable must fail the run.
+        // Withdrawal is keyed on the settled state, and its post-condition is the
+        // installable surface: a version that still resolves must fail the run.
+        expect(workflow).toContain(
+            "if: ${{ always() && steps.publication.outputs.state == 'published' }}",
+        );
         expect(workflow).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
+    });
+
+    it("runs the verdict on the commit that was actually published", () => {
+        // A branch input can move while the publication is in flight; the gate
+        // script must come from the audited commit, not from the newer tip.
+        expect(workflow).toContain(
+            "ref: ${{ needs.prepare.outputs.audited_commit || inputs.ref || github.ref }}",
+        );
+    });
+
+    it("keeps collecting evidence when the verdict fails", () => {
+        // `continue-on-error` only covers the step's own failure, so a non-clean
+        // verdict would otherwise skip both collectors and leave half the bundle.
+        const blockOf = (name: string) => {
+            const start = workflow.indexOf(`- name: ${name}`);
+            expect(start).toBeGreaterThan(-1);
+            const next = workflow.indexOf("- name: ", start + 1);
+            return workflow.slice(start, next === -1 ? undefined : next);
+        };
+        for (const name of ["Download the ClawHub audit report", "Collect the publish result"]) {
+            expect(blockOf(name)).toContain("if: ${{ always() }}");
+        }
     });
 
     it("still renders a verdict and withdraws when the publish job fails", () => {
@@ -405,8 +434,30 @@ describe("clawhub audit workflow wiring", () => {
     it("archives the verdict evidence even when the audit fails", () => {
         expect(workflow).toContain("Upload the audit evidence");
         expect(workflow).toContain("if: ${{ always() }}");
-        for (const file of ["verdict.json", "gate-result.json", "publish-result/**", "scan-report.zip"]) {
+        for (const file of [
+            "verdict.json",
+            "gate-result.json",
+            "publication-state.json",
+            "publish-result/**",
+            "scan-report.zip",
+        ]) {
             expect(workflow).toContain(file);
         }
+    });
+});
+
+describe("clawhub reusable publish workflow pinning", () => {
+    it("pins the release and the audit to the same upstream commit", () => {
+        // Both paths share one publish implementation: bumping only one side would
+        // reintroduce the drift that made the audit fail where a release succeeded.
+        const shaOf = (path: string) => {
+            const match = /uses: openclaw\/clawhub\/\.github\/workflows\/package-publish\.yml@(\S+)/.exec(
+                readFileSync(path, "utf8"),
+            );
+            expect(match).not.toBeNull();
+            return match?.[1];
+        };
+
+        expect(shaOf(publishWorkflowPath)).toBe(shaOf(auditWorkflowPath));
     });
 });
