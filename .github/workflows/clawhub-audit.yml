@@ -267,7 +267,7 @@ jobs:
             # Note: the CLI has no dist-tag management command, so the `audit` tag
             # pointer itself cannot be removed; withdrawing leaves it dangling.
             - name: Withdraw the audit build
-              if: ${{ always() && !inputs.keep_audit_version }}
+              if: ${{ always() && needs.prepare.outputs.audit_version != '' && !inputs.keep_audit_version }}
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
                   CLAWHUB_SITE: https://clawhub.ai

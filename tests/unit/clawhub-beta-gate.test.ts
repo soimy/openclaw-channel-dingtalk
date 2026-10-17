@@ -362,7 +362,12 @@ describe("clawhub audit workflow wiring", () => {
 
     it("withdraws the audit version by default and verifies it is gone", () => {
         expect(workflow).toContain("Withdraw the audit build");
-        expect(workflow).toContain("if: ${{ always() && !inputs.keep_audit_version }}");
+        // The version comes from another job now, so the guard reads `needs`
+        // instead of `steps`: a failed `prepare` must skip the withdrawal rather
+        // than curl an empty version and call the 404 "nothing to withdraw".
+        expect(workflow).toContain(
+            "if: ${{ always() && needs.prepare.outputs.audit_version != '' && !inputs.keep_audit_version }}",
+        );
         // The post-condition is asserted, not assumed: a withdrawal that left the
         // version resolvable must fail the run.
         expect(workflow).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
