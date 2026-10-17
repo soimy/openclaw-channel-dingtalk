@@ -92,6 +92,30 @@ describe("runThrottledOutboundSend", () => {
         expect(started).toBe(true);
     });
 
+    // Greptile review (PR #627, P2): distinct accounts may legitimately reuse a
+    // conversation id, and their delivery streams are unrelated.
+    it("keeps accounts apart even when they share a conversation id", async () => {
+        const scopeA = resolveOutboundThrottleScope({ accountId: "account-a", conversationId: "cid" });
+        const scopeB = resolveOutboundThrottleScope({ accountId: "account-b", conversationId: "cid" });
+        expect(scopeA).toBe("account-a:cid");
+        expect(scopeB).toBe("account-b:cid");
+
+        await runThrottledOutboundSend(scopeA, 1000, async () => undefined);
+
+        let started = false;
+        const other = runThrottledOutboundSend(scopeB, 1000, async () => {
+            started = true;
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        await other;
+
+        // Fake timers keep this deterministic: a pending timer would mean account B
+        // was queued behind account A's slot. A wall-clock assertion here flakes
+        // whenever the two calls straddle a millisecond tick.
+        expect(started).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
     // Greptile review (PR #627, third finding): a queued send that captured its
     // predecessor's start time before that predecessor was admitted would read a
     // placeholder, compute a negative wait, and start immediately — losing the
@@ -203,14 +227,4 @@ describe("resolveOutboundThrottleScope", () => {
         );
     });
 
-    // Greptile review (PR #627, P2): distinct accounts may legitimately reuse a
-    // conversation id, and their delivery streams are unrelated.
-    it("keeps accounts apart even when they share a conversation id", async () => {
-        await runThrottledOutboundSend("account-a:cid", 1000, async () => undefined);
-
-        const started = Date.now();
-        await runThrottledOutboundSend("account-b:cid", 1000, async () => undefined);
-
-        expect(Date.now() - started).toBe(0);
-    });
 });
