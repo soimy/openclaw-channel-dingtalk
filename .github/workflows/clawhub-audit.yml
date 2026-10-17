@@ -6,6 +6,16 @@ name: ClawHub Security Audit
 # dedicated `audit` dist-tag, waits for the verdict, and then withdraws it again
 # so nothing installable is left behind.
 #
+# The publish step goes through OpenClaw's reusable workflow for the same reason
+# as `.github/workflows/clawhub-publish.yml`: the npm dist-tag still ships
+# clawhub 0.23.3, which does not read `Retry-After` and times out on a throttled
+# publish, while the reusable workflow runs the current CLI from the ClawHub
+# repository with Bun. The remaining commands here (offline validation, scan
+# report download, version withdrawal) keep the pinned npm CLI: they completed
+# successfully in the runs where the old publish step failed, and moving them
+# would add a second moving part to a workflow that must always reach the
+# withdrawal step.
+#
 # The verdict here is informational: it no longer gates
 # `.github/workflows/clawhub-publish.yml`. Run it before cutting a release when
 # you want to know what ClawScan thinks of the tree you are about to ship.
@@ -36,11 +46,18 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
-    audit:
+    prepare:
         runs-on: ubuntu-latest
-        timeout-minutes: 50
+        timeout-minutes: 30
         permissions:
             contents: read
+
+        outputs:
+            package_name: ${{ steps.release.outputs.package_name }}
+            audited_commit: ${{ steps.release.outputs.audited_commit }}
+            audit_version: ${{ steps.release.outputs.audit_version }}
+            audited_ref: ${{ steps.release.outputs.audited_ref }}
+            tarball_name: ${{ steps.pack.outputs.tarball_name }}
 
         steps:
             - name: Checkout the audited ref
@@ -61,6 +78,8 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
+            # Offline-only commands (validate, scan report, withdraw); see the
+            # header comment for why these stay on the pinned npm CLI.
             - name: Install ClawHub CLI
               run: npm install --global clawhub@0.23.3
 
@@ -80,7 +99,7 @@ jobs:
               id: release
               shell: bash
               env:
-                  AUDIT_REF: ${{ inputs.ref || github.ref_name }}
+                  AUDITED_REF: ${{ inputs.ref || github.ref_name }}
               run: |
                   set -euo pipefail
                   PACKAGE_NAME="$(node -p "require('./package.json').name")"
@@ -90,13 +109,13 @@ jobs:
 
                   echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
                   echo "audited_commit=${AUDITED_COMMIT}" >> "$GITHUB_OUTPUT"
+                  echo "audited_ref=${AUDITED_REF}" >> "$GITHUB_OUTPUT"
                   echo "audit_version=${AUDIT_VERSION}" >> "$GITHUB_OUTPUT"
                   echo "Audit build version: ${AUDIT_VERSION}"
-                  echo "Audited ref: ${AUDIT_REF}"
+                  echo "Audited ref: ${AUDITED_REF}"
                   echo "Audited commit: ${AUDITED_COMMIT}"
 
             - name: Verify the audit version is unused
-              if: ${{ steps.release.outputs.audit_version != '' }}
               env:
                   AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
                   AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
@@ -110,6 +129,81 @@ jobs:
                     exit 1
                   fi
                   echo "Audit version ${AUDIT_VERSION} is unused (HTTP 404)."
+
+            # The published version has to be the audit version, and the tarball
+            # itself carries it: the CLI validates the packed package.json against
+            # the version it publishes. Stamping the runner copy keeps the throwaway
+            # version out of the repository.
+            - name: Stamp and pack the audit version
+              id: pack
+              shell: bash
+              env:
+                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
+              run: |
+                  set -euo pipefail
+                  node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = process.env.AUDIT_VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
+                  echo "Stamped package.json version: $(node -p "require('./package.json').version") (runner-only, never committed)"
+
+                  mkdir -p "${RUNNER_TEMP}/clawpack"
+                  npm pack --ignore-scripts --pack-destination "${RUNNER_TEMP}/clawpack" > /dev/null
+                  TARBALL="$(find "${RUNNER_TEMP}/clawpack" -maxdepth 1 -name '*.tgz' -type f)"
+                  if [[ -z "${TARBALL}" ]]; then
+                    echo "::error::npm pack produced no tarball."
+                    exit 1
+                  fi
+                  echo "tarball_name=$(basename "${TARBALL}")" >> "$GITHUB_OUTPUT"
+
+            - name: Upload the audit tarball
+              uses: actions/upload-artifact@v4
+              with:
+                  name: clawhub-audit-clawpack
+                  if-no-files-found: error
+                  retention-days: 7
+                  path: ${{ runner.temp }}/clawpack/${{ steps.pack.outputs.tarball_name }}
+
+    publish:
+        needs: prepare
+        permissions:
+            actions: read
+            contents: read
+            id-token: write
+        uses: openclaw/clawhub/.github/workflows/package-publish.yml@1d2eadf6c8438c6e97028590382a252f47bb4adb
+        with:
+            package_artifact_name: clawhub-audit-clawpack
+            package_artifact_path: ${{ needs.prepare.outputs.tarball_name }}
+            dry_run: false
+            wait_for_publication: true
+            publication_timeout_minutes: 40
+            tags: audit
+            source_repo: ${{ github.repository }}
+            source_commit: ${{ needs.prepare.outputs.audited_commit }}
+            source_ref: ${{ needs.prepare.outputs.audited_ref }}
+        secrets:
+            clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+
+    verdict:
+        needs: [prepare, publish]
+        # The verdict, the report and the withdrawal must still run when the
+        # publish step fails, otherwise a failed attempt leaves no evidence.
+        if: ${{ always() }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout the audited ref
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.ref || github.ref }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+
+            - name: Install ClawHub CLI
+              run: npm install --global clawhub@0.23.3
 
             - name: Authenticate ClawHub CLI
               env:
@@ -127,49 +221,10 @@ jobs:
 
                   clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
 
-            - name: Stamp the audit version
-              if: ${{ steps.release.outputs.audit_version != '' }}
-              env:
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
-              run: |
-                  set -euo pipefail
-                  # The CLI packs the folder itself and rejects a package whose
-                  # version differs from the published one, so the runner copy of
-                  # package.json has to carry the audit version. It is never committed.
-                  node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = process.env.AUDIT_VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
-                  echo "Stamped package.json version: $(node -p "require('./package.json').version") (runner-only, never committed)"
-
-            - name: Publish the audit build and wait for ClawHub security checks
-              id: publish
-              if: ${{ steps.release.outputs.audit_version != '' }}
-              env:
-                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
-                  CLAWHUB_SITE: https://clawhub.ai
-                  CLAWHUB_REGISTRY: https://clawhub.ai
-                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
-                  AUDIT_REF: ${{ inputs.ref || github.ref_name }}
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
-              run: |
-                  set -euo pipefail
-                  SOURCE_COMMIT="$(git rev-parse HEAD)"
-
-                  clawhub package publish . \
-                    --tags audit \
-                    --wait \
-                    --wait-timeout 2400 \
-                    --source-repo "${GITHUB_REPOSITORY}" \
-                    --source-commit "${SOURCE_COMMIT}" \
-                    --source-ref "${AUDIT_REF}" \
-                    --source-path "." \
-                    --json | tee publish.json
-
-                  echo "ClawHub accepted ${AUDIT_PACKAGE}@${AUDIT_VERSION} and reported a terminal publication status."
-
             - name: Fetch the ClawHub security verdict
-              if: ${{ always() && steps.release.outputs.audit_version != '' }}
               env:
-                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
+                  AUDIT_PACKAGE: ${{ needs.prepare.outputs.package_name }}
+                  AUDIT_VERSION: ${{ needs.prepare.outputs.audit_version }}
               run: |
                   set -euo pipefail
                   ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
@@ -179,10 +234,9 @@ jobs:
                   echo "SECURITY_STATUS=${STATUS}" >> "$GITHUB_ENV"
 
             - name: Evaluate the audit verdict
-              if: ${{ always() && steps.release.outputs.audit_version != '' }}
               env:
-                  PACKAGE_NAME: ${{ steps.release.outputs.package_name }}
-                  BETA_VERSION: ${{ steps.release.outputs.audit_version }}
+                  PACKAGE_NAME: ${{ needs.prepare.outputs.package_name }}
+                  BETA_VERSION: ${{ needs.prepare.outputs.audit_version }}
                   AUDIT_VERSION_RETENTION: ${{ inputs.keep_audit_version && 'kept' || 'withdrawn' }}
                   ALLOW_SUSPICIOUS: ${{ inputs.allow_suspicious && '1' || '0' }}
               run: node scripts/clawhub-beta-gate.mjs verdict.json
@@ -193,14 +247,13 @@ jobs:
                   echo "::error::The ClawHub security audit did not pass. This does not block publishing, but record the review before releasing. Re-run with an explicit override once the finding is understood: gh workflow run clawhub-audit.yml -f allow_suspicious=true"
 
             - name: Download the ClawHub audit report
-              if: ${{ always() && steps.release.outputs.audit_version != '' }}
               continue-on-error: true
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
                   CLAWHUB_SITE: https://clawhub.ai
                   CLAWHUB_REGISTRY: https://clawhub.ai
-                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
+                  AUDIT_PACKAGE: ${{ needs.prepare.outputs.package_name }}
+                  AUDIT_VERSION: ${{ needs.prepare.outputs.audit_version }}
               run: |
                   set -euo pipefail
                   clawhub scan download "${AUDIT_PACKAGE}" \
@@ -214,13 +267,13 @@ jobs:
             # Note: the CLI has no dist-tag management command, so the `audit` tag
             # pointer itself cannot be removed; withdrawing leaves it dangling.
             - name: Withdraw the audit build
-              if: ${{ always() && steps.release.outputs.audit_version != '' && !inputs.keep_audit_version }}
+              if: ${{ always() && !inputs.keep_audit_version }}
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
                   CLAWHUB_SITE: https://clawhub.ai
                   CLAWHUB_REGISTRY: https://clawhub.ai
-                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
+                  AUDIT_PACKAGE: ${{ needs.prepare.outputs.package_name }}
+                  AUDIT_VERSION: ${{ needs.prepare.outputs.audit_version }}
               run: |
                   set -euo pipefail
                   ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
@@ -242,18 +295,29 @@ jobs:
                   fi
                   echo "Verified: ${AUDIT_VERSION} no longer resolves (HTTP 404)."
 
+            # The reusable workflow publishes its JSON result as an artifact; pull
+            # it back so the evidence bundle below stays a single download.
+            - name: Collect the publish result
+              continue-on-error: true
+              uses: actions/download-artifact@v8
+              with:
+                  name: clawhub-package-publish-json
+                  path: publish-result
+
             - name: Summarize the audit outcome
               if: ${{ always() }}
               env:
-                  AUDIT_PACKAGE: ${{ steps.release.outputs.package_name }}
-                  AUDIT_VERSION: ${{ steps.release.outputs.audit_version }}
+                  AUDIT_PACKAGE: ${{ needs.prepare.outputs.package_name }}
+                  AUDIT_VERSION: ${{ needs.prepare.outputs.audit_version }}
                   KEEP_AUDIT_VERSION: ${{ inputs.keep_audit_version }}
+                  PUBLISH_RESULT: ${{ needs.publish.result }}
               run: |
                   set -euo pipefail
                   {
                     echo "### ClawHub security audit"
                     echo ""
                     echo "- package: \`${AUDIT_PACKAGE}@${AUDIT_VERSION}\`"
+                    echo "- publish job: \`${PUBLISH_RESULT}\`"
                     echo "- security endpoint: \`GET /api/v1/packages/.../versions/${AUDIT_VERSION}/security\` (HTTP ${SECURITY_STATUS:-n/a})"
                     if [[ "${KEEP_AUDIT_VERSION}" == "true" ]]; then
                       echo "- audit version: **kept** (\`keep_audit_version=true\`)"
@@ -270,11 +334,11 @@ jobs:
               if: ${{ always() }}
               uses: actions/upload-artifact@v4
               with:
-                  name: clawhub-audit-${{ steps.release.outputs.audit_version || github.run_number }}
+                  name: clawhub-audit-${{ needs.prepare.outputs.audit_version || github.run_number }}
                   if-no-files-found: ignore
                   retention-days: 30
                   path: |
                       verdict.json
                       gate-result.json
-                      publish.json
+                      publish-result/**
                       scan-report.zip

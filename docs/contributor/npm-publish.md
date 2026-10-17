@@ -18,14 +18,20 @@
 - 运行 `type-check`、`lint`、`test`
 - 通过后自动执行 `npm publish --access public`
 
-ClawHub 自动执行内容（`.github/workflows/clawhub-publish.yml`，单一 `publish` job）：
-- 校验 tag 与 `package.json` 的 `version` 同步
-- 从远端重新解析 tag 并用 `^{commit}` 剥离，确认工作树就是该 tag 指向的提交，再以该提交作为 `--source-commit`
-- 当 tag 版本为标准 semver 预发布格式（如 `v2.8.0-beta.0`）时，自动使用 `beta` tag 发布到 ClawHub
-- 运行 `type-check`、`lint`、`test`
-- 通过后执行 `clawhub package publish --wait --wait-timeout 2400`，并断言返回的 `publicationStatus` 为 `published`
-  - `--wait` 不能省：ClawHub 接受发布时返回的是 `status=pending-publication`，不等终态就会在版本仍 `404` 时报绿；等待让退出码成为发布判定（`blocked` / `failed` / `expired` / 超时均为非 0）
-  - job 的 `timeout-minutes`（50）必须大于 `--wait-timeout`（2400s / 40min），否则等待会先被 job 超时掐死，等于白等
+ClawHub 自动执行内容（`.github/workflows/clawhub-publish.yml`，两个 job）：
+- `verify` job：校验 tag 与 `package.json` 的 `version` 同步；从远端重新解析 tag 并用 `^{commit}` 剥离，确认工作树就是该 tag 指向的提交；跑 `type-check` / `lint` / `test` / `build` / `pack:check`；最后 `npm pack` 出发布 tarball 并作为 Actions artifact 上传
+- `publish` job：调用 OpenClaw 官方可复用工作流 `openclaw/clawhub/.github/workflows/package-publish.yml`，用上一步的 tarball 发布
+
+> [!IMPORTANT]
+> **发布步骤不再由本仓库安装 `clawhub` CLI。** 官方可复用工作流会 checkout ClawHub 仓库、用 Bun 装依赖，并以**仓库内的 CLI 源码**（当前 0.24.0）执行发布。
+> 原因是 npm 上的 CLI 仍停在 `clawhub@0.23.3`（2026-08-04），该版本不读取 `Retry-After`，遇到限流会盲重试到 120s 请求超时——`v3.9.0` 的 tag 发布因此在 2026-10-17 连续失败两次。
+> 由于这条链路会用本仓库的 `CLAWHUB_TOKEN` 执行上游代码，`uses:` 固定在一个**已审阅的上游 commit SHA** 上，而不是 `@main`；上游改变发布协议时再显式升级这个 SHA。
+
+真实发布（非 dry-run）通过官方工作流完成：
+- `dry_run: false` 必须显式传：上游该输入默认是 `true`，漏掉会变成"预览成功"
+- `wait_for_publication: true` + `publication_timeout_minutes: 40`：官方工作流的等待让退出码成为发布判定（`blocked` / `failed` / `expired` / 超时均为非 0）；40 是上游允许的上限（其 job 需为 setup、上传与产物捕获预留时间）
+- `source_repo` / `source_commit` / `source_ref`：沿用校验过的 release commit 与 tag，保持来源可追溯
+
 
 > [!IMPORTANT]
 > **ClawHub 发布不再由安全审计门禁。** 安全审计已拆分为**手动触发**的独立 workflow
@@ -66,9 +72,10 @@ ClawHub 自动发布额外要求：
 4. 手动审计位于独立 workflow：`.github/workflows/clawhub-audit.yml`（同样使用 `CLAWHUB_TOKEN`）
 
 说明：
-- 本仓库在两条 ClawHub workflow 内固定安装 `clawhub@0.23.3`
-- 该版本下限由审计流程决定：`--wait` / `--wait-timeout` 与"可恢复的版本撤回"语义都在 `clawhub@0.23.2` 才加入；`0.23.1` 的 `package delete --version` 是**永久删除**且没有 `--wait`，不要降级
-- 上游官方 reusable workflow 仍在演进，本仓库继续使用独立 workflow，以便把手动审计固定成一条可复现的独立链路
+- 本仓库的 ClawHub **发布**不再本地安装 CLI，改由上游可复用工作流传入版本；`clawhub@0.23.3` 只保留在审计 workflow 的**离线命令**上（`package validate`、`scan download`、`package delete --version`），因为这些命令在旧版上可用，而它们恰好是"无论如何都要跑到撤回"的关键路径
+- 审计之所以不能整体搬进可复用工作流：它需要"发布 → 判定 → 撤回"三步，官方工作流只覆盖发布；撤回仍依赖 `clawhub package delete --version`
+- 该版本下限的由来：`--wait` / `--wait-timeout` 与"可恢复的版本撤回"语义在 `clawhub@0.23.2` 才加入；`0.23.1` 的 `package delete --version` 是**永久删除**且没有 `--wait`，不要降级
+- 上游可复用工作流仍是演进中的接口：本仓库把它固定在一个已审阅的 commit SHA 上，升级时必须重新核对它的输入名与 `dry_run` 默认值
 
 推荐发布命令：
 
@@ -112,6 +119,14 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
 
 - `.github/workflows/clawhub-audit.yml` —— 远端仓库上的手动审计
 - `scripts/clawhub-audit-local.mjs` —— 本地工作树上的等价审计（含未提交改动）
+
+远端审计由三个 job 组成，**发布那一步与正式发布共用同一条链路**：
+
+1. `prepare`：checkout 被审计的 ref → 构建与 `pack:check` → 离线校验（`clawhub package validate`）→ 解析审计版本号 → 确认该版本未被占用 → 打上审计版本并 `npm pack`
+2. `publish`：调用 `openclaw/clawhub/.github/workflows/package-publish.yml`，以 `tags: audit` 发布上一步的 tarball
+3. `verdict`：**只要 `prepare` 或 `publish` 任一失败也会运行**——取安全判定 → 跑 `scripts/clawhub-beta-gate.mjs` → 下载扫描报告 → 撤回审计版本 → 汇总并上传证据
+
+这样做的原因是：审计失败的根因和正式发布是同一个（旧 CLI 不读 `Retry-After`），把发布统一到官方可复用工作流后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口，不依赖上游工作流的内部实现。
 
 > [!IMPORTANT]
 > **审计不再阻断发布。** `.github/workflows/clawhub-publish.yml` 没有 `needs: audit`，也不读取任何审计状态，
@@ -176,7 +191,7 @@ curl -sS "https://clawhub.ai/api/v1/packages/%40soimy%2Fdingtalk/versions/<versi
 ### 审计版本的命名与 dist-tag
 
 - 版本号：`<package.json version>-beta.<run_number>.<run_attempt>`，只改写 runner 内的 `package.json`，**不会提交**
-  - 必须改写文件而不是用 `--version`：code-plugin 走文件夹发布会内部 `npm pack`，CLI 会校验包内版本与发布版本一致，不一致直接失败
+  - 必须改写文件而不是用 `--version`：发布时 CLI 会校验包内版本与发布版本一致，不一致直接失败。审计走的是预构建 tarball（`npm pack` 打的就是被打过版本号的那份 `package.json`），因此版本号必须烙进 tarball，而不是只作为参数传入
 - dist-tag：固定 `audit`
   - **不使用 `latest`**：审计包绝不能成为用户的安装目标；而且 `clawhub package delete --version` 只能撤回**非 latest** 版本，一旦打成 `latest` 就再也撤不掉
   - **不使用 `beta`**：避免审计包抢占或清空正式的 beta 通道
@@ -191,7 +206,7 @@ curl -sS "https://clawhub.ai/api/v1/packages/%40soimy%2Fdingtalk/versions/<versi
 一次运行会产出：
 
 - job summary：判定档位、`scanStatus`、`moderationState`、`reasons`、`securityAuditUrl`、ClawScan 结论原文，以及审计版本是保留还是已撤回
-- artifact `clawhub-audit-<version>`：`verdict.json`、`gate-result.json`、`publish.json`、`scan-report.zip`（保留 30 天）
+- artifact `clawhub-audit-<version>`：`verdict.json`、`gate-result.json`、上游发布的 `clawhub-package-publish-json` 结果、`scan-report.zip`（保留 30 天）
 - ClawHub 审计页：`https://clawhub.ai/soimy/plugins/dingtalk/security-audit?version=<version>`
 
 > 审计版本默认会被撤回，撤回后 `GET /versions/{version}` 返回 404。**长期留痕请以 artifact 里的
@@ -290,8 +305,10 @@ npm pack --dry-run
 
 > [!IMPORTANT]
 > ClawHub plugin 发布不读取 `.npmignore`。
-> `clawhub package publish` 会直接扫描目录，并只应用 `.clawhubignore` / `.clawdhubignore`
+> 对**目录**执行 `clawhub package publish` 时会直接扫描目录，只应用 `.clawhubignore` / `.clawdhubignore`
 > 以及内置忽略项。因此仓库内开发产物的排除规则需要单独维护在 `.clawhubignore` 中。
+> 本仓库的 CI 发布（`.github/workflows/clawhub-publish.yml`）发布的是 `npm pack` 产出的 tarball，
+> 所以线上 ClawHub 包内容**与 npm 包完全一致**；`.clawhubignore` 只在手动对目录发布时生效。
 
 ### 3. 执行发布前检查
 
@@ -439,11 +456,16 @@ gh release create vX.Y.Z \
 - 各类配置文件（`.eslintrc.json`, `tsconfig.json` 等）
 - 开发工具文件（`AGENTS.md`, `TODO.md` 等）
 
-ClawHub 发布范围由 `.clawhubignore` 控制，目标是尽量与 npm 包保持一致，但两者不是同一套机制：
+ClawHub 的发布范围分两条路径：
 
-- `.npmignore` 只影响 `npm publish`
-- `.clawhubignore` 只影响 `clawhub package publish`
-- 若仓库新增开发产物目录，需要同时评估两份 ignore 文件是否都要更新
+- **CI 发布（本仓库实际路径）**：发布 `npm pack` 产出的 tarball，文件集由 `package.json#files` 决定，与 npm 包一致
+- **手动对目录发布**：`clawhub package publish .` 直接扫描目录，只看 `.clawhubignore`（`.npmignore` 不生效）
+
+所以：
+
+- `.npmignore` 只影响 `npm publish` 与 `npm pack`
+- `.clawhubignore` 只在手动对目录发布时影响 `clawhub package publish`
+- 若仓库新增开发产物目录，CI 路径只需 `package.json#files` 不收录它；手动目录发布才需要同时评估 `.clawhubignore`
 
 ## 常见问题
 

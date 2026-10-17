@@ -1,10 +1,29 @@
 name: Publish to ClawHub
 
+# The publish itself runs through OpenClaw's reusable workflow
+# `openclaw/clawhub/.github/workflows/package-publish.yml`, which checks out the
+# ClawHub repository, installs it with Bun and runs the CLI from source.
+#
+# Why not `npm install -g clawhub@<x>` here: the npm dist-tag is still 0.23.3
+# (2026-08-04) while the ClawHub repository already carries 0.24.0. The older
+# client does not read `Retry-After`, so a throttled publish retries blind until
+# its 120s request timeout, which is exactly how the v3.9.0 tag run failed twice
+# on 2026-10-17. The reusable workflow also speaks the staged-upload and
+# publication-state protocol the server moved to.
+#
+# Publishing is not gated on a ClawHub security audit. Run the audit first when
+# you want a verdict: `.github/workflows/clawhub-audit.yml` (manual dispatch) or
+# `scripts/clawhub-audit-local.mjs` (local tree).
+#
+# PINNED_REUSABLE_WORKFLOW_SHA: one reviewed upstream commit. Bump it
+# deliberately when ClawHub changes the publish protocol; `@main` would let an
+# unreviewed upstream commit run with this repository's CLAWHUB_TOKEN.
+
 on:
     workflow_dispatch:
         inputs:
             tag:
-                description: Existing git tag to publish, for example v3.8.0.
+                description: Existing git tag to publish, for example v3.9.0.
                 required: true
                 type: string
     push:
@@ -19,18 +38,19 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
-    publish:
+    verify:
         runs-on: ubuntu-latest
-        # Above the 2400s `--wait-timeout` below: a shorter job timeout would kill
-        # the wait before the CLI can report a terminal publication state.
-        timeout-minutes: 50
+        timeout-minutes: 30
         permissions:
             contents: read
 
+        outputs:
+            release_commit: ${{ steps.release.outputs.release_commit }}
+            source_ref: ${{ steps.release.outputs.source_ref }}
+            clawhub_tag: ${{ steps.release.outputs.clawhub_tag }}
+            tarball_name: ${{ steps.pack.outputs.tarball_name }}
+
         steps:
-            # Publishing is not gated on a ClawHub security audit. Run the audit
-            # first when you want a verdict: `.github/workflows/clawhub-audit.yml`
-            # (manual dispatch) or `scripts/clawhub-audit-local.mjs` (local tree).
             - name: Checkout the release tag
               uses: actions/checkout@v4
               with:
@@ -53,11 +73,11 @@ jobs:
               id: release
               shell: bash
               env:
-                  TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+                  TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
               run: |
                   set -euo pipefail
 
-                  TAG="${TARGET_TAG}"
+                  TAG="${TARGET_REF}"
                   if [[ -z "${TAG}" ]]; then
                     echo "::error::A tag is required. Set the 'tag' input or push a tag."
                     exit 1
@@ -91,28 +111,10 @@ jobs:
                   fi
 
                   echo "release_commit=${RELEASE_COMMIT}" >> "$GITHUB_OUTPUT"
+                  echo "source_ref=${TAG}" >> "$GITHUB_OUTPUT"
                   echo "clawhub_tag=${CLAWHUB_TAG}" >> "$GITHUB_OUTPUT"
                   echo "Version check passed: ${TAG} -> ${PACKAGE_VERSION} (ClawHub tag: ${CLAWHUB_TAG})"
                   echo "Release commit: ${RELEASE_COMMIT}"
-
-            - name: Install ClawHub CLI
-              run: npm install --global clawhub@0.23.3
-
-            - name: Authenticate ClawHub CLI
-              env:
-                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
-                  CLAWHUB_SITE: https://clawhub.ai
-                  CLAWHUB_REGISTRY: https://clawhub.ai
-                  CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
-
-                  if [[ -z "${CLAWHUB_TOKEN:-}" ]]; then
-                    echo "::error::CLAWHUB_TOKEN secret is required for ClawHub publish."
-                    exit 1
-                  fi
-
-                  clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
 
             - name: Type check
               run: pnpm run type-check
@@ -129,51 +131,62 @@ jobs:
             - name: Verify package runtime output
               run: pnpm run pack:check
 
-            - name: Publish package to ClawHub
-              env:
-                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
-                  CLAWHUB_SITE: https://clawhub.ai
-                  CLAWHUB_REGISTRY: https://clawhub.ai
-                  CLAWHUB_TAGS: ${{ steps.release.outputs.clawhub_tag }}
-                  SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+            # The reusable workflow publishes the artifact instead of packing a
+            # checkout, so the ClawHub runner never has to run our pnpm build.
+            # `--ignore-scripts` is safe: `pack:check` above already packed and
+            # asserted this exact tree, so prepack would only rebuild it.
+            - name: Pack the release tarball
+              id: pack
+              shell: bash
               run: |
                   set -euo pipefail
+                  mkdir -p "${RUNNER_TEMP}/clawpack"
+                  npm pack --ignore-scripts --pack-destination "${RUNNER_TEMP}/clawpack" > /dev/null
+                  TARBALL="$(find "${RUNNER_TEMP}/clawpack" -maxdepth 1 -name '*.tgz' -type f)"
+                  if [[ -z "${TARBALL}" ]]; then
+                    echo "::error::npm pack produced no tarball."
+                    exit 1
+                  fi
+                  # Keep npm's own file name: the CLI inspects the tarball it is
+                  # given, and a renamed archive is an avoidable unknown. The name
+                  # travels to the publish job as an output instead.
+                  echo "tarball_name=$(basename "${TARBALL}")" >> "$GITHUB_OUTPUT"
+                  echo "Packed $(basename "${TARBALL}") for the ClawHub publish."
 
-                  # Without `--wait` the CLI returns as soon as ClawHub queues the
-                  # release (publicationStatus=pending), so the step would report
-                  # success while `GET /versions/<version>` still answers 404. The
-                  # wait makes the exit code the publication verdict: blocked,
-                  # failed, expired and timeout all come back non-zero.
-                  clawhub package publish . \
-                    --tags "${CLAWHUB_TAGS}" \
-                    --wait \
-                    --wait-timeout 2400 \
-                    --source-repo "${GITHUB_REPOSITORY}" \
-                    --source-commit "${RELEASE_COMMIT}" \
-                    --source-ref "${SOURCE_REF}" \
-                    --source-path "." \
-                    --json | tee publish.json
+            - name: Upload the release tarball
+              uses: actions/upload-artifact@v4
+              with:
+                  name: clawhub-clawpack
+                  if-no-files-found: error
+                  retention-days: 7
+                  path: ${{ runner.temp }}/clawpack/${{ steps.pack.outputs.tarball_name }}
 
-                  # The wait is the contract, but assert the terminal status it is
-                  # supposed to produce: if a future CLI drops the `--wait`
-                  # semantics this turns back into a fire-and-forget publish, and
-                  # that regression must fail here rather than ship a green run.
-                  node -e "
-                    const { readFileSync } = require('node:fs');
-                    const raw = readFileSync('publish.json', 'utf8');
-                    const start = raw.indexOf('{');
-                    const end = raw.lastIndexOf('}');
-                    if (start === -1 || end <= start) {
-                      console.error('::error::ClawHub publish produced no JSON result to verify.');
-                      process.exit(1);
-                    }
-                    const { publicationStatus } = JSON.parse(raw.slice(start, end + 1));
-                    if (publicationStatus !== 'published') {
-                      console.error('::error::ClawHub did not reach a published release (publicationStatus=' + JSON.stringify(publicationStatus ?? null) + ').');
-                      process.exit(1);
-                    }
-                    console.log('ClawHub publicationStatus: published');
-                  "
-                  echo "ClawHub published the release for ${RELEASE_COMMIT}."
+    publish:
+        needs: verify
+        # `actions: read` is what lets the called workflow download the tarball
+        # this run uploaded; `id-token: write` is required because the reusable
+        # workflow resolves and re-checks its own source through GitHub OIDC.
+        permissions:
+            actions: read
+            contents: read
+            id-token: write
+        uses: openclaw/clawhub/.github/workflows/package-publish.yml@1d2eadf6c8438c6e97028590382a252f47bb4adb
+        with:
+            package_artifact_name: clawhub-clawpack
+            package_artifact_path: ${{ needs.verify.outputs.tarball_name }}
+            # `dry_run` defaults to true upstream: without this the publish would
+            # be a preview and the job would still go green.
+            dry_run: false
+            wait_for_publication: true
+            # Upstream caps this at 40: its job leaves 35 minutes for setup,
+            # upload and output capture. Anything above 40 is rejected.
+            publication_timeout_minutes: 40
+            tags: ${{ needs.verify.outputs.clawhub_tag }}
+            source_repo: ${{ github.repository }}
+            source_commit: ${{ needs.verify.outputs.release_commit }}
+            source_ref: ${{ needs.verify.outputs.source_ref }}
+        secrets:
+            # Kept for tag pushes and first publishes; the reusable workflow can
+            # fall back to OIDC trusted publishing, but docs describe tag-push
+            # real publishes as still needing a token.
+            clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
