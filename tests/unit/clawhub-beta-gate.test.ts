@@ -261,7 +261,9 @@ describe("clawhub publish workflow wiring", () => {
     it("publishes the resolved tag commit rather than whatever the checkout holds", () => {
         expect(workflow).toContain('git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"');
         expect(workflow).toContain('git rev-parse "refs/tags/${TAG}^{commit}"');
-        expect(workflow).toContain('--source-commit "${RELEASE_COMMIT}"');
+        // Source attribution now travels as an input: the publish itself runs
+        // upstream, so there is no local `--source-commit` flag left to assert.
+        expect(workflow).toContain("source_commit: ${{ needs.verify.outputs.release_commit }}");
     });
 
     it("keeps the version sync check and the release dist-tags", () => {
@@ -270,24 +272,45 @@ describe("clawhub publish workflow wiring", () => {
         expect(workflow).toContain('CLAWHUB_TAG="beta"');
     });
 
-    it("waits for a terminal publication state instead of trusting the queue", () => {
-        // ClawHub accepts a publish as `pending-publication`, so without the wait
-        // the step reports success while the version still resolves to 404.
-        expect(workflow).toContain("--wait");
-        expect(workflow).toContain("--wait-timeout 2400");
-        expect(workflow).toContain("publicationStatus");
-
-        // A job timeout at or below the wait timeout would kill the wait before
-        // the CLI could ever report a terminal state, silently undoing the fix.
-        const waitTimeoutSeconds = Number(/--wait-timeout (\d+)/.exec(workflow)?.[1] ?? 0);
-        const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(workflow)?.[1] ?? 0);
-        expect(waitTimeoutSeconds).toBeGreaterThan(0);
-        expect(jobTimeoutMinutes * 60).toBeGreaterThan(waitTimeoutSeconds);
+    it("hands a prebuilt tarball to the reusable publisher", () => {
+        // Packing here is what keeps the upstream runner from having to install
+        // pnpm and rebuild this project; the artifact path travels as an output
+        // because the tarball is not renamed.
+        expect(workflow).toContain("openclaw/clawhub/.github/workflows/package-publish.yml@");
+        expect(workflow).toContain("package_artifact_name: clawhub-clawpack");
+        expect(workflow).toContain("package_artifact_path: ${{ needs.verify.outputs.tarball_name }}");
+        expect(workflow).toContain('echo "tarball_name=$(basename "${TARBALL}")" >> "$GITHUB_OUTPUT"');
     });
 
-    it("keeps the pinned CLI on the publish path", () => {
-        expect(workflow).not.toContain("clawhub@0.23.1");
-        expect(workflow).toContain("clawhub@0.23.3");
+    it("publishes for real and waits for a terminal publication state", () => {
+        // `dry_run` defaults to true upstream: leaving it out would turn the
+        // release into a green preview.
+        expect(workflow).toContain("dry_run: false");
+        // ClawHub accepts a publish as `pending-publication`, so without the wait
+        // the run reports success while the version still resolves to 404.
+        expect(workflow).toContain("wait_for_publication: true");
+
+        const publicationTimeout = Number(
+            /publication_timeout_minutes:\s*(\d+)/.exec(workflow)?.[1] ?? 0,
+        );
+        expect(publicationTimeout).toBeGreaterThan(0);
+        // The reusable workflow rejects anything above 40.
+        expect(publicationTimeout).toBeLessThanOrEqual(40);
+    });
+
+    it("pins the reusable workflow to a reviewed commit and installs no local CLI", () => {
+        // The upstream job executes with this repository's CLAWHUB_TOKEN, so a
+        // branch reference would let an unreviewed commit run next to the secret.
+        const uses = /uses: openclaw\/clawhub\/\.github\/workflows\/package-publish\.yml@(\S+)/.exec(
+            workflow,
+        );
+        expect(uses).not.toBeNull();
+        expect(uses?.[1]).toMatch(/^[0-9a-f]{40}$/);
+
+        // Publishing through the pinned CLI is exactly what stopped working: the
+        // npm dist-tag lags the protocol and does not read `Retry-After`.
+        expect(workflow).not.toContain("run: npm install");
+        expect(workflow).not.toContain("clawhub@0.23.3");
     });
 });
 
@@ -309,9 +332,21 @@ describe("clawhub audit workflow wiring", () => {
     });
 
     it("publishes the audit build on a dedicated tag and waits for the verdict", () => {
-        expect(workflow).toContain("--tags audit");
-        expect(workflow).toContain("--wait");
-        expect(workflow).toContain("--wait-timeout 2400");
+        expect(workflow).toContain("tags: audit");
+        expect(workflow).toContain("dry_run: false");
+        expect(workflow).toContain("wait_for_publication: true");
+    });
+
+    it("keeps the publish step on the same pinned reusable workflow as a release", () => {
+        // Both paths share one publish implementation on purpose: the audit used
+        // to fail exactly where the release did, for the same client-version
+        // reason.
+        const uses = /uses: openclaw\/clawhub\/\.github\/workflows\/package-publish\.yml@(\S+)/.exec(
+            workflow,
+        );
+        expect(uses).not.toBeNull();
+        expect(uses?.[1]).toMatch(/^[0-9a-f]{40}$/);
+        expect(workflow).toContain("package_artifact_name: clawhub-audit-clawpack");
     });
 
     it("uses the public version-exact security endpoint as the verdict input", () => {
@@ -319,7 +354,7 @@ describe("clawhub audit workflow wiring", () => {
         expect(workflow).toContain("scripts/clawhub-beta-gate.mjs verdict.json");
     });
 
-    it("keeps a CLI version that supports --wait and restorable withdrawal", () => {
+    it("keeps a CLI version that supports restorable withdrawal", () => {
         expect(workflow).not.toContain("clawhub@0.23.1");
         expect(workflow).toContain("clawhub@0.23.3");
         expect(workflow).toContain("clawhub package delete");
@@ -327,13 +362,17 @@ describe("clawhub audit workflow wiring", () => {
 
     it("withdraws the audit version by default and verifies it is gone", () => {
         expect(workflow).toContain("Withdraw the audit build");
-        expect(workflow).toContain("!inputs.keep_audit_version");
-        expect(workflow).toContain(
-            "if: ${{ always() && steps.release.outputs.audit_version != '' && !inputs.keep_audit_version }}",
-        );
+        expect(workflow).toContain("if: ${{ always() && !inputs.keep_audit_version }}");
         // The post-condition is asserted, not assumed: a withdrawal that left the
         // version resolvable must fail the run.
         expect(workflow).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
+    });
+
+    it("still renders a verdict and withdraws when the publish job fails", () => {
+        // The publish is a separate job now, so its failure must not take the
+        // verdict, the report and the cleanup down with it.
+        expect(workflow).toContain("needs: [prepare, publish]");
+        expect(workflow).toContain("if: ${{ always() }}");
     });
 
     it("keeps the retained-version path visible when the switch is on", () => {
@@ -361,7 +400,7 @@ describe("clawhub audit workflow wiring", () => {
     it("archives the verdict evidence even when the audit fails", () => {
         expect(workflow).toContain("Upload the audit evidence");
         expect(workflow).toContain("if: ${{ always() }}");
-        for (const file of ["verdict.json", "gate-result.json", "publish.json", "scan-report.zip"]) {
+        for (const file of ["verdict.json", "gate-result.json", "publish-result/**", "scan-report.zip"]) {
             expect(workflow).toContain(file);
         }
     });
