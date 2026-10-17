@@ -175,7 +175,6 @@ jobs:
         env:
             CLAWHUB_SITE: https://clawhub.ai
             CLAWHUB_REGISTRY: https://clawhub.ai
-            CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
 
         steps:
             - name: Download the audit tarball
@@ -212,10 +211,16 @@ jobs:
                     echo "::error::CLAWHUB_TOKEN secret is required for the ClawHub security audit."
                     exit 1
                   fi
-                  node -e '
+                  # The CLI reads this file directly; writing it is what upstream's
+                  # own workflow does, and it keeps the token out of argv. The path
+                  # goes through `$GITHUB_ENV` because the job-level `env` cannot
+                  # reference the `runner` context.
+                  CONFIG_PATH="${RUNNER_TEMP}/clawhub-config.json"
+                  echo "CLAWHUB_CONFIG_PATH=${CONFIG_PATH}" >> "$GITHUB_ENV"
+                  CONFIG_PATH="${CONFIG_PATH}" node -e '
                     const { writeFileSync } = require("node:fs");
                     writeFileSync(
-                      process.env.CLAWHUB_CONFIG_PATH,
+                      process.env.CONFIG_PATH,
                       JSON.stringify({ registry: process.env.CLAWHUB_REGISTRY, token: process.env.CLAWHUB_TOKEN }, null, 2) + "\n",
                       { mode: 0o600 },
                     );
