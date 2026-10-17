@@ -20,17 +20,21 @@
 
 ClawHub 自动执行内容（`.github/workflows/clawhub-publish.yml`，两个 job）：
 - `verify` job：校验 tag 与 `package.json` 的 `version` 同步；从远端重新解析 tag 并用 `^{commit}` 剥离，确认工作树就是该 tag 指向的提交；跑 `type-check` / `lint` / `test` / `build` / `pack:check`；最后 `npm pack` 出发布 tarball 并作为 Actions artifact 上传
-- `publish` job：调用 OpenClaw 官方可复用工作流 `openclaw/clawhub/.github/workflows/package-publish.yml`，用上一步的 tarball 发布
+- `publish` job：下载该 tarball → checkout ClawHub 仓库到**固定的 commit SHA** → `bun install --frozen-lockfile` → 用仓库内的 CLI 源码发布，并断言终态 `publicationStatus === "published"`
 
 > [!IMPORTANT]
-> **发布步骤不再由本仓库安装 `clawhub` CLI。** 官方可复用工作流会 checkout ClawHub 仓库、用 Bun 装依赖，并以**仓库内的 CLI 源码**（当前 0.24.0）执行发布。
+> **发布步骤不再安装 npm 上的 `clawhub`，而是用 ClawHub 仓库内的 CLI 源码（当前 0.24.0）。**
 > 原因是 npm 上的 CLI 仍停在 `clawhub@0.23.3`（2026-08-04），该版本不读取 `Retry-After`，遇到限流会盲重试到 120s 请求超时——`v3.9.0` 的 tag 发布因此在 2026-10-17 连续失败两次。
-> 由于这条链路会用本仓库的 `CLAWHUB_TOKEN` 执行上游代码，`uses:` 固定在一个**已审阅的上游 commit SHA** 上，而不是 `@main`；上游改变发布协议时再显式升级这个 SHA。
+> 这条链路会用本仓库的 `CLAWHUB_TOKEN` 执行上游代码，所以 checkout 的 `ref:` 固定在一个**已审阅的上游 commit SHA** 上，而不是 `@main`；上游改变发布协议时再显式升级这个 SHA。`clawhub-audit.yml` 使用同一个 SHA，测试会断言两边一致。
 
-真实发布（非 dry-run）通过官方工作流完成：
-- `dry_run: false` 必须显式传：上游该输入默认是 `true`，漏掉会变成"预览成功"
-- `wait_for_publication: true` + `publication_timeout_minutes: 40`：官方工作流的等待让退出码成为发布判定（`blocked` / `failed` / `expired` / 超时均为非 0）；40 是上游允许的上限（其 job 需为 setup、上传与产物捕获预留时间）
-- `source_repo` / `source_commit` / `source_ref`：沿用校验过的 release commit 与 tag，保持来源可追溯
+为什么不是直接 `uses: openclaw/clawhub/.github/workflows/package-publish.yml`（官方可复用工作流）：
+该工作流的 "Run plugin validation" 步骤用 `bun` 调用 CLI，而 CLI 在 Bun 下**拒绝**执行 `package validate`（`process.versions.bun` → "requires Node.js 22.13+"），
+因此它对任何调用方都会在真正发布前失败（本地实跑 `run 39048527709` 复现）。`publish` job 复刻其参数但去掉这一步；打包面由 `verify` 里的 `pack:check` 覆盖。
+
+发布参数：
+- `--wait --wait-timeout 2400`：让退出码成为发布判定（`blocked` / `failed` / `expired` / 超时均为非 0）；job 的 `timeout-minutes`（50）必须大于 2400s
+- 断言 `publicationStatus === "published"`：等待是对外契约，但终态仍要显式检查，避免将来 CLI 丢掉 `--wait` 语义时静默变成"投递即成功"
+- `--source-repo` / `--source-commit` / `--source-ref`：沿用校验过的 release commit 与 tag，保持来源可追溯
 
 
 > [!IMPORTANT]
@@ -72,10 +76,10 @@ ClawHub 自动发布额外要求：
 4. 手动审计位于独立 workflow：`.github/workflows/clawhub-audit.yml`（同样使用 `CLAWHUB_TOKEN`）
 
 说明：
-- 本仓库的 ClawHub **发布**不再本地安装 CLI，改由上游可复用工作流传入版本；`clawhub@0.23.3` 只保留在审计 workflow 的**离线命令**上（`package validate`、`scan download`、`package delete --version`），因为这些命令在旧版上可用，而它们恰好是"无论如何都要跑到撤回"的关键路径
-- 审计之所以不能整体搬进可复用工作流：它需要"发布 → 判定 → 撤回"三步，官方工作流只覆盖发布；撤回仍依赖 `clawhub package delete --version`
+- ClawHub **发布**不安装 npm 上的 CLI，改从 ClawHub 仓库 checkout 源码；`clawhub@0.23.3` 只保留在审计 workflow 的**离线命令**上（`package validate`、`scan download`、`package delete --version`），因为这些命令在旧版上可用，而它们恰好是"无论如何都要跑到撤回"的关键路径
+- 审计需要"发布 → 判定 → 撤回"三步，官方可复用工作流只覆盖发布（且当前因 Bun 校验 bug 不可用），所以两步都由本仓库自己的 job 驱动，共用同一套 CLI 参数
 - 该版本下限的由来：`--wait` / `--wait-timeout` 与"可恢复的版本撤回"语义在 `clawhub@0.23.2` 才加入；`0.23.1` 的 `package delete --version` 是**永久删除**且没有 `--wait`，不要降级
-- 上游可复用工作流仍是演进中的接口：本仓库把它固定在一个已审阅的 commit SHA 上，升级时必须重新核对它的输入名与 `dry_run` 默认值
+- 源码引用的 commit SHA 是**显式升级点**：两条 workflow 各写一份，测试断言两边一致；升级时重新核对 CLI 的命令行参数（`--tags` / `--wait-timeout` / `--source-*`）
 
 推荐发布命令：
 
@@ -123,12 +127,12 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
 远端审计由三个 job 组成，**发布那一步与正式发布共用同一条链路**：
 
 1. `prepare`：checkout 被审计的 ref → 构建与 `pack:check` → 离线校验（`clawhub package validate`）→ 解析审计版本号 → 确认该版本未被占用 → 打上审计版本并 `npm pack`
-2. `publish`：调用 `openclaw/clawhub/.github/workflows/package-publish.yml`，以 `tags: audit` 发布上一步的 tarball
+2. `publish`：checkout 固定 SHA 的 ClawHub CLI 源码并用 Bun 安装依赖，以 `--tags audit` 发布上一步的 tarball（与正式发布同一套参数）
 3. `verdict`：**只要 `prepare` 或 `publish` 任一失败也会运行**——取安全判定 → 跑 `scripts/clawhub-beta-gate.mjs` → 下载扫描报告 → 等发布状态落定 → 撤回审计版本 → 汇总并上传证据
    - 判定脚本按 `prepare` 记录的 `audited_commit` 检出，而不是按输入 ref 重新检出：分支在发布等待期间前进时，判定代码不能跑到被审计提交前面去
    - "等发布状态落定"由 `scripts/clawhub-publication-state.mjs` 完成，见下方说明
 
-这样做的原因是：审计失败的根因和正式发布是同一个（旧 CLI 不读 `Retry-After`），把发布统一到官方可复用工作流后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口，不依赖上游工作流的内部实现。
+这样做的原因是：审计失败的根因和正式发布是同一个（旧 CLI 不读 `Retry-After`），把发布统一到同一份 CLI 源码后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口。
 
 > [!IMPORTANT]
 > **"版本 404"不能证明"没发布过"。** `wait_for_publication` 超时只让 workflow 失败，

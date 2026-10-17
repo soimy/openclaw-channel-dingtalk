@@ -10,14 +10,14 @@ name: ClawHub Security Audit
 # server-side attempt running, so a version 404 alone cannot prove "never
 # created" — see `scripts/clawhub-publication-state.mjs`.
 #
-# The publish step goes through OpenClaw's reusable workflow for the same reason
-# as `.github/workflows/clawhub-publish.yml`: the npm dist-tag still ships
-# clawhub 0.23.3, which does not read `Retry-After` and times out on a throttled
-# publish, while the reusable workflow runs the current CLI from the ClawHub
-# repository with Bun. The remaining commands here (offline validation, scan
-# report download, version withdrawal) keep the pinned npm CLI: they completed
-# successfully in the runs where the old publish step failed, and moving them
-# would add a second moving part to a workflow that must always reach the
+# The publish step runs the ClawHub CLI checked out from the pinned commit, for
+# the same reason as `.github/workflows/clawhub-publish.yml`: the npm dist-tag
+# still ships clawhub 0.23.3, which does not read `Retry-After` and times out on
+# a throttled publish. Their reusable workflow is not used because its plugin
+# validation step invokes the CLI with Bun, which the CLI refuses. The remaining
+# commands here (offline validation, scan report download, version withdrawal)
+# keep the pinned npm CLI: they completed successfully in the runs where the
+# publish step failed, and they sit on the path that must always reach the
 # withdrawal step.
 #
 # The verdict here is informational: it no longer gates
@@ -167,23 +167,92 @@ jobs:
 
     publish:
         needs: prepare
+        runs-on: ubuntu-latest
+        # Dependency install plus the 40-minute publication wait, with headroom.
+        timeout-minutes: 50
         permissions:
-            actions: read
             contents: read
-            id-token: write
-        uses: openclaw/clawhub/.github/workflows/package-publish.yml@1d2eadf6c8438c6e97028590382a252f47bb4adb
-        with:
-            package_artifact_name: clawhub-audit-clawpack
-            package_artifact_path: ${{ needs.prepare.outputs.tarball_name }}
-            dry_run: false
-            wait_for_publication: true
-            publication_timeout_minutes: 40
-            tags: audit
-            source_repo: ${{ github.repository }}
-            source_commit: ${{ needs.prepare.outputs.audited_commit }}
-            source_ref: ${{ needs.prepare.outputs.audited_ref }}
-        secrets:
-            clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+        env:
+            CLAWHUB_SITE: https://clawhub.ai
+            CLAWHUB_REGISTRY: https://clawhub.ai
+            CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+
+        steps:
+            - name: Download the audit tarball
+              uses: actions/download-artifact@v4
+              with:
+                  name: clawhub-audit-clawpack
+                  path: ${{ runner.temp }}/clawpack
+
+            # Same pinned commit as `.github/workflows/clawhub-publish.yml`; the
+            # wiring test asserts the two refs are identical so one cannot be
+            # bumped without the other.
+            - name: Checkout the ClawHub CLI
+              uses: actions/checkout@v4
+              with:
+                  repository: openclaw/clawhub
+                  ref: 1d2eadf6c8438c6e97028590382a252f47bb4adb
+                  path: clawhub-source
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: 1.3.14
+
+            - name: Install the ClawHub CLI dependencies
+              working-directory: clawhub-source
+              run: bun install --frozen-lockfile
+
+            - name: Write the ClawHub credentials
+              env:
+                  CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "${CLAWHUB_TOKEN:-}" ]]; then
+                    echo "::error::CLAWHUB_TOKEN secret is required for the ClawHub security audit."
+                    exit 1
+                  fi
+                  node -e '
+                    const { writeFileSync } = require("node:fs");
+                    writeFileSync(
+                      process.env.CLAWHUB_CONFIG_PATH,
+                      JSON.stringify({ registry: process.env.CLAWHUB_REGISTRY, token: process.env.CLAWHUB_TOKEN }, null, 2) + "\n",
+                      { mode: 0o600 },
+                    );
+                  '
+
+            - name: Publish the audit tarball
+              env:
+                  TARBALL_NAME: ${{ needs.prepare.outputs.tarball_name }}
+                  AUDITED_COMMIT: ${{ needs.prepare.outputs.audited_commit }}
+                  AUDITED_REF: ${{ needs.prepare.outputs.audited_ref }}
+              run: |
+                  set -euo pipefail
+
+                  # `--tags audit` keeps the throwaway build off `latest` and
+                  # `beta`. `--wait` makes the exit code the publication verdict
+                  # instead of trusting the `pending-publication` ack.
+                  bun "${GITHUB_WORKSPACE}/clawhub-source/packages/clawhub/src/cli.ts" package publish \
+                    "${RUNNER_TEMP}/clawpack/${TARBALL_NAME}" \
+                    --site "${CLAWHUB_SITE}" \
+                    --registry "${CLAWHUB_REGISTRY}" \
+                    --tags audit \
+                    --wait \
+                    --wait-timeout 2400 \
+                    --source-repo "${GITHUB_REPOSITORY}" \
+                    --source-commit "${AUDITED_COMMIT}" \
+                    --source-ref "${AUDITED_REF}" \
+                    --manual-override-reason "GitHub Actions ${GITHUB_EVENT_NAME} audit publish via CLAWHUB_TOKEN" \
+                    --json | tee publish.json
+
+            - name: Upload the publish result
+              if: ${{ always() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: clawhub-audit-publish-result
+                  if-no-files-found: ignore
+                  retention-days: 7
+                  path: publish.json
 
     verdict:
         needs: [prepare, publish]
@@ -327,14 +396,14 @@ jobs:
                   fi
                   echo "Verified: ${AUDIT_VERSION} no longer resolves (HTTP 404)."
 
-            # The reusable workflow publishes its JSON result as an artifact; pull
-            # it back so the evidence bundle below stays a single download.
+            # The publish job uploads its JSON result as an artifact; pull it back
+            # so the evidence bundle below stays a single download.
             - name: Collect the publish result
               if: ${{ always() }}
               continue-on-error: true
-              uses: actions/download-artifact@v8
+              uses: actions/download-artifact@v4
               with:
-                  name: clawhub-package-publish-json
+                  name: clawhub-audit-publish-result
                   path: publish-result
 
             - name: Summarize the audit outcome
