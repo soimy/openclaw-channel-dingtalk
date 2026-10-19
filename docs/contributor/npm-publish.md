@@ -24,8 +24,15 @@ ClawHub 自动执行内容（`.github/workflows/clawhub-publish.yml`，两个 jo
 
 > [!IMPORTANT]
 > **发布步骤不再安装 npm 上的 `clawhub`，而是用 ClawHub 仓库内的 CLI 源码（当前 0.24.0）。**
-> 原因是 npm 上的 CLI 仍停在 `clawhub@0.23.3`（2026-08-04），该版本不读取 `Retry-After`，遇到限流会盲重试到 120s 请求超时——`v3.9.0` 的 tag 发布因此在 2026-10-17 连续失败两次。
+> 原因是 npm 上的 CLI 仍停在 `clawhub@0.23.3`（2026-08-04），而仓库里的 0.24.0 才支持服务端已经切换到的 staged-upload / publication-settling 协议。
 > 这条链路会用本仓库的 `CLAWHUB_TOKEN` 执行上游代码，所以 checkout 的 `ref:` 固定在一个**已审阅的上游 commit SHA** 上，而不是 `@main`；上游改变发布协议时再显式升级这个 SHA。`clawhub-audit.yml` 使用同一个 SHA，测试会断言两边一致。
+
+> [!WARNING]
+> **当前 ClawHub 侧发布会因服务端 OOM 失败（2026-10-19 仍在复现）。** `publish` job 会报
+> `Node.js action execution ran out of memory (maximum memory usage: 512 MB)`，这是 ClawHub 的 Convex action 挂掉，
+> 客户端只能等到请求超时（0.23.3 是 120s，0.24.0 是 300s），期间 `/versions/{v}/publication` 一直是 `absent`。
+> 与本地 tarball 无关：`3.9.0` 与 `3.8.1` 的包体几乎一样（2.05 MB / 199 文件 vs 2.02 MB / 188 文件）。
+> 等上游修复后再 `gh workflow run clawhub-publish.yml -f tag=<tag>` 补发。
 
 为什么不是直接 `uses: openclaw/clawhub/.github/workflows/package-publish.yml`（官方可复用工作流）：
 该工作流的 "Run plugin validation" 步骤用 `bun` 调用 CLI，而 CLI 在 Bun 下**拒绝**执行 `package validate`（`process.versions.bun` → "requires Node.js 22.13+"），
@@ -132,7 +139,7 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
    - 判定脚本按 `prepare` 记录的 `audited_commit` 检出，而不是按输入 ref 重新检出：分支在发布等待期间前进时，判定代码不能跑到被审计提交前面去
    - "等发布状态落定"由 `scripts/clawhub-publication-state.mjs` 完成，见下方说明
 
-这样做的原因是：审计失败的根因和正式发布是同一个（旧 CLI 不读 `Retry-After`），把发布统一到同一份 CLI 源码后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口。
+这样做的原因是：审计失败的根因和正式发布是同一个（发布这一跳），把发布统一到同一份 CLI 源码后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口。
 
 > [!IMPORTANT]
 > **"版本 404"不能证明"没发布过"。** `wait_for_publication` 超时只让 workflow 失败，

@@ -4,10 +4,16 @@ name: Publish to ClawHub
 # `PINNED_CLAWHUB_CLI_SHA` commit below and installed with Bun.
 #
 # Why not `npm install -g clawhub@<x>` here: the npm dist-tag is still 0.23.3
-# (2026-08-04) while the ClawHub repository already carries 0.24.0. The older
-# client does not read `Retry-After`, so a throttled publish retries blind until
-# its 120s request timeout, which is exactly how the v3.9.0 tag run failed twice
-# on 2026-10-17.
+# (2026-08-04) while the ClawHub repository already carries 0.24.0, which speaks
+# the staged-upload and publication-settling protocol the server moved to.
+#
+# Neither client can currently finish a publish for this package, and the failure
+# is server-side: ClawHub's publish action dies on Convex with
+# "Node.js action execution ran out of memory (maximum memory usage: 512 MB)"
+# (run 39193401817, 2026-10-19), so the client only sees a request that never
+# answers and reports it as a timeout (120s on 0.23.3, 300s on 0.24.0). Nothing
+# in this workflow can fix that; retry from `workflow_dispatch` once upstream
+# has fixed it.
 #
 # Why not their reusable workflow (`package-publish.yml@<sha>`): its "Run plugin
 # validation" step invokes the CLI with Bun, and the CLI refuses to validate under

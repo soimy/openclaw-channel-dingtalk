@@ -12,8 +12,8 @@ name: ClawHub Security Audit
 #
 # The publish step runs the ClawHub CLI checked out from the pinned commit, for
 # the same reason as `.github/workflows/clawhub-publish.yml`: the npm dist-tag
-# still ships clawhub 0.23.3, which does not read `Retry-After` and times out on
-# a throttled publish. Their reusable workflow is not used because its plugin
+# still ships clawhub 0.23.3, which predates the staged-upload protocol the
+# server now expects. Their reusable workflow is not used because its plugin
 # validation step invokes the CLI with Bun, which the CLI refuses. The remaining
 # commands here (offline validation, scan report download, version withdrawal)
 # keep the pinned npm CLI: they completed successfully in the runs where the

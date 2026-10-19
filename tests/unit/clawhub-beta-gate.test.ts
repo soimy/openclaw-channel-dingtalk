@@ -299,8 +299,7 @@ describe("clawhub publish workflow wiring", () => {
     });
 
     it("runs the pinned ClawHub CLI from source instead of the npm dist-tag", () => {
-        // The npm dist-tag lags the publish protocol and does not read
-        // `Retry-After`, which is what timed out every v3.9.0 attempt.
+        // The npm dist-tag lags the publish protocol (staged uploads, settling).
         expect(workflow).not.toContain("run: npm install");
         expect(workflow).not.toContain("clawhub@0.23.3");
 
