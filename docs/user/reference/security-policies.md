@@ -8,7 +8,7 @@
 
 | 配置项 | 默认值 | 风险面 | 启用 / 收窄方式 |
 | --- | --- | --- | --- |
-| `gatewayCapabilities.tools.docs` | 关闭 | 开启后文档 RPC 可读写钉钉文档空间 | 需要时设 `true`，并配置 `gatewayCapabilities.docs.allowedSpaceIds` |
+| `gatewayCapabilities.tools.docs` | 关闭 | 开启后文档 RPC 可读写钉钉文档空间 | 需要时设 `true`，并按 RPC 组合白名单：`create` / `list` / `search` 用 `docs.allowedSpaceIds`，`append` 用 `docs.allowedDocIds`（只配前者时 append 一律拒绝） |
 | `gatewayCapabilities.tools.proactiveSend` | 关闭 | 开启后主动发送 RPC 可向任意 `user:*` / `group:*` 发消息 | 需要时设 `true`，并配置 `gatewayCapabilities.send.allowedTargets` |
 | `dmPolicy` | `open` | 任意用户可私聊机器人 | 改 `pairing` / `allowlist` |
 | `groupPolicy` | `open` | 任意群可 @机器人 | 改 `allowlist`，或用 `groups` 按群收窄 |

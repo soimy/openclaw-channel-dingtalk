@@ -40,7 +40,7 @@
 | `initialReconnectDelay` | number | `1000` | 初始重连延迟 |
 | `maxReconnectDelay` | number | `60000` | 最大重连延迟 |
 | `reconnectJitter` | number | `0.3` | 重连抖动因子 |
-| `gatewayCapabilities` | object | - | Gateway RPC 能力开关与白名单：`tools.docs` / `tools.proactiveSend` / `docs.allowedSpaceIds` / `send.allowedTargets`；默认全部开启 |
+| `gatewayCapabilities` | object | - | Gateway RPC 能力开关与白名单：`tools.docs` / `tools.proactiveSend`（默认关闭，需显式开启）、`docs.allowedSpaceIds`（create/list/search）、`docs.allowedDocIds`（append）、`send.allowedTargets` |
 
 ## 关于 `clientId` 与钉钉 `robotCode`
 
@@ -178,10 +178,13 @@ OpenClaw 2026.5.7 之后，群聊默认 `messages.groupChat.visibleReplies=messa
 
 ## 关于 `gatewayCapabilities`
 
-`gatewayCapabilities` 收窄 Gateway RPC 的影响面（Issue #608 问题 3），全部默认开启、不配置即保持现有行为：
+`gatewayCapabilities` 控制 Gateway RPC 的能力面与白名单（Issue #608 问题 3）。**能力开关默认关闭**，不配置时这些 RPC 全部返回结构化拒绝；需要时显式开启并按 RPC 组合白名单：
 
-- `gatewayCapabilities.tools.docs` / `gatewayCapabilities.tools.proactiveSend`：分别关闭全部 docs RPC（`dingtalk.docs.*` 与 `dingtalk-connector.docs.*`）与全部主动发送 RPC（`dingtalk-connector.sendToUser/sendToGroup/send`）。
-- `gatewayCapabilities.docs.allowedSpaceIds`：文档空间白名单；配置后不携带 `spaceId` 的请求（例如 `docs.append`）也会被拒绝。
+- `gatewayCapabilities.tools.docs` / `gatewayCapabilities.tools.proactiveSend`：能力总开关，分别控制全部 docs RPC（`dingtalk.docs.*` 与 `dingtalk-connector.docs.*`）与全部主动发送 RPC（`dingtalk-connector.sendToUser/sendToGroup/send`）。只有显式设为 `true` 才生效。
+- `gatewayCapabilities.docs.allowedSpaceIds`：文档空间白名单，约束 `create` / `list` / `search`；配置后不携带 `spaceId` 的 `search` 请求也会被拒绝。
+- `gatewayCapabilities.docs.allowedDocIds`：写入文档白名单，约束 `docs.append`。append 以 `docId` 为目标，插件无法从请求里验证该文档属于哪个空间，因此**调用方自报的 `spaceId` 不作为授权依据**：
+  - 只配 `allowedSpaceIds`、不配 `allowedDocIds` 时，append 一律拒绝；
+  - 两个都配时，append **只**按 `allowedDocIds` 授权，不做实时空间归属校验——文档跨空间迁移后需要运维同步更新白名单。
 - `gatewayCapabilities.send.allowedTargets`：主动发送目标白名单，每项为 `user:<id>` 或 `group:<conversationId>`。
 - 白名单配置后至少需要一项，空数组会被配置校验拒绝；多账号下账号级 `gatewayCapabilities` 与渠道级按子键合并，渠道级限制不会被账号级局部配置静默移除。
 
