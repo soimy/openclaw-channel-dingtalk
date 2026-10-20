@@ -17,6 +17,7 @@ import {
 import { sendMessage } from "./src/messaging/send-service";
 import { getAccessToken } from "./src/platform/auth";
 import {
+  checkDocsAppendGatewayCapability,
   checkDocsGatewayCapability,
   checkProactiveSendGatewayCapability,
   getConfig,
@@ -49,8 +50,9 @@ function denyGatewayCapability(
 }
 
 /**
- * Wrap a docs Gateway RPC handler with the `gatewayCapabilities.tools.docs` capability gate
- * and the optional `gatewayCapabilities.docs.allowedSpaceIds` allowlist (Issue #608, 问题 3).
+ * Wrap a space-scoped docs Gateway RPC handler (`create` / `list` / `search`) with the
+ * `gatewayCapabilities.tools.docs` capability gate and the optional
+ * `gatewayCapabilities.docs.allowedSpaceIds` allowlist (Issue #608, 问题 3).
  * `dingtalk.docs.*` and `dingtalk-connector.docs.*` aliases share handlers, so
  * the gate automatically applies to both namespaces.
  */
@@ -68,6 +70,38 @@ function withDocsGatewayCapability(
     // (all optional for docs RPCs) are inspected.
     const spaceId = readStringParam(params, "spaceId") ?? undefined;
     const denial = checkDocsGatewayCapability(caps, spaceId);
+    if (denial) {
+      return denyGatewayCapability(api, method, denial, respond);
+    }
+    return handler(args);
+  };
+}
+
+/**
+ * Wrap `docs.append` with the same capability switch, but authorize the write by
+ * `docId` instead of a request `spaceId`.
+ *
+ * Why a separate wrapper: append targets an opaque document and never carries a
+ * space that the plugin can verify, so reading a caller-supplied `spaceId` here
+ * let a caller name an allowed space and still append to any document it could
+ * reach (ClawScan finding on 3.9.0). The document allowlist is the only
+ * enforceable scope for this method.
+ */
+function withDocsAppendGatewayCapability(
+  api: OpenClawPluginApi,
+  method: string,
+  handler: (args: GatewayMethodArgs) => Promise<void>,
+): (args: GatewayMethodArgs) => Promise<void> {
+  return async (args: GatewayMethodArgs) => {
+    const { respond, params } = args;
+    const accountId = readStringParam(params, "accountId");
+    const caps = resolveGatewayCapabilityConfig(api.config, accountId ?? undefined);
+    // A `spaceId` in the params is deliberately ignored: it is caller-supplied and
+    // says nothing about where `docId` lives.
+    const denial = checkDocsAppendGatewayCapability(
+      caps,
+      readStringParam(params, "docId") ?? undefined,
+    );
     if (denial) {
       return denyGatewayCapability(api, method, denial, respond);
     }
@@ -179,7 +213,7 @@ function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
   );
   api.registerGatewayMethod(
     "dingtalk.docs.append",
-    withDocsGatewayCapability(api, "dingtalk.docs.append", appendHandler),
+    withDocsAppendGatewayCapability(api, "dingtalk.docs.append", appendHandler),
   );
   api.registerGatewayMethod(
     "dingtalk.docs.search",
@@ -195,7 +229,7 @@ function registerDingTalkDocsGatewayMethods(api: OpenClawPluginApi): void {
   );
   api.registerGatewayMethod(
     "dingtalk-connector.docs.append",
-    withDocsGatewayCapability(api, "dingtalk-connector.docs.append", appendHandler),
+    withDocsAppendGatewayCapability(api, "dingtalk-connector.docs.append", appendHandler),
   );
   api.registerGatewayMethod(
     "dingtalk-connector.docs.search",

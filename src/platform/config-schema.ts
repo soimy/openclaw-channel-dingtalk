@@ -39,8 +39,10 @@ const DingTalkGatewayCapabilitiesSchema = z
       .optional(),
     docs: z
       .object({
-        /** When set, docs RPCs only accept these spaceId values (at least one entry) */
+        /** When set, space-scoped docs RPCs only accept these spaceId values (at least one entry) */
         allowedSpaceIds: z.array(z.string().min(1)).min(1).optional(),
+        /** When set, `docs.append` only accepts these docId values (at least one entry) */
+        allowedDocIds: z.array(z.string().min(1)).min(1).optional(),
       })
       .strict()
       .optional(),

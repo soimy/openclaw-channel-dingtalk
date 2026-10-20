@@ -375,7 +375,7 @@
                   "docs": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds to bound the document spaces callers can reach."
+                    "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds (space-scoped methods) plus gatewayCapabilities.docs.allowedDocIds (docs.append) to bound what callers can reach."
                   },
                   "proactiveSend": {
                     "type": "boolean",
@@ -387,13 +387,19 @@
               "docs": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Docs RPC allowlist. When allowedSpaceIds is configured, requests without a spaceId (for example dingtalk.docs.append) are denied as well.",
+                "description": "Docs RPC allowlists. allowedSpaceIds bounds space-scoped RPCs (create/list/search); docs.append targets a docId instead, so it is denied while a space allowlist is configured unless the document is listed in allowedDocIds.",
                 "properties": {
                   "allowedSpaceIds": {
                     "type": "array",
                     "minItems": 1,
                     "items": { "type": "string", "minLength": 1 },
                     "description": "When set, docs RPCs only accept these spaceId values."
+                  },
+                  "allowedDocIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "When set, dingtalk.docs.append only accepts these docId values. Required to use append while allowedSpaceIds is configured."
                   }
                 }
               },
@@ -760,7 +766,7 @@
                         "docs": {
                           "type": "boolean",
                           "default": false,
-                          "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds to bound the document spaces callers can reach."
+                          "description": "Enable dingtalk.docs.* and dingtalk-connector.docs.* Gateway RPCs. Disabled by default; set true to expose them, and configure gatewayCapabilities.docs.allowedSpaceIds (space-scoped methods) plus gatewayCapabilities.docs.allowedDocIds (docs.append) to bound what callers can reach."
                         },
                         "proactiveSend": {
                           "type": "boolean",
@@ -772,13 +778,19 @@
                     "docs": {
                       "type": "object",
                       "additionalProperties": false,
-                      "description": "Docs RPC allowlist. When allowedSpaceIds is configured, requests without a spaceId (for example dingtalk.docs.append) are denied as well.",
+                      "description": "Docs RPC allowlists. allowedSpaceIds bounds space-scoped RPCs (create/list/search); docs.append targets a docId instead, so it is denied while a space allowlist is configured unless the document is listed in allowedDocIds.",
                       "properties": {
                         "allowedSpaceIds": {
                           "type": "array",
                           "minItems": 1,
                           "items": { "type": "string", "minLength": 1 },
                           "description": "When set, docs RPCs only accept these spaceId values."
+                        },
+                        "allowedDocIds": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": { "type": "string", "minLength": 1 },
+                          "description": "When set, dingtalk.docs.append only accepts these docId values. Required to use append while allowedSpaceIds is configured."
                         }
                       }
                     },

@@ -34,7 +34,8 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
           "proactiveSend": true   // 默认 false；开启后 dingtalk-connector.sendToUser/sendToGroup/send 可用
         },
         "docs": {
-          "allowedSpaceIds": ["spaceA"] // 配置后 docs RPC 只接受这些 spaceId（至少一项）；未配置不限制
+          "allowedSpaceIds": ["spaceA"], // 配置后 create / list / search 只接受这些 spaceId（至少一项）；未配置不限制
+          "allowedDocIds": ["docA"]      // 配置后 append 只接受这些 docId（至少一项）；不配置则 append 在 allowedSpaceIds 模式下被拒绝
         },
         "send": {
           "allowedTargets": ["user:staff123", "group:cidXXXX"] // 配置后发送目标必须在列表内；未配置不限制
@@ -54,11 +55,14 @@ docs RPC 与主动发送 RPC 使用配置中的钉钉应用凭证直接执行文
 - 白名单是 fail-closed 的：运行时若收到"已配置但为空"的白名单（例如绕过了配置校验），会按"全部拒绝"处理。
 - 多账号场景下，账号级 `gatewayCapabilities` **按子键与渠道级合并**（`tools` / `docs` / `send` 三组分别合并），同一子键以账号级为准。因此渠道级的 `tools.docs: false` 或渠道级白名单不会被账号级的局部配置静默移除；未配置的账号完全继承渠道级设置。
 
-`allowedSpaceIds` 的适用范围：
+白名单的适用范围：
 
-- 配置白名单后，带 `spaceId` 的 docs 方法（`create` / `list` / `search`）只接受白名单内的 `spaceId`。
+- `allowedSpaceIds`：配置后，带 `spaceId` 的 docs 方法（`create` / `list` / `search`）只接受白名单内的 `spaceId`。
 - `search` 的 `spaceId` 是可选的：配置白名单后，不传 `spaceId` 的 `search` 会被拒绝，因为无法确认它要访问哪个空间。
-- `dingtalk.docs.append` / `dingtalk-connector.docs.append` 以 `docId` 为目标、永远不携带 `spaceId`；配置白名单后该方法也会被拒绝，拒绝信息会说明"请求未携带 spaceId"。如需在白名单模式下继续使用 append，请不要配置 `allowedSpaceIds`（改为依赖 `tools.docs` 开关）。
+- `allowedDocIds`：`dingtalk.docs.append` / `dingtalk-connector.docs.append` 以 `docId` 为目标，**不读请求里的 `spaceId`**。想让白名单模式下继续用 append，就把允许写入的文档显式列进 `allowedDocIds`。
+- 只配置 `allowedSpaceIds` 而没配 `allowedDocIds` 时，append 一律拒绝：插件拿不到"这个 `docId` 属于哪个空间"的事实，**调用方自己填的 `spaceId` 不能作为写入授权依据**（这正是 3.9.0 审计里 `suspicious` 指出的越权点）。
+- 两个白名单都配置时，append 只看 `allowedDocIds`：它表示运维已确认"该文档在允许的空间内"。
+- 未配置任何白名单时，append 与 `create` / `list` / `search` 一样只受 `tools.docs` 开关约束。
 
 ## 所需钉钉应用权限
 

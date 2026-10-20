@@ -41,9 +41,15 @@ export interface DingTalkGatewayCapabilitiesConfig {
     /** Enable proactive-send Gateway RPCs: `dingtalk-connector.sendToUser/sendToGroup/send` (default: false) */
     proactiveSend?: boolean;
   };
-  /** Optional doc-space allowlist; when set, docs RPCs only accept these `spaceId` values */
+  /** Optional doc-space allowlist; when set, space-scoped docs RPCs (`create` / `list` / `search`) only accept these `spaceId` values */
   docs?: {
     allowedSpaceIds?: string[];
+    /**
+     * Optional document allowlist for `docs.append`. Append targets an opaque `docId`
+     * and never carries a verifiable `spaceId`, so it is denied whenever a space
+     * allowlist is configured unless the document is listed here explicitly.
+     */
+    allowedDocIds?: string[];
   };
   /** Optional proactive-send target allowlist; entries must be `user:*` or `group:*` */
   send?: {

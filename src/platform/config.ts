@@ -179,8 +179,10 @@ export interface ResolvedGatewayCapabilities {
   docsEnabled: boolean;
   /** `dingtalk-connector.sendToUser/sendToGroup/send` RPCs enabled (default: false) */
   proactiveSendEnabled: boolean;
-  /** When set, docs RPCs only accept these spaceId values */
+  /** When set, space-scoped docs RPCs only accept these spaceId values */
   allowedSpaceIds?: string[];
+  /** When set, `docs.append` only accepts these docId values */
+  allowedDocIds?: string[];
   /** When set, proactive-send RPCs only accept these `user:*` / `group:*` targets */
   allowedTargets?: string[];
 }
@@ -220,17 +222,21 @@ export function resolveGatewayCapabilityConfig(
     docsEnabled: tools.docs === true,
     proactiveSendEnabled: tools.proactiveSend === true,
     allowedSpaceIds: docs.allowedSpaceIds,
+    allowedDocIds: docs.allowedDocIds,
     allowedTargets: send.allowedTargets,
   };
 }
 
 /**
- * Check a docs RPC request against the configured capability gates.
- * Returns null when allowed, or a human-readable denial reason.
+ * Check a space-scoped docs RPC (`create` / `list` / `search`) against the configured
+ * capability gates. Returns null when allowed, or a human-readable denial reason.
  *
  * A configured allowlist is fail-closed: an empty list (possible only when
  * config validation was bypassed) denies every docs RPC, and a request without
  * a spaceId is denied as well because its doc space cannot be verified.
+ *
+ * `docs.append` is not checked here: it targets a `docId`, so a caller-supplied
+ * `spaceId` must never authorize the write — see `checkDocsAppendGatewayCapability`.
  */
 export function checkDocsGatewayCapability(
   caps: ResolvedGatewayCapabilities,
@@ -241,11 +247,43 @@ export function checkDocsGatewayCapability(
   }
   if (caps.allowedSpaceIds) {
     if (!spaceId) {
-      return "docs RPC denied: this request carries no spaceId while gatewayCapabilities.docs.allowedSpaceIds is configured (dingtalk.docs.append never carries a spaceId)";
+      return "docs RPC denied: this request carries no spaceId while gatewayCapabilities.docs.allowedSpaceIds is configured";
     }
     if (!caps.allowedSpaceIds.includes(spaceId)) {
       return "spaceId is not in gatewayCapabilities.docs.allowedSpaceIds allowlist";
     }
+  }
+  return null;
+}
+
+/**
+ * Check `docs.append` against the configured capability gates.
+ *
+ * Append writes to an opaque `docId` and cannot prove which space that document
+ * lives in, so the check is keyed on the document itself:
+ * - `docs.allowedDocIds` set -> the docId must be listed (fail-closed on empty/missing)
+ * - only `docs.allowedSpaceIds` set -> deny, because a caller-declared `spaceId`
+ *   cannot vouch for a different document's space (ClawScan finding on 3.9.0)
+ * - no allowlist -> allow, matching the `tools.docs` opt-in
+ */
+export function checkDocsAppendGatewayCapability(
+  caps: ResolvedGatewayCapabilities,
+  docId: string | undefined,
+): string | null {
+  if (!caps.docsEnabled) {
+    return DOCS_GATE_DISABLED_REASON;
+  }
+  if (caps.allowedDocIds) {
+    if (!docId) {
+      return "docs RPC denied: this request carries no docId while gatewayCapabilities.docs.allowedDocIds is configured";
+    }
+    if (!caps.allowedDocIds.includes(docId)) {
+      return "docId is not in gatewayCapabilities.docs.allowedDocIds allowlist";
+    }
+    return null;
+  }
+  if (caps.allowedSpaceIds) {
+    return "docs RPC denied: dingtalk.docs.append writes to a docId, so its space cannot be verified against gatewayCapabilities.docs.allowedSpaceIds; list the document in gatewayCapabilities.docs.allowedDocIds to allow it";
   }
   return null;
 }

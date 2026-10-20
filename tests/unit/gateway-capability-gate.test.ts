@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import {
+  checkDocsAppendGatewayCapability,
   checkDocsGatewayCapability,
   checkProactiveSendGatewayCapability,
   resolveGatewayCapabilityConfig,
@@ -105,6 +106,60 @@ describe("checkDocsGatewayCapability", () => {
     expect(checkDocsGatewayCapability(caps, "spaceB")).toContain("allowedSpaceIds");
     expect(checkDocsGatewayCapability(caps, undefined)).toContain("allowedSpaceIds");
     expect(checkDocsGatewayCapability(caps, "spaceA")).toBeNull();
+  });
+});
+
+describe("checkDocsAppendGatewayCapability", () => {
+  it("returns null when explicitly enabled and no allowlist", () => {
+    const caps = resolveGatewayCapabilityConfig(makeCfg({ gatewayCapabilities: { tools: { docs: true } } }));
+    expect(checkDocsAppendGatewayCapability(caps, "docA")).toBeNull();
+  });
+
+  it("denies when docs tool disabled", () => {
+    const caps = resolveGatewayCapabilityConfig(makeCfg({ gatewayCapabilities: { tools: { docs: false } } }));
+    expect(checkDocsAppendGatewayCapability(caps, "docA")).toContain("gatewayCapabilities.tools.docs");
+  });
+
+  it("denies any document when only a space allowlist is configured", () => {
+    // Append cannot prove the document's space, so a space allowlist must not
+    // authorize it (a caller-supplied spaceId would be a bypass).
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayCapabilities: { tools: { docs: true }, docs: { allowedSpaceIds: ["spaceA"] } } }),
+    );
+    const denial = checkDocsAppendGatewayCapability(caps, "docA");
+    expect(denial).toContain("allowedDocIds");
+    expect(denial).toContain("cannot be verified");
+  });
+
+  it("keys the decision on the document allowlist", () => {
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayCapabilities: { tools: { docs: true }, docs: { allowedDocIds: ["docA"] } } }),
+    );
+    expect(checkDocsAppendGatewayCapability(caps, "docA")).toBeNull();
+    expect(checkDocsAppendGatewayCapability(caps, "docB")).toContain("allowedDocIds");
+    expect(checkDocsAppendGatewayCapability(caps, undefined)).toContain("no docId");
+  });
+
+  it("accepts a listed document even when a space allowlist is also configured", () => {
+    // The document allowlist is the explicit operator assertion for writes.
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({
+        gatewayCapabilities: {
+          tools: { docs: true },
+          docs: { allowedSpaceIds: ["spaceA"], allowedDocIds: ["docA"] },
+        },
+      }),
+    );
+    expect(checkDocsAppendGatewayCapability(caps, "docA")).toBeNull();
+    expect(checkDocsAppendGatewayCapability(caps, "docB")).toContain("allowedDocIds");
+  });
+
+  it("treats an empty document allowlist as deny-all", () => {
+    // Only reachable when config validation was bypassed.
+    const caps = resolveGatewayCapabilityConfig(
+      makeCfg({ gatewayCapabilities: { tools: { docs: true }, docs: { allowedDocIds: [] } } }),
+    );
+    expect(checkDocsAppendGatewayCapability(caps, "docA")).toContain("allowedDocIds");
   });
 });
 

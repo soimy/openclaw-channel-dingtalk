@@ -33,7 +33,8 @@
       "gatewayCapabilities": {
         // 需要哪一项就开哪一项，并同时限定范围
         "tools": { "docs": true, "proactiveSend": false },
-        "docs": { "allowedSpaceIds": ["<spaceId>"] },
+        // allowedSpaceIds 限定 create/list/search 的空间；append 用 allowedDocIds 显式列文档
+        "docs": { "allowedSpaceIds": ["<spaceId>"], "allowedDocIds": ["<docId>"] },
         "send": { "allowedTargets": ["user:<staffId>", "group:<conversationId>"] }
       }
     }
@@ -148,7 +149,8 @@
 
 - `gatewayCapabilities.tools.docs = false`：关闭全部 docs RPC
 - `gatewayCapabilities.tools.proactiveSend = false`：关闭全部主动发送 RPC
-- `gatewayCapabilities.docs.allowedSpaceIds`：文档空间白名单（配置后至少一项；不携带 `spaceId` 的请求会被拒绝）
+- `gatewayCapabilities.docs.allowedSpaceIds`：文档空间白名单，作用于 `create` / `list` / `search`（配置后至少一项；不携带 `spaceId` 的请求会被拒绝）
+- `gatewayCapabilities.docs.allowedDocIds`：写入文档白名单，作用于 `append`（配置后至少一项）。只配 `allowedSpaceIds` 时 append 一律拒绝，因为调用方提供的 `spaceId` 无法证明目标文档所在空间
 - `gatewayCapabilities.send.allowedTargets`：主动发送目标白名单（`user:*` / `group:*`；配置后至少一项）
 
 能力开关与白名单默认不启用（保持向后兼容），但一旦配置即 fail-closed：空数组会被配置校验拒绝，运行时遇到"已配置但为空"的白名单按全部拒绝处理；多账号下账号级 `gatewayCapabilities` 与渠道级按子键合并，渠道级的限制不会被账号级局部配置静默移除。

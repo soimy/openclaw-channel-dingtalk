@@ -501,7 +501,7 @@ describe('DingTalkConfigSchema', () => {
             DingTalkConfigSchema.safeParse({
                 gatewayCapabilities: {
                     tools: { docs: false, proactiveSend: true },
-                    docs: { allowedSpaceIds: ['spaceA'] },
+                    docs: { allowedSpaceIds: ['spaceA'], allowedDocIds: ['docA'] },
                     send: { allowedTargets: ['user:u1', 'group:g1'] },
                 },
             }).success,
@@ -514,6 +514,12 @@ describe('DingTalkConfigSchema', () => {
         // Empty allowlists are ambiguous, so they are rejected instead of silently disabling the restriction.
         expect(
             DingTalkConfigSchema.safeParse({ gatewayCapabilities: { docs: { allowedSpaceIds: [] } } }).success,
+        ).toBe(false);
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayCapabilities: { docs: { allowedDocIds: [] } } }).success,
+        ).toBe(false);
+        expect(
+            DingTalkConfigSchema.safeParse({ gatewayCapabilities: { docs: { allowedDocIds: [''] } } }).success,
         ).toBe(false);
         expect(
             DingTalkConfigSchema.safeParse({ gatewayCapabilities: { send: { allowedTargets: [] } } }).success,
