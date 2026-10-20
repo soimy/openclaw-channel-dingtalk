@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import { appendToDoc } from "../../src/gateway/docs-service";
 
 const INDEX_IMPORT_TIMEOUT_MS = 15_000;
 
@@ -241,6 +242,7 @@ describe("gateway capability gates review follow-ups", () => {
     expect(res.ok).toBe(false);
     // The reason now points at the enforceable scope instead of "no spaceId".
     expect((res.payload as { error: string }).error).toContain("allowedDocIds");
+    expect(vi.mocked(appendToDoc)).not.toHaveBeenCalled();
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("docs.append allows a listed document even when a space allowlist is configured", async () => {
@@ -257,12 +259,17 @@ describe("gateway capability gates review follow-ups", () => {
       content: "hello",
     });
     expect(allowed.ok).toBe(true);
+    // The write must target exactly the allowlisted document.
+    expect(vi.mocked(appendToDoc).mock.calls[0]?.[1]).toBe("docOk");
+
+    vi.mocked(appendToDoc).mockClear();
     const denied = await callHandler(methods.get("dingtalk.docs.append")!, {
       docId: "docOther",
       content: "hello",
     });
     expect(denied.ok).toBe(false);
     expect((denied.payload as { error: string }).error).toContain("allowedDocIds");
+    expect(vi.mocked(appendToDoc)).not.toHaveBeenCalled();
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("docs.append ignores a caller-supplied spaceId when a doc allowlist is configured", async () => {
@@ -280,6 +287,7 @@ describe("gateway capability gates review follow-ups", () => {
     });
     expect(res.ok).toBe(false);
     expect((res.payload as { error: string }).error).toContain("allowedDocIds");
+    expect(vi.mocked(appendToDoc)).not.toHaveBeenCalled();
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("docs.append cannot borrow an allowed spaceId to reach another document", async () => {
@@ -297,6 +305,9 @@ describe("gateway capability gates review follow-ups", () => {
       content: "hello",
     });
     expect(res.ok).toBe(false);
+    // A denial must not have written first: asserting only `ok` would keep
+    // passing if the handler appended and then answered "denied".
+    expect(vi.mocked(appendToDoc)).not.toHaveBeenCalled();
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("docs.append works when no allowlist configured (regression)", async () => {
@@ -308,6 +319,7 @@ describe("gateway capability gates review follow-ups", () => {
       content: "hello",
     });
     expect(res.ok).toBe(true);
+    expect(vi.mocked(appendToDoc).mock.calls[0]?.[1]).toBe("doc1");
   }, INDEX_IMPORT_TIMEOUT_MS);
 
   it("status and probe RPCs remain available when all tools disabled", async () => {
