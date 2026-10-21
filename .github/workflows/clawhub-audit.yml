@@ -41,6 +41,16 @@ on:
                 required: false
                 default: false
                 type: boolean
+            withdraw_version:
+                description: Withdraw this exact version and exit without auditing. Use it to clean up a leftover audit version; leave empty for a normal audit.
+                required: false
+                default: ""
+                type: string
+            withdraw_package:
+                description: Package that owns the version being withdrawn (only read when withdraw_version is set).
+                required: false
+                default: "@soimy/dingtalk"
+                type: string
 
 permissions:
     contents: read
@@ -51,6 +61,8 @@ concurrency:
 
 jobs:
     prepare:
+        # `withdraw_version` switches the run into cleanup-only mode.
+        if: ${{ inputs.withdraw_version == '' }}
         runs-on: ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -263,7 +275,7 @@ jobs:
         needs: [prepare, publish]
         # The verdict, the report and the withdrawal must still run when the
         # publish step fails, otherwise a failed attempt leaves no evidence.
-        if: ${{ always() }}
+        if: ${{ inputs.withdraw_version == '' && always() }}
         runs-on: ubuntu-latest
         timeout-minutes: 20
         permissions:
@@ -482,3 +494,58 @@ jobs:
                       publication-state.json
                       publish-result/**
                       scan-report.zip
+
+    # Maintenance hatch: `CLAWHUB_TOKEN` only exists in CI, so a leftover audit
+    # version (a run killed mid-cleanup, or a settle probe that never ran) can be
+    # withdrawn from here without installing the CLI or holding the token locally.
+    withdraw:
+        if: ${{ inputs.withdraw_version != '' }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+
+        steps:
+            - name: Install ClawHub CLI
+              run: npm install --global clawhub@0.23.3
+
+            - name: Authenticate ClawHub CLI
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "${CLAWHUB_TOKEN:-}" ]]; then
+                    echo "::error::CLAWHUB_TOKEN secret is required to withdraw a version."
+                    exit 1
+                  fi
+                  clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
+
+            - name: Withdraw the version
+              env:
+                  CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+                  CLAWHUB_SITE: https://clawhub.ai
+                  CLAWHUB_REGISTRY: https://clawhub.ai
+                  PACKAGE_NAME: ${{ inputs.withdraw_package }}
+                  AUDIT_VERSION: ${{ inputs.withdraw_version }}
+              run: |
+                  set -euo pipefail
+                  ENCODED="$(node -p "encodeURIComponent(process.env.PACKAGE_NAME)")"
+                  VERSION_URL="https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}"
+
+                  STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}")"
+                  if [[ "${STATUS}" == "404" ]]; then
+                    echo "${AUDIT_VERSION} already resolves to 404; nothing to withdraw."
+                    exit 0
+                  fi
+
+                  clawhub package delete "${PACKAGE_NAME}" --version "${AUDIT_VERSION}" --yes --json
+
+                  STATUS_AFTER="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}")"
+                  if [[ "${STATUS_AFTER}" != "404" ]]; then
+                    echo "::error::${AUDIT_VERSION} still resolves after withdrawal (HTTP ${STATUS_AFTER})."
+                    exit 1
+                  fi
+                  echo "Verified: ${AUDIT_VERSION} no longer resolves (HTTP 404)."

@@ -160,6 +160,7 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
 | --- | --- | --- |
 | 审计远端 ref | `gh workflow run clawhub-audit.yml`（可选 `-f ref=<tag/branch/SHA>`，留空则审计发起该 run 的 ref） | 产出判定；审计版本**默认自动撤回** |
 | 保留审计版本 | 追加 `-f keep_audit_version=true` | 审计版本保留在 `audit` dist-tag 上，便于烟测，之后需手动撤回 |
+| 只撤回某个遗留版本 | `gh workflow run clawhub-audit.yml -f withdraw_version=<version>` | 不审计、不发布，仅用 CI 里的 `CLAWHUB_TOKEN` 撤回该版本并复查 404 |
 | 放行 suspicious | 追加 `-f allow_suspicious=true` | 让 `suspicious` 也能通过判定（见下方 P2 策略） |
 | 本地审计 | `node scripts/clawhub-audit-local.mjs` | 同上，直接审计当前工作树；`--keep` 保留审计版本，`--allow-suspicious` 放行 |
 

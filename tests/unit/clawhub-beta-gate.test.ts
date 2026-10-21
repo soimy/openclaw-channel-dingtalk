@@ -435,6 +435,22 @@ describe("clawhub audit workflow wiring", () => {
         );
     });
 
+    it("offers a cleanup-only mode that withdraws without publishing", () => {
+        // `CLAWHUB_TOKEN` only exists in CI, so a leftover audit version has to be
+        // removable from here rather than from a local CLI install.
+        expect(workflow).toContain("withdraw_version:");
+        expect(workflow).toContain("if: ${{ inputs.withdraw_version != '' }}");
+        // A cleanup run must not audit: both the build and the verdict are skipped.
+        expect(workflow).toContain("if: ${{ inputs.withdraw_version == '' }}");
+        expect(workflow).toContain("if: ${{ inputs.withdraw_version == '' && always() }}");
+
+        const withdrawJob = workflow.slice(workflow.indexOf("\n    withdraw:"));
+        expect(withdrawJob).toContain("clawhub package delete");
+        expect(withdrawJob).not.toContain("package publish");
+        // Same post-condition as the audit path: gone means a 404.
+        expect(withdrawJob).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
+    });
+
     it("archives the verdict evidence even when the audit fails", () => {
         expect(workflow).toContain("Upload the audit evidence");
         expect(workflow).toContain("if: ${{ always() }}");
