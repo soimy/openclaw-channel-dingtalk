@@ -270,13 +270,17 @@ jobs:
             contents: read
 
         steps:
-            # Pinned to the exact commit `prepare` published: a branch input can
-            # move while the publication is in flight, which would run the gate
-            # script from a different commit than the audited tarball.
-            - name: Checkout the audited commit
+            # The audit tooling runs at the revision that defines this workflow, not
+            # at the audited commit. `github.workflow_sha` is fixed for the run, so a
+            # moving branch still cannot swap the gate script, while an audited tree
+            # that predates these scripts (an old tag, or a branch without them) no
+            # longer breaks the run — run 39527450201 lost its cleanup exactly that
+            # way, by checking out an audited commit without
+            # `scripts/clawhub-publication-state.mjs`.
+            - name: Checkout the audit tooling
               uses: actions/checkout@v4
               with:
-                  ref: ${{ needs.prepare.outputs.audited_commit || inputs.ref || github.ref }}
+                  ref: ${{ github.workflow_sha || github.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -370,24 +374,40 @@ jobs:
                   echo "state=${STATE}" >> "$GITHUB_OUTPUT"
                   echo "Audit publication settled as: ${STATE}"
 
-            # Runs whenever the version went public, so a failed verdict still
-            # cannot leave an installable throwaway version. `--version`
-            # withdrawal is what keeps it off `latest`, which is why the audit
-            # publishes on the dedicated `audit` dist-tag.
+            # Runs on every outcome, including a failed settle: cleanup may not depend
+            # on the probe, or a broken probe (missing script, network error) leaves
+            # the throwaway version installable. `absent` / `failed` are the only
+            # settled states with nothing to withdraw.
+            # `--version` withdrawal is what keeps it off `latest`, which is why the
+            # audit publishes on the dedicated `audit` dist-tag.
             # Note: the CLI has no dist-tag management command, so the `audit` tag
             # pointer itself cannot be removed; withdrawing leaves it dangling.
             - name: Withdraw the audit build
-              if: ${{ always() && steps.publication.outputs.state == 'published' }}
+              if: ${{ always() && needs.prepare.outputs.audit_version != '' && !inputs.keep_audit_version && steps.publication.outputs.state != 'absent' && steps.publication.outputs.state != 'failed' }}
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
                   CLAWHUB_SITE: https://clawhub.ai
                   CLAWHUB_REGISTRY: https://clawhub.ai
                   AUDIT_PACKAGE: ${{ needs.prepare.outputs.package_name }}
                   AUDIT_VERSION: ${{ needs.prepare.outputs.audit_version }}
+                  PUBLICATION_STATE: ${{ steps.publication.outputs.state }}
               run: |
                   set -euo pipefail
                   ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
                   VERSION_URL="https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}"
+
+                  VERSION_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}")"
+                  if [[ "${VERSION_STATUS}" == "404" ]]; then
+                    # A 404 only proves "nothing to clean up" when the publication
+                    # settled as absent. A pending attempt can still go public after
+                    # this run, so that case has to fail loudly instead.
+                    if node -e 'const s = require("./publication-state.json"); process.exit(s && s.settled === false ? 0 : 1)' 2>/dev/null; then
+                      echo "::error::The publication never settled and the version does not resolve yet; it may still appear. Clean up manually: clawhub package delete ${AUDIT_PACKAGE} --version ${AUDIT_VERSION} --yes"
+                      exit 1
+                    fi
+                    echo "Audit version ${AUDIT_VERSION} was never created; nothing to withdraw."
+                    exit 0
+                  fi
 
                   clawhub package delete "${AUDIT_PACKAGE}" --version "${AUDIT_VERSION}" --yes --json
                   echo "Withdrew ${AUDIT_PACKAGE}@${AUDIT_VERSION}; the version number stays reserved and the artifact can be restored with 'clawhub package undelete'."

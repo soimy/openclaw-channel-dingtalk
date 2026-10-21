@@ -370,20 +370,26 @@ describe("clawhub audit workflow wiring", () => {
         expect(workflow).toContain(
             "if: ${{ always() && needs.prepare.outputs.audit_version != '' && !inputs.keep_audit_version }}",
         );
-        // Withdrawal is keyed on the settled state, and its post-condition is the
-        // installable surface: a version that still resolves must fail the run.
-        expect(workflow).toContain(
-            "if: ${{ always() && steps.publication.outputs.state == 'published' }}",
-        );
+        // Withdrawal runs for anything that is not settled-absent/failed, so a
+        // failed probe cannot skip cleanup; its post-condition is the installable
+        // surface, and a version that still resolves fails the run.
+        expect(workflow).toContain("steps.publication.outputs.state != 'absent'");
+        expect(workflow).toContain("steps.publication.outputs.state != 'failed'");
         expect(workflow).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
+        // A 404 only counts as "nothing to withdraw" when the probe settled; a
+        // pending attempt that has not surfaced yet must fail loudly instead.
+        expect(workflow).toContain('require("./publication-state.json")');
+        expect(workflow).toContain("s.settled === false");
     });
 
-    it("runs the verdict on the commit that was actually published", () => {
-        // A branch input can move while the publication is in flight; the gate
-        // script must come from the audited commit, not from the newer tip.
-        expect(workflow).toContain(
-            "ref: ${{ needs.prepare.outputs.audited_commit || inputs.ref || github.ref }}",
-        );
+    it("runs the audit tooling at a fixed revision, not at the audited tree", () => {
+        // `github.workflow_sha` is fixed for the run, so a moving branch still
+        // cannot swap the gate script. The audited commit is the wrong checkout:
+        // run 39527450201 audited a branch that predated
+        // `scripts/clawhub-publication-state.mjs`, the settle step crashed with
+        // MODULE_NOT_FOUND, and the throwaway version was left published.
+        expect(workflow).toContain("ref: ${{ github.workflow_sha || github.sha }}");
+        expect(workflow).not.toContain("needs.prepare.outputs.audited_commit ||");
     });
 
     it("keeps collecting evidence when the verdict fails", () => {

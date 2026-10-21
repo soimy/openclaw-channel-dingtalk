@@ -136,7 +136,7 @@ ClawHub 的安全审计（ClawScan）只在服务端、对**已提交的版本**
 1. `prepare`：checkout 被审计的 ref → 构建与 `pack:check` → 离线校验（`clawhub package validate`）→ 解析审计版本号 → 确认该版本未被占用 → 打上审计版本并 `npm pack`
 2. `publish`：checkout 固定 SHA 的 ClawHub CLI 源码并用 Bun 安装依赖，以 `--tags audit` 发布上一步的 tarball（与正式发布同一套参数）
 3. `verdict`：**只要 `prepare` 或 `publish` 任一失败也会运行**——取安全判定 → 跑 `scripts/clawhub-beta-gate.mjs` → 下载扫描报告 → 等发布状态落定 → 撤回审计版本 → 汇总并上传证据
-   - 判定脚本按 `prepare` 记录的 `audited_commit` 检出，而不是按输入 ref 重新检出：分支在发布等待期间前进时，判定代码不能跑到被审计提交前面去
+   - 审计工具（`clawhub-beta-gate.mjs` / `clawhub-publication-state.mjs`）按 `github.workflow_sha` 检出，即"定义这条 workflow 的那个提交"：它对单次 run 固定，分支前进也换不掉脚本；而按被审计提交检出会让老 tag 或没有这些脚本的分支直接崩掉（run 39527450201 就是这样丢掉了撤回）
    - "等发布状态落定"由 `scripts/clawhub-publication-state.mjs` 完成，见下方说明
 
 这样做的原因是：审计失败的根因和正式发布是同一个（发布这一跳），把发布统一到同一份 CLI 源码后，审计与发布不会再出现"一边能发、一边发不出"的漂移。撤回、判定、报告下载仍走本仓库脚本与公开接口。
@@ -219,8 +219,9 @@ curl -sS "https://clawhub.ai/api/v1/packages/%40soimy%2Fdingtalk/versions/<versi
   - 撤回只影响 `audit` tag，`latest` / `beta` 不受影响
 - **默认自动撤回**：先等发布状态落定（`/publication` 为 `published`），再执行
   `clawhub package delete <name> --version <v> --yes`，并复查 `GET /versions/{v}` 返回 404 作为后置条件；
-  撤回失败或复核不通过会让该次 run 失败。状态为 `absent` / `failed` 时本来就没有可安装产物，不执行撤回；
-  一直 `pending` 则让 run 失败并打印手动清理命令
+  撤回失败或复核不通过会让该次 run 失败
+- **撤回不依赖落定探针是否成功**：探针本身报错（脚本缺失、网络抖动）时仍会尝试清理——用版本端点复查，能解析到就删；只有 `absent` / `failed` 这两个已落定状态才允许直接结束
+- `pending` 且版本端点仍是 404 时**不会**当作"从未创建"：`publication-state.json` 里 `settled: false` 会让 run 明确失败并打印手动清理命令，避免审计版本在 run 结束后才发布
 - 撤回语义：这是 withdraw 而不是删除——版本号**永久保留**且不能用不同内容重发，但可用 `clawhub package undelete` 恢复
 - **`audit` dist-tag 本身删不掉**：`clawhub` CLI 没有 dist-tag 管理命令，撤回后该 tag 只会变成指向已撤回版本的悬空指针，不会留下任何可安装产物
 
