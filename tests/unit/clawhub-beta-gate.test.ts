@@ -376,10 +376,13 @@ describe("clawhub audit workflow wiring", () => {
         expect(workflow).toContain("steps.publication.outputs.state != 'absent'");
         expect(workflow).toContain("steps.publication.outputs.state != 'failed'");
         expect(workflow).toContain('if [[ "${STATUS_AFTER}" != "404" ]]');
-        // A 404 only counts as "nothing to withdraw" when the probe settled; a
-        // pending attempt that has not surfaced yet must fail loudly instead.
-        expect(workflow).toContain('require("./publication-state.json")');
-        expect(workflow).toContain("s.settled === false");
+        // A failed pre-delete lookup must still attempt deletion. A 404 with no
+        // confirmed published state cannot prove that a pending attempt is gone.
+        expect(workflow).toContain('if ! VERSION_STATUS="$(curl -sS');
+        expect(workflow).toContain("Could not check the audit version before withdrawal; attempting deletion.");
+        expect(workflow).toContain(
+            'if [[ "${VERSION_STATUS}" == "404" && "${PUBLICATION_STATE}" != "published" ]]',
+        );
     });
 
     it("runs the audit tooling at a fixed revision, not at the audited tree", () => {
@@ -445,6 +448,10 @@ describe("clawhub audit workflow wiring", () => {
         expect(workflow).toContain("if: ${{ inputs.withdraw_version == '' && always() }}");
 
         const withdrawJob = workflow.slice(workflow.indexOf("\n    withdraw:"));
+        expect(withdrawJob).toContain("ref: ${{ github.workflow_sha || github.sha }}");
+        expect(withdrawJob).toContain("node scripts/clawhub-publication-state.mjs");
+        expect(withdrawJob).toContain('PUBLICATION_TIMEOUT_SECONDS: "600"');
+        expect(withdrawJob).toContain("if: ${{ steps.publication.outputs.state == 'published' }}");
         expect(withdrawJob).toContain("clawhub package delete");
         expect(withdrawJob).not.toContain("package publish");
         // Same post-condition as the audit path: gone means a 404.

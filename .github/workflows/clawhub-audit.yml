@@ -408,17 +408,13 @@ jobs:
                   ENCODED="$(node -p "encodeURIComponent(process.env.AUDIT_PACKAGE)")"
                   VERSION_URL="https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}"
 
-                  VERSION_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}")"
-                  if [[ "${VERSION_STATUS}" == "404" ]]; then
-                    # A 404 only proves "nothing to clean up" when the publication
-                    # settled as absent. A pending attempt can still go public after
-                    # this run, so that case has to fail loudly instead.
-                    if node -e 'const s = require("./publication-state.json"); process.exit(s && s.settled === false ? 0 : 1)' 2>/dev/null; then
-                      echo "::error::The publication never settled and the version does not resolve yet; it may still appear. Clean up manually: clawhub package delete ${AUDIT_PACKAGE} --version ${AUDIT_VERSION} --yes"
-                      exit 1
-                    fi
-                    echo "Audit version ${AUDIT_VERSION} was never created; nothing to withdraw."
-                    exit 0
+                  if ! VERSION_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}" 2>/dev/null)"; then
+                    echo "::warning::Could not check the audit version before withdrawal; attempting deletion."
+                    VERSION_STATUS=""
+                  fi
+                  if [[ "${VERSION_STATUS}" == "404" && "${PUBLICATION_STATE}" != "published" ]]; then
+                    echo "::error::Publication state is ${PUBLICATION_STATE:-unknown} while the version returns 404; it may still appear. Confirm its state before retrying cleanup."
+                    exit 1
                   fi
 
                   clawhub package delete "${AUDIT_PACKAGE}" --version "${AUDIT_VERSION}" --yes --json
@@ -501,11 +497,21 @@ jobs:
     withdraw:
         if: ${{ inputs.withdraw_version != '' }}
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         permissions:
             contents: read
 
         steps:
+            - name: Checkout the audit tooling
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.workflow_sha || github.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+
             - name: Install ClawHub CLI
               run: npm install --global clawhub@0.23.3
 
@@ -523,7 +529,20 @@ jobs:
                   fi
                   clawhub auth login --token "${CLAWHUB_TOKEN}" --no-browser
 
+            - name: Wait for the publication to settle
+              id: publication
+              env:
+                  CLAWHUB_SITE: https://clawhub.ai
+                  PACKAGE_NAME: ${{ inputs.withdraw_package }}
+                  BETA_VERSION: ${{ inputs.withdraw_version }}
+                  PUBLICATION_TIMEOUT_SECONDS: "600"
+              run: |
+                  set -euo pipefail
+                  STATE="$(node scripts/clawhub-publication-state.mjs)"
+                  echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+
             - name: Withdraw the version
+              if: ${{ steps.publication.outputs.state == 'published' }}
               env:
                   CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
                   CLAWHUB_SITE: https://clawhub.ai
@@ -534,12 +553,6 @@ jobs:
                   set -euo pipefail
                   ENCODED="$(node -p "encodeURIComponent(process.env.PACKAGE_NAME)")"
                   VERSION_URL="https://clawhub.ai/api/v1/packages/${ENCODED}/versions/${AUDIT_VERSION}"
-
-                  STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "${VERSION_URL}")"
-                  if [[ "${STATUS}" == "404" ]]; then
-                    echo "${AUDIT_VERSION} already resolves to 404; nothing to withdraw."
-                    exit 0
-                  fi
 
                   clawhub package delete "${PACKAGE_NAME}" --version "${AUDIT_VERSION}" --yes --json
 
