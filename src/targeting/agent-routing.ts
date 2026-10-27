@@ -7,7 +7,7 @@
  * (channel + accountId + peer), not content-based dynamic routing.
  */
 
-import { maybeResolveTextAlias } from "openclaw/plugin-sdk/command-auth";
+import { maybeResolveTextAlias } from "openclaw/plugin-sdk/command-auth-native";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { parseLearnCommand } from "../command/learning-command-service";
 import { sendBySession } from "../messaging/send-service";

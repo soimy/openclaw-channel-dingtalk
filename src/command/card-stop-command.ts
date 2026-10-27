@@ -1,4 +1,4 @@
-import { resolveNativeCommandSessionTargets } from "openclaw/plugin-sdk/command-auth";
+import { resolveNativeCommandSessionTargets } from "openclaw/plugin-sdk/command-auth-native";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { getDingTalkRuntime } from "../platform/runtime";
 import type { Logger } from "../platform/types";
