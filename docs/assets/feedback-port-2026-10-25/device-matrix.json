@@ -1,0 +1,28 @@
+{
+  "versions": [
+    "2026.8.1",
+    "2026.9.34",
+    "2026.10.7"
+  ],
+  "clientResultsConfirmedByUser": true,
+  "ownerVotesReasonsAndWithdrawal": true,
+  "nonOwnerCallbacksRejected": true,
+  "oldQuestionDetailAcrossUpgrades": true,
+  "real503AndRestartRecovery": true,
+  "registeredCards": 10,
+  "completedCards": 10,
+  "everRatedCards": 6,
+  "receiverRows": 6,
+  "unratedCardsUploaded": 0,
+  "availableQuestionAnswerPairs": 6,
+  "finalVotes": {
+    "none": 4,
+    "like": 1,
+    "dislike": 1
+  },
+  "pii": "Raw user IDs, conversation IDs, secrets and message bodies retained only in ignored local test evidence",
+  "ratedRecords": 6,
+  "acknowledgedLatestReceipts": 6,
+  "outboxBodiesPurged": 6,
+  "pending": 0
+}

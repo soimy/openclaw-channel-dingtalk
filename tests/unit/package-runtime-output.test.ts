@@ -13,6 +13,13 @@ describe("npm runtime package contract", () => {
     expect(packageJson.scripts["pack:check"]).toBe("node scripts/verify-runtime-package.mjs");
   });
 
+  it("ships the feedback template, installation guide and local export tool", () => {
+    expect(packageJson.files).toContain("docs/assets/card-template-v2.json");
+    expect(packageJson.files).toContain("docs/user/features/card-feedback.md");
+    expect(packageJson.files).toContain("docs/user/getting-started/card-feedback-deployment.md");
+    expect(packageJson.files).toContain("scripts/feedback-export.mjs");
+  });
+
   it("does not publish runtime code paths that use shell execution", () => {
     expect(packageJson.files).not.toContain("scripts/**/*.js");
     expect(packageJson.files).not.toContain("scripts/**/*.mjs");

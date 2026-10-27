@@ -1,0 +1,50 @@
+[
+  {
+    "version": "2026.8.1",
+    "checks": {
+      "sqliteExactPairAndSameTextIsolation": true,
+      "sqliteWorkerHttpLostAckRestart": true,
+      "withdrawalPreservesCommittedBody": true,
+      "resetKeepsExactOldSession": true,
+      "missingSession": true,
+      "hashMismatch": true
+    },
+    "receiverPort": 59568,
+    "pid": 85469,
+    "runtime": "v24.22.1",
+    "sdk": "public session-store-runtime + session-transcript-runtime",
+    "result": "passed"
+  },
+  {
+    "version": "2026.9.34",
+    "checks": {
+      "sqliteExactPairAndSameTextIsolation": true,
+      "sqliteWorkerHttpLostAckRestart": true,
+      "withdrawalPreservesCommittedBody": true,
+      "resetKeepsExactOldSession": true,
+      "missingSession": true,
+      "hashMismatch": true
+    },
+    "receiverPort": 59576,
+    "pid": 85520,
+    "runtime": "v24.22.1",
+    "sdk": "public session-store-runtime + session-transcript-runtime",
+    "result": "passed"
+  },
+  {
+    "version": "2026.10.7",
+    "checks": {
+      "sqliteExactPairAndSameTextIsolation": true,
+      "sqliteWorkerHttpLostAckRestart": true,
+      "withdrawalPreservesCommittedBody": true,
+      "resetKeepsExactOldSession": true,
+      "missingSession": true,
+      "hashMismatch": true
+    },
+    "receiverPort": 59580,
+    "pid": 85468,
+    "runtime": "v24.22.1",
+    "sdk": "public session-store-runtime + session-transcript-runtime",
+    "result": "passed"
+  }
+]

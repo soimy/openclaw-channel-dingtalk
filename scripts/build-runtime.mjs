@@ -22,3 +22,20 @@ await build({
     },
   },
 });
+
+// Separate worker entry: heavy transcript processing and HTTP never enter the
+// gateway event loop. Keep SDK imports external and lazy within the worker.
+await build({
+  bundle: true,
+  entryPoints: {
+    "feedback-reporting-worker": "src/command/feedback-reporting-worker.ts",
+    "feedback-detail-worker": "src/command/feedback-detail-worker.ts",
+  },
+  format: "esm",
+  logLevel: "info",
+  outdir: "dist",
+  packages: "external",
+  platform: "node",
+  sourcemap: false,
+  target: "node22",
+});

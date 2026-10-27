@@ -17,6 +17,9 @@
 | `displayNameResolution` | string | `disabled` | 是否允许基于本地目录做显示名解析 |
 | `contextVisibility` | string | 宿主默认值 | 是否限制宿主补充上下文、引用上下文与历史上下文的可见性 |
 | `bypassProxyForSend` | boolean | `false` | 发送链路是否绕过全局代理 |
+| `feedbackEnabled` | boolean | `false` | 启用仅提问者评价、本人统计及可用时的问答反查；不触发学习 |
+| `feedbackRetentionDays` | number | `90` | 新建卡片评价记录保留天数，范围 1～365；不控制宿主转录保留期 |
+| `feedbackReporting` | object | 关闭 | 可选 HTTP 同步最新评价与对应一问一答；详见[上报配置](../features/feedback-http-reporting.md)及[逐字段接口手册](./feedback-reporting-api.md) |
 | `learningEnabled` | boolean | `false` | 是否开启学习信号采集 |
 | `learningAutoApply` | boolean | `false` | 是否自动注入学习结果 |
 | `learningNoteTtlMs` | number | `21600000` | 会话级学习笔记 TTL |
@@ -41,6 +44,12 @@
 | `maxReconnectDelay` | number | `60000` | 最大重连延迟 |
 | `reconnectJitter` | number | `0.3` | 重连抖动因子 |
 | `gatewayCapabilities` | object | - | Gateway RPC 能力开关与白名单：`tools.docs` / `tools.proactiveSend`（默认关闭，需显式开启）、`docs.allowedSpaceIds`（create/list/search）、`docs.allowedDocIds`（append）、`send.allowedTargets` |
+
+## 关于卡片评价与问答反查
+
+上述评价字段适用于包含本功能的插件构建，最低宿主版本为 OpenClaw `2026.8.1`；具体版本覆盖与部署步骤见下方指引。启用需同时使用 `messageType: "card"` 和具有 `feedback_vote` 回调的模板，详见[部署与升级指引](../getting-started/card-feedback-deployment.md)。精确关联与 `/feedback detail` 共用 `feedbackEnabled`，不另加配置项。
+
+`feedbackRetentionDays` 只影响随后新建记录的到期时间，不修改已有记录，也不改变 OpenClaw 的转录清理策略。反查还要求对应 Agent 的原转录可读；旧记录不会补写 ID。统计和详情只在原提问者私聊中返回，且不需要开启 `learningEnabled`。关闭 `feedbackEnabled` 后，这两个命令和上报均不可用，已有文件不会因此删除。HTTP 上报另需显式启用 `feedbackReporting.enabled` 并配置接收端、稳定企业/实例标识及凭据；不需要改变已有评价模板。
 
 ## 关于 `clientId` 与钉钉 `robotCode`
 

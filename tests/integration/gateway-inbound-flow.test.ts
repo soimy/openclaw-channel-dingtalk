@@ -379,33 +379,6 @@ describe("gateway inbound callback pipeline", () => {
     }
   });
 
-  it("acknowledges card callbacks and sends feedback ack for feedback buttons", async () => {
-    const ctx = createStartContext();
-
-    await startGatewayAccount(ctx as any);
-
-    expect(shared.listeners.TOPIC_CARD).toBeTypeOf("function");
-
-    await shared.listeners.TOPIC_CARD?.({
-      headers: { messageId: "card_callback_1" },
-      data: JSON.stringify({
-        value: JSON.stringify({ cardPrivateData: { actionIds: ["feedback_up"] } }),
-        spaceType: "IM",
-        userId: "user_feedback_1",
-      }),
-    });
-
-    expect(shared.sendProactiveTextMock).toHaveBeenCalledWith(
-      expect.objectContaining({ clientId: "ding_id" }),
-      "user_feedback_1",
-      "✅ 已收到你的点赞（反馈已记录）",
-      expect.objectContaining({ accountId: "main" }),
-    );
-    expect(shared.socketCallBackResponseMock).toHaveBeenCalledWith("card_callback_1", {
-      success: true,
-    });
-  });
-
   it("does NOT clear in-flight locks on disconnect (resend after reconnect must skip, not duplicate)", async () => {
     shared.isMessageProcessedMock.mockReturnValue(false);
     let resolveFirst: (() => void) | undefined;

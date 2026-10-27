@@ -1,3 +1,4 @@
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 /**
  * Shared type definitions for reply strategy implementations.
  *
@@ -5,8 +6,7 @@
  * concrete strategies (reply-strategy-card.ts, reply-strategy-markdown.ts)
  * can share these interfaces without circular imports.
  */
-
-import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
+import type { FeedbackTranscriptTracker } from "../card/feedback-transcript";
 import type { RuntimeEventsSurface } from "../platform/runtime-events";
 import type { DingTalkConfig, Logger, QuotedRef } from "../platform/types";
 
@@ -111,4 +111,5 @@ export interface ReplyStrategyContext {
   inboundText?: string;
   taskMeta?: TaskMeta;
   runtimeEvents?: RuntimeEventsSurface;
+  feedbackTranscript?: FeedbackTranscriptTracker;
 }

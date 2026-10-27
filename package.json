@@ -26,7 +26,17 @@
     "docs/assets/dingtalk-ask-user-card-template.json",
     "openclaw.plugin.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/assets/card-template-v2.json",
+    "docs/user/features/card-feedback.md",
+    "docs/user/getting-started/card-feedback-deployment.md",
+    "scripts/feedback-export.mjs",
+    "docs/user/features/feedback-http-reporting.md",
+    "docs/user/reference/feedback-reporting.openapi.json",
+    "docs/user/reference/feedback-reporting-oceanbase.sql",
+    "scripts/feedback-reporting-receiver.mjs",
+    "docs/user/reference/feedback-reporting-api.md",
+    "docs/user/reference/feedback-reporting-examples.json"
   ],
   "type": "module",
   "main": "./dist/index.js",

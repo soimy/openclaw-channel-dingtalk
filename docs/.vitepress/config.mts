@@ -130,6 +130,7 @@ export default defineConfig({
             { text: '更新', link: '/user/getting-started/update' },
             { text: '配置', link: '/user/getting-started/configure' },
             { text: '钉钉权限与凭证', link: '/user/getting-started/permissions' },
+            { text: '卡片评价部署', link: '/user/getting-started/card-feedback-deployment' },
           ],
         },
         {
@@ -140,6 +141,8 @@ export default defineConfig({
             { text: 'AI 卡片', link: '/user/features/ai-card' },
             { text: '表单互动卡片', link: '/user/features/form-interactive-card' },
             { text: '钉钉文档 API', link: '/user/features/dingtalk-docs-api' },
+            { text: 'AI 卡片评价', link: '/user/features/card-feedback' },
+            { text: '评价 HTTP 上报', link: '/user/features/feedback-http-reporting' },
             { text: '反馈学习', link: '/user/features/feedback-learning' },
             { text: '多 Agent 与多机器人绑定', link: '/user/features/multi-agent-bindings' },
             { text: '@多助手路由', link: '/user/features/at-agent-routing' },
@@ -149,6 +152,7 @@ export default defineConfig({
           text: '参考',
           items: [
             { text: '配置项', link: '/user/reference/configuration' },
+            { text: '评价上报接口', link: '/user/reference/feedback-reporting-api' },
             { text: '安全策略', link: '/user/reference/security-policies' },
             { text: 'API 消耗说明', link: '/user/reference/api-usage-and-cost' },
           ],

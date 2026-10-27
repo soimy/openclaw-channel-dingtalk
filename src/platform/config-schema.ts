@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FeedbackReportingSchema } from "../command/feedback-reporting-config";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "../messaging/message-context-store";
 import { DEFAULT_OUTBOUND_SEND_INTERVAL_MS } from "../shared/outbound-throttle";
 import { buildSecretInputSchema } from "./secret-input";
@@ -226,6 +227,9 @@ const DingTalkAccountConfigShape = {
     .default(30 * 60 * 1000),
 
   /** Enable the local feedback-learning loop for notes, reflections, and command-assisted learning. */
+  feedbackEnabled: z.boolean().optional(),
+  feedbackRetentionDays: z.number().int().min(1).max(365).optional(),
+  feedbackReporting: FeedbackReportingSchema.optional(),
   learningEnabled: z.boolean().optional(),
 
   /** Automatically apply generated learning output into session notes or global rules when available. */

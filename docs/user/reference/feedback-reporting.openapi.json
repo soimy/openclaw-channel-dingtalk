@@ -1,0 +1,933 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DingTalk Feedback Snapshot Reporting",
+    "version": "1.0.0",
+    "description": "插件到公司接收服务的最新评价快照协议。员工 Pod 内的钉钉插件主动 POST，公司服务提供接收路由并在数据库 COMMIT 后返回 ACK；接收服务不反向调用插件或定时拉取。有效评价事件触发，默认约 5 秒空闲后发送；失败由插件退避重试，重启恢复和 pending 正文复查也由插件调度。只发送被评价的一问一答。详细时机、字段及边界见 feedback-reporting-api.md 第 1 节。"
+  },
+  "paths": {
+    "/v1/feedback/snapshots": {
+      "post": {
+        "operationId": "syncFeedbackSnapshot",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "固定格式 <recordId>:<revision>。同版本重试保持相同请求内容；不是全局去重用的随机 UUID。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Snapshot"
+              },
+              "examples": {
+                "likeAvailable": {
+                  "summary": "首次点赞及验证完整正文",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                    "revision": 1,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_001",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "like",
+                      "reasons": [],
+                      "updatedAt": 1792886460000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-001",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-001",
+                        "assistantMessageId": "answer-message-001"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "replace",
+                      "status": "available",
+                      "question": "如何将在线文档导出为 PDF？",
+                      "answer": "打开文档，点击右上角“更多”，选择“导出为 PDF”。",
+                      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+                    }
+                  }
+                },
+                "dislikePreserve": {
+                  "summary": "同卡点踩并保留已确认正文",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                    "revision": 2,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_001",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "dislike",
+                      "reasons": [
+                        "2",
+                        "6"
+                      ],
+                      "updatedAt": 1792886520000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-001",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-001",
+                        "assistantMessageId": "answer-message-001"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "preserve",
+                      "status": "available",
+                      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+                    }
+                  }
+                },
+                "withdrawPreserve": {
+                  "summary": "同卡撤销为 none",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                    "revision": 3,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_001",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "none",
+                      "reasons": [],
+                      "updatedAt": 1792886580000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-001",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-001",
+                        "assistantMessageId": "answer-message-001"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "preserve",
+                      "status": "available",
+                      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+                    }
+                  }
+                },
+                "missingReference": {
+                  "summary": "另一张卡无精确引用",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "adb00b06c76754718d55ece6b38a51106bd54bd2b005b4de41690ea4888d8480",
+                    "revision": 1,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_002",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "like",
+                      "reasons": [],
+                      "updatedAt": 1792886460000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-002",
+                      "transcript": {
+                        "status": "unavailable",
+                        "reason": "events-unavailable"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "replace",
+                      "status": "missing",
+                      "reason": "reference_not_recorded",
+                      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+                    }
+                  }
+                },
+                "pendingBudget": {
+                  "summary": "另一张卡预算不足先报 pending",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "1a9eee3f57a53222dafb2865173c1e91dcbd1c69216c86ed7b193caa8739b647",
+                    "revision": 1,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_003",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "like",
+                      "reasons": [],
+                      "updatedAt": 1792886460000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-003",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-003",
+                        "assistantMessageId": "answer-message-003"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "replace",
+                      "status": "pending",
+                      "reason": "resource_budget"
+                    }
+                  }
+                },
+                "pendingResolved": {
+                  "summary": "pending 后补齐正文，评价未变版本仍递增",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "1a9eee3f57a53222dafb2865173c1e91dcbd1c69216c86ed7b193caa8739b647",
+                    "revision": 2,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_003",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "like",
+                      "reasons": [],
+                      "updatedAt": 1792886460000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-003",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-003",
+                        "assistantMessageId": "answer-message-003"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "replace",
+                      "status": "available",
+                      "question": "如何将在线文档导出为 PDF？",
+                      "answer": "打开文档，点击右上角“更多”，选择“导出为 PDF”。",
+                      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+                    }
+                  }
+                },
+                "unverifiedContent": {
+                  "summary": "另一张卡正文校验失败，不带问答",
+                  "value": {
+                    "schemaVersion": 1,
+                    "type": "dingtalk.feedback.snapshot",
+                    "recordId": "df73ad07d0111e2d5b7d3332ec85050493c3097f9ab23ca99d61afdc64e3f439",
+                    "revision": 1,
+                    "source": {
+                      "tenantId": "example-company",
+                      "instanceId": "employee-001",
+                      "accountId": "default",
+                      "channel": "dingtalk"
+                    },
+                    "cardId": "card_api_example_004",
+                    "questionerUserId": "user-001",
+                    "feedback": {
+                      "vote": "like",
+                      "reasons": [],
+                      "updatedAt": 1792886460000
+                    },
+                    "conversation": {
+                      "agentId": "main",
+                      "sessionKey": "agent:main:dingtalk:direct:user-001",
+                      "conversationId": "cid-example-dm-001",
+                      "sourceMsgId": "msg-example-001",
+                      "transcript": {
+                        "status": "linked",
+                        "source": "runtime-events",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                        "userMessageId": "question-message-001",
+                        "assistantMessageId": "answer-message-001"
+                      }
+                    },
+                    "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+                    "createdAt": 1792886400000,
+                    "completedAt": 1792886410000,
+                    "content": {
+                      "mode": "replace",
+                      "status": "unverified",
+                      "reason": "content_verification_failed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "事务提交后的 ACK。applied/duplicate=请求版本；stale=严格更大的已提交版本。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acknowledgement"
+                },
+                "examples": {
+                  "applied": {
+                    "summary": "applied（以 likeAvailable 请求为参照）",
+                    "value": {
+                      "schemaVersion": 1,
+                      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                      "acceptedRevision": 1,
+                      "status": "applied"
+                    }
+                  },
+                  "duplicate": {
+                    "summary": "duplicate（以 likeAvailable 请求为参照）",
+                    "value": {
+                      "schemaVersion": 1,
+                      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                      "acceptedRevision": 1,
+                      "status": "duplicate"
+                    }
+                  },
+                  "stale": {
+                    "summary": "stale（以 likeAvailable 请求为参照）",
+                    "value": {
+                      "schemaVersion": 1,
+                      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+                      "acceptedRevision": 3,
+                      "status": "stale"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求格式、字段或哈希非法；发送端仍退避，管理员应修复。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "凭据无效或过期；发送端仍退避，重读凭据。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "invalid_credential"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "凭据不属于该企业/实例；不能确认保存。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "同版本不同内容、不可变身份冲突，或 preserve 对应的中心记录不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "revision_conflict"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "请求超过接收方上限；避免网关设置低于 300 KiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "接收端繁忙；当前客户端使用自身指数退避，不读取 Retry-After。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "处理失败或提交状态不确定；不能返回成功 ACK，客户端安全重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "配置的完整 endpoint 路由不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "接收服务暂不可用；客户端退避补传。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "temporarily_unavailable"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "网关超时，服务可能已提交；重试须幂等。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "request_failed"
+                }
+              }
+            }
+          }
+        },
+        "summary": "同步一张被评价卡片的最新状态及对应问答",
+        "description": "此路径为推荐路径；插件向配置的完整 endpoint 发 POST，不自动补路径。仅接受 200 的严格 ACK；其他状态（包括 202/204/3xx）均保留待发状态。请求 UTF-8 JSON 上限 307200 字节，ACK 上限 8192 字节。 调用方为插件；公司服务实现此接收路由，无须部署拉取定时任务。默认空闲门槛 5 秒不是到达 SLA；网络失败重试基准 5～300 秒加 ±20% 抖动，pending 正文默认约 5 分钟复查，重启持久待办恢复发现默认延后 30～90 秒，均受前台/资源/保留期约束。"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "公司接收端签发并绑定 tenantId/instanceId 的凭据，配置在 feedbackReporting.token；不是钉钉 accessToken 或 DWS token。"
+      }
+    },
+    "schemas": {
+      "Snapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": {
+            "const": 1,
+            "description": "协议版本，固定整数 1；不是插件或数据库版本。",
+            "type": "integer"
+          },
+          "type": {
+            "const": "dingtalk.feedback.snapshot",
+            "description": "消息类型，固定 dingtalk.feedback.snapshot。",
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "稳定记录主键：SHA-256(UTF-8 JSON.stringify([tenantId,instanceId,accountId,cardId]))，64 位小写十六进制。"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990,
+            "description": "本记录的持久化传输版本，1..9007199254740990；不要求连续，不是点击次数、时间戳或本地源版本。"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tenantId": {
+                "type": "string",
+                "description": "管理员配置的企业/租户标识，1..128 字符，跨实例稳定。",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "instanceId": {
+                "type": "string",
+                "description": "管理员配发的逻辑员工实例标识，1..128 字符，跨 Pod 重建保持不变；不是易变化的 Pod UID。",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "accountId": {
+                "type": "string",
+                "description": "OpenClaw 钉钉 channel 账号 ID，如 default；不等于员工 UserId 或机器人应用 ID。"
+              },
+              "channel": {
+                "const": "dingtalk",
+                "description": "渠道类型，固定 dingtalk。",
+                "type": "string"
+              }
+            },
+            "required": [
+              "tenantId",
+              "instanceId",
+              "accountId",
+              "channel"
+            ],
+            "description": "来自管理员配置和当前钉钉账号的来源身份；接收方必须与 Bearer 授权绑定。"
+          },
+          "cardId": {
+            "type": "string",
+            "description": "钉钉 AI 回答卡片 outTrackId，保留原大小写；不是消息 ID。"
+          },
+          "questionerUserId": {
+            "type": "string",
+            "description": "原提问者的企业 UserId，也是唯一有权评价该卡片的人；群聊中可不同于 Pod 所属员工。"
+          },
+          "feedback": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "vote": {
+                "enum": [
+                  "like",
+                  "dislike",
+                  "none"
+                ],
+                "description": "like=赞，dislike=踩，none=撤销/当前无有效评价；按覆盖而非累加统计。",
+                "type": "string"
+              },
+              "reasons": {
+                "type": "array",
+                "maxItems": 6,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                    "6"
+                  ],
+                  "description": "1 内容不匹配；2 内容不完整；3 表达不合逻辑；4 存在事实偏差；5 有敏感词或观点；6 回答不是我想要的。",
+                  "type": "string"
+                },
+                "description": "点踩原因字符串代码，去重，0..6 项；非点踩应为空数组。[] 不能区分尚未选择与关闭原因面板。"
+              },
+              "updatedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "最近被接受的钉钉评价事件时间，Unix 毫秒；不是 HTTP 到达时间，不用于替代 revision 排序。"
+              }
+            },
+            "required": [
+              "vote",
+              "reasons",
+              "updatedAt"
+            ],
+            "description": "此版本的最新评价状态，不是累加事件。"
+          },
+          "conversation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "description": "生成原回答的实际 OpenClaw Agent ID，不一定等于 accountId。"
+              },
+              "sessionKey": {
+                "type": "string",
+                "description": "回答所属宿主路由会话键；可能在 reset 后指向新会话，不能单独精确定位消息。"
+              },
+              "conversationId": {
+                "type": "string",
+                "description": "钉钉原单聊/群聊会话 ID，保持大小写，不是会话显示名称。"
+              },
+              "sourceMsgId": {
+                "type": "string",
+                "description": "可选：钉钉入站原消息 ID；不是转录 userMessageId。"
+              },
+              "transcript": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "status": {
+                        "const": "linked",
+                        "description": "固定 linked：已保存当时的精确消息引用。",
+                        "type": "string"
+                      },
+                      "source": {
+                        "const": "runtime-events",
+                        "description": "固定 runtime-events：从可信宿主事件捕获，不由 LLM 推断。",
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "description": "当时实际会话实例 ID；会话重置后仍指旧 SID。"
+                      },
+                      "userMessageId": {
+                        "type": "string",
+                        "description": "原问题的转录消息 ID，与 sourceMsgId 不同。"
+                      },
+                      "assistantMessageId": {
+                        "type": "string",
+                        "description": "最终回答的转录消息 ID，与 cardId 不同。"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "source",
+                      "sessionId",
+                      "userMessageId",
+                      "assistantMessageId"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "status": {
+                        "const": "unavailable",
+                        "description": "固定 unavailable：回答完成时无法唯一捕获引用。",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "捕获失败原因：events-unavailable、question-not-observed、answer-not-observed、session-id-missing、ambiguous-turn、content-mismatch、capture-limit。与 content.reason 是两个命名空间。"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "reason"
+                    ]
+                  }
+                ],
+                "description": "可选：回答完成时记录的转录关联。linked 表示保存了精确 ID，不保证原转录现在仍存在；旧记录可整体省略。"
+              }
+            },
+            "required": [
+              "agentId",
+              "sessionKey",
+              "conversationId"
+            ],
+            "description": "原问答的渠道与宿主定位信息；不包含全会话历史或本地文件路径。"
+          },
+          "answerHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "回答完成时可见文本的 SHA-256（UTF-8、小写 hex），可选；available 正文时必须存在并匹配。"
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "卡片归属记录创建时间，Unix 毫秒整数；不是模型开始时间。"
+          },
+          "completedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "回答正常完成时间，Unix 毫秒整数；旧数据可省略。"
+          },
+          "content": {
+            "$ref": "#/components/schemas/Content",
+            "description": "当前正文结果或保留指令；必须结合 mode 与 status 解读。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "type",
+          "recordId",
+          "revision",
+          "source",
+          "cardId",
+          "questionerUserId",
+          "feedback",
+          "conversation",
+          "createdAt",
+          "content"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "content": {
+                  "properties": {
+                    "mode": {
+                      "const": "replace"
+                    },
+                    "status": {
+                      "const": "available"
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "status"
+                  ]
+                }
+              },
+              "required": [
+                "content"
+              ]
+            },
+            "then": {
+              "required": [
+                "answerHash"
+              ]
+            }
+          }
+        ]
+      },
+      "Content": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "replace",
+              "preserve"
+            ],
+            "description": "replace=应用本次正文结果；preserve=保留中心已确认正文，不得用省略字段清空。",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "missing",
+              "unverified",
+              "pending"
+            ],
+            "description": "available=已验证问答；missing=不存在或无精确引用；unverified=校验不通过；pending=暂缓采集。",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "可选固定原因码；非 available 时解释正文状态，不能当作 HTTP 错误或自由文本。"
+          },
+          "question": {
+            "type": "string",
+            "description": "仅 replace+available 携带的原问题可见文本，可包含 Markdown；不是整个会话。"
+          },
+          "answer": {
+            "type": "string",
+            "description": "仅 replace+available 携带的最终回答可见文本；无思考/工具块，不是 HTML。"
+          },
+          "answerHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "可选可见回答 SHA-256；replace+available 必填并与顶层 answerHash 及 UTF-8 answer 的哈希相同。"
+          }
+        },
+        "required": [
+          "mode",
+          "status"
+        ],
+        "description": "正文快照或保留命令。preserve 必须已有中心记录；非 available 不携带未经验证的问答。",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "replace"
+                },
+                "status": {
+                  "const": "available"
+                }
+              },
+              "required": [
+                "mode",
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "question",
+                "answer",
+                "answerHash"
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "question"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "answer"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Acknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": {
+            "const": 1,
+            "description": "确认协议版本，固定整数 1。",
+            "type": "integer"
+          },
+          "recordId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "必须精确等于请求的 recordId。"
+          },
+          "acceptedRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990,
+            "description": "已持久化版本：applied/duplicate 必须等于请求；stale 必须严格大于请求。"
+          },
+          "status": {
+            "enum": [
+              "applied",
+              "duplicate",
+              "stale"
+            ],
+            "description": "applied 已提交新版本；duplicate 同版本同内容已存在；stale 中心已有更高版本。均需持久化后返回。",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "recordId",
+          "acceptedRevision",
+          "status"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "description": "非 200 的建议错误体。发送端只按 HTTP 状态退避，不解析业务错误正文；不能作为 ACK。",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "固定诊断码，如 revision_conflict；不要返回凭据、问答或堆栈。"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

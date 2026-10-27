@@ -1,0 +1,310 @@
+{
+  "description": "纯合成示例。按 likeAvailable → dislikePreserve → withdrawPreserve 顺序测试；其余 cardId 独立。所有哈希已按真实算法计算。",
+  "requests": {
+    "likeAvailable": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "revision": 1,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_001",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "like",
+        "reasons": [],
+        "updatedAt": 1792886460000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-001",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-001",
+          "assistantMessageId": "answer-message-001"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "replace",
+        "status": "available",
+        "question": "如何将在线文档导出为 PDF？",
+        "answer": "打开文档，点击右上角“更多”，选择“导出为 PDF”。",
+        "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+      }
+    },
+    "dislikePreserve": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "revision": 2,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_001",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "dislike",
+        "reasons": [
+          "2",
+          "6"
+        ],
+        "updatedAt": 1792886520000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-001",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-001",
+          "assistantMessageId": "answer-message-001"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "preserve",
+        "status": "available",
+        "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+      }
+    },
+    "withdrawPreserve": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "revision": 3,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_001",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "none",
+        "reasons": [],
+        "updatedAt": 1792886580000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-001",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-001",
+          "assistantMessageId": "answer-message-001"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "preserve",
+        "status": "available",
+        "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+      }
+    },
+    "missingReference": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "adb00b06c76754718d55ece6b38a51106bd54bd2b005b4de41690ea4888d8480",
+      "revision": 1,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_002",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "like",
+        "reasons": [],
+        "updatedAt": 1792886460000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-002",
+        "transcript": {
+          "status": "unavailable",
+          "reason": "events-unavailable"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "replace",
+        "status": "missing",
+        "reason": "reference_not_recorded",
+        "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+      }
+    },
+    "pendingBudget": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "1a9eee3f57a53222dafb2865173c1e91dcbd1c69216c86ed7b193caa8739b647",
+      "revision": 1,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_003",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "like",
+        "reasons": [],
+        "updatedAt": 1792886460000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-003",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-003",
+          "assistantMessageId": "answer-message-003"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "replace",
+        "status": "pending",
+        "reason": "resource_budget"
+      }
+    },
+    "pendingResolved": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "1a9eee3f57a53222dafb2865173c1e91dcbd1c69216c86ed7b193caa8739b647",
+      "revision": 2,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_003",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "like",
+        "reasons": [],
+        "updatedAt": 1792886460000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-003",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-003",
+          "assistantMessageId": "answer-message-003"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "replace",
+        "status": "available",
+        "question": "如何将在线文档导出为 PDF？",
+        "answer": "打开文档，点击右上角“更多”，选择“导出为 PDF”。",
+        "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc"
+      }
+    },
+    "unverifiedContent": {
+      "schemaVersion": 1,
+      "type": "dingtalk.feedback.snapshot",
+      "recordId": "df73ad07d0111e2d5b7d3332ec85050493c3097f9ab23ca99d61afdc64e3f439",
+      "revision": 1,
+      "source": {
+        "tenantId": "example-company",
+        "instanceId": "employee-001",
+        "accountId": "default",
+        "channel": "dingtalk"
+      },
+      "cardId": "card_api_example_004",
+      "questionerUserId": "user-001",
+      "feedback": {
+        "vote": "like",
+        "reasons": [],
+        "updatedAt": 1792886460000
+      },
+      "conversation": {
+        "agentId": "main",
+        "sessionKey": "agent:main:dingtalk:direct:user-001",
+        "conversationId": "cid-example-dm-001",
+        "sourceMsgId": "msg-example-001",
+        "transcript": {
+          "status": "linked",
+          "source": "runtime-events",
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "userMessageId": "question-message-001",
+          "assistantMessageId": "answer-message-001"
+        }
+      },
+      "answerHash": "af524e11317a949999cb8643f5045107ae6b631d56c3fb59545d9ce5f126a8cc",
+      "createdAt": 1792886400000,
+      "completedAt": 1792886410000,
+      "content": {
+        "mode": "replace",
+        "status": "unverified",
+        "reason": "content_verification_failed"
+      }
+    }
+  },
+  "acknowledgements": {
+    "applied": {
+      "schemaVersion": 1,
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "acceptedRevision": 1,
+      "status": "applied"
+    },
+    "duplicate": {
+      "schemaVersion": 1,
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "acceptedRevision": 1,
+      "status": "duplicate"
+    },
+    "stale": {
+      "schemaVersion": 1,
+      "recordId": "cd7489ccdc42454e1fb795286dde7254ca1b9ed2b3f78ef299b4f89533fb97e6",
+      "acceptedRevision": 3,
+      "status": "stale"
+    }
+  }
+}

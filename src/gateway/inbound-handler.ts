@@ -26,6 +26,10 @@ import {
   isCardInTerminalState,
   recallAICardMessage,
 } from "../card/card-service";
+import {
+  createFeedbackTranscriptTracker,
+  type FeedbackTranscriptTracker,
+} from "../card/feedback-transcript";
 import { renderStatusLine } from "../card/statusline-renderer";
 import { resolveConfiguredTaskModelMetadata } from "../card/task-model-metadata";
 import { dispatchDingTalkCardStopCommand } from "../command/card-stop-command";
@@ -33,6 +37,8 @@ import {
   buildLearningContextBlock,
   resolveLearnedRulePolicy,
 } from "../command/feedback-learning-service";
+import { withFeedbackForegroundActivity } from "../command/feedback-reporting-events";
+import { registerFeedbackCard } from "../command/feedback-store";
 import { handleInboundCommandDispatch } from "../command/inbound-command-dispatch-service";
 import { extractAttachmentText } from "../messaging/attachment-text-extractor";
 import { deliverBtwReply, stripLeadingMentions } from "../messaging/btw-deliver";
@@ -75,6 +81,7 @@ import {
   resolveRelativePath,
   resolveRobotCode,
 } from "../platform/config";
+import { listConfiguredAgents } from "../platform/configured-agents";
 import { setCurrentLogger } from "../platform/logger-context";
 import { getDingTalkRuntime } from "../platform/runtime";
 import { createRuntimeEventsFanout } from "../platform/runtime-events";
@@ -630,7 +637,7 @@ export async function handleDingTalkMessage(params: HandleDingTalkMessageParams)
       log: params.log,
       dingtalkConfig: params.dingtalkConfig,
     },
-    () => handleDingTalkMessageInner(params),
+    () => withFeedbackForegroundActivity(() => handleDingTalkMessageInner(params)),
   );
 }
 
@@ -1119,7 +1126,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   const agentDisplayName = getAgentDisplayName({
     subAgentOptions,
     agentId: route.agentId,
-    agentsList: cfg.agents?.list,
+    agentsList: listConfiguredAgents(cfg),
   });
   const configuredTaskMetadata = resolveConfiguredTaskModelMetadata({
     cfg,
@@ -1245,6 +1252,26 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       if (aiCard) {
         currentAICard = aiCard;
         if (aiCard.outTrackId) {
+          if (dingtalkConfig.feedbackEnabled && senderStaffId) {
+            try {
+              await registerFeedbackCard(
+                { storePath: accountStorePath, accountId },
+                {
+                  outTrackId: aiCard.outTrackId,
+                  ownerUserId: senderStaffId,
+                  conversationId: data.conversationId,
+                  sessionKey: route.sessionKey,
+                  agentId: route.agentId,
+                  sourceMsgId: data.msgId,
+                },
+                dingtalkConfig.feedbackRetentionDays,
+              );
+            } catch {
+              log?.error?.(
+                "[DingTalk][Feedback] Failed to persist card ownership; feedback will fail closed",
+              );
+            }
+          }
           registerCardRun(aiCard.outTrackId, {
             accountId,
             sessionKey: route.sessionKey,
@@ -2341,6 +2368,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       rt as typeof rt & {
         events?: {
           onAgentEvent?: (listener: (event: unknown) => void) => () => void;
+          onSessionTranscriptUpdate?: (listener: (event: unknown) => void) => () => void;
         };
       }
     ).events;
@@ -2350,6 +2378,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     // release strategy-owned resources, including early returns that neither
     // finalize nor abort (ask-user question-card takeover).
     let strategyForCleanup: ReplyStrategy | undefined;
+    let feedbackTranscript: FeedbackTranscriptTracker | undefined;
     const dynamicAckReactionController = createDynamicAckReactionController({
       enabled: shouldTrackDynamicAckReaction,
       initialReaction: resolvedAckReaction || "",
@@ -2410,6 +2439,34 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         agent: agentDisplayName,
       };
 
+      if (replyMode === "card" && dingtalkConfig.feedbackEnabled) {
+        // The host can publish a DM user message under its policy key while
+        // publishing the assistant under the collapsed main transcript key.
+        let feedbackQuestionKey: string | undefined;
+        try {
+          if (isDirect) {
+            feedbackQuestionKey = buildAgentSessionKey({
+              rt,
+              cfg: { ...cfg, session: { ...cfg.session, dmScope: "per-account-channel-peer" } },
+              accountId,
+              agentId: route.agentId,
+              peerKind: "direct",
+              peerId: senderId,
+            });
+          }
+        } catch {
+          /* Optional metadata capture must not block a valid answer. */
+        }
+        feedbackTranscript = createFeedbackTranscriptTracker({
+          agentId: route.agentId,
+          sessionKey: route.sessionKey,
+          senderId,
+          questionTexts: [rawInboundText, inboundText, body],
+          questionSessionKeys: feedbackQuestionKey ? [feedbackQuestionKey] : [],
+          subscribe: runtimeEvents?.onSessionTranscriptUpdate?.bind(runtimeEvents),
+        });
+      }
+
       const strategy = createReplyStrategy({
         config: strategyConfig,
         card: currentAICard,
@@ -2439,6 +2496,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         inboundText: rawInboundText,
         taskMeta,
         runtimeEvents: replyRuntimeEvents,
+        feedbackTranscript,
       });
       strategyForCleanup = strategy;
 
@@ -2628,6 +2686,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       await strategy.finalize();
     } finally {
       try {
+        feedbackTranscript?.dispose();
         // Only remove the registry entry if no stop was requested. When a stop is
         // in progress, card-stop-handler may still be running async operations
         // (finalize card, hide button, gateway abort) that read the record.

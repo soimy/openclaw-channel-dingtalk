@@ -1,0 +1,13 @@
+{
+  "hostVersion": "2026.9.34",
+  "sameGatewayProcess": true,
+  "processRssBeforeKiB": 1154544,
+  "processRssAfterKiB": 1180592,
+  "systemAvailableMemoryMiB": 8496.46875,
+  "previousUploadedRevision": 1,
+  "recoveredLatestRevision": 2,
+  "reasonCount": 2,
+  "contentStatus": "available",
+  "recovery": "plugin hot reload without restarting the high-RSS gateway process",
+  "result": "passed"
+}

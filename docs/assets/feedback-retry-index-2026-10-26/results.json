@@ -1,0 +1,446 @@
+{
+  "baselineCommit": "b88bf4922a2211a7cd0a936e677445504706f9b0",
+  "environment": "macOS arm64, Apple M5, 24 GiB, shared development host",
+  "runtime": "Node 24.22.1",
+  "automated": {
+    "testFiles": 182,
+    "testsPassed": 1933,
+    "lineCoveragePercent": 86.34,
+    "branchCoveragePercent": 81.22,
+    "typeCheckedHosts": [
+      "2026.8.1",
+      "2026.9.34",
+      "2026.10.7"
+    ],
+    "buildAndPackageCheck": true
+  },
+  "retryIndexLimit": 1024,
+  "readyQueueLimit": 128,
+  "performance": [
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 80,
+      "entriesBeforeTarget": 33,
+      "receiverPort": 56988,
+      "serviceModule": "comparison bundle",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": false,
+      "retryDueAt": 1792989048816,
+      "retriedAt": 1792989053874,
+      "retryLatenessMs": 5058,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.4852920000000154,
+        "max": 2.7340409999997064
+      },
+      "cpuMs": 270.982,
+      "rssMiB": {
+        "initial": 218.609375,
+        "peak": 232.109375
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "queued": 0,
+        "recoveryScheduled": false,
+        "scanning": true,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "before-80"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 0,
+      "entriesBeforeTarget": 0,
+      "receiverPort": 56995,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": false,
+      "retryDueAt": 1792989060932,
+      "retriedAt": 1792989061982,
+      "retryLatenessMs": 1050,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.4591669999999795,
+        "max": 2.7691250000002583
+      },
+      "cpuMs": 246.726,
+      "rssMiB": {
+        "initial": 216.359375,
+        "peak": 230.984375
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 0,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": true,
+        "nextRecoveryAt": 1792992654161,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-0"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 80,
+      "entriesBeforeTarget": 34,
+      "receiverPort": 57012,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": false,
+      "retryDueAt": 1792989068872,
+      "retriedAt": 1792989069926,
+      "retryLatenessMs": 1054,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.4111659999998665,
+        "max": 2.679667000000336
+      },
+      "cpuMs": 232.505,
+      "rssMiB": {
+        "initial": 216.421875,
+        "peak": 228.09375
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 0,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": true,
+        "nextRecoveryAt": 1792992662275,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-80"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 10000,
+      "entriesBeforeTarget": 3997,
+      "receiverPort": 57026,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": false,
+      "retryDueAt": 1792989076316,
+      "retriedAt": 1792989077368,
+      "retryLatenessMs": 1052,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.4412499999998545,
+        "max": 2.6845830000000888
+      },
+      "cpuMs": 248.298,
+      "rssMiB": {
+        "initial": 237.703125,
+        "peak": 259.96875
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 0,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": true,
+        "nextRecoveryAt": 1792992670590,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-10000"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 10000,
+      "entriesBeforeTarget": 3998,
+      "receiverPort": 57031,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": true,
+      "foreground": false,
+      "retryDueAt": 1792989085407,
+      "retriedAt": 1792989086306,
+      "retryLatenessMs": 899,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.436540999999579,
+        "max": 2.7701670000001286
+      },
+      "cpuMs": 288.356,
+      "rssMiB": {
+        "initial": 239.0625,
+        "peak": 259.421875
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 1,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": false,
+        "scanning": true,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-scanning"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 10000,
+      "entriesBeforeTarget": 3998,
+      "receiverPort": 57038,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": true,
+      "retryDueAt": 1792989093692,
+      "retriedAt": 1792989101052,
+      "retryLatenessMs": 7360,
+      "foregroundRecoveryMs": 7057,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.3944170000000895,
+        "max": 3.366041999999652
+      },
+      "cpuMs": 299.284,
+      "rssMiB": {
+        "initial": 235.703125,
+        "peak": 254.265625
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 0,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": true,
+        "nextRecoveryAt": 1792992687144,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-foreground"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 80,
+      "entriesBeforeTarget": 35,
+      "receiverPort": 57319,
+      "serviceModule": "comparison bundle",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": true,
+      "retryDueAt": 1792989437369,
+      "retriedAt": 1792989448715,
+      "retryLatenessMs": 11346,
+      "foregroundRecoveryMs": 11044,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.388834000001225,
+        "max": 3.571458000000348
+      },
+      "cpuMs": 313.055,
+      "rssMiB": {
+        "initial": 218.625,
+        "peak": 234.25
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "queued": 0,
+        "recoveryScheduled": false,
+        "scanning": true,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "resourceEvents": [
+        {
+          "at": 1792989438672,
+          "message": "[DingTalk][FeedbackReport] paused for local resource pressure"
+        },
+        {
+          "at": 1792989444675,
+          "message": "[DingTalk][FeedbackReport] resuming after resource pressure"
+        }
+      ],
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "before-foreground"
+    },
+    {
+      "runtime": "v24.22.1",
+      "storage": "synthetic-jsonl",
+      "historyFiles": 10000,
+      "entriesBeforeTarget": 3997,
+      "receiverPort": 57331,
+      "serviceModule": "current source",
+      "scanPauseMs": 100,
+      "tickMs": 1000,
+      "startupScan": false,
+      "foreground": true,
+      "retryDueAt": 1792989455175,
+      "retriedAt": 1792989462529,
+      "retryLatenessMs": 7354,
+      "foregroundRecoveryMs": 7054,
+      "requests": 2,
+      "identicalRetry": true,
+      "terminal": true,
+      "probeLagMs": {
+        "p99": 2.274833999999828,
+        "max": 2.7569579999999405
+      },
+      "cpuMs": 271.465,
+      "rssMiB": {
+        "initial": 237.09375,
+        "peak": 256
+      },
+      "service": {
+        "delivered": 1,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 1,
+        "workersStarted": 2,
+        "scansStarted": 0,
+        "queued": 0,
+        "delayed": 0,
+        "recoveryScheduled": true,
+        "nextRecoveryAt": 1792993049369,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "resourceEvents": [
+        {
+          "at": 1792989456476,
+          "message": "[DingTalk][FeedbackReport] paused for local resource pressure"
+        },
+        {
+          "at": 1792989462479,
+          "message": "[DingTalk][FeedbackReport] resuming after resource pressure"
+        }
+      ],
+      "scope": "Real worker and HTTP 503-to-200; isolated synthetic data. Extra latency is measured after durable retry deadline, not initial backoff.",
+      "case": "after-foreground-check"
+    }
+  ],
+  "live": {
+    "host": "2026.10.7",
+    "gatewayPort": 18789,
+    "receiverPort": 58182,
+    "modelPort": 58183,
+    "sourceRevision": 3,
+    "wireRevision": 3,
+    "originalVote": "none",
+    "finalVote": "like",
+    "bodyStatus": "available",
+    "failedHttpStatus": 503,
+    "retryDueAt": 1792990609511,
+    "receiptSavedAt": 1792990610572.1135,
+    "retryAckLatenessMs": 1061.113525390625,
+    "identicalRetry": true,
+    "databaseRevision": 3,
+    "terminal": true,
+    "receiverRestored": true,
+    "status": "passed",
+    "userConfirmedButtonSelected": true,
+    "normalWithdrawal": {
+      "host": "2026.10.7",
+      "userConfirmedButtonCleared": true,
+      "finalVote": "none",
+      "receiverRevision": 2,
+      "bodyStatus": "available",
+      "correctQuestion": true,
+      "failureRetryCovered": false,
+      "reason": "User action arrived after the 503 window expired"
+    },
+    "running": true,
+    "connected": true,
+    "noRestartOrSecondClickRequired": true,
+    "faultInjectionCleared": true
+  },
+  "scope": "Synthetic benchmark identities only. No DingTalk account IDs, credentials or real question/answer bodies.",
+  "runtimeSha256": "d8f65dfe2a19fab81f3123c4a5498e52eed4a7a9ec0c62b5f7b494e9e304b020",
+  "sourceSha256": {
+    "src/command/feedback-reporting-service.ts": "9047854580323db012670596bef8187395800252bddd2c39ba917a80aa9eedf8",
+    "src/command/feedback-reporting-retry-index.ts": "3bc3d22666e511b1aa73735535e4f69d66c897850f16fb5f5cf195dcb1100e8a"
+  }
+}

@@ -9,6 +9,18 @@ const output = execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scr
 const [pack] = JSON.parse(output);
 const files = new Set(pack.files.map((file) => String(file.path).replace(/^package\//u, "")));
 const requiredFiles = [
+  "docs/user/reference/feedback-reporting-api.md",
+  "docs/user/reference/feedback-reporting-examples.json",
+  "dist/feedback-reporting-worker.js",
+  "dist/feedback-detail-worker.js",
+  "docs/user/features/feedback-http-reporting.md",
+  "docs/user/reference/feedback-reporting.openapi.json",
+  "docs/user/reference/feedback-reporting-oceanbase.sql",
+  "scripts/feedback-reporting-receiver.mjs",
+  "docs/assets/card-template-v2.json",
+  "docs/user/features/card-feedback.md",
+  "docs/user/getting-started/card-feedback-deployment.md",
+  "scripts/feedback-export.mjs",
   "dist/index.js",
   "dist/index.d.ts",
   "dist/card-extensions.js",

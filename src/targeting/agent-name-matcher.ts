@@ -5,6 +5,7 @@
  */
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { listConfiguredAgents } from "../platform/configured-agents";
 import type { AtMention, AgentNameMatch } from "../platform/types";
 
 interface AgentConfig {
@@ -96,7 +97,7 @@ export function resolveAtAgents(
   /** Whether there are invalid agent names (conservative: false if realUserCount > 0) */
   hasInvalidAgentNames: boolean;
 } {
-  const agents = cfg?.agents?.list as AgentConfig[] | undefined;
+  const agents = listConfiguredAgents(cfg);
   const mainAgentId = getMainAgentId(agents);
 
   if (!atMentions || atMentions.length === 0) {

@@ -1,3 +1,4 @@
+import { createCardDraftController } from "../card/card-draft-controller";
 /**
  * AI Card reply strategy.
  *
@@ -5,8 +6,6 @@
  * (final / tool / block), finalization, and failure fallback so that
  * inbound-handler only coordinates — it no longer owns card state.
  */
-
-import { createCardDraftController } from "../card/card-draft-controller";
 import {
   buildImagePlaceholderText,
   extractMarkdownImageCandidates,
@@ -31,6 +30,7 @@ import { createReasoningBlockAssembler } from "../card/reasoning-block-assembler
 import { recordRunStart, getAggregatedUsage, clearRuns } from "../card/run-usage-store";
 import { renderStatusLine } from "../card/statusline-renderer";
 import type { StatusLineData } from "../card/statusline-renderer";
+import { completeFeedbackCard } from "../command/feedback-store";
 import { resolveRelativePath } from "../platform/config";
 import { getTaskTimeSeconds, updateSessionState } from "../platform/session-state";
 import type { AICardInstance } from "../platform/types";
@@ -169,6 +169,7 @@ export function createCardReplyStrategy(
   }
   let finalTextForFallback: string | undefined;
   let sawFinalDelivery = false;
+  let feedbackDeliveryFailed = false;
   /** Tracks the latest reasoning snapshot text for non-streaming boundary flush. */
   let latestReasoningSnapshot = "";
   /** Non-image media attachments deferred for out-of-card delivery. */
@@ -455,6 +456,7 @@ export function createCardReplyStrategy(
           if (isLifecycleSealed()) {
             return;
           }
+          ctx.feedbackTranscript?.bindRun(runId);
           recordRunStart(runId);
           if (ctx.taskMeta) {
             if (!ctx.taskMeta.runIds) {
@@ -530,6 +532,7 @@ export function createCardReplyStrategy(
           log?.debug?.("[DingTalk][Finalize] Ignoring late error final after answer delivery");
           return;
         }
+        feedbackDeliveryFailed = payload.isError === true;
         const isFirstFinalDelivery = !sawFinalDelivery;
         lifecycleState = "final_seen";
         await flushPendingReasoning();
@@ -860,6 +863,29 @@ export function createCardReplyStrategy(
           },
           log,
         );
+
+        // A terminal placeholder (for example an empty/file-only final) is not
+        // an answer whose text can be attributed to the original question.
+        const hasFeedbackAnswer = Boolean(
+          finalTextForFallback?.trim() || controller.getFinalAnswerContent()?.trim(),
+        );
+        if (config.feedbackEnabled && !feedbackDeliveryFailed && hasFeedbackAnswer) {
+          try {
+            await completeFeedbackCard(
+              { storePath: ctx.storePath, accountId: ctx.accountId },
+              card.outTrackId || card.cardInstanceId,
+              content,
+              undefined,
+              config.feedbackReporting?.enabled
+                ? ctx.feedbackTranscript?.resolve(content, { includeLocalFile: true })
+                : ctx.feedbackTranscript?.resolve(content),
+            );
+          } catch {
+            log?.error?.(
+              "[DingTalk][Feedback] Failed to persist completed answer; feedback will fail closed",
+            );
+          }
+        }
 
         // Send deferred non-image attachments after card finalize
         // Use sessionWebhook for reply-session semantics; fallback to proactive if unavailable.

@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { listConfiguredAgents } from "../platform/configured-agents";
 
 export interface InitialTaskModelMetadata {
   model?: string;
@@ -35,9 +36,7 @@ export function resolveConfiguredTaskModelMetadata(params: {
 }): InitialTaskModelMetadata {
   const agents = params.cfg.agents;
   const agentId = String(params.agentId || "").trim();
-  const agent = Array.isArray(agents?.list)
-    ? agents.list.find((entry) => String(entry.id || "").trim() === agentId)
-    : undefined;
+  const agent = listConfiguredAgents(params.cfg).find((entry) => entry.id.trim() === agentId);
 
   const modelRef =
     readPrimaryModelRef(agent?.model) ?? readPrimaryModelRef(agents?.defaults?.model);

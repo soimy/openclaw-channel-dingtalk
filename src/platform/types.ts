@@ -16,6 +16,7 @@ import type {
 } from "openclaw/plugin-sdk/channel-contract";
 import type { ChannelPlugin as SDKChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
+import type { FeedbackReportingConfig } from "../command/feedback-reporting-config";
 import type { SecretInput } from "./secret-input";
 
 export type AckReactionMode = "off" | "emoji" | "kaomoji";
@@ -135,6 +136,9 @@ export interface DingTalkConfig extends OpenClawConfig {
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
+  feedbackEnabled?: boolean;
+  feedbackRetentionDays?: number;
+  feedbackReporting?: FeedbackReportingConfig;
   learningEnabled?: boolean;
   /** Auto-apply generated reflections into session notes/global rules (default false) */
   learningAutoApply?: boolean;
@@ -238,6 +242,9 @@ export interface DingTalkChannelConfig {
   /** AICard degrade duration in milliseconds after trigger errors (default 30m) */
   aicardDegradeMs?: number;
   /** Enable local learning loop (events/reflections/session notes/global rules) */
+  feedbackEnabled?: boolean;
+  feedbackRetentionDays?: number;
+  feedbackReporting?: FeedbackReportingConfig;
   learningEnabled?: boolean;
   /** Auto-apply generated reflections into session notes/global rules (default false) */
   learningAutoApply?: boolean;

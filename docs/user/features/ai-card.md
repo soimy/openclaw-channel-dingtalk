@@ -160,6 +160,12 @@ AI 卡片生命周期：
 - 底部任务元数据（模型名、effort、耗时、token 用量等）
 - 支持失败时优先拆分为多张 AI Card 补发，再降级回退到 Markdown（只补发未投递部分）
 
+## 原提问者评价与问答反查
+
+本功能提供可选的赞踩记录、本人统计与精确问答反查，最低宿主版本为 OpenClaw `2026.8.1`。需要包含本改造的构建、`feedbackEnabled: true`，以及开启赞踩并回传 `feedback_vote` 的模板；平台默认模板不会因更新插件自动改变。
+
+原提问者可点赞、点踩或撤销，在私聊使用 `/feedback stats`；具备精确引用时可用 `/feedback detail <卡片ID>` 查看原问答。具体使用见[卡片评价说明](card-feedback.md)，模板修改、构建与持久化要求见[部署指引](../getting-started/card-feedback-deployment.md)。
+
 ## 配置示例
 
 ```json5
@@ -178,8 +184,10 @@ AI 卡片生命周期：
 
 如需在预置模板基础上定制卡片样式或新增自定义变量/组件，可以参考以下资产文件，将修改后的模板上传到钉钉开放平台，再通过 `DINGTALK_CARD_TEMPLATE_ID` 环境变量指向新模板 ID：
 
-- **[`card-template-v2.json`](../../assets/card-template-v2.json)** — 当前预置卡片模板的完整低代码 schema（钉钉卡片搭建器导出格式），包含组件映射、组件树、数据源和交互定义，可直接导入钉钉卡片搭建器进行编辑。
+- **[`card-template-v2.json`](../../assets/card-template-v2.json)** — 包含本分支评价设置的 V2 卡片完整低代码 schema（钉钉卡片搭建器导出格式），包含组件映射、组件树、数据源和交互定义，可直接导入钉钉卡片搭建器进行编辑。
 - **[`card-data-mock-v2.json`](../../assets/card-data-mock-v2.json)** — 卡片渲染时的 mock 数据样例，展示 `blockList`、`content`、`quoteContent`、`statusLine` 等变量结构和取值，方便在搭建器中预览卡片效果。
+
+资产文件已包含本分支的 `feedback_vote` 设置；它不表示钉钉平台默认模板 ID 已同步更新，需导入或修改有权管理的模板后使用。
 
 定制时注意保持变量 key 与插件输出字段的对齐：`content`、`blockList`、`quoteContent`、`copy_content`、`statusLine`、`hasAction` 等。
 

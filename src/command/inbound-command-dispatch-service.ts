@@ -5,6 +5,8 @@ import type {
   MessageContent,
 } from "../platform/types";
 import type { SessionPeerSourceKind } from "../targeting/session-peer-store";
+import { runFeedbackCommand } from "./feedback-command";
+import { readFeedbackDetailContent } from "./feedback-detail-reader";
 import {
   applyManualGlobalLearningRule,
   applyManualSessionLearningNote,
@@ -91,6 +93,23 @@ type InboundCommandDispatchParams = {
 export async function handleInboundCommandDispatch(
   params: InboundCommandDispatchParams,
 ): Promise<boolean> {
+  if (/^\/feedback(?:\s|$)/i.test(params.extractedText.trim())) {
+    try {
+      const reply = await runFeedbackCommand(params.extractedText, {
+        scope: { storePath: params.accountStorePath, accountId: params.accountId },
+        userId: params.data.senderStaffId?.trim() || "",
+        isDirect: params.isDirect,
+        enabled: Boolean(params.dingtalkConfig.feedbackEnabled),
+        readContent: (record) => readFeedbackDetailContent(record, params.cfg.session?.store),
+      });
+      if (reply) {
+        await params.sendReply(reply);
+      }
+    } catch {
+      await params.sendReply("评价记录读取失败，请稍后重试或联系管理员；未返回不完整结果。");
+    }
+    return true;
+  }
   const parsedLearnCommand = parseLearnCommand(params.extractedText);
   const parsedSessionCommand = parseSessionCommand(params.extractedText);
   const isOwner = isLearningOwner({

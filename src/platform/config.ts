@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { listConfiguredAgents } from "./configured-agents";
 import {
   formatSecretInputResolutionFailure,
   hasConfiguredSecretInput,
@@ -359,8 +360,7 @@ function resolveAgentIdentityEmoji(
   if (!targetAgentId) {
     return undefined;
   }
-  const agents = Array.isArray((cfg as any)?.agents?.list) ? (cfg as any).agents.list : [];
-  const agent = agents.find((entry: any) => String(entry?.id || "").trim() === targetAgentId);
+  const agent = listConfiguredAgents(cfg).find((entry) => entry.id.trim() === targetAgentId);
   const emoji = typeof agent?.identity?.emoji === "string" ? agent.identity.emoji.trim() : "";
   return emoji || undefined;
 }

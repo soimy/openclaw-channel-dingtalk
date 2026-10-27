@@ -1,0 +1,546 @@
+{
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "logicalCpus": 10,
+    "memoryGiB": 24,
+    "node": "24.22.1"
+  },
+  "scope": "Final implementation; synthetic foreground probes with real host SQLite/worker/HTTP paths, not production model latency",
+  "measurements": [
+    {
+      "name": "final-perf-sqlite-2026.10.7-foreground-off.json",
+      "enabled": false,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63831,
+      "processId": 99688,
+      "cards": 8,
+      "durationMs": 15001.821958999999,
+      "startupMs": 0.00016700000014679972,
+      "samples": 1301,
+      "probeLagMs": {
+        "p95": 2.105583999999908,
+        "p99": 2.159041999999772,
+        "max": 2.4554170000010345
+      },
+      "eventLoopMs": {
+        "p99": 12.156927,
+        "max": 12.443647
+      },
+      "ratingAckMs": {
+        "p95": 8.603541999998924,
+        "p99": 8.783832999999504
+      },
+      "cpuMs": 543.468,
+      "rssMiB": {
+        "initial": 484.9375,
+        "peak": 487.390625
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.10.7-foreground-on.json",
+      "enabled": true,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63840,
+      "processId": 99756,
+      "cards": 8,
+      "durationMs": 15002.794375000001,
+      "startupMs": 0.09312500000010004,
+      "samples": 1306,
+      "probeLagMs": {
+        "p95": 2.1094999999995707,
+        "p99": 2.162292000000434,
+        "max": 2.842124999999214
+      },
+      "eventLoopMs": {
+        "p99": 12.181503,
+        "max": 12.845055
+      },
+      "ratingAckMs": {
+        "p95": 9.089124999999967,
+        "p99": 9.682707999999366
+      },
+      "cpuMs": 573.669,
+      "rssMiB": {
+        "initial": 483.8125,
+        "peak": 487
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "service": {
+        "delivered": 0,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 0,
+        "queued": 1,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 1,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.10.7-idle.json",
+      "enabled": true,
+      "scenario": "idle",
+      "storage": "host-sqlite",
+      "receiverPort": 63819,
+      "processId": 99621,
+      "cards": 8,
+      "durationMs": 15004.251457999999,
+      "startupMs": 0.09345800000005511,
+      "samples": 1336,
+      "probeLagMs": {
+        "p95": 2.10287500000004,
+        "p99": 2.215334000000439,
+        "max": 3.013333999999304
+      },
+      "eventLoopMs": {
+        "p99": 12.197887,
+        "max": 12.656639
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 1377.259,
+      "rssMiB": {
+        "initial": 483.78125,
+        "peak": 618.015625
+      },
+      "receiverRequests": 8,
+      "firstRequestAt": 1792943800625,
+      "checkpoints": [],
+      "service": {
+        "delivered": 8,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 0,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 0,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.10.7-large.json",
+      "enabled": true,
+      "scenario": "large",
+      "storage": "host-sqlite",
+      "receiverPort": 64074,
+      "processId": 823,
+      "cards": 8,
+      "durationMs": 10011.744541,
+      "startupMs": 0.13412500000004002,
+      "samples": 902,
+      "probeLagMs": {
+        "p95": 2.107540999999401,
+        "p99": 2.4235839999996642,
+        "max": 2.6242500000007567
+      },
+      "eventLoopMs": {
+        "p99": 12.419071,
+        "max": 12.640255
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 1299.446,
+      "rssMiB": {
+        "initial": 665.078125,
+        "peak": 766.1875
+      },
+      "receiverRequests": 8,
+      "firstRequestAt": 1792944203660,
+      "checkpoints": [],
+      "service": {
+        "delivered": 0,
+        "superseded": 0,
+        "deferred": 8,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 8,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": true
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.10.7-pressure.json",
+      "enabled": true,
+      "scenario": "pressure",
+      "storage": "host-sqlite",
+      "receiverPort": 63845,
+      "processId": 99781,
+      "cards": 8,
+      "durationMs": 32010.917541,
+      "startupMs": 0.09333299999980227,
+      "samples": 2319,
+      "probeLagMs": {
+        "p95": 2.1375829999997222,
+        "p99": 71.312417000001,
+        "max": 77.07958300000064
+      },
+      "eventLoopMs": {
+        "p99": 81.330175,
+        "max": 85.065727
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 7200.614,
+      "rssMiB": {
+        "initial": 483.71875,
+        "peak": 615.40625
+      },
+      "receiverRequests": 8,
+      "firstRequestAt": 1792943867209,
+      "pressureEndedAt": 1792943862602,
+      "pressureDeferralPassed": true,
+      "checkpoints": [],
+      "service": {
+        "delivered": 8,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 0,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": true,
+        "foregroundRuns": 0,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.10.7-slow.json",
+      "enabled": true,
+      "scenario": "slow",
+      "storage": "host-sqlite",
+      "receiverPort": 64064,
+      "processId": 824,
+      "cards": 8,
+      "durationMs": 10003.705625,
+      "startupMs": 0.10037499999998545,
+      "samples": 872,
+      "probeLagMs": {
+        "p95": 2.120875000000524,
+        "p99": 2.1835000000000946,
+        "max": 2.635874999999942
+      },
+      "eventLoopMs": {
+        "p99": 12.165119,
+        "max": 12.640255
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 1201.174,
+      "rssMiB": {
+        "initial": 482.9375,
+        "peak": 617.34375
+      },
+      "receiverRequests": 1,
+      "firstRequestAt": 1792944191619,
+      "checkpoints": [],
+      "service": {
+        "delivered": 0,
+        "superseded": 0,
+        "deferred": 1,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 8,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 1,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.8.1-foreground-off.json",
+      "enabled": false,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63769,
+      "processId": 99234,
+      "cards": 8,
+      "durationMs": 15005.569459,
+      "startupMs": 0.00041699999997035775,
+      "samples": 1303,
+      "probeLagMs": {
+        "p95": 2.1114580000003116,
+        "p99": 2.200166000000536,
+        "max": 4.215124999999716
+      },
+      "eventLoopMs": {
+        "p99": 12.206079,
+        "max": 14.213119
+      },
+      "ratingAckMs": {
+        "p95": 8.610790999999153,
+        "p99": 9.581333000000086
+      },
+      "cpuMs": 325.871,
+      "rssMiB": {
+        "initial": 367.171875,
+        "peak": 367.4375
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.8.1-foreground-on.json",
+      "enabled": true,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63775,
+      "processId": 99276,
+      "cards": 8,
+      "durationMs": 15004.612374999999,
+      "startupMs": 0.1383339999999862,
+      "samples": 1307,
+      "probeLagMs": {
+        "p95": 2.1079169999998157,
+        "p99": 2.1915830000002643,
+        "max": 2.501666999999543
+      },
+      "eventLoopMs": {
+        "p99": 12.222463,
+        "max": 12.509183
+      },
+      "ratingAckMs": {
+        "p95": 8.916124999999738,
+        "p99": 9.382959000000483
+      },
+      "cpuMs": 315.152,
+      "rssMiB": {
+        "initial": 372.4375,
+        "peak": 372.5625
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "service": {
+        "delivered": 0,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 0,
+        "queued": 1,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 1,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.8.1-idle.json",
+      "enabled": true,
+      "scenario": "idle",
+      "storage": "host-sqlite",
+      "receiverPort": 63749,
+      "processId": 99171,
+      "cards": 8,
+      "durationMs": 15004.633875,
+      "startupMs": 0.1515830000000733,
+      "samples": 1329,
+      "probeLagMs": {
+        "p95": 2.1207919999997102,
+        "p99": 2.41570800000045,
+        "max": 2.671290999998746
+      },
+      "eventLoopMs": {
+        "p99": 12.468223,
+        "max": 12.697599
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 1120.348,
+      "rssMiB": {
+        "initial": 374.046875,
+        "peak": 469.15625
+      },
+      "receiverRequests": 8,
+      "firstRequestAt": 1792943704686,
+      "checkpoints": [],
+      "service": {
+        "delivered": 8,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 0,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 0,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.9.34-foreground-off.json",
+      "enabled": false,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63811,
+      "processId": 99494,
+      "cards": 8,
+      "durationMs": 15005.658375,
+      "startupMs": 0.00024999999993724487,
+      "samples": 1302,
+      "probeLagMs": {
+        "p95": 2.116874999999709,
+        "p99": 2.233249999999316,
+        "max": 2.7108750000006694
+      },
+      "eventLoopMs": {
+        "p99": 12.214271,
+        "max": 12.713983
+      },
+      "ratingAckMs": {
+        "p95": 8.720499999999447,
+        "p99": 10.011709000000337
+      },
+      "cpuMs": 863.711,
+      "rssMiB": {
+        "initial": 425.8125,
+        "peak": 492.078125
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.9.34-foreground-on.json",
+      "enabled": true,
+      "scenario": "foreground",
+      "storage": "host-sqlite",
+      "receiverPort": 63817,
+      "processId": 99533,
+      "cards": 8,
+      "durationMs": 15005.308625,
+      "startupMs": 0.10391600000002654,
+      "samples": 1301,
+      "probeLagMs": {
+        "p95": 2.115708999999697,
+        "p99": 2.167667000000165,
+        "max": 2.8847910000001775
+      },
+      "eventLoopMs": {
+        "p99": 12.181503,
+        "max": 12.869631
+      },
+      "ratingAckMs": {
+        "p95": 8.616583000000219,
+        "p99": 8.909250000000156
+      },
+      "cpuMs": 687.482,
+      "rssMiB": {
+        "initial": 442.265625,
+        "peak": 477.328125
+      },
+      "receiverRequests": 0,
+      "checkpoints": [],
+      "service": {
+        "delivered": 0,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 0,
+        "queued": 1,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 1,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    },
+    {
+      "name": "final-perf-sqlite-2026.9.34-idle.json",
+      "enabled": true,
+      "scenario": "idle",
+      "storage": "host-sqlite",
+      "receiverPort": 63782,
+      "processId": 99393,
+      "cards": 8,
+      "durationMs": 15003.041125,
+      "startupMs": 0.10437500000011823,
+      "samples": 1334,
+      "probeLagMs": {
+        "p95": 2.1093330000003334,
+        "p99": 2.3642909999998665,
+        "max": 2.901375000000371
+      },
+      "eventLoopMs": {
+        "p99": 12.361727,
+        "max": 12.763135
+      },
+      "ratingAckMs": {
+        "p95": null,
+        "p99": null
+      },
+      "cpuMs": 1460.074,
+      "rssMiB": {
+        "initial": 426.90625,
+        "peak": 519.703125
+      },
+      "receiverRequests": 8,
+      "firstRequestAt": 1792943752567,
+      "checkpoints": [],
+      "service": {
+        "delivered": 8,
+        "superseded": 0,
+        "deferred": 0,
+        "failures": 0,
+        "workersStarted": 1,
+        "queued": 0,
+        "scanning": false,
+        "workerActive": false,
+        "workerResident": false,
+        "foregroundRuns": 0,
+        "timerScheduled": false
+      },
+      "cgroup": {},
+      "scope": "real reporting module with synthetic foreground probe and local receiver worker; not LLM first-token latency"
+    }
+  ]
+}
