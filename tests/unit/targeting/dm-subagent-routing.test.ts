@@ -59,7 +59,7 @@ const KNOWN_COMMANDS = new Set([
   "/usage",
 ]);
 
-vi.mock("openclaw/plugin-sdk/command-auth", () => ({
+vi.mock("openclaw/plugin-sdk/command-auth-native", () => ({
   maybeResolveTextAlias: (raw: string) => {
     const trimmed = raw.trim().toLowerCase();
     if (!trimmed.startsWith("/")) return null;

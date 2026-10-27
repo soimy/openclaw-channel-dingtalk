@@ -53,7 +53,7 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isBtwRequestText: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock("openclaw/plugin-sdk/command-auth", () => ({
+vi.mock("openclaw/plugin-sdk/command-auth-native", () => ({
   maybeResolveTextAlias: (raw: string) => {
     const token = raw.trim().toLowerCase().match(/^\/([^\s:]+)(?:\s|$)/);
     if (!token) {
