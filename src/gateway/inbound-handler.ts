@@ -117,6 +117,10 @@ import {
 } from "../targeting/target-directory-store";
 import { dispatchInboundViaSessionQueue } from "./inbound-session-queue-dispatcher";
 import {
+  clearPairingChallengeDelivery,
+  deliverPairingChallenge,
+} from "./pairing-challenge-delivery";
+import {
   isReplySessionConflictError,
   withReplySessionConflictRetry,
 } from "./reply-session-conflict";
@@ -781,13 +785,13 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         });
         const allow = normalizeAllowFrom([...allowFrom, ...storeAllowFrom]);
         if (!isSenderAllowed({ allow, senderId })) {
-          const { code, created } = await rt.channel.pairing.upsertPairingRequest({
+          const { code } = await rt.channel.pairing.upsertPairingRequest({
             channel: "dingtalk",
             accountId,
             id: senderId,
           });
-          if (created && code) {
-            await sendBySession(
+          await deliverPairingChallenge({ accountId, senderId, code }, () =>
+            sendBySession(
               dingtalkConfig,
               replySession.sessionWebhook,
               rt.channel.pairing.buildPairingReply({
@@ -795,11 +799,12 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
                 idLine: `您的钉钉用户 ID：${senderId}\n账号：${accountId}`,
                 code,
               }),
-              { log },
-            );
-          }
+              { log, accountId, conversationId: data.conversationId },
+            ),
+          );
           return;
         }
+        clearPairingChallengeDelivery(accountId, senderId);
       } catch {
         // Store/API failures must never bypass pairing admission, even for configured allowFrom.
         log?.warn?.("[DingTalk] Pairing check or challenge failed; DM blocked");

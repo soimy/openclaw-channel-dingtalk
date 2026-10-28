@@ -12,6 +12,7 @@ import {
   mockedUpsertInboundMessageContext,
 } from "./fixtures/inbound-handler-card";
 import { handleDingTalkMessage } from "../../src/gateway/inbound-handler";
+import { resetPairingChallengeDeliveryForTest } from "../../src/gateway/pairing-challenge-delivery";
 import { handleInboundCommandDispatch } from "../../src/command/inbound-command-dispatch-service";
 
 vi.mock("../../src/command/inbound-command-dispatch-service", async (importOriginal) => {
@@ -63,6 +64,7 @@ function expectNoDispatch() {
 describe("inbound pairing admission", () => {
   beforeEach(() => {
     beforeEachInboundHandlerCard();
+    resetPairingChallengeDeliveryForTest();
     vi.mocked(handleInboundCommandDispatch).mockClear();
     storeDir = mkdtempSync(join(tmpdir(), "dingtalk-pairing-"));
     runtime = pairingRuntime();
@@ -179,8 +181,16 @@ describe("inbound pairing admission", () => {
     expect(shared.sendBySessionMock).not.toHaveBeenCalled();
   });
 
-  it.each([{ code: "TEST2345", created: false }, { code: "", created: false }])("does not repeat challenges for pending/full requests: %j", async (result) => {
-    runtime.channel.pairing.upsertPairingRequest.mockResolvedValue(result);
+  it("delivers an existing pending challenge once when delivery state is unknown", async () => {
+    runtime.channel.pairing.upsertPairingRequest.mockResolvedValue({ code: "TEST2345", created: false });
+    await receive();
+    await receive();
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("does not send a challenge when the host request quota returns no code", async () => {
+    runtime.channel.pairing.upsertPairingRequest.mockResolvedValue({ code: "", created: false });
     await receive();
     expectNoDispatch();
     expect(shared.sendBySessionMock).not.toHaveBeenCalled();

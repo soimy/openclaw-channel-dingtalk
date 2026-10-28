@@ -17,6 +17,7 @@ import {
   mockedUpsertInboundMessageContext,
 } from "../unit/fixtures/inbound-handler-card";
 import { handleDingTalkMessage } from "../../src/gateway/inbound-handler";
+import { resetPairingChallengeDeliveryForTest } from "../../src/gateway/pairing-challenge-delivery";
 
 type ApprovalInput = { channel: string; accountId: string; code: string; env: NodeJS.ProcessEnv; pairingAdapter: { idLabel: string } };
 let approveCode: (input: ApprovalInput) => Promise<unknown>;
@@ -38,6 +39,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   beforeEachInboundHandlerCard();
+  resetPairingChallengeDeliveryForTest();
   stateDir = mkdtempSync(join(tmpdir(), "dingtalk-sdk-pairing-"));
   env = { OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: join(stateDir, "openclaw.json") };
   runtime = buildRuntime();
@@ -62,7 +64,10 @@ beforeEach(() => {
   };
 });
 
-afterEach(() => rmSync(stateDir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.useRealTimers();
+  rmSync(stateDir, { recursive: true, force: true });
+});
 
 async function approve(accountId: string) {
   const { code } = await upsertChannelPairingRequest({ channel: "dingtalk", accountId, id: "staff-1", env });
@@ -97,6 +102,84 @@ async function expectIdentityRejected(pattern = /account.*pairing identity/i) {
 }
 
 describe("real SDK pairing account identities", () => {
+  it("delivers pre-existing pending requests once per process without granting access", async () => {
+    configure(["primary"]);
+    const pending = await upsertChannelPairingRequest({ channel: "dingtalk", accountId: "primary", id: "staff-1", env });
+    expect(pending.created).toBe(true);
+    await handleDingTalkMessage(params);
+    params.data.msgId = "pending-hint-already-sent";
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(shared.sendBySessionMock.mock.calls[0][2]).toContain(pending.code);
+    resetPairingChallengeDeliveryForTest();
+    params.data.msgId = "pending-hint-after-restart";
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(2);
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(await readChannelAllowFromStore("dingtalk", env, "primary")).toEqual([]);
+  });
+
+  it("delivers a fresh hint when the real SDK expires the pending request and replaces its code", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    configure(["primary"]);
+    await handleDingTalkMessage(params);
+    const first = await upsertChannelPairingRequest({ channel: "dingtalk", accountId: "primary", id: "staff-1", env });
+    vi.advanceTimersByTime(60 * 60_000 + 1);
+    params.data.msgId = "pending-hint-after-expiry";
+    await handleDingTalkMessage(params);
+    const next = await upsertChannelPairingRequest({ channel: "dingtalk", accountId: "primary", id: "staff-1", env });
+    expect(next.code).not.toBe(first.code);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(2);
+    expect(shared.sendBySessionMock.mock.calls[1][2]).toContain(next.code);
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates concurrent real SDK requests while the hint transport is in flight", async () => {
+    configure(["primary"]);
+    let release!: () => void;
+    shared.sendBySessionMock.mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+    const first = handleDingTalkMessage({ ...params, data: { ...params.data, msgId: "concurrent-first" } });
+    await vi.waitFor(() => expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1));
+    await handleDingTalkMessage({ ...params, data: { ...params.data, msgId: "concurrent-second" } });
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    release();
+    await first;
+    await handleDingTalkMessage({ ...params, data: { ...params.data, msgId: "after-concurrent-success" } });
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(await readChannelAllowFromStore("dingtalk", env, "primary")).toEqual([]);
+  });
+
+  it("retries a failed pairing hint after cooldown without admitting unapproved messages", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    configure(["primary"]);
+    shared.sendBySessionMock.mockRejectedValueOnce(new Error("simulated transport failure"));
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+    const pending = await upsertChannelPairingRequest({ channel: "dingtalk", accountId: "primary", id: "staff-1", env });
+    expect(pending.created).toBe(false);
+    expect(shared.sendBySessionMock.mock.calls[0][2]).toContain(pending.code);
+
+    shared.sendBySessionMock.mockResolvedValue(undefined);
+    vi.advanceTimersByTime(59_999);
+    params.data.msgId = "pairing-retry-too-soon";
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    params.data.msgId = "pairing-retry-after-recovery";
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(2);
+    expect(shared.sendBySessionMock.mock.calls[1][2]).toContain(pending.code);
+    params.data.msgId = "pairing-retry-already-delivered";
+    await handleDingTalkMessage(params);
+    expect(shared.sendBySessionMock).toHaveBeenCalledTimes(2);
+    expect(runtime.channel.routing.resolveAgentRoute).not.toHaveBeenCalled();
+    expect(runtime.channel.session.recordInboundSession).not.toHaveBeenCalled();
+    expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(await readChannelAllowFromStore("dingtalk", env, "primary")).toEqual([]);
+  });
+
   it("confirms the actual SDK aliases case, whitespace, and blank/default account keys", async () => {
     await approve("Main");
     for (const id of ["Main", "main", " main "]) {
