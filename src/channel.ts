@@ -9,9 +9,11 @@ import { createDingTalkMessageActions } from "./messaging/channel-actions";
 import { createDingTalkOutbound } from "./messaging/channel-outbound";
 import { createDingTalkStatus } from "./platform/channel-status";
 import {
+  assertDingTalkAccountIds,
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveDingTalkDefaultAccountId,
   resolveGroupConfig,
 } from "./platform/config";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./platform/onboarding.js";
@@ -58,7 +60,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
       const config = getConfig(cfg);
-      const id = accountId || "default";
+      const id = accountId ?? resolveDingTalkDefaultAccountId(cfg);
+      assertDingTalkAccountIds(config, id);
       const account = config.accounts?.[id];
       const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
       const configured = Boolean(
@@ -72,7 +75,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         name: resolvedConfig.name || null,
       };
     },
-    defaultAccountId: (): string => "default",
+    defaultAccountId: resolveDingTalkDefaultAccountId,
     isConfigured: (account: ResolvedAccount): boolean =>
       Boolean(account.config?.clientId && hasConfiguredSecretInput(account.config?.clientSecret)),
     describeAccount: (account: ResolvedAccount) => ({
@@ -82,13 +85,17 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       configured: Boolean(account.config?.clientId),
     }),
   },
+  pairing: {
+    idLabel: "dingtalkUserId",
+    normalizeAllowEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ""),
+  },
   security: {
     resolveDmPolicy: ({ account }: any) => ({
       policy: account.config?.dmPolicy || "open",
       allowFrom: account.config?.allowFrom || [],
       policyPath: "channels.dingtalk.dmPolicy",
       allowFromPath: "channels.dingtalk.allowFrom",
-      approveHint: "使用 /allow dingtalk:<userId> 批准用户",
+      approveHint: "使用 openclaw pairing approve dingtalk <code> --account <accountId> 批准用户",
       normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ""),
     }),
   },

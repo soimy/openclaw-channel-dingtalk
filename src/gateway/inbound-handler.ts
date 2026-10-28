@@ -70,6 +70,7 @@ import {
 } from "../platform/access-control";
 import { getAccessToken } from "../platform/auth";
 import {
+  assertDingTalkAccountIds,
   resolveAckReactionSetting,
   resolveGroupConfig,
   resolveRelativePath,
@@ -115,6 +116,10 @@ import {
   upsertObservedUserTarget,
 } from "../targeting/target-directory-store";
 import { dispatchInboundViaSessionQueue } from "./inbound-session-queue-dispatcher";
+import {
+  clearPairingChallengeDelivery,
+  deliverPairingChallenge,
+} from "./pairing-challenge-delivery";
 import {
   isReplySessionConflictError,
   withReplySessionConflictRetry,
@@ -646,6 +651,10 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     subAgentOptions,
     preDownloadedMedia,
   } = params;
+  assertDingTalkAccountIds(
+    (cfg.channels?.dingtalk as DingTalkConfig | undefined) ?? dingtalkConfig,
+    accountId,
+  );
   const collectionResult =
     inboundOrigin === "ask-user" ? params.questionCollectionResult : undefined;
   const replySession = {
@@ -733,7 +742,6 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   }
 
   // 2) Authorization guard (DM/group policy).
-  let commandAuthorized = true;
   if (isDirect) {
     const dmPolicy = dingtalkConfig.dmPolicy || "open";
     const allowFrom = dingtalkConfig.allowFrom || [];
@@ -767,10 +775,41 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
 
       log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
     } else if (dmPolicy === "pairing") {
-      // SDK pairing flow performs actual authorization checks.
-      commandAuthorized = true;
-    } else {
-      commandAuthorized = true;
+      if (!senderId) {
+        return;
+      }
+      try {
+        const storeAllowFrom = await rt.channel.pairing.readAllowFromStore({
+          channel: "dingtalk",
+          accountId,
+        });
+        const allow = normalizeAllowFrom([...allowFrom, ...storeAllowFrom]);
+        if (!isSenderAllowed({ allow, senderId })) {
+          const { code } = await rt.channel.pairing.upsertPairingRequest({
+            channel: "dingtalk",
+            accountId,
+            id: senderId,
+          });
+          await deliverPairingChallenge({ accountId, senderId, code }, () =>
+            sendBySession(
+              dingtalkConfig,
+              replySession.sessionWebhook,
+              rt.channel.pairing.buildPairingReply({
+                channel: "dingtalk",
+                idLine: `您的钉钉用户 ID：${senderId}\n账号：${accountId}`,
+                code,
+              }),
+              { log, accountId, conversationId: data.conversationId },
+            ),
+          );
+          return;
+        }
+        clearPairingChallengeDelivery(accountId, senderId);
+      } catch {
+        // Store/API failures must never bypass pairing admission, even for configured allowFrom.
+        log?.warn?.("[DingTalk] Pairing check or challenge failed; DM blocked");
+        return;
+      }
     }
   } else {
     const groupAccess = resolveGroupAccess({
@@ -1919,7 +1958,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       GroupMembers: groupMembers,
       GroupSystemPrompt: extraSystemPrompt,
       GroupChannel: isDirect ? undefined : route.sessionKey,
-      CommandAuthorized: !collectionResult && commandAuthorized,
+      CommandAuthorized: !collectionResult,
       ...(collectionResult ? { CommandInterpretationSuppressed: true } : {}),
       OriginatingChannel: "dingtalk",
       OriginatingTo: to,

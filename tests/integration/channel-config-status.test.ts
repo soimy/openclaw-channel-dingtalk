@@ -48,6 +48,15 @@ describe("channel config + status helpers", () => {
     return path.join(dir, "sessions.json");
   }
 
+  it("rejects colliding configured and requested account identities", () => {
+    const cfg = { channels: { dingtalk: { accounts: { Main: { clientId: "first" }, main: { clientId: "second" } } } } };
+    expect(() => plugin.config.listAccountIds(cfg)).toThrow(/pairing identity/);
+    expect(() => plugin.config.resolveAccount(cfg, "Main")).toThrow(/pairing identity/);
+    delete cfg.channels.dingtalk.accounts.main;
+    expect(() => plugin.config.resolveAccount(cfg, "main")).toThrow(/pairing identity/);
+    expect(() => plugin.config.resolveAccount(cfg, "")).toThrow(/empty or whitespace/);
+  });
+
   it("resolves account list and account metadata", () => {
     const cfg = {
       channels: {
@@ -119,6 +128,9 @@ describe("channel config + status helpers", () => {
     const dmPolicy = plugin.security.resolveDmPolicy({ account: { config: {} } } as any);
     expect(dmPolicy.policy).toBe("open");
     expect(dmPolicy.normalizeEntry("dd:User1")).toBe("User1");
+    expect(dmPolicy.approveHint).toContain("openclaw pairing approve dingtalk <code> --account <accountId>");
+    expect(plugin.pairing.idLabel).toBe("dingtalkUserId");
+    expect(plugin.pairing.normalizeAllowEntry("ding:Staff1")).toBe("Staff1");
   });
 
   it("builds status summary and issues from account snapshot", () => {
