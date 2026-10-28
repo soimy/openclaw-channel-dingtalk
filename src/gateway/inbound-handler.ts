@@ -733,7 +733,6 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   }
 
   // 2) Authorization guard (DM/group policy).
-  let commandAuthorized = true;
   if (isDirect) {
     const dmPolicy = dingtalkConfig.dmPolicy || "open";
     const allowFrom = dingtalkConfig.allowFrom || [];
@@ -767,10 +766,40 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
 
       log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
     } else if (dmPolicy === "pairing") {
-      // SDK pairing flow performs actual authorization checks.
-      commandAuthorized = true;
-    } else {
-      commandAuthorized = true;
+      if (!senderId) {
+        return;
+      }
+      try {
+        const storeAllowFrom = await rt.channel.pairing.readAllowFromStore({
+          channel: "dingtalk",
+          accountId,
+        });
+        const allow = normalizeAllowFrom([...allowFrom, ...storeAllowFrom]);
+        if (!isSenderAllowed({ allow, senderId })) {
+          const { code, created } = await rt.channel.pairing.upsertPairingRequest({
+            channel: "dingtalk",
+            accountId,
+            id: senderId,
+          });
+          if (created && code) {
+            await sendBySession(
+              dingtalkConfig,
+              replySession.sessionWebhook,
+              rt.channel.pairing.buildPairingReply({
+                channel: "dingtalk",
+                idLine: `您的钉钉用户 ID：${senderId}\n账号：${accountId}`,
+                code,
+              }),
+              { log },
+            );
+          }
+          return;
+        }
+      } catch {
+        // Store/API failures must never bypass pairing admission, even for configured allowFrom.
+        log?.warn?.("[DingTalk] Pairing check or challenge failed; DM blocked");
+        return;
+      }
     }
   } else {
     const groupAccess = resolveGroupAccess({
@@ -1919,7 +1948,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       GroupMembers: groupMembers,
       GroupSystemPrompt: extraSystemPrompt,
       GroupChannel: isDirect ? undefined : route.sessionKey,
-      CommandAuthorized: !collectionResult && commandAuthorized,
+      CommandAuthorized: !collectionResult,
       ...(collectionResult ? { CommandInterpretationSuppressed: true } : {}),
       OriginatingChannel: "dingtalk",
       OriginatingTo: to,

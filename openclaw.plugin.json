@@ -69,7 +69,7 @@
             "type": "string",
             "enum": ["open", "pairing", "allowlist"],
             "default": "open",
-            "description": "Direct-message access policy. open allows any DM, pairing requires host pairing, and allowlist only permits IDs listed in allowFrom."
+            "description": "Direct-message access policy. open allows any DM, pairing permits allowFrom or host-approved users for this account, and allowlist only permits IDs listed in allowFrom."
           },
           "groupPolicy": {
             "type": "string",
@@ -468,7 +468,7 @@
                   "type": "string",
                   "enum": ["open", "pairing", "allowlist"],
                   "default": "open",
-                  "description": "Direct-message access policy. open allows any DM, pairing requires host pairing, and allowlist only permits IDs listed in allowFrom."
+                  "description": "Direct-message access policy. open allows any DM, pairing permits allowFrom or host-approved users for this account, and allowlist only permits IDs listed in allowFrom."
                 },
                 "groupPolicy": {
                   "type": "string",
@@ -846,7 +846,7 @@
         },
         "dmPolicy": {
           "label": "Direct Message Policy",
-          "help": "Choose who can talk to the bot in direct messages: open, host pairing only, or explicit allowlist."
+          "help": "Choose who can talk to the bot in direct messages: open, allowFrom plus account-scoped host pairing, or explicit allowlist."
         },
         "groupPolicy": {
           "label": "Group Message Policy",

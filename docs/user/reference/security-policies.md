@@ -45,8 +45,25 @@
 ## 私聊策略 `dmPolicy`
 
 - `open`：任何人都可以私聊机器人
-- `pairing`：新用户需通过配对码验证
+- `pairing`：允许显式 `allowFrom` 名单中的用户，或已获宿主配对批准的当前钉钉账号用户；其他用户收到配对码后被拦截，批准后需重新发送消息
 - `allowlist`：只有白名单用户可用
+
+### 配对审批与升级
+
+`pairing` 通过 OpenClaw 的原生配对接口读取批准名单、创建请求。未批准消息（含 `/stop`、`/new`、`/model`、`/learn` 等命令）不会进入 agent、会话控制或媒体处理。批准名单读取失败或宿主 pairing API 不可用时拒绝本次消息，即使发送者出现在显式 `allowFrom` 中也不会放行。
+
+管理员在运行 OpenClaw 的主机上查看并批准请求：
+
+```bash
+openclaw pairing list dingtalk --account <accountId>
+openclaw pairing approve dingtalk <code> --account <accountId>
+```
+
+单账号默认 `<accountId>` 为 `default`；多账号使用 `channels.dingtalk.accounts` 中对应的账号 ID。请求和批准均按渠道、账号隔离，不跨账号或渠道复用；同一账号内不同 agent / session 使用相同准入规则。配对批准不赋予 owner 权限，owner 控制仍由 `commands.ownerAllowFrom` 决定。私聊配对名单不放宽群聊策略，也不用于 `dmPolicy: "allowlist"`。
+
+显式 `allowFrom` 与当前账号批准名单取并集，沿用现有用户 ID 前缀及大小写匹配规则。`allowFrom: ["*"]` 表示管理员主动开放所有私聊来源，会免除逐用户配对；需要审批新用户时不要配置 `*`。
+
+**升级注意**：此前版本的 `pairing` 未实际校验批准状态。修复后，曾被错误放行的用户不会自动获批；管理员需审批真实配对请求，或将受信任用户显式加入 `allowFrom`。现有 `open`、`allowlist` 和群聊策略的行为保持不变。本实现使用最低支持宿主 OpenClaw `2026.8.1` 已提供的 runtime pairing API。
 
 ## 群聊策略 `groupPolicy`
 

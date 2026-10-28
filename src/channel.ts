@@ -82,13 +82,17 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
       configured: Boolean(account.config?.clientId),
     }),
   },
+  pairing: {
+    idLabel: "dingtalkUserId",
+    normalizeAllowEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ""),
+  },
   security: {
     resolveDmPolicy: ({ account }: any) => ({
       policy: account.config?.dmPolicy || "open",
       allowFrom: account.config?.allowFrom || [],
       policyPath: "channels.dingtalk.dmPolicy",
       allowFromPath: "channels.dingtalk.allowFrom",
-      approveHint: "使用 /allow dingtalk:<userId> 批准用户",
+      approveHint: "使用 openclaw pairing approve dingtalk <code> --account <accountId> 批准用户",
       normalizeEntry: (raw: string) => raw.replace(/^(dingtalk|dd|ding):/i, ""),
     }),
   },

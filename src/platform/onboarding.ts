@@ -477,7 +477,7 @@ async function configureDingTalkAccount(params: {
     message: "Direct message policy",
     options: [
       { label: "Open - anyone can DM", value: "open" },
-      { label: "Pairing - require OpenClaw pairing approval", value: "pairing" },
+      { label: "Pairing - allowFrom or OpenClaw pairing approval", value: "pairing" },
       { label: "Allowlist - only manually allowed users", value: "allowlist" },
     ],
     initialValue: resolved.dmPolicy ?? "open",
