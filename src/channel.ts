@@ -13,6 +13,7 @@ import {
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
+  resolveDingTalkDefaultAccountId,
   resolveGroupConfig,
 } from "./platform/config";
 import { dingtalkSetupAdapter, dingtalkSetupWizard } from "./platform/onboarding.js";
@@ -59,7 +60,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
       const config = getConfig(cfg);
-      const id = accountId ?? "default";
+      const id = accountId ?? resolveDingTalkDefaultAccountId(cfg);
       assertDingTalkAccountIds(config, id);
       const account = config.accounts?.[id];
       const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
@@ -74,7 +75,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
         name: resolvedConfig.name || null,
       };
     },
-    defaultAccountId: (): string => "default",
+    defaultAccountId: resolveDingTalkDefaultAccountId,
     isConfigured: (account: ResolvedAccount): boolean =>
       Boolean(account.config?.clientId && hasConfiguredSecretInput(account.config?.clientSecret)),
     describeAccount: (account: ResolvedAccount) => ({

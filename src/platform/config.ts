@@ -18,13 +18,13 @@ export type RuntimeDingTalkConfig = Omit<DingTalkConfig, "clientSecret"> & { cli
 /** Reject distinct bot IDs that the host pairing store would treat as one account. */
 export function assertDingTalkAccountIds(
   config: { clientId?: unknown; clientSecret?: unknown; accounts?: object } | undefined,
-  accountId?: string,
+  accountId?: string | null,
 ): void {
   const ids = Object.keys(config?.accounts ?? {});
   if (config?.clientId || config?.clientSecret) {
     ids.push("default");
   }
-  if (accountId !== undefined) {
+  if (accountId != null) {
     ids.push(accountId);
   }
   const identities = new Map<string, string>();
@@ -172,7 +172,7 @@ export function mergeAccountWithDefaults(
  * Named accounts inherit channel-level defaults with account-level overrides.
  * Falls back to top-level config for single-account setups.
  */
-export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
+export function getConfig(cfg: OpenClawConfig, accountId?: string | null): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
   assertDingTalkAccountIds(dingtalkCfg, accountId);
   if (!dingtalkCfg) {
@@ -194,7 +194,7 @@ export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConf
   return stripRemovedLegacyFields(normalizeLearningConfig(dingtalkCfg, { applyDefaults: true }));
 }
 
-export function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
+export function isConfigured(cfg: OpenClawConfig, accountId?: string | null): boolean {
   const config = getConfig(cfg, accountId);
   return Boolean(config.clientId && hasConfiguredSecretInput(config.clientSecret));
 }
@@ -238,7 +238,7 @@ const DEFAULT_GATEWAY_CAPABILITIES: ResolvedGatewayCapabilities = Object.freeze(
  */
 export function resolveGatewayCapabilityConfig(
   cfg: OpenClawConfig,
-  accountId?: string,
+  accountId?: string | null,
 ): ResolvedGatewayCapabilities {
   const config = getConfig(cfg, accountId);
   const gatewayCapabilities = config.gatewayCapabilities;
@@ -464,6 +464,17 @@ export function stripTargetPrefix(target: string): { targetId: string; isExplici
 
 const DEFAULT_ACCOUNT_ID = "default";
 
+/** Keep internal default queries on the configured raw key without accepting explicit aliases. */
+export function resolveDingTalkDefaultAccountId(cfg: OpenClawConfig): string {
+  const dingtalk = cfg?.channels?.dingtalk as DingTalkChannelConfig | undefined;
+  assertDingTalkAccountIds(dingtalk);
+  return (
+    Object.keys(dingtalk?.accounts ?? {}).find(
+      (id) => id.trim().toLowerCase() === DEFAULT_ACCOUNT_ID,
+    ) ?? DEFAULT_ACCOUNT_ID
+  );
+}
+
 /**
  * List all DingTalk account IDs from config
  */
@@ -502,7 +513,7 @@ export function resolveDingTalkAccount(
   cfg: OpenClawConfig,
   accountId?: string | null,
 ): ResolvedDingTalkAccount {
-  const id = accountId ?? DEFAULT_ACCOUNT_ID;
+  const id = accountId ?? resolveDingTalkDefaultAccountId(cfg);
   const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
   assertDingTalkAccountIds(dingtalk, id);
 
