@@ -221,14 +221,15 @@ describe("inbound pairing admission", () => {
     expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(scenario.allowed ? 1 : 0);
   });
 
-  it("does not grant owner-only learning permissions to a paired user", async () => {
+  it.each([undefined, ["dingtalk:other-owner"]])("does not grant owner-only learning permissions with ownerAllowFrom=%j", async (ownerAllowFrom) => {
     runtime.channel.pairing.readAllowFromStore.mockResolvedValue(["staff-1"]);
     params.dingtalkConfig.learningEnabled = true;
     params.dingtalkConfig.learningAllowManualGlobalRules = true;
-    params.cfg = { commands: { ownerAllowFrom: ["dingtalk:other-owner"] } };
+    params.cfg = { commands: { ownerAllowFrom } };
     await receive("/learn global remember this");
     expect(handleInboundCommandDispatch).toHaveBeenCalled();
     expect(shared.sendBySessionMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.stringContaining("仅允许 owner"), expect.anything());
     expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(params.cfg.commands?.ownerAllowFrom).toEqual(ownerAllowFrom);
   });
 });

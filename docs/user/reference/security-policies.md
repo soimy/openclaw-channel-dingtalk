@@ -59,7 +59,9 @@ openclaw pairing list dingtalk --account <accountId>
 openclaw pairing approve dingtalk <code> --account <accountId>
 ```
 
-单账号默认 `<accountId>` 为 `default`；多账号使用 `channels.dingtalk.accounts` 中对应的账号 ID。请求和批准均按渠道、账号隔离，不跨账号或渠道复用；同一账号内不同 agent / session 使用相同准入规则。配对批准不赋予 owner 权限，owner 控制仍由 `commands.ownerAllowFrom` 决定。私聊配对名单不放宽群聊策略，也不用于 `dmPolicy: "allowlist"`。
+单账号默认 `<accountId>` 为 `default`；多账号使用 `channels.dingtalk.accounts` 中对应的账号 ID。请求和批准均按渠道、账号隔离，不跨账号或渠道复用；同一账号内不同 agent / session 使用相同准入规则。插件准入检查不会修改 owner 配置，owner 控制仍由 `commands.ownerAllowFrom` 决定。私聊配对名单不放宽群聊策略，也不用于 `dmPolicy: "allowlist"`。
+
+**宿主审批注意**：OpenClaw 的 `pairing approve` CLI 在 `commands.ownerAllowFrom` 为空时，会将首位获批用户写入 owner 名单，这是宿主既有的 owner 初始化行为。管理员应在审批前确认 owner 配置；若只想批准普通私聊用户，应先配置正确的 owner 名单。插件不会覆盖这项宿主行为。
 
 显式 `allowFrom` 与当前账号批准名单取并集，沿用现有用户 ID 前缀及大小写匹配规则。`allowFrom: ["*"]` 表示管理员主动开放所有私聊来源，会免除逐用户配对；需要审批新用户时不要配置 `*`。
 
