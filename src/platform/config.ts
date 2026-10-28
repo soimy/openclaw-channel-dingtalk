@@ -15,6 +15,35 @@ const DEFAULT_LEARNING_NOTE_TTL_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_LEARNING_RULE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export type RuntimeDingTalkConfig = Omit<DingTalkConfig, "clientSecret"> & { clientSecret: string };
 
+/** Reject distinct bot IDs that the host pairing store would treat as one account. */
+export function assertDingTalkAccountIds(
+  config: { clientId?: unknown; clientSecret?: unknown; accounts?: object } | undefined,
+  accountId?: string,
+): void {
+  const ids = Object.keys(config?.accounts ?? {});
+  if (config?.clientId || config?.clientSecret) {
+    ids.push("default");
+  }
+  if (accountId !== undefined) {
+    ids.push(accountId);
+  }
+  const identities = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    // OpenClaw pairing reads, requests and CLI approvals trim/lowercase account keys.
+    const identity = id.trim().toLowerCase();
+    if (!identity) {
+      throw new Error("[DingTalk] Account ID must not be empty or whitespace");
+    }
+    const previous = identities.get(identity);
+    if (previous !== undefined) {
+      throw new Error(
+        `[DingTalk] Account IDs ${JSON.stringify(previous)} and ${JSON.stringify(id)} share pairing identity ${JSON.stringify(identity)}; configure distinct account IDs and reapprove users`,
+      );
+    }
+    identities.set(identity, id);
+  }
+}
+
 function normalizeLearningConfig(
   config: DingTalkConfig,
   options: { applyDefaults: boolean },
@@ -145,6 +174,7 @@ export function mergeAccountWithDefaults(
  */
 export function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk as DingTalkConfig | undefined;
+  assertDingTalkAccountIds(dingtalkCfg, accountId);
   if (!dingtalkCfg) {
     return {} as DingTalkConfig;
   }
@@ -439,6 +469,7 @@ const DEFAULT_ACCOUNT_ID = "default";
  */
 export function listDingTalkAccountIds(cfg: OpenClawConfig): string[] {
   const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
+  assertDingTalkAccountIds(dingtalk);
   if (!dingtalk) {
     return [];
   }
@@ -453,7 +484,7 @@ export function listDingTalkAccountIds(cfg: OpenClawConfig): string[] {
     accountIds.push(...Object.keys(dingtalk.accounts));
   }
 
-  return accountIds;
+  return [...new Set(accountIds)];
 }
 
 /**
@@ -471,8 +502,9 @@ export function resolveDingTalkAccount(
   cfg: OpenClawConfig,
   accountId?: string | null,
 ): ResolvedDingTalkAccount {
-  const id = accountId || DEFAULT_ACCOUNT_ID;
+  const id = accountId ?? DEFAULT_ACCOUNT_ID;
   const dingtalk = cfg.channels?.dingtalk as DingTalkChannelConfig | undefined;
+  assertDingTalkAccountIds(dingtalk, id);
 
   // Explicit accounts.default follows the same override/inheritance rules as
   // getConfig(), which supplies the running Channel's credentials.

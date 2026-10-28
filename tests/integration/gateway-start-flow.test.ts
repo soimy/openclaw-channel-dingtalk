@@ -180,6 +180,21 @@ describe('gateway.startAccount lifecycle', () => {
         }
     });
 
+    it('rejects pairing account collisions before runtime recovery, credentials, or Stream connection', async () => {
+        const { ctx } = createStartContext();
+        ctx.cfg = { channels: { dingtalk: { accounts: {
+            Main: { clientId: 'first-bot', clientSecret: 'test-secret' },
+            main: { clientId: 'second-bot', clientSecret: 'test-secret' },
+        } } } };
+
+        await expect(startGatewayAccount(ctx)).rejects.toThrow(/Main.*main.*pairing identity/);
+        expect(shared.resolvePluginDebugLogMock).not.toHaveBeenCalled();
+        expect(shared.listSessionEntriesMock).not.toHaveBeenCalled();
+        expect(shared.cleanupOrphanedTempFilesMock).not.toHaveBeenCalled();
+        expect(shared.connectMock).not.toHaveBeenCalled();
+        expect(shared.clientGetEndpointMock).not.toHaveBeenCalled();
+    });
+
     it('fails fast when abortSignal is already aborted before start', async () => {
         const controller = new AbortController();
         controller.abort();

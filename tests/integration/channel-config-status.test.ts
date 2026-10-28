@@ -48,6 +48,15 @@ describe("channel config + status helpers", () => {
     return path.join(dir, "sessions.json");
   }
 
+  it("rejects colliding configured and requested account identities", () => {
+    const cfg = { channels: { dingtalk: { accounts: { Main: { clientId: "first" }, main: { clientId: "second" } } } } };
+    expect(() => plugin.config.listAccountIds(cfg)).toThrow(/pairing identity/);
+    expect(() => plugin.config.resolveAccount(cfg, "Main")).toThrow(/pairing identity/);
+    delete cfg.channels.dingtalk.accounts.main;
+    expect(() => plugin.config.resolveAccount(cfg, "main")).toThrow(/pairing identity/);
+    expect(() => plugin.config.resolveAccount(cfg, "")).toThrow(/empty or whitespace/);
+  });
+
   it("resolves account list and account metadata", () => {
     const cfg = {
       channels: {

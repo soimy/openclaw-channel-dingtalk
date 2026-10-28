@@ -70,6 +70,7 @@ import {
 } from "../platform/access-control";
 import { getAccessToken } from "../platform/auth";
 import {
+  assertDingTalkAccountIds,
   resolveAckReactionSetting,
   resolveGroupConfig,
   resolveRelativePath,
@@ -646,6 +647,10 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     subAgentOptions,
     preDownloadedMedia,
   } = params;
+  assertDingTalkAccountIds(
+    (cfg.channels?.dingtalk as DingTalkConfig | undefined) ?? dingtalkConfig,
+    accountId,
+  );
   const collectionResult =
     inboundOrigin === "ask-user" ? params.questionCollectionResult : undefined;
   const replySession = {

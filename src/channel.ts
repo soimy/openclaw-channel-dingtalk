@@ -9,6 +9,7 @@ import { createDingTalkMessageActions } from "./messaging/channel-actions";
 import { createDingTalkOutbound } from "./messaging/channel-outbound";
 import { createDingTalkStatus } from "./platform/channel-status";
 import {
+  assertDingTalkAccountIds,
   getConfig,
   isConfigured,
   mergeAccountWithDefaults,
@@ -58,7 +59,8 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     },
     resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
       const config = getConfig(cfg);
-      const id = accountId || "default";
+      const id = accountId ?? "default";
+      assertDingTalkAccountIds(config, id);
       const account = config.accounts?.[id];
       const resolvedConfig = account ? mergeAccountWithDefaults(config, account) : config;
       const configured = Boolean(

@@ -21,12 +21,17 @@ import {
   recordExplicitFeedbackLearning,
 } from "../command/feedback-learning-service";
 import { sendProactiveTextOrMarkdown } from "../messaging/send-service";
-import { resolveRobotCode, resolveRuntimeConfig } from "../platform/config";
+import {
+  assertDingTalkAccountIds,
+  resolveRobotCode,
+  resolveRuntimeConfig,
+} from "../platform/config";
 import { setCurrentLogger } from "../platform/logger-context";
 import { getDingTalkRuntime } from "../platform/runtime";
 import type {
   ConnectionManagerConfig,
   DingTalkChannelPlugin,
+  DingTalkConfig,
   DingTalkInboundMessage,
   GatewayStartContext,
   GatewayStopResult,
@@ -257,6 +262,10 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
     startAccount: async (ctx: GatewayStartContext): Promise<GatewayStopResult> => {
       const { account, cfg, abortSignal } = ctx;
       const config = account.config;
+      assertDingTalkAccountIds(
+        (cfg.channels?.dingtalk as DingTalkConfig | undefined) ?? config,
+        account.accountId,
+      );
       let accountStorePath: string | undefined;
       try {
         const runtime = getDingTalkRuntime();

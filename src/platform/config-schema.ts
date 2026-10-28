@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DEFAULT_MESSAGE_CONTEXT_TTL_DAYS } from "../messaging/message-context-store";
 import { DEFAULT_OUTBOUND_SEND_INTERVAL_MS } from "../shared/outbound-throttle";
+import { assertDingTalkAccountIds } from "./config";
 import { buildSecretInputSchema } from "./secret-input";
 
 const AckReactionSchema = z.union([
@@ -287,6 +288,12 @@ const DingTalkAccountConfigSchema = z.object(DingTalkAccountConfigShape);
 export const DingTalkConfigSchema: z.ZodTypeAny = DingTalkAccountConfigSchema.extend({
   /** Multi-account configuration */
   accounts: z.record(z.string(), DingTalkAccountConfigSchema.optional()).optional(),
+}).superRefine((config, ctx) => {
+  try {
+    assertDingTalkAccountIds(config);
+  } catch (error) {
+    ctx.addIssue({ code: "custom", path: ["accounts"], message: (error as Error).message });
+  }
 });
 
 export type DingTalkConfig = z.infer<typeof DingTalkConfigSchema>;

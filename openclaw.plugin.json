@@ -420,7 +420,8 @@
           },
           "accounts": {
             "type": "object",
-            "description": "Named multi-account DingTalk configurations. Each account can override most top-level settings and inherits unspecified values from the top level.",
+            "description": "Named multi-account DingTalk configurations. IDs must be nonblank and unique after trimming and lowercasing, including the implicit default account. Each account inherits unspecified top-level settings.",
+            "propertyNames": { "minLength": 1, "pattern": "\\S" },
             "additionalProperties": {
               "type": "object",
               "additionalProperties": false,
@@ -1066,7 +1067,7 @@
         },
         "accounts": {
           "label": "Named Accounts",
-          "help": "Create named DingTalk accounts when one plugin instance must serve multiple apps or tenants."
+          "help": "Create named DingTalk accounts for multiple apps or tenants. IDs cannot be blank or differ only by case or surrounding whitespace; default is reserved for the default account."
         },
         "proactivePermissionHint.enabled": {
           "label": "Proactive Permission Hint Enabled",
