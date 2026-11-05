@@ -79,7 +79,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "ajv": "8.18.0",
     "esbuild": "^0.27.3",
-    "openclaw": "2026.9.36",
+    "openclaw": "2026.9.2",
     "oxfmt": "0.34.0",
     "oxlint": "1.49.0",
     "oxlint-tsgolint": "0.18.1",
@@ -104,7 +104,7 @@
       "pluginApi": ">=2026.9.2"
     },
     "build": {
-      "openclawVersion": "2026.9.36"
+      "openclawVersion": "2026.9.2"
     },
     "extensions": [
       "./index.ts"

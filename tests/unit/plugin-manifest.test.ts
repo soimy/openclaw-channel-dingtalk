@@ -227,7 +227,7 @@ describe("plugin manifest channel metadata", () => {
 
         expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.9.2");
         expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.9.2");
-        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.9.36");
+        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.9.2");
         expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.9.2");
     });
 });

@@ -87,7 +87,7 @@ describe("plugin-sdk import structure", () => {
                 };
             };
         };
-        expect(packageJson.devDependencies?.openclaw).toBe("2026.9.36");
+        expect(packageJson.devDependencies?.openclaw).toBe("2026.9.2");
         expect(packageJson.peerDependencies?.openclaw).toBeDefined();
         expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.9.2");
         expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.9.2");
