@@ -43,8 +43,8 @@ openclaw gateway restart
 
 插件已开始使用 OpenClaw `2026.8.1` 起提供的 `openclaw/plugin-sdk/secret-ref-readonly`，用于把 `clientSecret` 的 `env` 引用收敛为“读取前先做只读路径授权，再由宿主读取该引用对应的单个环境变量”；插件自身不再直接读取进程环境。
 
-- 宿主低于 `2026.8.1`：插件会因缺少该 SDK 子路径而加载失败，请先升级 OpenClaw 宿主
-- 宿主为 `2026.8.1` 及以上：无需额外配置；使用 `env` 引用时**务必**在 `secrets.providers` 中显式配置 `allowlist`
+- 宿主低于 `2026.9.2`：插件会因缺少该 SDK 子路径而加载失败，请先升级 OpenClaw 宿主
+- 宿主为 `2026.9.2` 及以上：无需额外配置；使用 `env` 引用时**务必**在 `secrets.providers` 中显式配置 `allowlist`
   - 省略 `allowlist` 会让该 env provider 授权**任意**环境变量名，等于没有白名单边界
 - 文件 provider 的密钥文件需要位于受信状态目录并满足宿主权限校验（2026.8 起不再接受 `allowInsecurePath`）
 

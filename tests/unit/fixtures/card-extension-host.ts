@@ -11,7 +11,8 @@ import { getChannelRuntimeContext, registerChannelRuntimeContext } from 'opencla
 const require = createRequire(import.meta.url);
 const hostDist = dirname(dirname(require.resolve('openclaw/plugin-sdk/plugin-runtime')));
 async function hostExport(prefix: string, symbol: string) {
-    for (const file of readdirSync(hostDist).filter(name => name.startsWith(prefix) && name.endsWith('.js'))) {
+    // OpenClaw 2026.9 emits its dist chunks as `.mjs`; 2026.8 and earlier used `.js`.
+    for (const file of readdirSync(hostDist).filter(name => name.startsWith(prefix) && /\.(?:js|mjs)$/.test(name))) {
         const source = readFileSync(join(hostDist, file), 'utf8');
         const alias = source.match(new RegExp(`\\b${symbol} as (\\w+)`))?.[1];
         if (alias) return (await import(pathToFileURL(join(hostDist, file)).href))[alias];

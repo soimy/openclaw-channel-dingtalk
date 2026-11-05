@@ -79,7 +79,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "ajv": "8.18.0",
     "esbuild": "^0.27.3",
-    "openclaw": "2026.8.1",
+    "openclaw": "2026.9.36",
     "oxfmt": "0.34.0",
     "oxlint": "1.49.0",
     "oxlint-tsgolint": "0.18.1",
@@ -88,7 +88,7 @@
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.8.1"
+    "openclaw": ">=2026.9.2"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -101,10 +101,10 @@
   "packageManager": "pnpm@10.33.0",
   "openclaw": {
     "compat": {
-      "pluginApi": ">=2026.8.1"
+      "pluginApi": ">=2026.9.2"
     },
     "build": {
-      "openclawVersion": "2026.8.1"
+      "openclawVersion": "2026.9.36"
     },
     "extensions": [
       "./index.ts"
@@ -130,7 +130,7 @@
       ]
     },
     "install": {
-      "minHostVersion": ">=2026.8.1",
+      "minHostVersion": ">=2026.9.2",
       "npmSpec": "@soimy/dingtalk",
       "localPath": ".",
       "defaultChoice": "npm"

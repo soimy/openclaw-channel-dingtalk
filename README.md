@@ -5,7 +5,7 @@
 # DingTalk Channel for OpenClaw
 
 <p class="repo-badges">
-  <a href="https://github.com/openclaw/openclaw"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-%3E%3D2026.8.1-0A7CFF"></a>
+  <a href="https://github.com/openclaw/openclaw"><img alt="OpenClaw" src="https://img.shields.io/badge/OpenClaw-%3E%3D2026.9.2-0A7CFF"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm version" src="https://img.shields.io/npm/v/%40soimy%2Fdingtalk"></a>
   <a href="https://www.npmjs.com/package/@soimy/dingtalk"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40soimy%2Fdingtalk"></a>
   <a href="https://github.com/soimy/openclaw-channel-dingtalk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/soimy/openclaw-channel-dingtalk"></a>
@@ -53,7 +53,7 @@
 ## 安装
 
 > [!IMPORTANT]
-> 最小兼容版本为 `OpenClaw 2026.8.1`。安装前请先升级到最新版 OpenClaw。
+> 最小兼容版本为 `OpenClaw 2026.9.2`。安装前请先升级到最新版 OpenClaw。
 
 ```bash
 openclaw plugins install @soimy/dingtalk
