@@ -12,7 +12,7 @@ OpenClaw 管理插件注册、运行时能力发现及交互去重；Channel 负
 
 ## 安装与构建
 
-需要 OpenClaw ≥ 2026.8.1，并启用包含本接口的 DingTalk Channel 版本。在[企业开发者后台的卡片平台](https://open-dev.dingtalk.com/fe/card)选择当前企业及机器人所属应用，使用该应用可访问的已发布互动模板。个人卡片入口发布的模板不一定可由企业机器人投递。沿用原有卡片 API 权限，无需额外 Stream 连接。
+需要 OpenClaw ≥ 2026.9.2，并启用包含本接口的 DingTalk Channel 版本。在[企业开发者后台的卡片平台](https://open-dev.dingtalk.com/fe/card)选择当前企业及机器人所属应用，使用该应用可访问的已发布互动模板。个人卡片入口发布的模板不一定可由企业机器人投递。沿用原有卡片 API 权限，无需额外 Stream 连接。
 
 ```ts
 import { registerDingTalkCardExtension } from '@soimy/dingtalk/card-extensions';
