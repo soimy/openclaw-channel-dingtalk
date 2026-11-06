@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  undici@>=8.0.0 <8.12.2: '>=8.12.2 <9'
+
 importers:
 
   .:
@@ -965,7 +968,7 @@ packages:
     resolution: {integrity: sha512-RWkt4mPcBOj7E8euyeqynkIFXvEIxVStYH0YHDC08feq5qFyBXGmfdWC+MTMVJXfHN2ituoxLlrIyjpyJpW7ew==}
     engines: {node: '>=22.19.0'}
     peerDependencies:
-      undici: '>=8.5.0 <9'
+      undici: '>=8.12.2 <9'
 
   '@opentelemetry/semantic-conventions@1.43.0':
     resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
@@ -3411,8 +3414,8 @@ packages:
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
 
-  undici@8.10.2:
-    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+  undici@8.12.4:
+    resolution: {integrity: sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==}
     engines: {node: '>=22.19.0'}
 
   unicorn-magic@0.3.0:
@@ -4641,9 +4644,9 @@ snapshots:
       jszip: 3.10.2
       tar: 7.5.22
 
-  '@openclaw/proxyline@0.3.7(undici@8.10.2)':
+  '@openclaw/proxyline@0.3.7(undici@8.12.4)':
     dependencies:
-      undici: 8.10.2
+      undici: 8.12.4
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
 
@@ -6625,7 +6628,7 @@ snapshots:
       '@mozilla/readability': 0.6.0
       '@openclaw/ai': 2026.9.2(@aws-sdk/credential-provider-node@3.972.29)(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
       '@openclaw/fs-safe': 0.8.1
-      '@openclaw/proxyline': 0.3.7(undici@8.10.2)
+      '@openclaw/proxyline': 0.3.7(undici@8.12.4)
       '@silvia-odwyer/photon-node': 0.3.4
       '@trycua/cua-driver': 0.22.0
       acorn: 8.18.0
@@ -6669,7 +6672,7 @@ snapshots:
       tslog: 4.11.0
       typebox: 1.3.18
       typescript: 6.0.3
-      undici: 8.10.2
+      undici: 8.12.4
       web-push: 3.6.7
       web-tree-sitter: 0.26.13
       ws: 8.21.3
@@ -7233,7 +7236,7 @@ snapshots:
 
   undici-types@7.16.0: {}
 
-  undici@8.10.2: {}
+  undici@8.12.4: {}
 
   unicorn-magic@0.3.0: {}
 
