@@ -99,6 +99,11 @@
     "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
   "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "undici@>=8.0.0 <8.12.2": ">=8.12.2 <9"
+    }
+  },
   "openclaw": {
     "compat": {
       "pluginApi": ">=2026.9.2"
@@ -134,11 +139,6 @@
       "npmSpec": "@soimy/dingtalk",
       "localPath": ".",
       "defaultChoice": "npm"
-    }
-  },
-  "pnpm": {
-    "overrides": {
-      "undici@>=8.0.0 <8.12.2": ">=8.12.2 <9"
     }
   }
 }
