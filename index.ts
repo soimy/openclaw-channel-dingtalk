@@ -6,6 +6,7 @@ import {
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { registerDingTalkAskUserQuestionTool } from "./src/card/ask-user-question";
 import { accumulateUsage } from "./src/card/run-usage-store";
+import { resolveCallCost } from "./src/card/usage-cost";
 import { dingtalkPlugin } from "./src/channel";
 import {
   appendToDoc,
@@ -457,16 +458,22 @@ const dingtalkEntry = defineChannelPluginEntry({
       "llm_output",
       (event: {
         runId: string;
+        provider?: string;
+        model?: string;
         usage?: {
           input?: number;
           output?: number;
           cacheRead?: number;
           cacheWrite?: number;
           total?: number;
+          cost?: { total: number };
         };
       }) => {
         if (event.usage) {
-          accumulateUsage(event.runId, event.usage);
+          accumulateUsage(event.runId, {
+            ...event.usage,
+            cost: resolveCallCost(event, api.config),
+          });
         }
       },
     );

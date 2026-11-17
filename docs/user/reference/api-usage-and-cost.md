@@ -81,3 +81,22 @@
 
 - [回复模式](../features/reply-modes.md)
 - [AI 卡片](../features/ai-card.md)
+
+## 模型费用角标
+
+设置 `channels.dingtalk.cardStatusLine.cost: true`，在 AI 卡片左下角显示
+类似 `~$0.0059` 的模型费用（美元）；默认关闭，不在正文插入用量页脚。
+`DAPI+N` 仍表示钉钉接口调用次数，不是模型费用。
+
+费用优先使用 `llm_output` 用量携带的 `cost.total`。没有金额时，仅在
+`models.providers.<provider>.models[].cost` 配置了该模型所需的固定单价
+（每百万 Token 的 `input`、`output`、`cacheRead`、`cacheWrite`）时逐次估算。
+按每次调用的 provider/model 选择价格，再累加，避免回退模型或工具循环误计价。
+
+未配置价格、只有总 Token 数、任一调用费用未知或不支持的分档价格时，
+隐藏费用段，不显示零元或部分合计。真实零费用仍显示 `~$0.0000`。
+插件不读取主机私有价格目录，也不请求供应商账单接口。
+
+当前支持范围要求主机发出可关联到卡片 runId 的 `llm_output` 事件；
+未发出该事件的外部运行时暂不能显示费用。估算不包含工具服务费用、
+折扣或额外计费档位，实际收费以供应商账单为准。

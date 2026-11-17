@@ -319,7 +319,8 @@
               "agent": true,
               "taskTime": false,
               "tokens": false,
-              "dapiUsage": false
+              "dapiUsage": false,
+              "cost": false
             },
             "properties": {
               "model": {
@@ -346,6 +347,11 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Show token usage summary (input/output/cache) in AI card status line footer."
+              },
+              "cost": {
+                "type": "boolean",
+                "default": false,
+                "description": "Show estimated model cost in USD when available."
               },
               "dapiUsage": {
                 "type": "boolean",
@@ -718,7 +724,8 @@
                     "agent": true,
                     "taskTime": false,
                     "tokens": false,
-                    "dapiUsage": false
+                    "dapiUsage": false,
+                    "cost": false
                   },
                   "properties": {
                     "model": {
@@ -745,6 +752,11 @@
                       "type": "boolean",
                       "default": false,
                       "description": "Show token usage summary (input/output/cache) in AI card status line footer."
+                    },
+                    "cost": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show estimated model cost in USD when available."
                     },
                     "dapiUsage": {
                       "type": "boolean",
@@ -1031,6 +1043,10 @@
         "cardStatusLine.tokens": {
           "label": "Token Usage",
           "help": "Show a compact token usage summary (input/output/cache) in the AI card footer."
+        },
+        "cardStatusLine.cost": {
+          "label": "Show Model Cost",
+          "help": "Display known model cost in USD in the card status line."
         },
         "cardStatusLine.dapiUsage": {
           "label": "API Calls",
