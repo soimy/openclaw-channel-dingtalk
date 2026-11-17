@@ -26,6 +26,7 @@ export interface StatusLineData {
   outputTokens?: number;
   cacheRead?: number;
   dapi_usage?: number;
+  costUsd?: number;
 }
 
 export interface StatusLineConfig {
@@ -36,10 +37,11 @@ export interface StatusLineConfig {
     taskTime?: boolean;
     tokens?: boolean;
     dapiUsage?: boolean;
+    cost?: boolean;
   };
 }
 
-type SegmentKey = "model" | "effort" | "agent" | "tokens" | "taskTime" | "dapiUsage";
+type SegmentKey = "model" | "effort" | "agent" | "tokens" | "taskTime" | "dapiUsage" | "cost";
 
 interface Segment {
   key: SegmentKey;
@@ -67,6 +69,14 @@ const SEGMENTS: Segment[] = [
   { key: "effort", defaultOn: true, render: (d) => d.effort || undefined },
   { key: "agent", defaultOn: true, render: (d) => d.agent || undefined },
   { key: "tokens", defaultOn: false, render: renderTokenSegment },
+  {
+    key: "cost",
+    defaultOn: false,
+    render: (d) =>
+      typeof d.costUsd === "number" && Number.isFinite(d.costUsd) && d.costUsd >= 0
+        ? `~$${d.costUsd.toFixed(4)}`
+        : undefined,
+  },
   {
     key: "taskTime",
     defaultOn: false,

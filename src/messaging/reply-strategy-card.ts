@@ -102,8 +102,10 @@ export function createCardReplyStrategy(
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     let cacheRead: number | undefined;
+    let costUsd: number | undefined;
     if (ctx.taskMeta.runIds && ctx.taskMeta.runIds.size > 0) {
       const tokenUsage = getAggregatedUsage(ctx.taskMeta.runIds);
+      costUsd = tokenUsage.cost?.total;
       if (typeof tokenUsage.input === "number") {
         inputTokens = tokenUsage.input;
       }
@@ -127,6 +129,7 @@ export function createCardReplyStrategy(
       outputTokens,
       cacheRead,
       dapi_usage: resolvedUsage,
+      costUsd,
     };
     const statusLine = renderStatusLine(statusLineData, config);
     return statusLine || undefined;

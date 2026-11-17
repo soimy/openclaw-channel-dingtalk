@@ -247,6 +247,10 @@ async function promptCardAdvancedConfig(params: {
         message: "Show token usage?",
         initialValue: current.tokens ?? false,
       }),
+      cost: await prompter.confirm({
+        message: "Show estimated model cost (USD) when available?",
+        initialValue: current.cost ?? false,
+      }),
       dapiUsage: await prompter.confirm({
         message: "Show DingTalk API usage?",
         initialValue: current.dapiUsage ?? false,

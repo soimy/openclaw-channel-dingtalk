@@ -263,6 +263,8 @@ const DingTalkAccountConfigShape = {
       tokens: z.boolean().optional().default(false),
       /** Show DingTalk API call count. */
       dapiUsage: z.boolean().optional().default(false),
+      /** Show known model cost in USD; missing pricing is never treated as free. */
+      cost: z.boolean().optional().default(false),
     })
     .optional()
     .default({
@@ -272,6 +274,7 @@ const DingTalkAccountConfigShape = {
       taskTime: false,
       tokens: false,
       dapiUsage: false,
+      cost: false,
     }),
 
   /** Gateway RPC capability gates and allowlists (docs RPCs + proactive-send RPCs). Named `gatewayCapabilities` because host `OpenClawConfig` already owns `gateway` and `tools`, and a bare `capabilities` key would collide with this plugin's channel capabilities metadata. */

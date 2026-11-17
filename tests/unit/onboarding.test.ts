@@ -423,6 +423,7 @@ describe("dingtalk setup wizard", () => {
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(false)
             .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(false);
         const select = vi
             .fn()
@@ -448,6 +449,7 @@ describe("dingtalk setup wizard", () => {
             taskTime: false,
             tokens: false,
             dapiUsage: false,
+            cost: true,
         });
     });
 

@@ -156,6 +156,7 @@ export interface DingTalkConfig extends OpenClawConfig {
     taskTime?: boolean;
     tokens?: boolean;
     dapiUsage?: boolean;
+    cost?: boolean;
   };
   /** Gateway RPC capability gates and allowlists (docs RPCs + proactive-send RPCs). Named `gatewayCapabilities` because host `OpenClawConfig` already owns `gateway` and `tools`, and a bare `capabilities` key would collide with this plugin's channel capabilities metadata. */
   gatewayCapabilities?: DingTalkGatewayCapabilitiesConfig;
